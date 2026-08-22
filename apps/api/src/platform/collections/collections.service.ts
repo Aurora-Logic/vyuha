@@ -117,6 +117,16 @@ export class CollectionsService {
     const orgId = principal.orgId;
     const offset = (query.page - 1) * query.pageSize;
     const scope = this.scopeWhere(principal);
+    // The state is derived rather than written, but it is derived from
+    // columns -- so it is derived in SQL, which is where a filter on it has
+    // to be applied. Deriving it in JavaScript after LIMIT and OFFSET
+    // filtered a single page: asking for the broken promises returned
+    // whichever of the first twenty happened to be broken, above a total that
+    // counted only those, so the list looked short and the count agreed with
+    // it. Both now read the whole set. `promiseStateOf` still states the rule
+    // for the sweep and the credit flag; the test below pins the two to the
+    // same answer.
+    const today = new Date().toISOString().slice(0, 10);
     const where = sql`p.org_id = ${orgId} AND p.deleted_at IS NULL AND ${extra} AND ${scope}
       ${query.partyId === undefined ? sql`` : sql`AND p.party_id = ${query.partyId}`}
       ${query.collectorId === undefined ? sql`` : sql`AND ca.collector_id = ${query.collectorId}`}
@@ -126,7 +136,12 @@ export class CollectionsService {
       SELECT p.id, p.party_id, pa.name AS party_name, p.amount::text, p.promised_date::text, p.bills, p.taken_by,
              nullif(concat_ws(' ', te.first_name, te.last_name), '') AS taken_by_name, p.taken_on::text, p.notes, p.created_at,
              ca.collector_id, nullif(concat_ws(' ', ce.first_name, ce.last_name), '') AS collector_name,
-             r.received::text AS received, r.received_on::text AS received_on
+             r.received::text AS received, r.received_on::text AS received_on,
+             CASE
+               WHEN coalesce(r.received, 0) >= p.amount - 0.005 THEN 'kept'
+               WHEN ${today}::date <= p.promised_date THEN 'open'
+               WHEN coalesce(r.received, 0) > 0.005 THEN 'partially_kept'
+               ELSE 'broken' END AS state
         FROM promises_to_pay p
         JOIN parties pa ON pa.id = p.party_id
         LEFT JOIN employees te ON te.id = p.taken_by
@@ -134,14 +149,13 @@ export class CollectionsService {
         LEFT JOIN employees ce ON ce.id = ca.collector_id
         LEFT JOIN LATERAL (${this.receiptsFor()}) r ON TRUE
        WHERE ${where}`;
+    const stateFilter = query.state === undefined ? sql`TRUE` : sql`t.state = ${query.state}`;
     const [rows, total] = await Promise.all([
-      this.db.execute<PromiseRow>(sql`SELECT * FROM (${body}) t ORDER BY t.promised_date DESC, t.created_at DESC LIMIT ${query.pageSize} OFFSET ${offset}`),
-      this.db.execute<{ count: number }>(sql`
-        SELECT count(*)::int AS count FROM promises_to_pay p
-          LEFT JOIN collector_assignments ca ON ca.org_id = p.org_id AND ca.party_id = p.party_id AND ca.deleted_at IS NULL
-         WHERE ${where}`),
+      this.db.execute<PromiseRow>(sql`SELECT * FROM (${body}) t WHERE ${stateFilter} ORDER BY t.promised_date DESC, t.created_at DESC LIMIT ${query.pageSize} OFFSET ${offset}`),
+      // Counted through the same body, so the count and the rows can never
+      // disagree about which promises exist.
+      this.db.execute<{ count: number }>(sql`SELECT count(*)::int AS count FROM (${body}) t WHERE ${stateFilter}`),
     ]);
-    const today = new Date().toISOString().slice(0, 10);
     const data = rows.rows.map((r): PromiseView => {
       const received = Number(r.received);
       const state = promiseStateOf(Number(r.amount), received, r.promised_date, today);
@@ -165,9 +179,7 @@ export class CollectionsService {
         createdAt: iso(r.created_at) ?? '',
       };
     });
-    // A state filter applies after derivation: the state is not a column a person wrote.
-    const filtered = query.state === undefined ? data : data.filter((p) => p.state === query.state);
-    return { data: filtered, meta: { page: query.page, pageSize: query.pageSize, total: query.state === undefined ? (total.rows[0]?.count ?? 0) : filtered.length } };
+    return { data, meta: { page: query.page, pageSize: query.pageSize, total: total.rows[0]?.count ?? 0 } };
   }
 
   /** What arrived against the promise's bills (or from the party, when no bill was named) since it was taken: `against` rows negated. */
@@ -190,13 +202,22 @@ export class CollectionsService {
     }
   }
 
-  /** Every open or partly kept promise in the organisation, re-read and written; the morning sweep's work. */
+  /**
+   * Every promise in the organisation, re-read and written; the morning
+   * sweep's work.
+   *
+   * `kept` used to be excluded, which made it absorbing: Tally is the system
+   * of record and a receipt can be cancelled there, but a promise already
+   * marked kept was never looked at again, so it stayed kept against money
+   * that had gone away. Nothing here is a state machine -- every state is
+   * derived from what the allocations say today.
+   */
   async evaluateAll(orgId: string): Promise<{ evaluated: number; broken: number }> {
     const rows = await this.db.execute<PromiseRow>(sql`
       SELECT p.id, p.party_id, '' AS party_name, p.amount::text, p.promised_date::text, p.bills, p.taken_by, NULL AS taken_by_name, p.taken_on::text, p.notes, p.created_at,
              NULL AS collector_id, NULL AS collector_name, r.received::text AS received, r.received_on::text AS received_on
         FROM promises_to_pay p LEFT JOIN LATERAL (${this.receiptsFor()}) r ON TRUE
-       WHERE p.org_id = ${orgId} AND p.deleted_at IS NULL AND p.state IN ('open', 'partially_kept', 'broken')
+       WHERE p.org_id = ${orgId} AND p.deleted_at IS NULL
     `);
     const today = new Date().toISOString().slice(0, 10);
     let broken = 0;

@@ -2,6 +2,7 @@ import { SYSTEM_ROLES, type CollectorAssignmentView, type CollectorDashboard, ty
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { BrokenPromiseSweepHandler } from './broken-promise-sweep.handler.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 
 /**
@@ -238,4 +239,79 @@ describe('Area AJ: collections', () => {
     const mine = await harness.get<CollectorDashboard>(`/collections/dashboard?collectorId=${collectorId}`, { token: otherToken });
     expect(mine.body.collector?.name).toContain('Meena');
   });
+
+  it('filters and counts promises by state across the whole set, not one page (audit 9)', async () => {
+    // Six more open promises, so a page of two cannot hold them all.
+    for (let n = 0; n < 6; n += 1) {
+      const made = await harness.post<PromiseView>('/collections/promises', {
+        token: accountsToken,
+        body: { partyId: asha, amount: '100', promisedDate: '2099-02-0' + String(n + 1), bills: ['INV-PAGE-' + String(n)], takenOn: '2026-08-01' },
+      });
+      expect(made.body.state).toBe('open');
+    }
+
+    const whole = await harness.get<{ data: PromiseView[]; meta: { total: number } }>('/collections/promises?state=open&page=1&pageSize=100', { token: accountsToken });
+    expect(whole.status).toBe(200);
+    const openCount = whole.body.meta.total;
+    expect(openCount).toBeGreaterThanOrEqual(7);
+    expect(whole.body.data).toHaveLength(openCount);
+    expect(whole.body.data.every((p) => p.state === 'open')).toBe(true);
+
+    // The filter used to run over one page: a page of two returned however
+    // many of those two were open, and reported that as the total.
+    const paged = await harness.get<{ data: PromiseView[]; meta: { total: number } }>('/collections/promises?state=open&page=1&pageSize=2', { token: accountsToken });
+    expect(paged.body.data).toHaveLength(2);
+    expect(paged.body.meta.total).toBe(openCount);
+    expect(paged.body.data.every((p) => p.state === 'open')).toBe(true);
+
+    // A page beyond the first is reachable, which it was not when the filter
+    // only saw page one's rows.
+    const second = await harness.get<{ data: PromiseView[] }>('/collections/promises?state=open&page=2&pageSize=2', { token: accountsToken });
+    expect(second.body.data).toHaveLength(2);
+    expect(second.body.data.every((p) => p.state === 'open')).toBe(true);
+    expect(second.body.data.map((p) => p.id)).not.toEqual(paged.body.data.map((p) => p.id));
+
+    // The state the row shows is the state it was filtered by: the SQL that
+    // selects and the function that derives agree, or these disagree.
+    const broken = await harness.get<{ data: PromiseView[]; meta: { total: number } }>('/collections/promises?state=broken&page=1&pageSize=100', { token: accountsToken });
+    expect(broken.body.data.every((p) => p.state === 'broken')).toBe(true);
+    expect(broken.body.meta.total).toBe(broken.body.data.length);
+  });
+
+  it('re-reads a kept promise after Tally cancels the receipt behind it (audit 10)', async () => {
+    // The stored state is what the reports, the sweep's notice and the credit
+    // flag read. The sweep used to look only at open, partly kept and broken
+    // promises, which made kept absorbing -- but Tally is the system of
+    // record and a receipt can be cancelled there, so a promise stayed kept
+    // against money that had gone away.
+    //
+    // Its own bill and its own receipt, so cancelling one voucher cannot
+    // reach any other test's arithmetic.
+    const promise = await harness.post<PromiseView>('/collections/promises', {
+      token: accountsToken,
+      body: { partyId: behar, amount: '7000', promisedDate: '2026-08-20', bills: ['INV-CANCELME'], takenOn: '2026-08-01' },
+    });
+    const promiseId = promise.body.id;
+    await receive(behar, 'Behar Supply Co', 'INV-CANCELME', 7000, '2026-08-19');
+
+    const stored = async (): Promise<string> =>
+      (await harness.db.execute<{ state: string }>(sql`SELECT state FROM promises_to_pay WHERE id = ${promiseId}`)).rows[0]?.state ?? '';
+
+    const sweep = harness.resolve(BrokenPromiseSweepHandler);
+    await sweep.run({ now: '2026-08-22T02:00:00.000Z' }, { jobId: 'test', attempt: 1 });
+    expect(await stored()).toBe('kept');
+
+    // Tally cancels the receipt and the next pull brings the cancellation.
+    await harness.db.execute(sql`
+      UPDATE vouchers SET is_cancelled = true WHERE org_id = ${ORG_ID} AND voucher_number = 'RCT-INV-CANCELME'
+    `);
+    await sweep.run({ now: '2026-08-22T02:00:00.000Z' }, { jobId: 'test', attempt: 1 });
+    // Promised on the 20th, nothing received, read on the 22nd: broken.
+    expect(await stored()).toBe('broken');
+
+    const reread = await harness.get<PromiseView>(`/collections/promises/${promiseId}`, { token: accountsToken });
+    expect(reread.body.receivedAmount).toBe('0.00');
+    expect(reread.body.state).toBe('broken');
+  });
+
 });
