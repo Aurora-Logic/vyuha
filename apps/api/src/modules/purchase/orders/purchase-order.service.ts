@@ -569,10 +569,28 @@ export class PurchaseOrderService implements OnModuleInit {
 
   /** D-28: reorder level and minimum order quantity, Vyuha's for now. */
   async putItemSettings(principal: Principal, stockItemId: string, input: PutItemSettingsInput): Promise<void> {
+    /*
+     * The item id arrives from the path and was trusted. `item_settings` is
+     * unique on `stock_item_id` alone, so an id belonging to another
+     * organisation did not collide -- it matched, and the ON CONFLICT branch
+     * wrote this organisation's reorder level over that one's row. Stock item
+     * ids are uuids and not meant to be guessable, which made it unlikely
+     * rather than impossible; an id that appears in a shared export or a
+     * support ticket is enough.
+     *
+     * Two things now stand in the way: the item must be this organisation's,
+     * and the update may only touch a row that already is.
+     */
+    const owns = await this.db.execute<{ one: number }>(sql`
+      SELECT 1 AS one FROM stock_items WHERE id = ${stockItemId} AND org_id = ${principal.orgId}
+    `);
+    if (owns.rows.length === 0) throw AppError.notFound('Stock item', stockItemId);
+
     await this.db.execute(sql`
       INSERT INTO item_settings (org_id, stock_item_id, reorder_level, minimum_order_qty, created_by, updated_by)
       VALUES (${principal.orgId}, ${stockItemId}, ${input.reorderLevel ?? null}, ${input.minimumOrderQty ?? null}, ${principal.userId}, ${principal.userId})
       ON CONFLICT (stock_item_id) DO UPDATE SET reorder_level = EXCLUDED.reorder_level, minimum_order_qty = EXCLUDED.minimum_order_qty, updated_at = now(), updated_by = EXCLUDED.updated_by, deleted_at = NULL
+       WHERE item_settings.org_id = ${principal.orgId}
     `);
     this.auditContext.record({ action: 'purchase.item_settings.set', entityType: 'stock_item', entityId: stockItemId, before: null, after: { ...input } });
   }

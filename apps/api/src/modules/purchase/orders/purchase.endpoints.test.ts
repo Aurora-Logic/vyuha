@@ -372,3 +372,57 @@ describe('approval by value through the inbox (13 REQ-X-16)', () => {
     expect(inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING')).toBeUndefined();
   });
 });
+
+describe('item settings belong to the organisation that owns the item', () => {
+  /**
+   * `item_settings` is unique on `stock_item_id` alone, and the id arrived
+   * from the path unchecked — so a settings write naming another
+   * organisation's item did not collide with its row, it updated it.
+   */
+  it('refuses a stock item this organisation does not own, and leaves its settings alone', async () => {
+    // An item belonging to nobody in this org: a different organisation's row.
+    const otherOrg = '01900000-0000-7000-8000-0000000000eb';
+    await harness.db.execute(sql`
+      INSERT INTO organizations (id, name) VALUES (${otherOrg}, 'Other Co')
+      ON CONFLICT (id) DO NOTHING
+    `);
+    const conn = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO integration_connections (org_id, system, name, company_guid)
+      VALUES (${otherOrg}, 'TALLY', 'Other Co', 'guid-other-co-settings') RETURNING id
+    `);
+    const theirItem = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO stock_items (org_id, connection_id, name, unit, parent_group, gst_rate, last_pulled_at)
+      VALUES (${otherOrg}, ${conn.rows[0]?.id ?? ''}, 'Their cable', 'NOS', 'Cables', '18.00', now()) RETURNING id
+    `);
+    const theirItemId = theirItem.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO item_settings (org_id, stock_item_id, reorder_level, minimum_order_qty)
+      VALUES (${otherOrg}, ${theirItemId}, 500, 50)
+    `);
+
+    const refused = await harness.put(`/purchase/items/${theirItemId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '1', minimumOrderQty: '1' },
+    });
+    expect(refused.status).toBe(404);
+
+    // Their row is untouched — this is what the bug overwrote.
+    const after = await harness.db.execute<{ reorder_level: string; org_id: string }>(sql`
+      SELECT reorder_level::text, org_id::text FROM item_settings WHERE stock_item_id = ${theirItemId}
+    `);
+    expect(after.rows[0]?.reorder_level).toBe('500.000');
+    expect(after.rows[0]?.org_id).toBe(otherOrg);
+
+    await harness.db.execute(sql`DELETE FROM item_settings WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${otherOrg}`);
+  });
+
+  it('accepts an item this organisation does own', async () => {
+    const ok = await harness.put(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '25', minimumOrderQty: '5' },
+    });
+    expect([200, 204]).toContain(ok.status);
+  });
+});
