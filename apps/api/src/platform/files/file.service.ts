@@ -450,6 +450,28 @@ export class FileService {
   }
 
   /**
+   * A signed link for a file the caller names, restricted to one purpose.
+   *
+   * `mayReadFile` is a breadth check by purpose and says so in as many words:
+   * row-level scope is the caller's job. Every other caller does that work --
+   * the punch service loads the punch through the principal's scope and 404s
+   * one outside it before signing. A route that takes a bare file id and signs
+   * whatever comes back skips it, so a manager holding
+   * `attendance.view.team` could read any punch photograph in the
+   * organisation given its id, not merely their own team's.
+   *
+   * Naming the purpose is what makes that impossible for routes that serve
+   * one kind of file: the logo route signs logos, and a punch photo id
+   * offered to it is simply not found.
+   */
+  async signedUrlForPurpose(principal: Principal, fileId: string, purpose: FilePurpose): Promise<SignedFileUrl> {
+    const repository = new ScopedRepository(this.db, files, orgContextOf(principal));
+    const file = await repository.findById(fileId);
+    if (file === null || file.purpose !== purpose) throw AppError.notFound('File', fileId);
+    return this.signedUrlFor(principal, fileId);
+  }
+
+  /**
    * 15 REQ-AL-08: a short-lived link for a reader who has no principal.
    *
    * The customer portal has no user and no permissions, so `signedUrlFor`'s

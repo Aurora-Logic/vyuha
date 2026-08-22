@@ -18,7 +18,12 @@ export function useDocumentSettings(options: { enabled?: boolean } = {}): UseQue
       const body = await apiRequest<unknown>('/documents/settings', { signal });
       return parseOrThrow(documentSettingsSchema, body, 'document settings');
     },
-    staleTime: 5 * 60_000,
+    // Comfortably inside the server's signing TTL (S3_SIGNED_URL_TTL_SECONDS,
+    // 300s by default) rather than equal to it: at parity a cached URL could
+    // be handed to an <img> in the last moment of its life, and a letterhead
+    // that fails to load on a printed document has no error state -- the
+    // paper simply goes out without the mark.
+    staleTime: 4 * 60_000,
   });
 }
 
