@@ -23,6 +23,11 @@ export const salesLineSchema = z.object({
   resolvedRate: z.string().nullable().default(null),
   appliedDiscountPct: z.string().nullable().default(null),
   rateOverrideReason: z.string().nullable().default(null),
+  // 15 REQ-AK-09 / D-51: a replacement line given away. It has no invoice to
+  // wait for, so what releases it for dispatch is what was packed. The schema
+  // dropped this, so `lineBalances` read the mark as undefined and a free
+  // replacement could never be dispatched from a screen at all.
+  freeOfCharge: z.boolean().default(false),
   // REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate.
   // D-48: picked sits between ordered and packed. Absent on older fixtures.
   pickedQty: z.string().default('0.000'),
@@ -47,7 +52,8 @@ export function lineBalances(line: SalesLine): { toPick: number; toPack: number;
     // What an invoice raised now may take: packed, less invoiced, less what an invoice in flight already holds (P8-2).
     toInvoice: Math.max(0, Number(line.packedQty) - Number(line.invoicedQty) - invoicing),
     invoicing,
-    toDispatch: Math.max(0, Number(line.invoicedQty) - Number(line.dispatchedQty)),
+    // A free line waits for no invoice: what was packed is what may leave.
+    toDispatch: Math.max(0, (line.freeOfCharge ? Number(line.packedQty) : Number(line.invoicedQty)) - Number(line.dispatchedQty)),
   };
 }
 

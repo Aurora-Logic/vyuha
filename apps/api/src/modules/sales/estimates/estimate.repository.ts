@@ -360,6 +360,17 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
 
   /** Delete-then-insert inside the caller's transaction, then the header's totals from the new lines. */
   private async replaceLines(tx: Transaction, documentId: string, lines: readonly RepositoryLineInput[]): Promise<void> {
+    // 15 REQ-AK-09 / D-51: the free-of-charge mark is set by the return that
+    // raised the order and by nothing else -- there is deliberately no field
+    // for it on the line editor. An edit replaces every line, so input that
+    // cannot carry the mark used to clear it, and a replacement the company
+    // had decided to give away went back to waiting for an invoice that was
+    // never coming. A line still naming the same item keeps its mark.
+    const marked = await tx.execute<{ stock_item_id: string | null; description: string }>(sql`
+      SELECT stock_item_id, description FROM sales_document_lines
+       WHERE document_id = ${documentId} AND free_of_charge AND deleted_at IS NULL
+    `);
+    const wasFree = new Set(marked.rows.map((row) => `${row.stock_item_id ?? ''}|${row.description}`));
     await tx.delete(salesDocumentLines).where(eq(salesDocumentLines.documentId, documentId));
     if (lines.length > 0) {
       // 15 REQ-AN-13/15: the price lists resolve each item's rate at the
@@ -393,7 +404,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
             resolvedRate: resolution?.rate ?? null,
             appliedDiscountPct: resolution?.discountPct ?? null,
             rateOverrideReason: line.rateOverrideReason ?? null,
-            freeOfCharge: line.freeOfCharge ?? false,
+            freeOfCharge: line.freeOfCharge ?? wasFree.has(`${line.stockItemId ?? ''}|${line.description}`),
             amount: sql`round(${line.quantity}::numeric * ${rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
             taxAmount: sql`round(round(${line.quantity}::numeric * ${rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
             createdBy: this.ctx.actorUserId,

@@ -290,6 +290,31 @@ describe('Area AK: sales returns', () => {
     expect(again.status).toBe(409);
   });
 
+  it('keeps the free-of-charge mark through an edit of the replacement (audit 49)', async () => {
+    const second = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '4', reason: 'Warranty', condition: 'opened', disposition: 'scrap' }],
+    });
+    const raised = await harness.post<SalesReturnView>(`/sales/returns/${second.body.id}/replacement`, { token: adminToken, body: { charge: 'free' } });
+    const orderIdE = raised.body.replacement?.documentId ?? '';
+    const before = await harness.get<OrderView>(`/sales/orders/${orderIdE}`, { token: adminToken });
+    expect(before.body.lines[0]?.freeOfCharge).toBe(true);
+
+    // There is deliberately no field for the mark on the line editor, so an
+    // ordinary edit cannot carry it -- and used to clear it, putting a
+    // replacement the company had given away back to waiting for an invoice
+    // that was never coming.
+    const edited = await harness.patch<OrderView>(`/sales/orders/${orderIdE}`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '5', rate: '0' }] },
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.lines[0]?.quantity).toBe('5.000');
+    expect(edited.body.lines[0]?.freeOfCharge).toBe(true);
+    expect(edited.body.grandTotal).toBe('0.00');
+  });
+
   it('holds a chargeable replacement to the invoice rule the rest of the product keeps (REQ-AK-09)', async () => {
     const third = await multipart<SalesReturnView>('/sales/returns', adminToken, {
       customerName: 'Asha Traders',
