@@ -1187,3 +1187,45 @@ describe('an agent error on a push (audit 24)', () => {
     expect(again.body.syncState).toBe('QUEUED');
   });
 });
+
+describe('an organisation with two Tally companies (audit 25)', () => {
+  /**
+   * One connection per company. The push queue used to take the oldest
+   * connection whatever the document was for, so a document raised against
+   * one company queued on another, and the agent bound to that company would
+   * have written the voucher into the wrong books.
+   *
+   * The second connection is backdated so that "oldest" and "the party's"
+   * name different rows -- otherwise both rules agree and the test proves
+   * nothing.
+   */
+  it('queues the push on the connection the party belongs to', async () => {
+    const other = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO integration_connections (org_id, system, name, company_guid, agent_token_hash, created_at)
+      VALUES (${ORG_ID}, 'TALLY', 'Older Company', 'guid-older-company', 'hash-older-company', now() - interval '10 years')
+      RETURNING id
+    `);
+    const olderConnection = other.rows[0]?.id ?? '';
+    expect(olderConnection).not.toBe(connectionId);
+
+    // This order's party belongs to the fixture's company, not the older one.
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100' }] },
+    });
+    expect(created.status).toBe(201);
+    await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+
+    const job = await harness.db.execute<{ connection_id: string }>(sql`
+      SELECT connection_id FROM sync_jobs
+       WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${created.body.id}`}
+       ORDER BY created_at DESC LIMIT 1
+    `);
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0]?.connection_id).toBe(connectionId);
+    // The oldest connection is the wrong company for this party.
+    expect(job.rows[0]?.connection_id).not.toBe(olderConnection);
+
+    await harness.db.execute(sql`DELETE FROM integration_connections WHERE id = ${olderConnection}`);
+  });
+});

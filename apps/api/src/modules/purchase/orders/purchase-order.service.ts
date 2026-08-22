@@ -683,7 +683,7 @@ export class PurchaseOrderService implements OnModuleInit {
       remoteGuid: null,
       lines: po.lines.map((l) => ({ stockItemName: l.description, quantity: l.quantity, unit: l.unit, rate: l.rate, discountPct: l.discountPct, amount: l.amount })),
     };
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, po.partyId);
     await this.db.execute(sql`UPDATE purchase_orders SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${id}`);
     return jobId !== null;
   }
@@ -703,7 +703,12 @@ export class PurchaseOrderService implements OnModuleInit {
       lines: grn.lines.filter((l) => Number(l.receivedQty) > 0).map((l) => ({ stockItemName: l.description, quantity: l.receivedQty, unit: null, rate: '0', discountPct: '0', amount: '0' })),
     };
     if (payload.lines.length === 0) return false;
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    // The purchase order names the vendor, and the vendor names the Tally
+    // company this receipt belongs in.
+    const owner = await this.db.execute<{ party_id: string | null }>(
+      sql`SELECT party_id FROM purchase_orders WHERE id = ${grn.purchaseOrderId} AND org_id = ${principal.orgId}`,
+    );
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, owner.rows[0]?.party_id ?? null);
     await this.db.execute(sql`UPDATE grns SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${grnId}`);
     return jobId !== null;
   }

@@ -280,7 +280,7 @@ export class InvoiceService implements OnModuleInit {
       remoteGuid: null,
       lines: invoice.lines.map((l) => ({ stockItemName: l.description, quantity: l.quantity, unit: l.unit, rate: l.rate, discountPct: l.discountPct, amount: l.amount })),
     };
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, invoice.partyId);
     await repository.setSync(id, { syncState: jobId === null ? 'NOT_PUSHED' : 'QUEUED', pushJobId: jobId, lastError: null });
     return jobId !== null;
   }

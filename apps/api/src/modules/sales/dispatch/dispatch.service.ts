@@ -338,7 +338,12 @@ export class DispatchService implements OnModuleInit {
       remoteGuid: null,
       lines: dispatch.lines.map((line) => ({ stockItemName: line.description, quantity: line.quantity, unit: line.unit, rate: '0', discountPct: '0', amount: '0' })),
     };
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    // The order names the party, and the party names the Tally company this
+    // voucher belongs in.
+    const owner = await this.db.execute<{ party_id: string | null }>(
+      sql`SELECT party_id FROM sales_documents WHERE id = ${dispatch.documentId} AND org_id = ${principal.orgId}`,
+    );
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, owner.rows[0]?.party_id ?? null);
     await this.db.execute(sql`
       UPDATE dispatches SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${dispatchId}
     `);

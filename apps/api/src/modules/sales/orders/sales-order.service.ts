@@ -551,7 +551,7 @@ export class SalesOrderService implements OnModuleInit {
         amount: line.amount,
       })),
     };
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, order.partyId);
     if (jobId === null) {
       // A document Tally already holds is not "not pushed" merely because a
       // job could not be queued for it -- writing that would lose the fact
