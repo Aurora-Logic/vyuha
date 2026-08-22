@@ -1,4 +1,4 @@
-import { PERMISSIONS, SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
+import { PERMISSIONS, SALES_ANALYSIS_DIMENSIONS, SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -371,6 +371,56 @@ describe('the receivables reports (Phase 6d, REQ-Y-01, Y-03, Y-05, Y-07)', () =>
 
     const bad = await harness.get('/reports/sales-analysis/rows?groupBy=salesperson', { token: adminToken });
     expect(bad.status).toBe(400);
+  });
+
+  // Every dimension the dropdown offers has to answer. "By item group"
+  // shipped in it and returned 500 twice over -- the count query never
+  // joined stock_items, and once it did the label reached for a column the
+  // GROUP BY did not carry. Walking the shared list means a dimension added
+  // later cannot ship untried.
+  it('sales analysis answers on every dimension the dropdown offers', async () => {
+    // Its own item and invoice, so the assertion does not depend on a hook in
+    // a sibling describe, and so the item group is a real group rather than
+    // the ungrouped bucket.
+    await harness.db.execute(sql`
+      WITH s AS (
+        INSERT INTO stock_items (org_id, connection_id, name, parent_group, unit, closing_qty, cost_price, absent_in_tally)
+        VALUES (${ORG_ID}, ${connectionId}, 'Dimension Cable', 'Cables', 'NOS', 5, 100, false)
+        RETURNING id
+      ), v AS (
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+        VALUES (${ORG_ID}, ${connectionId}, '2026-08-12', 'Sales', 'DIM-1', 'Dimension Co', NULL, false, '600.00')
+        RETURNING id
+      )
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_id, stock_item_name, actual_qty, billed_qty, rate, amount)
+      SELECT ${ORG_ID}, v.id, 1, 'inventory', s.id, 'Dimension Cable', '2 NOS', '2 NOS', '300.00', '600.00' FROM v, s
+    `);
+    // A line no stock item backs, so the ungrouped bucket exists whatever
+    // else the fixtures hold.
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, actual_qty, billed_qty, rate, amount)
+      SELECT ${ORG_ID}, id, 2, 'inventory', 'Loose Item', '1 NOS', '1 NOS', '50.00', '50.00'
+        FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'DIM-1'
+    `);
+
+    for (const groupBy of SALES_ANALYSIS_DIMENSIONS) {
+      const res = await harness.get<{ data: { label: string; value: string; share: string }[]; meta: { total: number } }>(
+        `/reports/sales-analysis/rows?groupBy=${groupBy}&from=2026-08-01&to=2026-08-31`,
+        { token: adminToken },
+      );
+      expect([groupBy, res.status]).toEqual([groupBy, 200]);
+      expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.every((r) => r.label !== '' && /^-?\d+\.\d\d$/u.test(r.value))).toBe(true);
+    }
+
+    const byGroup = await harness.get<{ data: { label: string; value: string }[] }>(
+      '/reports/sales-analysis/rows?groupBy=itemGroup&from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    // Items with no group at all collapse into one bucket rather than
+    // appearing twice, once for NULL and once for the empty string.
+    expect(byGroup.body.data.find((r) => r.label === 'Cables')?.value).toBe('600.00');
+    expect(byGroup.body.data.filter((r) => r.label === '(ungrouped)')).toHaveLength(1);
   });
 });
 

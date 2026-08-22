@@ -145,7 +145,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       case 'sales-analysis':
         return this.scalar(sql`
           SELECT count(*)::int AS value FROM (
-            SELECT 1 FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+            SELECT 1 ${this.salesLinesFrom()}
              WHERE ${this.salesLinesWhere(principal.orgId, usable)}
              GROUP BY ${this.dimensionKey(usable.groupBy ?? 'party')}
           ) grouped
@@ -583,6 +583,20 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
 
   // ------------------------------------------------------- sales analysis
 
+  /**
+   * The count and the rows have to read the same tables. Grouping by item
+   * group reaches into `stock_items`, and the count query had never joined
+   * it: choosing "By item group" -- an option that shipped in the dropdown --
+   * failed with `missing FROM-clause entry for table "s"` before a single row
+   * was fetched. One FROM, so the two cannot drift again. `stock_items.id` is
+   * the primary key, so the LEFT JOIN cannot multiply a line.
+   */
+  private salesLinesFrom(): SQL {
+    return sql`FROM voucher_lines l
+        JOIN vouchers v ON v.id = l.voucher_id
+        LEFT JOIN stock_items s ON s.id = l.stock_item_id`;
+  }
+
   private salesLinesWhere(orgId: string, filters: ReportFilters): SQL {
     return sql`l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
       ${this.periodClause(filters, 'v.voucher_date')}
@@ -611,7 +625,13 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       case 'item':
         return sql`COALESCE(NULLIF(l.stock_item_name, ''), '(no item)')`;
       case 'itemGroup':
-        return sql`COALESCE(NULLIF(s.parent_group, ''), '(ungrouped)')`;
+        // Postgres accepts a grouping expression verbatim in the select list
+        // and nothing else built from an ungrouped column, so this repeats
+        // COALESCE(s.parent_group, '') rather than reaching for the bare
+        // column: with NULLIF(s.parent_group, ...) the query was rejected
+        // even once the join was in place. Blank and NULL are one group, so
+        // "(ungrouped)" appears once rather than twice.
+        return sql`CASE WHEN COALESCE(s.parent_group, '') = '' THEN '(ungrouped)' ELSE COALESCE(s.parent_group, '') END`;
       case 'month':
         return sql`to_char(v.voucher_date, 'YYYY-MM')`;
       default:
@@ -637,9 +657,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
                   THEN sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text || ' ' || max(s.unit)
                   ELSE NULL END AS quantity,
              round(COALESCE(sum(l.amount), 0), 2)::text AS value
-        FROM voucher_lines l
-        JOIN vouchers v ON v.id = l.voucher_id
-        LEFT JOIN stock_items s ON s.id = l.stock_item_id
+        ${this.salesLinesFrom()}
        WHERE ${this.salesLinesWhere(orgId, filters)}
        GROUP BY ${this.dimensionKey(dimension)}
        ORDER BY ${orderBy}
