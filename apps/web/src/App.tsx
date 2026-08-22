@@ -227,8 +227,6 @@ export default function App() {
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
-              {/* A second version, so the two can be compared before either is
-                  kept. Vanilla shadcn charts and cards, no project chart layer. */}
               {/* The comparison is over and this one won; the old link still
                   works rather than answering "not found". */}
               <Route path="reports/dashboard/v2" element={<Navigate to="/reports/dashboard" replace />} />
