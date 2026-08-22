@@ -315,6 +315,42 @@ describe('Area AK: sales returns', () => {
     expect(edited.body.grandTotal).toBe('0.00');
   });
 
+  it('the database refuses a free line dispatched past what was packed (audit 21)', async () => {
+    // The service checks this, and the comment beside it said the database
+    // read the same mark. It did not: `free_of_charge OR dispatched <=
+    // invoiced` short-circuits to true, so a free line had no ceiling in the
+    // database at all and the service was the only thing in the way.
+    const fourth = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '2', reason: 'Warranty', condition: 'opened', disposition: 'scrap' }],
+    });
+    const raised = await harness.post<SalesReturnView>(`/sales/returns/${fourth.body.id}/replacement`, { token: adminToken, body: { charge: 'free' } });
+    const orderIdD = raised.body.replacement?.documentId ?? '';
+    const view = await harness.get<OrderView>(`/sales/orders/${orderIdD}`, { token: adminToken });
+    const lineIdD = view.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderIdD}/confirm`, { token: adminToken });
+    await harness.post(`/sales/orders/${orderIdD}/picks`, { token: adminToken, body: { lines: [{ lineId: lineIdD, quantity: '2' }] } });
+    await harness.post(`/sales/orders/${orderIdD}/packs`, { token: adminToken, body: { lines: [{ lineId: lineIdD, quantity: '2' }] } });
+
+    // Three past a packed two is refused by the database itself. The write
+    // that follows proves the refusal is the ceiling rather than a broken
+    // statement: two is accepted against the same line, invoiced nothing.
+    await expect(
+      harness.db.execute(sql`UPDATE sales_document_lines SET dispatched_qty = 3 WHERE id = ${lineIdD}`),
+    ).rejects.toThrow();
+    const untouched = await harness.db.execute<{ dispatched_qty: string }>(
+      sql`SELECT dispatched_qty::text FROM sales_document_lines WHERE id = ${lineIdD}`,
+    );
+    expect(untouched.rows[0]?.dispatched_qty).toBe('0.000');
+
+    // What was packed still may leave, which is the rule the mark exists for.
+    await harness.db.execute(sql`UPDATE sales_document_lines SET dispatched_qty = 2 WHERE id = ${lineIdD}`);
+    const after = await harness.get<OrderView>(`/sales/orders/${orderIdD}`, { token: adminToken });
+    expect(after.body.lines[0]?.dispatchedQty).toBe('2.000');
+    expect(after.body.lines[0]?.invoicedQty).toBe('0.000');
+  });
+
   it('holds a chargeable replacement to the invoice rule the rest of the product keeps (REQ-AK-09)', async () => {
     const third = await multipart<SalesReturnView>('/sales/returns', adminToken, {
       customerName: 'Asha Traders',

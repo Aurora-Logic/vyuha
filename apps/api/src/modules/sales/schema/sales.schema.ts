@@ -145,7 +145,12 @@ export const salesDocumentLines = pgTable(
     check('sales_document_lines_picked_le_ordered', sql`picked_qty >= 0 AND picked_qty <= quantity`),
     check('sales_document_lines_packed_le_picked', sql`packed_qty >= 0 AND packed_qty <= picked_qty`),
     check('sales_document_lines_invoiced_le_packed', sql`invoiced_qty >= 0 AND invoiced_qty <= packed_qty`),
-    check('sales_document_lines_dispatched_le_invoiced', sql`dispatched_qty >= 0 AND (free_of_charge OR dispatched_qty <= invoiced_qty)`),
+    // A free replacement waits for no invoice, so what releases it is what was
+    // packed -- but `free_of_charge OR ...` short-circuits to true and left the
+    // line with no ceiling in the database at all. The service's own check was
+    // then the only thing between a request and a dispatched quantity larger
+    // than anything ever picked.
+    check('sales_document_lines_dispatched_le_invoiced', sql`dispatched_qty >= 0 AND dispatched_qty <= (CASE WHEN free_of_charge THEN packed_qty ELSE invoiced_qty END)`),
     // REQ-W-02: what was quoted for this item, by document.
     index('sales_document_lines_org_item_idx').on(t.orgId, t.stockItemId).where(ALIVE),
   ],
