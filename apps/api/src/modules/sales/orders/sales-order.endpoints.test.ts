@@ -1143,3 +1143,47 @@ describe('pushing again after a rejected alter (audit 23)', () => {
     expect(await queuedGuid(orderId7)).toBe('guid-order-alter-1');
   });
 });
+
+describe('an agent error on a push (audit 24)', () => {
+  /**
+   * The error path marked the sync job FAILED and told the document nothing,
+   * so an order sat at QUEUED for ever: the screen said it was with the
+   * agent, and Push refused because it was already queued. There was no way
+   * forward from either.
+   */
+  it('leaves the order able to move rather than queued for ever', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000' }] },
+    });
+    const orderId8 = created.body.id;
+    await harness.post(`/sales/orders/${orderId8}/confirm`, { token: salesToken });
+    const queued = await harness.get<SalesDocumentView>(`/sales/orders/${orderId8}`, { token: salesToken });
+    expect(queued.body.syncState).toBe('QUEUED');
+
+    // Claimed directly rather than through the queue, which by this point in
+    // the file holds other documents' jobs; the error path only cares that
+    // the row is CLAIMED by this agent.
+    const job = await harness.db.execute<{ id: string }>(sql`
+      UPDATE sync_jobs SET state = 'CLAIMED', claimed_by = ${AGENT}, claimed_at = now()
+       WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId8}`} AND state = 'QUEUED'
+       RETURNING id
+    `);
+    expect(job.rows).toHaveLength(1);
+    const reported = await harness.post('/sync/agent/errors', {
+      token: agentToken,
+      body: { agentInstanceId: AGENT, jobId: job.rows[0]?.id, errorText: 'Tally was closed' },
+    });
+    expect(reported.status).toBe(200);
+
+    const after = await harness.get<SalesDocumentView>(`/sales/orders/${orderId8}`, { token: salesToken });
+    expect(after.body.syncState).toBe('FAILED');
+    expect(after.body.lastError).toContain('Tally was closed');
+
+    // And the way forward is open: Push is accepted rather than refused as
+    // already queued.
+    const again = await harness.post<SalesDocumentView>(`/sales/orders/${orderId8}/push`, { token: adminToken });
+    expect(again.status).toBe(200);
+    expect(again.body.syncState).toBe('QUEUED');
+  });
+});
