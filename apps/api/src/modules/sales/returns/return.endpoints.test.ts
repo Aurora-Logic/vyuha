@@ -134,6 +134,39 @@ describe('Area AK: sales returns', () => {
     expect(refused.body.error.message).toContain('cannot come back');
   });
 
+  it('refuses one receipt that names the same line twice past what it sent (audit 8)', async () => {
+    // Each entry used to be checked on its own against the same balance, so
+    // two halves that each fit sent back more than ever went out. A receipt
+    // may legitimately name a line twice -- two reasons, two conditions -- so
+    // the claims are summed rather than the repeat refused.
+    const refused = await multipart<ErrorBody>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      sourceDocumentId: orderId,
+      lines: [
+        { lineId: orderLineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '6', reason: 'Wrong item', condition: 'sealed', disposition: 'restock' },
+        { lineId: orderLineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '6', reason: 'Warranty', condition: 'damaged', disposition: 'scrap' },
+      ],
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('cannot come back');
+    expect(refused.body.error.message).toContain('12.000');
+  });
+
+  it('still takes one receipt naming a line twice when the two together fit', async () => {
+    const taken = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      sourceDocumentId: orderId,
+      lines: [
+        { lineId: orderLineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '1', reason: 'Wrong item', condition: 'sealed', disposition: 'restock' },
+        { lineId: orderLineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '1', reason: 'Warranty', condition: 'damaged', disposition: 'scrap' },
+      ],
+    });
+    expect(taken.status).toBe(201);
+    expect(taken.body.lines).toHaveLength(2);
+  });
+
   it('records the receipt with quantity, reason, condition, disposition and a photograph (REQ-AK-01…AK-04)', async () => {
     const created = await multipart<SalesReturnView>(
       '/sales/returns',

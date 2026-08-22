@@ -400,8 +400,18 @@ export class ReturnService {
    * them because Vyuha never saw the invoice would lose the receipt.
    */
   private async assertWithinDispatched(orgId: string, input: CreateReturnInput): Promise<void> {
-    const named = input.lines.map((line, index) => ({ line, index })).filter((entry) => entry.line.lineId != null);
-    for (const { line, index } of named) {
+    // Summed per line before anything is asked of the database. One receipt
+    // may name the same line twice for good reason -- two reasons, two
+    // conditions, two dispositions -- and checking each entry on its own
+    // against the same balance let every one of them pass while together they
+    // sent back more than ever went out.
+    const claimed = new Map<string, { quantity: number; index: number }>();
+    for (const [index, line] of input.lines.entries()) {
+      if (line.lineId == null) continue;
+      const seen = claimed.get(line.lineId);
+      claimed.set(line.lineId, { quantity: (seen?.quantity ?? 0) + Number(line.quantity), index: seen?.index ?? index });
+    }
+    for (const [lineId, { quantity, index }] of claimed) {
       const rows = await this.db.execute<{ dispatched: string; returned: string; line_no: number; description: string }>(sql`
         SELECT l.dispatched_qty::text AS dispatched, l.line_no, l.description,
                COALESCE((SELECT sum(rl.quantity) FROM sales_return_lines rl
@@ -409,14 +419,14 @@ export class ReturnService {
                          WHERE rl.source_line_id = l.id AND rl.deleted_at IS NULL), 0)::text AS returned
           FROM sales_document_lines l
           JOIN sales_documents d ON d.id = l.document_id AND d.org_id = ${orgId}
-         WHERE l.id = ${line.lineId ?? null} AND l.deleted_at IS NULL
+         WHERE l.id = ${lineId} AND l.deleted_at IS NULL
       `);
       const row = rows.rows[0];
-      if (row === undefined) throw AppError.validation('A return line names a document line that is not this organisation’s.', { lineId: line.lineId ?? null });
+      if (row === undefined) throw AppError.validation('A return line names a document line that is not this organisation’s.', { lineId });
       const balance = Number(row.dispatched) - Number(row.returned);
-      if (Number(line.quantity) > balance + 1e-9) {
+      if (quantity > balance + 1e-9) {
         throw AppError.validation(
-          `Line ${String(row.line_no)} (${row.description}) sent ${row.dispatched} and has ${row.returned} already returned; ${line.quantity} cannot come back.`,
+          `Line ${String(row.line_no)} (${row.description}) sent ${row.dispatched} and has ${row.returned} already returned; ${quantity.toFixed(3)} cannot come back.`,
           { fields: [{ path: `lines.${String(index)}.quantity`, message: 'more than went out' }] },
         );
       }
