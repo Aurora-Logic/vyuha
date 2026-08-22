@@ -403,11 +403,18 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
                             WHEN voucher_type IN ('Receipt', 'Credit Note') THEN -amount ELSE 0 END) AS exposure
               FROM vouchers WHERE org_id = ${orgId} AND NOT is_cancelled AND party_id IS NOT NULL GROUP BY party_id
           )
+          -- "Releases (90d)" is this party's releases. The count used to have
+          -- no correlation to the row at all, so every breaching party was
+          -- shown the whole organisation's total and the column read the same
+          -- number all the way down. The audit row names the order, so the
+          -- party is reached through it.
           SELECT p.id AS "partyId", p.name AS "partyName", p.credit_limit::text AS "creditLimit",
                  b.exposure::text AS exposure,
                  (b.exposure - p.credit_limit)::text AS "overBy",
                  COALESCE((SELECT count(*)::int FROM audit_logs a
+                    JOIN sales_documents d ON d.id = a.entity_id AND d.org_id = a.org_id
                     WHERE a.org_id = ${orgId} AND a.action = 'sales.order.credit_overridden'
+                      AND a.entity_type = 'sales_document' AND d.party_id = p.id
                       AND a.created_at >= now() - interval '90 days'), 0) AS "releases90d"
             FROM parties p JOIN balances b ON b.party_id = p.id
            WHERE p.org_id = ${orgId} AND lower(p.parent_group) = 'sundry debtors'

@@ -662,6 +662,46 @@ describe('comparison flows into the exported file (data-analyst §3)', () => {
 });
 
 describe('the second analytics set (owner, 22 Aug 2026)', () => {
+  it('credit breaches count each party its own releases, not the whole organisation', async () => {
+    // Two customers over their limit; one had an order released, the other
+    // never did. The count is the column's whole point -- a party released
+    // three times this quarter is a different conversation from one that has
+    // simply drifted over.
+    const parties = await harness.db.execute<{ id: string; name: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)
+      VALUES (${ORG_ID}, ${connectionId}, 'Breach Released', 'Sundry Debtors', 100),
+             (${ORG_ID}, ${connectionId}, 'Breach Untouched', 'Sundry Debtors', 100)
+      RETURNING id, name
+    `);
+    const released = parties.rows.find((r) => r.name === 'Breach Released')?.id ?? '';
+    const untouched = parties.rows.find((r) => r.name === 'Breach Untouched')?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+      VALUES (${ORG_ID}, ${connectionId}, '2026-08-14', 'Sales', 'BR-1', 'Breach Released', ${released}, false, '900.00'),
+             (${ORG_ID}, ${connectionId}, '2026-08-14', 'Sales', 'BR-2', 'Breach Untouched', ${untouched}, false, '900.00')
+    `);
+    const doc = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sales_documents (org_id, doc_type, number, status, date, party_id, customer_name, grand_total)
+      VALUES (${ORG_ID}, 'SALES_ORDER', 'SO-BREACH-1', 'CONFIRMED', '2026-08-14', ${released}, 'Breach Released', '900.00')
+      RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO audit_logs (org_id, action, entity_type, entity_id, created_at)
+      VALUES (${ORG_ID}, 'sales.order.credit_overridden', 'sales_document', ${doc.rows[0]?.id ?? ''}, now() - interval '10 days')
+    `);
+
+    const breaches = await harness.get<{ data: { partyName: string; releases90d: number; overBy: string }[] }>('/reports/credit-breaches/rows', {
+      token: adminToken,
+    });
+    expect(breaches.status).toBe(200);
+    const rows = breaches.body.data.filter((r) => r.partyName.startsWith('Breach '));
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.partyName === 'Breach Released')?.releases90d).toBe(1);
+    // Before the subquery was correlated this read 1 as well, because it was
+    // counting the organisation rather than the party.
+    expect(rows.find((r) => r.partyName === 'Breach Untouched')?.releases90d).toBe(0);
+  });
+
   it('serves each new report with its declared columns', async () => {
     for (const key of ['aov-trend', 'partial-shipments', 'vendor-lead-time', 'stock-out-frequency', 'sales-heatmap'] as const) {
       const page = await harness.get<{ data: Record<string, unknown>[]; meta: { total: number } }>(
