@@ -55,7 +55,7 @@ import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
  * **When Redis is unreachable, this falls back to the same check against
  * Postgres** (`RateLimitDbFallback`, one row per attempt, an advisory-lock
  * retry loop standing in for the Lua script's atomicity) rather than
- * dropping the limit outright. `redis.status !== 'ready'` is checked before
+ * dropping the limit outright. `redis.status === 'end'` is checked before
  * every command so a known outage skips straight to Postgres instead of
  * paying ioredis's retry budget first; a command that still throws on an
  * apparently-ready connection falls back reactively. Only if the Postgres
@@ -145,9 +145,25 @@ export class LoginRateLimiter {
   ): Promise<LoginAttemptClaim | null> {
     if (ip === null) return null;
 
-    // A known-down connection would otherwise still pay ioredis's retry
-    // budget before the catch below runs, since `enableOfflineQueue` is on.
-    if (this.redis.status !== 'ready') return this.claimViaDb(ip, now, scope);
+    /*
+     * Only a connection that is genuinely finished skips Redis.
+     *
+     * This read `status !== 'ready'`, which is true of a client that is
+     * merely `connecting` -- which every client is for the first
+     * milliseconds of its life, and again after any reconnect. So at boot,
+     * and after every blip, every sign-in took the Postgres path; and that
+     * path serialises on one advisory lock, so a burst exhausted its retry
+     * budget and returned `lockUnavailable`, which fails open. Measured
+     * before this change: a hundred concurrent failures from one address,
+     * a hundred allowed, none refused, and an empty window.
+     *
+     * `enableOfflineQueue` is on, so a command issued while connecting is
+     * buffered rather than lost, and `maxRetriesPerRequest` bounds the wait
+     * before it throws into the catch below and falls back properly. Only
+     * `end` -- a client that has been closed and will not reconnect -- is
+     * worth short-circuiting.
+     */
+    if (this.redis.status === 'end') return this.claimViaDb(ip, now, scope);
 
     const key = loginRateLimitKey(ip, scope);
     // Unique per attempt: a sorted set deduplicates by member, so two failures
