@@ -363,7 +363,7 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
      * that can carry a stale template, so this only ever corrects them.
      */
     if (typeof job.repeatJobKey === 'string' && job.repeatJobKey !== '' && hasRequestedAt(payload)) {
-      payload = { ...payload, requestedAt: new Date(job.timestamp).toISOString() } as JobPayloads[JobName];
+      payload = { ...payload, requestedAt: new Date(job.timestamp).toISOString() };
     }
 
     const result = await handler.run(payload, {
