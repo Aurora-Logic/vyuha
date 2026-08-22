@@ -143,10 +143,23 @@ export interface PurgeResult {
   readonly purged: number;
   /** Rows whose object had already gone; the row is still closed out. */
   readonly alreadyAbsent: number;
+  /** Still due when the run stopped: nought means the backlog was cleared. */
+  readonly remaining: number;
 }
 
-/** One batch per run keeps a backlog from holding a transaction open for hours. */
+/** One batch keeps a backlog from holding a transaction open for hours. */
 const PURGE_BATCH_SIZE = 500;
+
+/**
+ * The most one run will purge before stopping and saying what is left.
+ *
+ * The run used to be a single batch. REQ-L-03 promises photographs are gone
+ * after the retention window, and the job runs weekly -- so an organisation
+ * expiring more than five hundred files a week never caught up, the backlog
+ * grew for ever, and nothing said so. It drains now, in batches, and reports
+ * what it could not reach rather than stopping quietly.
+ */
+const PURGE_RUN_LIMIT = 50_000;
 
 @Injectable()
 export class FileService {
@@ -516,6 +529,35 @@ export class FileService {
    * not reach still selectable, which is exactly what re-running should fix.
    */
   async purgeExpiredFiles(now: Date = new Date()): Promise<PurgeResult> {
+    let scanned = 0;
+    let purged = 0;
+    let alreadyAbsent = 0;
+    for (;;) {
+      const batch = await this.purgeBatch(now);
+      scanned += batch.scanned;
+      purged += batch.purged;
+      alreadyAbsent += batch.alreadyAbsent;
+      // A batch that purged nothing cannot be improved by running it again:
+      // every row it saw either failed against the object store or was taken
+      // by another run, and both stay selectable for next time.
+      if (batch.purged === 0 || batch.scanned < PURGE_BATCH_SIZE || purged >= PURGE_RUN_LIMIT) break;
+    }
+    const remaining = await this.countDue(now);
+    if (purged > 0 || remaining > 0) {
+      this.logger.log({ msg: 'Expired files purged', scanned, purged, alreadyAbsent, remaining });
+    }
+    return { scanned, purged, alreadyAbsent, remaining };
+  }
+
+  /** Files past their retention window that no run has closed out yet. */
+  private async countDue(now: Date): Promise<number> {
+    const rows = await this.db.execute<{ count: number }>(
+      sql`SELECT count(*)::int AS count FROM files WHERE expires_at IS NOT NULL AND expires_at <= ${now} AND purged_at IS NULL`,
+    );
+    return rows.rows[0]?.count ?? 0;
+  }
+
+  private async purgeBatch(now: Date): Promise<PurgeResult> {
     const due = await this.db
       .select({
         id: files.id,
@@ -577,11 +619,7 @@ export class FileService {
       });
     }
 
-    if (purged > 0) {
-      this.logger.log({ msg: 'Expired files purged', scanned: due.length, purged, alreadyAbsent });
-    }
-
-    return { scanned: due.length, purged, alreadyAbsent };
+    return { scanned: due.length, purged, alreadyAbsent, remaining: 0 };
   }
 
   /**

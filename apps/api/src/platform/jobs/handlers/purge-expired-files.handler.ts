@@ -43,6 +43,10 @@ export class PurgeExpiredFilesHandler
       scanned: result.scanned,
       purged: result.purged,
       alreadyAbsent: result.alreadyAbsent,
+      // Nought unless the run hit its own limit. A backlog that a weekly job
+      // cannot clear is the thing REQ-L-03 fails on, so it is reported rather
+      // than left to be inferred from a falling count.
+      remaining: result.remaining,
     };
   }
 }

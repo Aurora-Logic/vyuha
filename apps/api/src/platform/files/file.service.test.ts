@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { PERMISSIONS, uuidv7 } from '@vyuha/shared';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -305,4 +305,39 @@ describe('permission to read', () => {
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).code).toBe('NOT_FOUND');
   });
+});
+
+describe('the retention sweep (audit 5)', () => {
+  /**
+   * REQ-L-03 promises photographs are gone after the retention window, and
+   * the sweep runs weekly. It purged one batch of five hundred and stopped,
+   * so an organisation expiring more than that in a week never caught up and
+   * nothing said so -- the backlog simply grew.
+   *
+   * Rows are written straight into `files` with keys that were never stored:
+   * the object store answers "absent" for each, which is exactly the path a
+   * photograph already removed by hand takes, and it keeps the fixture to one
+   * statement rather than five hundred uploads.
+   */
+  it('drains past a single batch and reports nothing left behind', async () => {
+    const marker = `purge-drain-${uuidv7()}`;
+    await harness.db.execute(sql`
+      INSERT INTO files (org_id, storage_key, mime, bytes, checksum, purpose, uploaded_by, expires_at)
+      SELECT ${ORG_ID}, ${marker} || '/' || g::text, 'image/webp', 10, repeat('0', 64), 'DISPATCH_PHOTO', ${uploaderId}, now() - interval '1 day'
+        FROM generate_series(1, 501) AS g
+    `);
+
+    const result = await service.purgeExpiredFiles();
+    expect(result.purged).toBeGreaterThanOrEqual(501);
+    // Nothing waiting for next week: the run kept going until the query was
+    // empty. One batch would have left one row behind.
+    expect(result.remaining).toBe(0);
+
+    const left = await harness.db.execute<{ count: number }>(sql`
+      SELECT count(*)::int AS count FROM files WHERE storage_key LIKE ${`${marker}/%`} AND purged_at IS NULL
+    `);
+    expect(left.rows[0]?.count).toBe(0);
+
+    await harness.db.execute(sql`DELETE FROM files WHERE storage_key LIKE ${`${marker}/%`}`);
+  }, 120_000);
 });
