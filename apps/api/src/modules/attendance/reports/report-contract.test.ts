@@ -21,6 +21,7 @@ import {
   musterGridCell,
   punchAuditCell,
   rangeLengthInDays,
+  reportFilterSchema,
   reportRowQuerySchema,
   resolveColumns,
   savedViewInputSchema,
@@ -418,6 +419,57 @@ describe('the filter caption block', () => {
 
   it('says "none" rather than printing an empty block', () => {
     expect(describeFilters({})).toEqual([{ label: 'Filters', value: 'none' }]);
+  });
+
+  it('names whose statement it is', () => {
+    // A customer statement cannot be asked for without a party, so a file
+    // that captioned only the period was several hundred rows belonging to
+    // nobody in particular.
+    const captions = describeFilters({ from: '2026-08-01', to: '2026-08-31', partyId: 'party-7' }, { 'party-7': 'Asha Traders' });
+    expect(captions).toContainEqual({ label: 'Party', value: 'Asha Traders' });
+    expect(captions).not.toContainEqual({ label: 'Filters', value: 'none' });
+  });
+
+  it('captions every Tally-side filter a report can carry', () => {
+    const captions = describeFilters({
+      partyId: 'party-7',
+      ledgerName: 'Sales',
+      itemName: 'Cat6 Cable Box',
+      voucherType: 'Receipt',
+      groupBy: 'itemGroup',
+    });
+    expect(captions).toEqual([
+      { label: 'Party', value: 'party-7' },
+      { label: 'Ledger', value: 'Sales' },
+      { label: 'Item', value: 'Cat6 Cable Box' },
+      { label: 'Voucher type', value: 'Receipt' },
+      { label: 'Grouped by', value: 'By item group' },
+    ]);
+  });
+
+  it('every filter the schema accepts reaches the caption block', () => {
+    // The five above were missing for as long as they have existed. Reading
+    // the schema's own keys means the next filter added cannot be silently
+    // left out of the file people print.
+    const everyFilter = {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      employeeId: '01900000-0000-7000-8000-000000000001',
+      departmentId: '01900000-0000-7000-8000-000000000002',
+      locationId: '01900000-0000-7000-8000-000000000003',
+      status: 'PRESENT',
+      flags: 'LATE',
+      punchType: 'IN',
+      partyId: '01900000-0000-7000-8000-000000000004',
+      groupBy: 'month',
+      voucherType: 'Sales',
+      ledgerName: 'Sales',
+      itemName: 'Widget',
+    } as const;
+    const parsed = reportFilterSchema.parse(everyFilter);
+    const captions = describeFilters(parsed);
+    // `from` and `to` share one caption; every other key earns its own.
+    expect(captions).toHaveLength(Object.keys(parsed).length - 1);
   });
 });
 

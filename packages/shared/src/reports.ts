@@ -1927,6 +1927,26 @@ export function describeFilters(
   if (filters.locationId !== undefined) {
     captions.push({ label: 'Location', value: named(filters.locationId) });
   }
+  // The Tally-side filters. A customer statement cannot be requested without
+  // a party and a ledger extract cannot be requested without a ledger, so a
+  // file of either used to print "Filters: none" and then several hundred
+  // rows that named nobody -- a statement with no name on it is not evidence
+  // of anything.
+  if (filters.partyId !== undefined) {
+    captions.push({ label: 'Party', value: named(filters.partyId) });
+  }
+  if (filters.ledgerName !== undefined) {
+    captions.push({ label: 'Ledger', value: filters.ledgerName });
+  }
+  if (filters.itemName !== undefined) {
+    captions.push({ label: 'Item', value: filters.itemName });
+  }
+  if (filters.voucherType !== undefined) {
+    captions.push({ label: 'Voucher type', value: filters.voucherType });
+  }
+  if (filters.groupBy !== undefined) {
+    captions.push({ label: 'Grouped by', value: SALES_ANALYSIS_DIMENSION_LABELS[filters.groupBy] });
+  }
   if (filters.status !== undefined) captions.push({ label: 'Status', value: filters.status });
   if (filters.flags !== undefined && filters.flags.length > 0) {
     captions.push({ label: 'Flags', value: filters.flags });

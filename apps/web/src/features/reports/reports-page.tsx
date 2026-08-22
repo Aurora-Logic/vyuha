@@ -730,7 +730,13 @@ export function ReportsPage() {
 
   // REQ-L-01, the same formatting the exported file uses, so the caption bar on
   // screen and the header block in the download agree about what a date is.
-  const captions = describeFilters(exportFilters, {}, formatDate);
+  // The party is named, not identified: the caption bar and the exported
+  // file both said "Party 0192...-8f3a" when they said anything at all.
+  const filterNames =
+    filters.partyId === null
+      ? {}
+      : { [filters.partyId]: partyOptions.find((option) => option.id === filters.partyId)?.label ?? filters.partyId };
+  const captions = describeFilters(exportFilters, filterNames, formatDate);
 
   if (browsing) return <ReportCatalogue reports={catalogue.data ?? []} loading={catalogue.isPending} />;
 

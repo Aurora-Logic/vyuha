@@ -386,6 +386,12 @@ describe('item settings belong to the organisation that owns the item', () => {
       INSERT INTO organizations (id, name) VALUES (${otherOrg}, 'Other Co')
       ON CONFLICT (id) DO NOTHING
     `);
+    // resetOrganisation clears this org, not the other one, so a second run
+    // would collide on the connection's company guid. Clear the neighbour
+    // first: it is this test's fixture and nobody else's.
+    await harness.db.execute(sql`DELETE FROM item_settings WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`DELETE FROM integration_connections WHERE org_id = ${otherOrg}`);
     const conn = await harness.db.execute<{ id: string }>(sql`
       INSERT INTO integration_connections (org_id, system, name, company_guid)
       VALUES (${otherOrg}, 'TALLY', 'Other Co', 'guid-other-co-settings') RETURNING id

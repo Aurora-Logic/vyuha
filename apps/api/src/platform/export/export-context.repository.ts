@@ -91,6 +91,7 @@ export class ExportContextRepository {
     employeeId?: string | undefined;
     departmentId?: string | undefined;
     locationId?: string | undefined;
+    partyId?: string | undefined;
   }): Promise<Record<string, string>> {
     const labels: Record<string, string> = {};
 
@@ -121,6 +122,17 @@ export class ExportContextRepository {
       const rows = await this.db.execute<{ id: string; name: string }>(
         sql`SELECT id, name FROM ${sql.raw(`"${table}"`)}
              WHERE id = ${id} AND org_id = ${this.ctx.orgId} LIMIT 1`,
+      );
+      const row = rows.rows[0];
+      if (row !== undefined) labels[row.id] = row.name;
+    }
+
+    if (ids.partyId !== undefined) {
+      // Parties are a projection of Tally's ledgers, so they are read the
+      // same raw way as the two tables above rather than through a schema
+      // this module does not own.
+      const rows = await this.db.execute<{ id: string; name: string }>(
+        sql`SELECT id, name FROM parties WHERE id = ${ids.partyId} AND org_id = ${this.ctx.orgId} LIMIT 1`,
       );
       const row = rows.rows[0];
       if (row !== undefined) labels[row.id] = row.name;
