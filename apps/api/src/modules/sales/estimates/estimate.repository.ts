@@ -55,6 +55,8 @@ export interface EstimateListFilters {
   readonly companyId?: string | undefined;
   readonly dealId?: string | undefined;
   readonly ownerId?: string | undefined;
+  /** The order an invoice was raised from. */
+  readonly sourceDocumentId?: string | undefined;
   readonly sort: readonly SortTerm[];
   readonly limit: number;
   readonly offset: number;
@@ -169,6 +171,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       filters.companyId === undefined ? undefined : eq(salesDocuments.companyId, filters.companyId),
       filters.dealId === undefined ? undefined : eq(salesDocuments.dealId, filters.dealId),
       filters.ownerId === undefined ? undefined : eq(salesDocuments.ownerId, filters.ownerId),
+      filters.sourceDocumentId === undefined ? undefined : eq(salesDocuments.sourceDocumentId, filters.sourceDocumentId),
     );
   }
 

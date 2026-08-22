@@ -1035,3 +1035,43 @@ describe('two drafts against one packed balance (audit 20)', () => {
     expect(stillDraft.body.syncState).not.toBe('QUEUED');
   });
 });
+
+describe('an order’s invoices, listed (audit 22)', () => {
+  /**
+   * The source filter was applied to the page after it came back, so asking
+   * for one order's invoices returned whichever of the first pageful
+   * belonged to it, above a total that counted only those.
+   */
+  it('filters and counts across the whole set rather than the page', async () => {
+    const mine = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '3', rate: '4000' }] },
+    });
+    const orderId6 = mine.body.id;
+    const lineId6 = mine.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderId6}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderId6}/picks`, { token: salesToken, body: { lines: [{ lineId: lineId6, quantity: '3' }] } });
+    await harness.post(`/sales/orders/${orderId6}/packs`, { token: salesToken, body: { lines: [{ lineId: lineId6, quantity: '3' }] } });
+    // Three invoices against this order, one unit each.
+    for (const _ of [1, 2, 3]) {
+      const raised = await harness.post<SalesDocumentView>(`/sales/orders/${orderId6}/invoices`, {
+        token: salesToken,
+        body: { lines: [{ lineId: lineId6, quantity: '1' }] },
+      });
+      expect(raised.status).toBe(201);
+    }
+
+    const whole = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=1&pageSize=50`, { token: salesToken });
+    expect(whole.body.meta.total).toBe(3);
+    expect(whole.body.data).toHaveLength(3);
+    expect(whole.body.data.every((d) => d.sourceDocumentId === orderId6)).toBe(true);
+
+    // One a page: the total is still three, and page two is reachable.
+    const firstPage = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=1&pageSize=1`, { token: salesToken });
+    expect(firstPage.body.data).toHaveLength(1);
+    expect(firstPage.body.meta.total).toBe(3);
+    const thirdPage = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=3&pageSize=1`, { token: salesToken });
+    expect(thirdPage.body.data).toHaveLength(1);
+    expect(thirdPage.body.data[0]?.sourceDocumentId).toBe(orderId6);
+  });
+});

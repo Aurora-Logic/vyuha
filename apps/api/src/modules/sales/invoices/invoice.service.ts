@@ -107,12 +107,17 @@ export class InvoiceService implements OnModuleInit {
       status: query.status,
       syncState: query.syncState,
       partyId: query.partyId,
+      // Filtered in the query rather than over the page that came back. It
+      // used to be applied afterwards, so asking for one order's invoices
+      // returned whichever of the first twenty belonged to it -- above a
+      // total that counted only those, so a short list and a small number
+      // agreed with each other and both were wrong.
+      sourceDocumentId: query.sourceDocumentId,
       sort: parseSortSafe(query.sort),
       limit,
       offset,
     });
-    const filtered = query.sourceDocumentId === undefined ? rows : rows.filter((r) => r.sourceDocumentId === query.sourceDocumentId);
-    return paginated(filtered, query, query.sourceDocumentId === undefined ? total : filtered.length);
+    return paginated(rows, query, total);
   }
 
   async find(principal: Principal, id: string): Promise<SalesDocumentView> {
