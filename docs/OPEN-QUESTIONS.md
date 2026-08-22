@@ -462,3 +462,40 @@ expectation as a one-line update. Not touched here because it is another
 developer's in-flight feature and a security control is the wrong place for
 a guess.
 
+## Corrections came back in the merge, against a decision in writing (23 Aug 2026)
+
+**Not mine, and nothing has been changed either way.**
+
+`docs/05-decisions.md` line 84 and `PENDING.md` row A-01 record that
+corrections and on-duty requests were removed as employee-raised features on
+21 August, with `regularization.raise` and `regularization.approve` deleted
+from the catalogue. Open requests stay decidable in Approvals by whoever may
+edit attendance, which is exactly what `packages/shared/src/approval-keys.ts`
+still declares:
+
+    regularization: { act: [PERMISSIONS.ATTENDANCE_EDIT], ... }
+
+On 22 August, `46cba6d` ("fix(merge): restore regularization permissions
+dropped by phase-6a") read that deletion as a merge accident and put both
+keys back into `permissions.ts`, and `3d6ec5d` re-added the feature itself.
+
+The two halves now disagree. Operations holds `regularization.approve` but
+the approval catalogue asks for `attendance.edit`, so **16 tests across
+`regularization.endpoints.test.ts` and `punch.endpoints.test.ts` fail** with
+"You do not hold the permission that decides this kind of request."
+
+Left alone deliberately: reverting would destroy a colleague's in-flight
+feature, and keeping it contradicts a decision the repository states in two
+places. This is a product call, not a merge repair.
+
+**Recommended default — the 21 August decision stands.** Delete the two keys
+from `permissions.ts` again, drop `REGULARIZATION_APPROVE` from the
+Operations set, and have an `attendance.edit` holder decide in those tests.
+If the feature is wanted back instead, `approval-keys.ts` gets
+`REGULARIZATION_APPROVE` in `act` -- and then A-01 and decision 84 need
+rewriting, because the repository currently asserts both things at once.
+
+One consequence to note either way: commit `109421a` corrected two role
+expectations to include `regularization.raise`, because that is what the
+code returns today. If the key is deleted again, those two expectations go
+back to three keys.
