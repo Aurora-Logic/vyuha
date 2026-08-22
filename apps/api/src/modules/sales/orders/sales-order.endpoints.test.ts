@@ -891,3 +891,49 @@ describe('the accountant’s reminder (12 REQ-AA-15)', () => {
     }
   });
 });
+
+describe('the same item on two lines (audit 4)', () => {
+  /**
+   * An order can carry one item twice -- the same goods at two rates, or for
+   * two delivery dates. The in-flight preview used to total the invoice's
+   * lines by item and hand the whole of it to the first order line that
+   * matched, so line one read as invoiced for both and line two as untouched,
+   * which is not what acceptance goes on to write.
+   */
+  it('spreads what is in flight across the lines the way acceptance will', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: {
+        partyId,
+        lines: [
+          { stockItemId: cableId, quantity: '6', rate: '4000' },
+          { stockItemId: cableId, quantity: '4', rate: '3800' },
+        ],
+      },
+    });
+    expect(created.status).toBe(201);
+    const orderId2 = created.body.id;
+    const [first, second] = created.body.lines;
+    await harness.post(`/sales/orders/${orderId2}/confirm`, { token: salesToken });
+    for (const step of ['picks', 'packs'] as const) {
+      const moved = await harness.post(`/sales/orders/${orderId2}/${step}`, {
+        token: salesToken,
+        body: { lines: [{ lineId: first?.id ?? '', quantity: '6' }, { lineId: second?.id ?? '', quantity: '4' }] },
+      });
+      expect(moved.status).toBe(201);
+    }
+
+    const invoice = await harness.post<SalesDocumentView>(`/sales/orders/${orderId2}/invoices`, { token: salesToken, body: {} });
+    expect(invoice.status).toBe(201);
+    expect(invoice.body.lines.map((l) => l.quantity)).toEqual(['6.000', '4.000']);
+    const confirmed = await harness.post<SalesDocumentView>(`/sales/invoices/${invoice.body.id}/confirm`, { token: salesToken });
+    expect(confirmed.status).toBe(200);
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderId2}`, { token: salesToken });
+    // Six against the line that holds six, four against the line that holds
+    // four. The old preview said ten and nought.
+    expect(order.body.lines.map((l) => l.invoicingQty)).toEqual(['6.000', '4.000']);
+    // And no line is shown as spoken for beyond what it has packed.
+    expect(order.body.lines.every((l) => Number(l.invoicingQty) <= Number(l.packedQty))).toBe(true);
+  });
+});

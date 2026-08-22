@@ -197,18 +197,35 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     const inFlight =
       this.docType === 'SALES_ORDER'
         ? await this.db.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
-            SELECT il.stock_item_id, il.description, sum(il.quantity)::text AS quantity
+            SELECT il.stock_item_id, il.description, il.quantity::text AS quantity
               FROM sales_documents inv JOIN sales_document_lines il ON il.document_id = inv.id AND il.deleted_at IS NULL
              WHERE inv.org_id = ${this.ctx.orgId} AND inv.doc_type = 'INVOICE' AND inv.source_document_id = ${id}
                AND inv.status = 'CONFIRMED' AND inv.sync_state <> 'PUSHED' AND inv.deleted_at IS NULL
                AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.invoice_document_id = inv.id)
-             GROUP BY il.stock_item_id, il.description
+             ORDER BY inv.created_at, inv.id, il.line_no
           `)
         : { rows: [] };
+    // Assigned the way acceptance assigns (invoice.service.ts): each invoice
+    // line goes to the lowest-numbered order line that matches and still has
+    // packed quantity left to invoice, capped at what that line can hold.
+    //
+    // The preview used to sum the invoice lines by item and hand the total to
+    // the first order line that matched. An order with the same item on two
+    // lines -- the same goods at two rates, or for two dates -- showed all of
+    // it against line one, which then read as over-invoiced while line two
+    // read as untouched, and the screen disagreed with what acceptance would
+    // actually write.
     const invoicingByLine = new Map<string, number>();
     for (const row of inFlight.rows) {
-      const target = lines.find((line) => (row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description);
-      if (target !== undefined) invoicingByLine.set(target.id, (invoicingByLine.get(target.id) ?? 0) + Number(row.quantity));
+      const spokenFor = (line: typeof lines[number]): number => Number(line.invoicedQty) + (invoicingByLine.get(line.id) ?? 0);
+      const target = lines.find(
+        (line) =>
+          ((row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description) &&
+          Number(line.packedQty) > spokenFor(line),
+      );
+      if (target === undefined) continue;
+      const capacity = Number(target.packedQty) - spokenFor(target);
+      invoicingByLine.set(target.id, (invoicingByLine.get(target.id) ?? 0) + Math.min(Number(row.quantity), capacity));
     }
     const invoices =
       this.docType === 'SALES_ORDER'
