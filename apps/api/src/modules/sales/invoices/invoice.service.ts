@@ -179,6 +179,42 @@ export class InvoiceService implements OnModuleInit {
   }
 
   /**
+   * The order still has room for this invoice.
+   *
+   * A draft has not happened, so it does not appear in any other draft's
+   * in-flight figure: two drafts could be raised against the same packed
+   * balance, and nothing looked again when each was confirmed. Both pushed,
+   * and the customer was billed twice for one dispatch.
+   *
+   * Checked here because confirming is the moment of no return -- the
+   * voucher is queued immediately afterwards. Compared per item rather than
+   * per line, which is the question being asked: is there this much of it
+   * packed and not yet spoken for.
+   */
+  private async assertStillCovered(principal: Principal, invoice: SalesDocumentView, orderId: string): Promise<void> {
+    const orders = new EstimateRepository(this.db, orgContextOf(principal), 'SALES_ORDER');
+    const order = await orders.view(this.scope(principal), orderId);
+    if (order === null) throw AppError.notFound('Sales order', orderId);
+    const remaining = new Map<string, number>();
+    for (const line of order.lines) {
+      const key = line.stockItemId ?? line.description;
+      const free = Number(line.packedQty) - Number(line.invoicedQty) - Number(line.invoicingQty);
+      remaining.set(key, (remaining.get(key) ?? 0) + Math.max(free, 0));
+    }
+    for (const line of invoice.lines) {
+      const key = line.stockItemId ?? line.description;
+      const left = remaining.get(key) ?? 0;
+      if (Number(line.quantity) > left + 1e-9) {
+        throw AppError.conflict(
+          `${invoice.number} covers ${line.quantity} of ${line.description}, but ${order.number} has only ${left.toFixed(3)} packed and uninvoiced -- ` +
+            'another invoice has taken it. Delete this draft and raise it again from what is left.',
+        );
+      }
+      remaining.set(key, left - Number(line.quantity));
+    }
+  }
+
+  /**
    * Confirming is the moment the invoice exists: the order's lines advance
    * invoiced_qty by what this invoice covers (matched by line order against
    * the order's lines with a packed balance), the link row is written with
@@ -196,6 +232,7 @@ export class InvoiceService implements OnModuleInit {
     const invoice = await this.find(principal, id);
     if (invoice.status !== 'DRAFT') throw AppError.conflict(`${invoice.number} is already ${invoice.status.toLowerCase()}.`);
     if (invoice.sourceDocumentId === null) throw AppError.conflict(`${invoice.number} is not against an order.`);
+    await this.assertStillCovered(principal, invoice, invoice.sourceDocumentId);
     await this.db.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
     await this.enqueuePush(principal, id);
     this.auditContext.record({ action: 'sales.invoice.confirmed', entityType: 'sales_document', entityId: id, before: null, after: { orderId: invoice.sourceDocumentId } });

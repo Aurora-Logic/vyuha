@@ -994,3 +994,44 @@ describe('altering an order that is already being fulfilled (audit 19)', () => {
     expect(altered.body.lines[0]?.quantity).toBe('9.000');
   });
 });
+
+describe('two drafts against one packed balance (audit 20)', () => {
+  /**
+   * A draft has not happened, so it does not appear in any other draft's
+   * in-flight figure. Two drafts could be raised from the same packed
+   * balance, and confirming looked at nothing: both queued a Sales voucher
+   * and the customer was billed twice for one dispatch.
+   */
+  it('lets the second one be raised, and refuses to confirm it', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '4', rate: '4000' }] },
+    });
+    const orderId5 = created.body.id;
+    const lineId5 = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderId5}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderId5}/picks`, { token: salesToken, body: { lines: [{ lineId: lineId5, quantity: '4' }] } });
+    await harness.post(`/sales/orders/${orderId5}/packs`, { token: salesToken, body: { lines: [{ lineId: lineId5, quantity: '4' }] } });
+
+    const first = await harness.post<SalesDocumentView>(`/sales/orders/${orderId5}/invoices`, { token: salesToken, body: {} });
+    const second = await harness.post<SalesDocumentView>(`/sales/orders/${orderId5}/invoices`, { token: salesToken, body: {} });
+    // Both drafts exist: neither has happened, so neither hides the balance
+    // from the other. That much is not the defect.
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.lines[0]?.quantity).toBe('4.000');
+    expect(second.body.lines[0]?.quantity).toBe('4.000');
+
+    const confirmedFirst = await harness.post<SalesDocumentView>(`/sales/invoices/${first.body.id}/confirm`, { token: salesToken });
+    expect(confirmedFirst.status).toBe(200);
+
+    const refused = await harness.post<ErrorBody>(`/sales/invoices/${second.body.id}/confirm`, { token: salesToken });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('another invoice has taken it');
+
+    // And it is still a draft with no voucher queued behind it.
+    const stillDraft = await harness.get<SalesDocumentView>(`/sales/invoices/${second.body.id}`, { token: salesToken });
+    expect(stillDraft.body.status).toBe('DRAFT');
+    expect(stillDraft.body.syncState).not.toBe('QUEUED');
+  });
+});
