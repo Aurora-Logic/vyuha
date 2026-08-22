@@ -40,21 +40,28 @@ failure recorded in its commit message.
 
 | # | Where | What is wrong | Status |
 |---|---|---|---|
-| 19 | `api:…/estimate.repository.ts` | Alter is dead once picking starts: hard delete hits a RESTRICT FK and returns a bare 500 | Open |
-| 20 | `api:…/invoice.service.ts` | Two drafts can invoice the same packed balance, and both push | Open |
-| 21 | `api:…/dispatch.service.ts` | Free-of-charge lines have no database ceiling on `dispatched_qty` | Open |
-| 8 | `api:…/return.service.ts` | The same line named twice in one receipt bypasses the dispatched ceiling | Open |
-| 27 | `web:features/sales/types.ts` | Web schema drops `freeOfCharge`, so a free replacement can never be dispatched from the UI | Open |
-| 49 | `api:…/estimate.repository.ts` | Editing a replacement's lines clears the free-of-charge mark | Open |
-| 9 | `api:…/collections.service.ts` | Promise state filtered after `LIMIT/OFFSET` — wrong rows and wrong total | Open |
-| 10 | `api:…/collections.service.ts` | `kept` is absorbing: a receipt later cancelled in Tally leaves it wrong | Open |
-| 23 | `api:…/sales-order.service.ts` | `push()` always sends `remoteGuid: null`, risking a duplicate voucher after a rejected alter | Open |
-| 24 | `api:platform/sync/sync-agent.service.ts` | A FAILED push never tells the document, which stays `QUEUED` for ever | Open |
-| 25 | `api:platform/sync/push-queue.service.ts` | Picks the oldest agent connection rather than the document's | Open |
-| 11, 12 | `api:…/purchase-order.service.ts` | Allocation races on a stale snapshot and is never capped by outstanding | Open |
-| 22 | `api:…/invoice.service.ts` | `sourceDocumentId` filtered in JavaScript after paging | Open |
-| 5 | `api:platform/files/file.service.ts` | Retention purges at most 500 a week; an org creating more never catches up | Open |
-| 35 | `api:…/analytics-report.source.ts` | Rounding and tax-split details: CGST/SGST halving, `formatAmount` truncating | Lead |
+| 19 | `api:…/estimate.repository.ts` | Alter is dead once picking starts: hard delete hits a RESTRICT FK and returns a bare 500 | Fixed `39adb4f` |
+| 20 | `api:…/invoice.service.ts` | Two drafts can invoice the same packed balance, and both push | Fixed `7c45fd9` |
+| 21 | `api:…/dispatch.service.ts` | Free-of-charge lines have no database ceiling on `dispatched_qty` | Fixed `78277da` |
+| 8 | `api:…/return.service.ts` | The same line named twice in one receipt bypasses the dispatched ceiling | Fixed `efa0d7f` |
+| 27 | `web:features/sales/types.ts` | Web schema drops `freeOfCharge`, so a free replacement can never be dispatched from the UI | Fixed `3faa213` |
+| 49 | `api:…/estimate.repository.ts` | Editing a replacement's lines clears the free-of-charge mark | Fixed `3faa213` |
+| 9 | `api:…/collections.service.ts` | Promise state filtered after `LIMIT/OFFSET` — wrong rows and wrong total | Fixed `764c109` |
+| 10 | `api:…/collections.service.ts` | `kept` is absorbing: a receipt later cancelled in Tally leaves it wrong | Fixed `764c109` |
+| 23 | `api:…/sales-order.service.ts` | `push()` always sends `remoteGuid: null`, risking a duplicate voucher after a rejected alter | Fixed `aab4d86` |
+| 24 | `api:platform/sync/sync-agent.service.ts` | A FAILED push never tells the document, which stays `QUEUED` for ever | Fixed `4c051cc` |
+| 25 | `api:platform/sync/push-queue.service.ts` | Picks the oldest agent connection rather than the document's | Fixed `703fdc0` |
+| 11, 12 | `api:…/purchase-order.service.ts` | Allocation races on a stale snapshot and is never capped by outstanding | Fixed `ebe0063` |
+| 22 | `api:…/invoice.service.ts` | `sourceDocumentId` filtered in JavaScript after paging | Fixed `701a50f` |
+| 5 | `api:platform/files/file.service.ts` | Retention purges at most 500 a week; an org creating more never catches up | Fixed `b935b16` |
+| 35 | `api:…/analytics-report.source.ts` | Rounding and tax-split details: CGST/SGST halving, `formatAmount` truncating | Lead (with P3) |
+
+**P2 is closed.** Every fix was run against the pre-fix source first and the
+failure recorded in its commit message. Fixing them turned up four defects the
+audit had not named: an alter that returned 200 with nothing sent to Tally, a
+failed enqueue that erased the fact a document was already in Tally, the
+`last_order_at` figures that carried no status condition at all, and the
+item-group label that failed even once its table was joined.
 
 ## P3 — 42 leads, unverified
 
