@@ -937,3 +937,60 @@ describe('the same item on two lines (audit 4)', () => {
     expect(order.body.lines.every((l) => Number(l.invoicingQty) <= Number(l.packedQty))).toBe(true);
   });
 });
+
+describe('altering an order that is already being fulfilled (audit 19)', () => {
+  /**
+   * An alter replaces the lines, which deletes them. Once picking has begun
+   * those rows are referenced by pick_records under a RESTRICT foreign key,
+   * so the delete failed inside the database and the caller was handed a
+   * bare 500 with nothing to act on.
+   */
+  it('refuses with what is in the way instead of dying in the database', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '5', rate: '4000' }] },
+    });
+    const orderId3 = created.body.id;
+    const lineId3 = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderId3}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderId3}/picks`, { token: salesToken, body: { lines: [{ lineId: lineId3, quantity: '2' }] } });
+    // The alter path is only open to an order Tally has accepted.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-alter-picked', remote_voucher_number = '901' WHERE id = ${orderId3}
+    `);
+
+    const refused = await harness.post<ErrorBody>(`/sales/orders/${orderId3}/alter`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, quantity: '9', rate: '4000' }] },
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('being fulfilled');
+    expect(refused.body.error.message).toContain('short-close');
+
+    // And it changed nothing: the line, its quantity and its picked quantity all stand.
+    const after = await harness.get<SalesDocumentView>(`/sales/orders/${orderId3}`, { token: salesToken });
+    expect(after.body.lines).toHaveLength(1);
+    expect(after.body.lines[0]?.id).toBe(lineId3);
+    expect(after.body.lines[0]?.quantity).toBe('5.000');
+    expect(after.body.lines[0]?.pickedQty).toBe('2.000');
+  });
+
+  it('still alters an order nothing has moved on', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '5', rate: '4000' }] },
+    });
+    const orderId4 = created.body.id;
+    await harness.post(`/sales/orders/${orderId4}/confirm`, { token: salesToken });
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-alter-clean', remote_voucher_number = '902' WHERE id = ${orderId4}
+    `);
+
+    const altered = await harness.post<SalesDocumentView>(`/sales/orders/${orderId4}/alter`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, quantity: '9', rate: '4000' }] },
+    });
+    expect(altered.status).toBe(200);
+    expect(altered.body.lines[0]?.quantity).toBe('9.000');
+  });
+});

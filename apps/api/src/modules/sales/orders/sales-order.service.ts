@@ -439,6 +439,24 @@ export class SalesOrderService implements OnModuleInit {
     if (existing.status !== 'CONFIRMED' || existing.syncState !== 'PUSHED' || existing.remoteGuid === null) {
       throw AppError.conflict(`${existing.number} is not in Tally; edit it as a draft, or push it first.`);
     }
+    // Replacing the lines deletes them, and a line that has been picked is
+    // referenced by pick_records, packs and dispatches under a RESTRICT
+    // foreign key -- so the alter died inside the database and the caller got
+    // a bare 500 with nothing to act on. Say what is in the way. An order
+    // nothing has moved on alters as it always did.
+    if (input.lines !== undefined) {
+      const moved = existing.lines.filter(
+        (line) => Number(line.pickedQty) > 0 || Number(line.packedQty) > 0 || Number(line.invoicedQty) > 0 || Number(line.dispatchedQty) > 0,
+      );
+      if (moved.length > 0) {
+        throw AppError.conflict(
+          `${existing.number} is being fulfilled: ${moved.map((line) => line.description).join(', ')} ` +
+            `${moved.length === 1 ? 'has' : 'have'} already been picked, packed or invoiced. ` +
+            'Dispatch what is packed or short-close the order before altering its lines.',
+          { details: { lines: moved.map((line) => ({ lineId: line.id, description: line.description, pickedQty: line.pickedQty, packedQty: line.packedQty, dispatchedQty: line.dispatchedQty })) } },
+        );
+      }
+    }
     const edited = await this.applyEdit(principal, existing, input, 'sales.order.altered');
     this.assertAboveFloor(edited.lines);
     await this.enqueuePush(principal, edited, true);
