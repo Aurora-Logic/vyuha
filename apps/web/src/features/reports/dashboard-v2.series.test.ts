@@ -12,6 +12,7 @@ import {
   paymentSlippage,
   pendingByAge,
   revenueAndBasket,
+  quietRevenue,
   revenueAtRisk,
   seasonality,
   stockAgeing,
@@ -289,6 +290,43 @@ describe('revenueAtRisk', () => {
 
   it('has a sentence when nobody has gone quiet', () => {
     expect(revenueAtRisk([]).insight).toBe('No customer has gone quiet in this period.');
+  });
+
+  it('leaves customers buying on rhythm out of the at-risk slice', () => {
+    const series = revenueAtRisk([
+      row({ state: 'LAPSED', revenue12m: '100' }),
+      row({ state: 'AT_RISK', revenue12m: '50' }),
+      row({ state: 'ON_RHYTHM', revenue12m: '900' }),
+    ]);
+    // The healthy customer's 900 used to land in "At risk", which put the
+    // best customer on the report of the ones being lost.
+    expect(series.points).toEqual([
+      { label: 'Lapsed', value: 100 },
+      { label: 'At risk', value: 50 },
+    ]);
+    expect(series.insight).toBe('1 of 2 quiet customers have stopped buying altogether.');
+  });
+
+  it('a report of nothing but healthy customers has nobody quiet', () => {
+    const series = revenueAtRisk([row({ state: 'ON_RHYTHM', revenue12m: '900' })]);
+    expect(series.points).toEqual([]);
+    expect(series.insight).toBe('No customer has gone quiet in this period.');
+  });
+});
+
+describe('quietRevenue', () => {
+  it('adds up only the customers who have gone quiet', () => {
+    expect(
+      quietRevenue([
+        row({ state: 'LAPSED', revenue12m: '100' }),
+        row({ state: 'AT_RISK', revenue12m: '50' }),
+        row({ state: 'ON_RHYTHM', revenue12m: '900' }),
+      ]),
+    ).toBe(150);
+  });
+
+  it('is zero when every customer is on rhythm', () => {
+    expect(quietRevenue([row({ state: 'ON_RHYTHM', revenue12m: '900' })])).toBe(0);
   });
 });
 

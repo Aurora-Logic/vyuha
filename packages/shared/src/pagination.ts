@@ -27,6 +27,13 @@ export interface PageMeta {
   page: number;
   pageSize: number;
   total: number;
+  /**
+   * Sums over the whole report rather than the page, for the few figures that
+   * are only true whole: a headline tile that adds up one page of two hundred
+   * rows states a number belonging to nobody. Absent unless the report
+   * declares one.
+   */
+  totals?: Readonly<Record<string, string>>;
 }
 
 export interface CursorMeta {

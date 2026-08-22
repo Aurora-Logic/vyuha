@@ -662,6 +662,46 @@ describe('comparison flows into the exported file (data-analyst §3)', () => {
 });
 
 describe('the second analytics set (owner, 22 Aug 2026)', () => {
+  it('a headline total is the whole report, not whatever the page held', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)
+      VALUES (${ORG_ID}, ${connectionId}, 'Whole A', 'Sundry Debtors', 100000),
+             (${ORG_ID}, ${connectionId}, 'Whole B', 'Sundry Debtors', 100000)
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+      SELECT ${ORG_ID}, ${connectionId}, '2026-08-15', 'Sales', 'WH-' || p.name, p.name, p.id, false, '500.00'
+        FROM parties p WHERE p.org_id = ${ORG_ID} AND p.name IN ('Whole A', 'Whole B')
+    `);
+
+    type Body = { data: { exposure: string }[]; meta: { total: number; totals?: Record<string, string> } };
+    const all = (await harness.get<Body>('/reports/credit-cycle/rows?page=1&pageSize=200', { token: adminToken })).body;
+    const one = (await harness.get<Body>('/reports/credit-cycle/rows?page=1&pageSize=1', { token: adminToken })).body;
+
+    expect(one.data).toHaveLength(1);
+    // The same figure whichever slice was asked for: it is the report's.
+    expect(one.meta.totals?.exposure).toBe(all.meta.totals?.exposure);
+    const whole = Number(all.meta.totals?.exposure ?? '0');
+    expect(whole).toBeCloseTo(
+      all.data.reduce((running, row) => running + Number(row.exposure), 0),
+      2,
+    );
+    // And it is not the one row the caller was given, which is what the
+    // dashboard tile used to add up.
+    expect(Number(one.data[0]?.exposure ?? '0')).toBeLessThan(whole);
+  });
+
+  it('the quiet-revenue total leaves out customers still buying on rhythm', async () => {
+    type Body = { data: { state: string; revenue12m: string }[]; meta: { totals?: Record<string, string> } };
+    const lapse = (await harness.get<Body>('/reports/customer-lapse/rows?page=1&pageSize=200', { token: adminToken })).body;
+    const quiet = lapse.data.filter((row) => row.state !== 'ON_RHYTHM');
+    expect(lapse.meta.totals?.revenue12m).toBeDefined();
+    expect(Number(lapse.meta.totals?.revenue12m ?? '-1')).toBeCloseTo(
+      quiet.reduce((running, row) => running + Number(row.revenue12m), 0),
+      2,
+    );
+  });
+
   it('credit breaches count each party its own releases, not the whole organisation', async () => {
     // Two customers over their limit; one had an order released, the other
     // never did. The count is the column's whole point -- a party released

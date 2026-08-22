@@ -404,8 +404,13 @@ export interface LapseSplit {
 
 /** Last year's revenue whose customer has gone quiet. */
 export function revenueAtRisk(rows: readonly ReportRowView[]): Series<LapseSplit> {
+  // The report carries three states and only two of them are quiet. Reading
+  // "at risk" as everything that is not lapsed put every customer buying
+  // exactly on rhythm into the at-risk slice, and made the sentence beneath
+  // it count them as quiet too.
   const lapsed = rows.filter((row) => text(row, 'state') === 'LAPSED');
-  const atRisk = rows.filter((row) => text(row, 'state') !== 'LAPSED');
+  const atRisk = rows.filter((row) => text(row, 'state') === 'AT_RISK');
+  const quiet = lapsed.length + atRisk.length;
   const points = [
     { label: 'Lapsed', value: sum(lapsed.map((row) => num(row, 'revenue12m'))) },
     { label: 'At risk', value: sum(atRisk.map((row) => num(row, 'revenue12m'))) },
@@ -414,10 +419,15 @@ export function revenueAtRisk(rows: readonly ReportRowView[]): Series<LapseSplit
   return {
     points,
     insight:
-      rows.length === 0
+      quiet === 0
         ? 'No customer has gone quiet in this period.'
-        : `${String(lapsed.length)} of ${String(rows.length)} quiet customers have stopped buying altogether.`,
+        : `${String(lapsed.length)} of ${String(quiet)} quiet customers have stopped buying altogether.`,
   };
+}
+
+/** The last twelve months' revenue of customers who have actually gone quiet. */
+export function quietRevenue(rows: readonly ReportRowView[]): number {
+  return sum(rows.filter((row) => text(row, 'state') !== 'ON_RHYTHM').map((row) => num(row, 'revenue12m')));
 }
 
 // ------------------------------------------------------- 12. credit headroom

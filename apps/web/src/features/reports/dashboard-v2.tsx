@@ -288,9 +288,18 @@ export function ReportsDashboardV2() {
 
   // The six headline figures. Sums of the same rows the charts below draw, so
   // a tile and the chart under it can never disagree.
-  const totalExposure = series.sumColumn(credit.data?.data ?? [], 'exposure');
-  const quietRevenue = series.sumColumn(quiet.data?.data ?? [], 'revenue12m');
-  const deadValue = series.sumColumn(dead.data?.data ?? [], 'valueLocked');
+  // A tile states a figure for the whole report, so it reads the total the
+  // server sums over every row -- adding up the two hundred rows a page
+  // carries, beneath a caption naming every debtor there is, stated a number
+  // belonging to nobody. The page sum remains the fallback for a response
+  // that predates the total.
+  const wholeReport = (meta: { totals?: Readonly<Record<string, string>> } | undefined, key: string, fallback: number): number => {
+    const stated = meta?.totals?.[key];
+    return stated === undefined ? fallback : Number(stated);
+  };
+  const totalExposure = wholeReport(credit.data?.meta, 'exposure', series.sumColumn(credit.data?.data ?? [], 'exposure'));
+  const quietRevenue = wholeReport(quiet.data?.meta, 'revenue12m', series.quietRevenue(quiet.data?.data ?? []));
+  const deadValue = wholeReport(dead.data?.meta, 'valueLocked', series.sumColumn(dead.data?.data ?? [], 'valueLocked'));
 
   const stateOf = (
     query: { isPending: boolean; isError: boolean },

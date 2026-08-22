@@ -158,7 +158,24 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
       SELECT * FROM (${this.body(key, principal.orgId, usable)}) t ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
     `);
     const page: AnalyticsPage = { key, total, rows: rows.rows.map((row) => ({ ...row, asOf })) };
-    return page;
+    const summable = SUMMABLE[key];
+    if (summable === undefined) return page;
+    return { ...page, totals: await this.sumWholeReport(key, principal.orgId, usable, summable) };
+  }
+
+  /**
+   * A figure that is only true whole. A dashboard tile that adds up the two
+   * hundred rows it was given, under a caption naming every row there is,
+   * states a number belonging to nobody -- so the few columns a headline
+   * quotes are summed over the report itself.
+   */
+  private async sumWholeReport(key: ReportKey, orgId: string, filters: ReportFilters, fields: readonly string[]): Promise<Record<string, string>> {
+    const sums = fields.map((field) => sql`round(COALESCE(sum((t.${sql.identifier(field)})::numeric), 0), 2)::text AS ${sql.identifier(field)}`);
+    const row = await this.db.execute<Record<string, string>>(sql`
+      SELECT ${sql.join(sums, sql`, `)} FROM (${this.body(key, orgId, filters)}) t
+    `);
+    const first = row.rows[0];
+    return Object.fromEntries(fields.map((field) => [field, first?.[field] ?? '0']));
   }
 
   cells(page: ReportSourcePage, index: number, columns: readonly ReportColumnSpec[]): ReportCellValue[] {
@@ -814,6 +831,11 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
 }
 
 /** Sortable fields per report, whitelisted into fragments. */
+/** The columns a headline quotes, which are therefore summed over the whole report. */
+const SUMMABLE: Partial<Record<ReportKey, readonly string[]>> = {
+  'dead-stock': ['valueLocked'],
+};
+
 const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
   // A Pareto sorts by rank and nothing else; the running total is only true
   // in that order.
