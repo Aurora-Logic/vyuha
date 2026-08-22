@@ -505,7 +505,8 @@ export class PurchaseOrderService implements OnModuleInit {
       for (const allocation of input.allocations) {
         const pending = grn.pendingAllocations.find((p) => p.waiting.some((w) => w.requirementId === allocation.requirementId));
         if (pending === undefined) throw AppError.validation('That requirement is not waiting on this receipt.', { requirementId: allocation.requirementId });
-        if (Number(allocation.quantity) > Number(pending.unallocatedQty) + 1e-9) throw AppError.validation(`Only ${pending.unallocatedQty} of ${pending.stockItemName} is left to allocate.`, { requirementId: allocation.requirementId });
+        // How much is left is read inside the transaction, not from the
+        // snapshot this request was built against -- see `allocate`.
         await this.allocate(tx, principal, grnId, pending.purchaseOrderLineId, allocation.requirementId, allocation.quantity);
       }
     });
@@ -514,6 +515,38 @@ export class PurchaseOrderService implements OnModuleInit {
   }
 
   private async allocate(tx: Transaction, principal: Principal, grnId: string, purchaseOrderLineId: string, requirementId: string, quantity: string): Promise<void> {
+    /*
+     * Two ceilings, both read here with the rows locked rather than from the
+     * view the caller was looking at.
+     *
+     * The receipt's own: what arrived on this line, less everything already
+     * allocated from it. Two people allocating at once each read the whole
+     * receipt as free and both spent it, and so did one request naming the
+     * same line twice -- the snapshot was taken before the loop began and
+     * never moved as the loop allocated.
+     *
+     * And the requirement's: what this order is still waiting for on this
+     * line. Nothing capped that at all, so a requirement short by three could
+     * be allocated ten and read as received, with the seven belonging to
+     * whoever else was waiting quietly taken.
+     */
+    const room = await tx.execute<{ line_free: string; requirement_left: string; item: string }>(sql`
+      SELECT (pl.received_qty - COALESCE((SELECT sum(x.allocated_qty) FROM po_line_requirements x WHERE x.purchase_order_line_id = pl.id), 0))::text AS line_free,
+             (plr.quantity - plr.allocated_qty)::text AS requirement_left,
+             pl.description AS item
+        FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id
+       WHERE plr.purchase_order_line_id = ${purchaseOrderLineId} AND plr.requirement_id = ${requirementId}
+       FOR UPDATE OF plr, pl
+    `);
+    const room0 = room.rows[0];
+    if (room0 === undefined) throw AppError.validation('That requirement is not waiting on this receipt.', { requirementId });
+    const asked = Number(quantity);
+    if (asked > Number(room0.line_free) + 1e-9) {
+      throw AppError.validation(`Only ${Number(room0.line_free).toFixed(3)} of ${room0.item} is left to allocate.`, { requirementId });
+    }
+    if (asked > Number(room0.requirement_left) + 1e-9) {
+      throw AppError.validation(`That order is waiting for only ${Number(room0.requirement_left).toFixed(3)} of ${room0.item}.`, { requirementId });
+    }
     await tx.execute(sql`UPDATE po_line_requirements SET allocated_qty = allocated_qty + ${quantity}::numeric WHERE purchase_order_line_id = ${purchaseOrderLineId} AND requirement_id = ${requirementId}`);
     const updated = await tx.execute<{ sales_order_id: string | null; stock_item_id: string; state: string; received: string; quantity: string }>(sql`
       UPDATE procurement_requirements SET received_qty = received_qty + ${quantity}::numeric,

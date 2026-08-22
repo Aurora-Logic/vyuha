@@ -432,3 +432,84 @@ describe('item settings belong to the organisation that owns the item', () => {
     expect([200, 204]).toContain(ok.status);
   });
 });
+
+describe('the two ceilings on an allocation (audits 11, 12)', () => {
+  /**
+   * How much is left was read from the view the request was built against and
+   * never moved while the request ran. Two allocators looking at the same
+   * screen each saw the whole receipt free and both spent it; so did one
+   * request naming the same requirement twice. And nothing capped an
+   * allocation by what the order was actually waiting for, so a requirement
+   * short by one could be allocated four and read as received, quietly taking
+   * what belonged to whoever else was in the queue.
+   */
+  const lastGrn = async (): Promise<GrnView> => {
+    const row = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM grns WHERE org_id = ${ORG_ID} AND purchase_order_id = ${poId} ORDER BY created_at DESC LIMIT 1
+    `);
+    return (await harness.get<GrnView>(`/purchase/grns/${row.rows[0]?.id ?? ''}`, { token: adminToken })).body;
+  };
+
+  it('refuses the second half of a request that spends the same receipt twice', async () => {
+    // Everything allocated so far is given back, so this GRN's line has room
+    // again and the two requirements are waiting on it.
+    await harness.db.execute(sql`
+      UPDATE po_line_requirements SET allocated_qty = 0
+       WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE purchase_order_id = ${poId})
+    `);
+    await harness.db.execute(sql`
+      UPDATE procurement_requirements SET received_qty = 0, state = 'ordered'
+       WHERE org_id = ${ORG_ID} AND id IN (SELECT requirement_id FROM po_line_requirements
+         WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE purchase_order_id = ${poId}))
+    `);
+    await harness.db.execute(sql`
+      UPDATE purchase_order_lines SET received_qty = 4 WHERE purchase_order_id = ${poId}
+    `);
+
+    const grn = await lastGrn();
+    const pending = grn.pendingAllocations[0];
+    expect(pending?.unallocatedQty).toBe('4.000');
+    const first = pending?.waiting[0]?.requirementId ?? '';
+
+    // Four are free; three and three is six. The snapshot said four was free
+    // for both halves, and both used to be written.
+    const refused = await harness.post<ErrorBody>(`/purchase/grns/${grn.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: first, quantity: '3' }, { requirementId: first, quantity: '3' }] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('left to allocate');
+
+    // The transaction took neither half.
+    const after = await lastGrn();
+    expect(after.pendingAllocations[0]?.unallocatedQty).toBe('4.000');
+  });
+
+  it('refuses more than the order is waiting for, even when the receipt has it', async () => {
+    // One requirement now waits for a single unit while four sit unallocated
+    // on the line: the receipt has room, the order does not.
+    await harness.db.execute(sql`
+      UPDATE po_line_requirements SET quantity = 1, allocated_qty = 0
+       WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE purchase_order_id = ${poId})
+    `);
+    const grn = await lastGrn();
+    const pending = grn.pendingAllocations[0];
+    expect(Number(pending?.unallocatedQty)).toBeGreaterThan(1);
+    const waiting = pending?.waiting[0];
+    expect(waiting?.outstandingQty).toBe('1.000');
+
+    const refused = await harness.post<ErrorBody>(`/purchase/grns/${grn.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '3' }] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('waiting for only');
+
+    // One is taken, which is all it was waiting for.
+    const allowed = await harness.post<GrnView>(`/purchase/grns/${grn.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '1' }] },
+    });
+    expect(allowed.status).toBe(200);
+  });
+});
