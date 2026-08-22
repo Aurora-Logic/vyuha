@@ -224,7 +224,7 @@ describe('the failure path', () => {
       expect(failed?.failedReason).toContain('object store is unreachable');
       expect(spy).toHaveBeenCalledTimes(3);
 
-      const summary = await harness.resolve(JobMonitorService).summary();
+      const summary = await harness.resolve(JobMonitorService).summary(ORG_ID);
       const surfaced = summary.recentFailures.find((failure) => failure.jobId === jobId);
       expect(surfaced).toBeDefined();
       expect(surfaced?.queue).toBe(QUEUES.MAINTENANCE);

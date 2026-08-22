@@ -27,7 +27,7 @@ function recorder(): { handler: JobHandler<'accrue-leave'>; seen: { requestedAt?
     seen,
     handler: {
       jobName: 'accrue-leave',
-      run: (payload) => {
+      run: (payload: unknown) => {
         seen.push(payload as { requestedAt?: string });
         return Promise.resolve({ ok: true });
       },
@@ -38,8 +38,9 @@ function recorder(): { handler: JobHandler<'accrue-leave'>; seen: { requestedAt?
 function runnerWith(handler: JobHandler<'accrue-leave'>): JobRunner {
   const registry = new JobRegistry();
   registry.register(handler);
-  // Only `process` is exercised; the queue and worker plumbing is not touched.
-  return new JobRunner(registry) as JobRunner;
+  // Only `process` is exercised, so the fallback runner is never reached; the
+  // queue and worker plumbing is not touched either.
+  return new JobRunner(registry, null as never);
 }
 
 /** A BullMQ job as the worker receives one. `repeatJobKey` is what marks it scheduled. */
@@ -85,5 +86,37 @@ describe('a scheduled job reads the clock of its own occurrence', () => {
     const { handler, seen } = recorder();
     await runnerWith(handler).process(jobLike({ data: { orgId: 'o1' }, repeatJobKey: 'maintenance:accrue-leave' }));
     expect(seen[0]).toEqual({ orgId: 'o1' });
+  });
+});
+
+/**
+ * One BullMQ deployment holds one set of queues for every organisation on it,
+ * and `GET /jobs` was returning the failed set from all of them: 500
+ * characters of another tenant's failure reason, which is whatever the driver
+ * said — a file key, an address, the value that broke a constraint.
+ *
+ * Four job types carry the organisation they were enqueued for. Those are now
+ * shown only to that organisation; the rest are the deployment's own
+ * maintenance, belong to nobody, and stay visible so an administrator can see
+ * the sweeps failing.
+ */
+describe('the job monitor does not hand one tenant another tenant’s failures', () => {
+  const MINE = '01900000-0000-7000-8000-00000000aaaa';
+  const THEIRS = '01900000-0000-7000-8000-00000000bbbb';
+
+  it('keeps org-less platform jobs and the caller’s own, and counts the rest', () => {
+    // The rule the service applies, stated here so the intent is pinned even
+    // though the service needs Redis to run end to end.
+    const failures = [
+      { orgId: null, jobName: 'purge-expired-files' },
+      { orgId: MINE, jobName: 'export-employee-data' },
+      { orgId: THEIRS, jobName: 'export-employee-data' },
+      { orgId: THEIRS, jobName: 'send-notification' },
+    ];
+    const mine = failures.filter((f) => f.orgId === null || f.orgId === MINE);
+    expect(mine.map((f) => f.jobName)).toEqual(['purge-expired-files', 'export-employee-data']);
+    expect(failures.length - mine.length).toBe(2);
+    // And nothing belonging to the other organisation survives the filter.
+    expect(mine.some((f) => f.orgId === THEIRS)).toBe(false);
   });
 });
