@@ -305,7 +305,7 @@ export class SalesOrderService implements OnModuleInit {
   private async release(principal: Principal, existing: SalesDocumentView): Promise<SalesDocumentView> {
     const repository = this.repository(principal);
     await repository.setStatus(existing.id, 'CONFIRMED');
-    const queued = await this.enqueuePush(principal, { ...existing, status: 'CONFIRMED' }, false);
+    const queued = await this.enqueuePush(principal, { ...existing, status: 'CONFIRMED' });
     const order = await repository.view(SQL_TRUE, existing.id);
     if (order === null) throw AppError.notFound('Sales order', existing.id);
     this.auditContext.record({
@@ -350,7 +350,7 @@ export class SalesOrderService implements OnModuleInit {
     return async () => {
       // The push needs a principal-shaped actor for its audit; the decider is the actor.
       const view = await new EstimateRepository(this.db, { orgId: ctx.orgId, actorUserId: decision.decidedByUserId }, 'SALES_ORDER').view(SQL_TRUE, order.id);
-      if (view !== null) await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId } as Principal, view, false);
+      if (view !== null) await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId } as Principal, view);
       this.auditContext.record({ action: 'sales.order.discount_approved', entityType: 'sales_document', entityId: order.id, before: null, after: { approvalRequestId: decision.approvalRequestId } });
     };
   }
@@ -415,7 +415,7 @@ export class SalesOrderService implements OnModuleInit {
     if (existing.status !== 'CONFIRMED') throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}; confirm it first.`);
     if (existing.syncState === 'PUSHED') throw AppError.conflict(`${existing.number} is already in Tally. Use Alter to change it.`);
     if (existing.syncState === 'QUEUED') throw AppError.conflict(`${existing.number} is already queued for the agent.`);
-    const queued = await this.enqueuePush(principal, existing, false);
+    const queued = await this.enqueuePush(principal, existing);
     if (!queued) {
       throw AppError.conflict('No Tally connection can carry a push: an agent connection with a bound company and an issued token is needed.');
     }
@@ -459,7 +459,11 @@ export class SalesOrderService implements OnModuleInit {
     }
     const edited = await this.applyEdit(principal, existing, input, 'sales.order.altered');
     this.assertAboveFloor(edited.lines);
-    await this.enqueuePush(principal, edited, true);
+    // An alter that queues nothing is an alter that did not happen; saying 200
+    // to it left the edit applied here and never sent to Tally.
+    if (!(await this.enqueuePush(principal, edited))) {
+      throw AppError.conflict(`${existing.number} could not be queued: a push for it is already open, or no Tally connection can carry one.`);
+    }
     const order = await this.repository(principal).view(SQL_TRUE, id);
     if (order === null) throw AppError.notFound('Sales order', id);
     return order;
@@ -520,7 +524,7 @@ export class SalesOrderService implements OnModuleInit {
    * by side while one document can never have two pushes open. The agent
    * renders the XML from the payload; the API never writes Tally XML.
    */
-  private async enqueuePush(principal: Principal, order: SalesDocumentView, alter: boolean): Promise<boolean> {
+  private async enqueuePush(principal: Principal, order: SalesDocumentView): Promise<boolean> {
     const repository = this.repository(principal);
     const payload: VoucherPushPayload = {
       documentId: order.id,
@@ -531,7 +535,13 @@ export class SalesOrderService implements OnModuleInit {
       partyName: order.customerName,
       narration: `${order.notes ?? ''}\nvyuha:${order.number}:${order.id}`.trim(),
       idempotencyKey: `vyuha:${order.id}`,
-      remoteGuid: alter ? order.remoteGuid : null,
+      // Whatever Tally already holds for this document, always. It used to be
+      // sent only from the Alter path, so a rejected alter -- which leaves the
+      // GUID in place and the state FAILED -- followed by Push queued a job
+      // with no GUID at all, and the agent would have created a second
+      // voucher beside the one it was meant to change. A document with no
+      // GUID has never been pushed and this is null, which is the create.
+      remoteGuid: order.remoteGuid,
       lines: order.lines.map((line) => ({
         stockItemName: line.description,
         quantity: line.quantity,
@@ -543,7 +553,10 @@ export class SalesOrderService implements OnModuleInit {
     };
     const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
     if (jobId === null) {
-      await repository.setSync(order.id, { syncState: 'NOT_PUSHED', pushJobId: null });
+      // A document Tally already holds is not "not pushed" merely because a
+      // job could not be queued for it -- writing that would lose the fact
+      // that it is in Tally, and the next push would create a second voucher.
+      if (order.remoteGuid === null) await repository.setSync(order.id, { syncState: 'NOT_PUSHED', pushJobId: null });
       return false;
     }
     await repository.setSync(order.id, { syncState: 'QUEUED', pushJobId: jobId, lastError: null });

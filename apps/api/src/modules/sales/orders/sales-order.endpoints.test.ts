@@ -982,8 +982,13 @@ describe('altering an order that is already being fulfilled (audit 19)', () => {
     });
     const orderId4 = created.body.id;
     await harness.post(`/sales/orders/${orderId4}/confirm`, { token: salesToken });
+    // Acceptance closes the push job as well as marking the document: an
+    // alter cannot queue while one is still open against the same document.
     await harness.db.execute(sql`
       UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-alter-clean', remote_voucher_number = '902' WHERE id = ${orderId4}
+    `);
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE' WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId4}`}
     `);
 
     const altered = await harness.post<SalesDocumentView>(`/sales/orders/${orderId4}/alter`, {
@@ -1073,5 +1078,68 @@ describe('an order’s invoices, listed (audit 22)', () => {
     const thirdPage = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=3&pageSize=1`, { token: salesToken });
     expect(thirdPage.body.data).toHaveLength(1);
     expect(thirdPage.body.data[0]?.sourceDocumentId).toBe(orderId6);
+  });
+});
+
+describe('pushing again after a rejected alter (audit 23)', () => {
+  /**
+   * A rejected alter leaves the document FAILED with its Tally GUID intact.
+   * Push was then reachable, and it queued a job carrying no GUID -- so the
+   * agent would have created a second voucher in Tally beside the one it was
+   * asked to change.
+   *
+   * The queued payload is read from the job row rather than claimed, because
+   * claiming consumes whatever else this file has left in the queue.
+   */
+  const queuedGuid = async (documentId: string): Promise<string | null | undefined> => {
+    const row = await harness.db.execute<{ guid: string | null }>(sql`
+      SELECT payload->>'remoteGuid' AS guid FROM sync_jobs
+       WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${documentId}`}
+       ORDER BY created_at DESC, id DESC LIMIT 1
+    `);
+    return row.rows[0]?.guid;
+  };
+
+  it('carries the Tally GUID the document already has', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '2', rate: '4000' }] },
+    });
+    const orderId7 = created.body.id;
+    await harness.post(`/sales/orders/${orderId7}/confirm`, { token: salesToken });
+    // Never pushed: no GUID to name.
+    expect(await queuedGuid(orderId7)).toBeNull();
+
+    // Tally accepts it: the document learns its GUID and the job is done, so
+    // nothing is open against this document any more.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-order-alter-1', remote_voucher_number = '555' WHERE id = ${orderId7}
+    `);
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE' WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId7}`}
+    `);
+
+    const altered = await harness.post<ErrorBody>(`/sales/orders/${orderId7}/alter`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, quantity: '3', rate: '4000' }] },
+    });
+    expect(altered.status, altered.text).toBe(200);
+    expect(await queuedGuid(orderId7)).toBe('guid-order-alter-1');
+
+    // Tally rejects the alter: FAILED, the GUID stays, and the job closes.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'FAILED', last_error = 'Tally said no' WHERE id = ${orderId7}
+    `);
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'FAILED' WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId7}`} AND state = 'QUEUED'
+    `);
+    const failed = await harness.get<SalesDocumentView>(`/sales/orders/${orderId7}`, { token: salesToken });
+    expect(failed.body.remoteGuid).toBe('guid-order-alter-1');
+
+    // Push again. The job must name the voucher Tally already holds, or the
+    // agent creates a second one beside it.
+    const pushed = await harness.post<SalesDocumentView>(`/sales/orders/${orderId7}/push`, { token: adminToken });
+    expect(pushed.status).toBe(200);
+    expect(await queuedGuid(orderId7)).toBe('guid-order-alter-1');
   });
 });
