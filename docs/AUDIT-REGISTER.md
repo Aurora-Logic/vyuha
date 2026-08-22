@@ -24,14 +24,17 @@ Status values: Fixed (commit) · Open · Lead.
 
 | # | Where | What is wrong | Status |
 |---|---|---|---|
-| 14 | `api:…/analytics-report.source.ts` | Ledger extract balance recomputed from opening on every page — wrong from row 51 | Open |
-| 15 | `api:…/tally-report.source.ts` | Sales analysis "By item group" crashes (alias not in FROM) and the option ships in the dropdown | Open |
-| 16 | `api:…/analytics-report.source.ts` | Credit breaches "Releases (90d)" is uncorrelated — the same number on every row | Open |
-| 18, 56 | `web:…/dashboard-v2.tsx` | Headline money tiles sum 200 rows while the hint quotes the full count | Open |
-| 28 | `web:…/dashboard-v2.series.ts` | "Revenue at risk" counts healthy `ON_RHYTHM` customers | Open |
-| 17 | `shared:reports.ts` | Exports omit party/ledger — a customer statement says nowhere whose it is | Open |
-| 4 | `api:…/estimate.repository.ts` | In-flight invoice quantity attributed to the first line matching the item | Open |
-| 34 | `api:platform/masters/lifecycle.service.ts` | Party lifecycle counts cancelled orders and draft/cancelled invoices | Open |
+| 14 | `api:…/analytics-report.source.ts` | Ledger extract balance recomputed from opening on every page, and page one returned a row too many | Fixed `7e07252` |
+| 15 | `api:…/tally-report.source.ts` | Sales analysis "By item group" crashed twice over, and shipped in the dropdown | Fixed `4d05419` |
+| 16 | `api:…/analytics-report.source.ts` | Credit breaches "Releases (90d)" was uncorrelated — the same number on every row | Fixed `12d2ee5` |
+| 18, 56 | `web:…/dashboard-v2.tsx` | Headline money tiles summed 200 rows while the hint quoted the full count | Fixed `7fe4552` |
+| 28 | `web:…/dashboard-v2.series.ts` | "Revenue at risk" counted healthy `ON_RHYTHM` customers | Fixed `7fe4552` |
+| 17 | `shared:reports.ts` | Exports omitted party and ledger — a customer statement said nowhere whose it was | Fixed `20e1efa` |
+| 4 | `api:…/estimate.repository.ts` | In-flight invoice quantity all attributed to the first line matching the item | Fixed `5c77c22` |
+| 34 | `api:platform/masters/lifecycle.service.ts` | Lifecycle and analytics counted cancelled orders and draft/cancelled invoices, across 36 sites | Fixed `8e00690` |
+
+**P1 is closed.** Every fix was run against the pre-fix source first and the
+failure recorded in its commit message.
 
 ## P2 — correctness, with a workaround
 
