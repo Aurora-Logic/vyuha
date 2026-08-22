@@ -713,17 +713,30 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
        WHERE ${this.ledgerLines(orgId, f)} ${f.from === undefined ? sql`AND false` : sql`AND v.voucher_date < ${f.from}`}
     `);
     const openingValue = Number(opening.rows[0]?.value ?? 0);
-    const rows = await this.db.execute<{ id: string; date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; deemed: boolean }>(sql`
-      SELECT l.id, v.voucher_date AS date, v.voucher_type, v.voucher_number, v.party_name, l.amount::text AS amount, l.is_deemed_positive AS deemed
-        FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
-       WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
-       ORDER BY v.voucher_date ASC, v.created_at ASC
-       LIMIT ${limit} OFFSET ${offset === 0 ? 0 : offset - 1}
+    // The running balance is summed in the window over the whole period, not
+    // accumulated across the page: a balance restarted from opening on page 2
+    // is the balance of a statement that began at row 51, and every figure
+    // below the fold was wrong. The opening row occupies the first slot of
+    // page 1, so page 1 asks for one line fewer and later pages step back by
+    // one -- otherwise the last line of page 1 appears again at the top of
+    // page 2. Ordering is total (date, created_at, id) so that the window and
+    // the page agree on which row is which.
+    const rows = await this.db.execute<{ id: string; date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; deemed: boolean; movement: string }>(sql`
+      WITH extract_lines AS (
+        SELECT l.id, v.voucher_date AS date, v.created_at AS created_at, v.voucher_type, v.voucher_number, v.party_name,
+               l.amount::text AS amount, l.is_deemed_positive AS deemed,
+               sum(CASE WHEN l.is_deemed_positive THEN l.amount ELSE -l.amount END)
+                 OVER (ORDER BY v.voucher_date ASC, v.created_at ASC, l.id ASC
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)::text AS movement
+          FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+         WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
+      )
+      SELECT * FROM extract_lines
+       ORDER BY date ASC, created_at ASC, id ASC
+       LIMIT ${offset === 0 ? Math.max(limit - 1, 0) : limit} OFFSET ${offset === 0 ? 0 : offset - 1}
     `);
-    let balance = openingValue;
     const lines = rows.rows.map((r) => {
-      const amount = Number(r.amount);
-      balance += r.deemed ? amount : -amount;
+      const balance = openingValue + Number(r.movement);
       return {
         id: r.id,
         date: r.date,

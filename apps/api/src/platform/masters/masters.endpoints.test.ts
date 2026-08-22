@@ -431,6 +431,56 @@ describe('the Tier 1 analytics, the wider set (14, D-46)', () => {
     expect(extract.body.data.every((r) => /^-?\d+\.\d\d$/u.test(r.balance))).toBe(true);
   });
 
+  it('the extract reads the same paged as it does whole', async () => {
+    // Its own ledger, so the fixtures the other tests write cannot move the
+    // arithmetic. One voucher before the period gives the opening row
+    // something to carry; five inside it are enough to page twice.
+    await harness.db.execute(sql`
+      WITH v AS (
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, is_cancelled, amount)
+        VALUES (${ORG_ID}, ${connectionId}, '2026-07-25', 'Sales', 'PG-0', 'Paging Co', false, '100.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-02', 'Sales', 'PG-1', 'Paging Co', false, '10.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-03', 'Sales', 'PG-2', 'Paging Co', false, '20.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-04', 'Sales', 'PG-3', 'Paging Co', false, '30.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-05', 'Sales', 'PG-4', 'Paging Co', false, '40.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-06', 'Sales', 'PG-5', 'Paging Co', false, '50.00')
+        RETURNING id, amount
+      )
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount)
+      SELECT ${ORG_ID}, v.id, 1, 'ledger', 'Paging Ledger', true, v.amount FROM v
+    `);
+
+    type Row = { voucherNumber: string; balance: string };
+    const fetch = async (page: number, pageSize: number) =>
+      (
+        await harness.get<{ data: Row[]; meta: { total: number } }>(
+          `/reports/ledger-extract/rows?ledgerName=Paging%20Ledger&from=2026-08-01&to=2026-08-31&page=${String(page)}&pageSize=${String(pageSize)}`,
+          { token: adminToken },
+        )
+      ).body;
+
+    const whole = await fetch(1, 50);
+    expect(whole.meta.total).toBe(6);
+    expect(whole.data.map((r) => r.balance)).toEqual(['100.00', '110.00', '130.00', '160.00', '200.00', '250.00']);
+
+    const first = await fetch(1, 3);
+    const second = await fetch(2, 3);
+    // Page two continues the statement. Accumulating across the page instead
+    // of summing the period restarted this at the opening figure, which read
+    // 130.00 here -- the balance of a statement that began at row three.
+    expect(second.data[0]?.balance).toBe('160.00');
+    // The opening row is the first row of page one, so three-a-page means
+    // three rows on every page and six rows in two -- no line shown twice,
+    // and none skipped.
+    expect(first.data).toHaveLength(3);
+    expect(second.data).toHaveLength(3);
+    expect([...first.data, ...second.data].map((r) => r.voucherNumber)).toEqual(whole.data.map((r) => r.voucherNumber));
+    // And the balance on page two continues the statement rather than
+    // restarting it from the opening figure.
+    expect([...first.data, ...second.data].map((r) => r.balance)).toEqual(whole.data.map((r) => r.balance));
+    expect(second.data[2]?.balance).toBe('250.00');
+  });
+
   it('stock summary values closing at cost and carries committed and available', async () => {
     await harness.db.execute(sql`
       INSERT INTO stock_items (org_id, connection_id, name, parent_group, unit, closing_qty, cost_price, absent_in_tally)
