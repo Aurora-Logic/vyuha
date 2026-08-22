@@ -21,6 +21,7 @@ import {
   type ShipTo,
 } from '@vyuha/shared';
 
+import { hsnSummary } from './paper-hsn';
 import { DETAIL_LABELS, DETAIL_ORDER, E_INVOICE_KEYS, useEnterMoves } from './paper-support';
 import { moneyToIndianWords } from './words';
 
@@ -192,22 +193,6 @@ function half(value: string): string {
   return (Math.round((Number(value) / 2) * 100) / 100).toFixed(2);
 }
 
-interface HsnRow {
-  readonly hsn: string;
-  readonly taxable: number;
-  readonly ratePct: number;
-  readonly tax: number;
-}
-
-function hsnSummary(lines: readonly PaperLine[]): HsnRow[] {
-  const byKey = new Map<string, HsnRow>();
-  for (const line of lines) {
-    const key = `${line.hsnCode}|${line.taxPct}`;
-    const current = byKey.get(key) ?? { hsn: line.hsnCode, taxable: 0, ratePct: Number(line.taxPct), tax: 0 };
-    byKey.set(key, { ...current, taxable: current.taxable + Number(line.amount ?? 0), tax: current.tax + Number(line.taxAmount ?? 0) });
-  }
-  return [...byKey.values()];
-}
 
 /**
  * The quantity total Tally prints under the column: only when every counted
@@ -255,6 +240,11 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
   // A blank line (no description, nothing priced) is a row waiting to be typed, not a quantity.
   const { totalQty, unit } = quantityTotal(model.lines);
   const summary = design.showHsn ? hsnSummary(model.lines) : [];
+  // The summary's own rows, not the document's gross subtotal: a line's
+  // `amount` is net of its discount while `totals.subtotal` is gross, so
+  // printing the latter made the Total disagree with the column above it on
+  // any document carrying a discount.
+  const taxableTotal = summary.reduce((sum, row) => sum + row.taxable, 0);
   const details = model.details;
   const detailBox = (label: string, key: keyof DocumentDetails, placeholder = '') => (
     <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
@@ -490,7 +480,16 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
               <TaxRow label={split.kind === 'inter' ? 'IGST' : 'GST'} value={model.totals.taxTotal} colCount={colCount} editable={editable} />
             )
           ) : null}
-          {showDiscount && Number(model.totals.discountTotal) > 0 ? <TaxRow label="Less: Discount" value={`-${model.totals.discountTotal}`} colCount={colCount} editable={editable} muted /> : null}
+          {/*
+              No "Less: Discount" row here. Every line's Amount is already net
+              of its own discount (the server writes `amount` as
+              qty x rate x (1 - disc/100)), and each line shows its Disc. %
+              beside it, so deducting the total a second time made the column
+              stop adding up: the reader summed the amounts, subtracted the
+              discount again, and landed short of the Total the server had
+              computed correctly. The discount is visible per line, which is
+              where it applies.
+          */}
           <TableRow className="hover:bg-transparent">
             <TableCell className={cn(BOX, 'py-1')} />
             <TableCell className={cn(BOX, 'py-1 text-right font-medium')}>Total</TableCell>
@@ -567,7 +566,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             ))}
             <TableRow className="hover:bg-transparent">
               <TableCell className={cn(BOX, 'py-0.5 text-right font-bold')}>Total</TableCell>
-              <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(model.totals.subtotal)}</TableCell>
+              <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(taxableTotal.toFixed(2))}</TableCell>
               {split.kind === 'intra' ? (
                 <>
                   <TableCell className={cn(BOX, 'py-0.5')} />
@@ -802,6 +801,11 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
   const showEInvoice = design.showEInvoice && (editable || (details.irn ?? '') !== '');
   const { totalQty, unit } = quantityTotal(model.lines);
   const summary = design.showHsn ? hsnSummary(model.lines) : [];
+  // The summary's own rows, not the document's gross subtotal: a line's
+  // `amount` is net of its discount while `totals.subtotal` is gross, so
+  // printing the latter made the Total disagree with the column above it on
+  // any document carrying a discount.
+  const taxableTotal = summary.reduce((sum, row) => sum + row.taxable, 0);
   const taxed = money && Number(model.totals.taxTotal) > 0;
 
   const logo = logoUrl !== null && design.logoPlacement !== 'none' ? <img src={logoUrl} alt="" className="max-h-16 max-w-[48mm] object-contain" /> : null;
@@ -1094,7 +1098,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                 ))}
                 <TableRow className="hover:bg-transparent">
                   <TableCell className={cn(t.summaryCell, 'font-medium')}>Total</TableCell>
-                  <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(model.totals.subtotal)}</TableCell>
+                  <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(taxableTotal.toFixed(2))}</TableCell>
                   {split.kind === 'intra' ? (
                     <>
                       <TableCell className={t.summaryCell} />
