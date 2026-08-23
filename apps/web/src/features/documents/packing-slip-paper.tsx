@@ -49,14 +49,23 @@ export interface PackingSlipPaperProps {
   readonly design: DocumentDesign;
   readonly profile: DocumentProfile;
   readonly orgName: string;
+  /** The organisation's logo, beside the name in the header; a null url or a 'none' placement hides it. */
+  readonly logoUrl: string | null;
   readonly model: PaperModel;
   /** 1-based; the slip says "Box 2 of 3". */
   readonly box: number;
   readonly className?: string;
 }
 
-export function PackingSlipPaper({ design, profile, orgName, model, box, className }: PackingSlipPaperProps) {
+export function PackingSlipPaper({ design, profile, orgName, logoUrl, model, box, className }: PackingSlipPaperProps) {
   const a4 = design.paperSize === 'A4';
+  // The right of the header is the number and barcode, so the logo rides the
+  // left with the name and address regardless of a left/right setting; 'none'
+  // still hides it, the one escape hatch for a colour logo on a thermal sticker.
+  const logo =
+    logoUrl !== null && design.logoPlacement !== 'none' ? (
+      <img src={logoUrl} alt="" className={cn('max-h-[10mm] max-w-[26mm] shrink-0 object-contain', a4 && 'max-h-[14mm] max-w-[34mm]')} />
+    ) : null;
   const note = model.type === 'DELIVERY_NOTE';
   const businessName = profile.legalName.trim() === '' ? orgName : profile.legalName;
   const addressLines = profile.addressLines.split('\n').filter((l) => l.trim() !== '');
@@ -75,14 +84,17 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
       aria-label={note ? `Delivery note ${number}` : `Packing slip ${number}, box ${String(box)} of ${String(boxCount)}`}
     >
       <header className="flex items-start justify-between gap-[6mm] border-b-2 border-[#111] pb-[3mm]">
-        <div className="flex min-w-0 flex-col gap-[1mm]">
-          <b className={cn('text-[13pt] leading-tight tracking-tight', a4 && 'text-[15pt]')}>{businessName}</b>
-          <small className="text-[8pt] leading-snug text-[#444]">
-            {addressLines.join(', ')}
-            {profile.gstin.trim() === '' ? '' : ` · GSTIN ${profile.gstin}`}
-            {profile.phone.trim() === '' ? '' : ` · ${profile.phone}`}
-            {a4 && profile.email.trim() !== '' ? ` · ${profile.email}` : ''}
-          </small>
+        <div className="flex min-w-0 items-start gap-[3mm]">
+          {logo}
+          <div className="flex min-w-0 flex-col gap-[1mm]">
+            <b className={cn('text-[13pt] leading-tight tracking-tight', a4 && 'text-[15pt]')}>{businessName}</b>
+            <small className="text-[8pt] leading-snug text-[#444]">
+              {addressLines.join(', ')}
+              {profile.gstin.trim() === '' ? '' : ` · GSTIN ${profile.gstin}`}
+              {profile.phone.trim() === '' ? '' : ` · ${profile.phone}`}
+              {a4 && profile.email.trim() !== '' ? ` · ${profile.email}` : ''}
+            </small>
+          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-[1mm] text-right">
           <span className="text-[9pt] font-bold tracking-[0.14em] uppercase">{note ? 'Delivery note' : 'Packing slip'}</span>
