@@ -16,7 +16,25 @@ import { HANDLING_MARK_ICONS } from '@/components/shared/entity-icons';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useFooterLogoUrls, useUploadFooterLogo } from './use-document-settings';
 import { cn } from '@/lib/utils';
-import { DOCUMENT_ACCENTS, DOCUMENT_ACCENT_LABELS, DOCUMENT_FONTS, DOCUMENT_FONT_LABELS, DOCUMENT_TEMPLATE_IDS, DOCUMENT_TEMPLATE_LABELS, HANDLING_MARKS, HANDLING_MARK_LABELS, type DocumentAccent, type DocumentDesign, type DocumentFont, type DocumentProfile, type DocumentSettings, type DocumentTemplateId, type PrintedDocumentType } from '@vyuha/shared';
+import {
+  DOCUMENT_ACCENTS,
+  DOCUMENT_ACCENT_LABELS,
+  DOCUMENT_FONTS,
+  DOCUMENT_FONT_LABELS,
+  DOCUMENT_PAPERS,
+  DOCUMENT_TEMPLATE_IDS,
+  DOCUMENT_TEMPLATE_LABELS,
+  HANDLING_MARKS,
+  HANDLING_MARK_LABELS,
+  type DocumentAccent,
+  type DocumentDesign,
+  type DocumentFont,
+  type DocumentPaper,
+  type DocumentProfile,
+  type DocumentSettings,
+  type DocumentTemplateId,
+  type PrintedDocumentType,
+} from '@vyuha/shared';
 
 /**
  * The design rail beside the paper: the five templates, the accent, what
@@ -25,6 +43,19 @@ import { DOCUMENT_ACCENTS, DOCUMENT_ACCENT_LABELS, DOCUMENT_FONTS, DOCUMENT_FONT
  * Save writes it for the organisation. Someone without settings.manage can
  * still try a look on their own screen; only saving is theirs to ask for.
  */
+
+/** The stock, drawn as the stock. A named colour would not tell anyone what
+ *  the sheet will look like. */
+const PAPER_SWATCH: Record<DocumentPaper, string> = {
+  sand: 'bg-[#e8d3be]',
+  ivory: 'bg-[#faf6ee]',
+  white: 'bg-white',
+};
+const PAPER_LABELS: Record<DocumentPaper, string> = {
+  sand: 'Sand',
+  ivory: 'Ivory',
+  white: 'White',
+};
 
 const ACCENT_SWATCH: Record<DocumentAccent, string> = {
   ink: 'bg-neutral-900',
@@ -90,6 +121,26 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                       <span className="text-muted-foreground line-clamp-2 text-xs font-normal whitespace-normal">{DOCUMENT_TEMPLATE_LABELS[id].note}</span>
                     </span>
                     {design.templateId === id ? <CheckIcon className="ml-auto shrink-0" /> : null}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Field>
+
+            <Field>
+              <FieldLabel>Paper</FieldLabel>
+              <ToggleGroup
+                variant="outline"
+                aria-label="Paper colour"
+                value={[design.paper]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next !== undefined && (DOCUMENT_PAPERS as readonly string[]).includes(next)) setDesign({ paper: next as DocumentPaper });
+                }}
+                className="flex-wrap gap-2"
+              >
+                {DOCUMENT_PAPERS.map((paper) => (
+                  <ToggleGroupItem key={paper} value={paper} aria-label={PAPER_LABELS[paper]} className="size-9 p-0 data-pressed:ring-2 data-pressed:ring-ring">
+                    <span className={cn('size-5 rounded-full border border-black/10', PAPER_SWATCH[paper])} />
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>

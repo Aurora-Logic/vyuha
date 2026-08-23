@@ -223,6 +223,7 @@ export function DocumentPaper(props: DocumentPaperProps) {
     <article
       className={cn('a4-paper shadow-sm ring-1 ring-black/5', className)}
       data-accent={design.accent}
+      data-paper={design.paper}
       data-font={design.fontFamily}
       data-scale={design.fontScale}
       data-mode={editing !== undefined ? 'edit' : 'print'}

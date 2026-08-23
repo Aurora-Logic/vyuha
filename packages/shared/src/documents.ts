@@ -55,6 +55,18 @@ export const SECOND_DATE_LABELS: Partial<Record<PrintedDocumentType, string>> = 
 /** A palette rather than a colour picker: every accent is a class the paper already knows, on screen and in print. */
 export const DOCUMENT_ACCENTS = ['ink', 'blue', 'teal', 'green', 'amber', 'rose', 'violet', 'slate'] as const;
 export type DocumentAccent = (typeof DOCUMENT_ACCENTS)[number];
+
+/**
+ * The stock the document is printed on.
+ *
+ * `sand` is the owner's colour, #E8D3BE, and the default: a warm sheet reads
+ * as a document rather than a screenshot, and it is what the business wants
+ * its paper to look like. White stays available -- it is what a laser printer
+ * on plain stock actually produces, so anyone printing rather than sending a
+ * PDF will want it.
+ */
+export const DOCUMENT_PAPERS = ['sand', 'ivory', 'white'] as const;
+export type DocumentPaper = (typeof DOCUMENT_PAPERS)[number];
 export const DOCUMENT_ACCENT_LABELS: Record<DocumentAccent, string> = {
   ink: 'Ink',
   blue: 'Blue',
@@ -109,6 +121,8 @@ export const HANDLING_MARK_LABELS: Record<HandlingMark, string> = {
 export const documentDesignSchema = z.object({
   templateId: z.preprocess((value) => (typeof value === 'string' && value in RETIRED_TEMPLATES ? RETIRED_TEMPLATES[value] : value), z.enum(DOCUMENT_TEMPLATE_IDS)),
   accent: z.enum(DOCUMENT_ACCENTS),
+  /** Defaulted, so a design saved before this existed still parses. */
+  paper: z.enum(DOCUMENT_PAPERS).default('sand'),
   fontFamily: z.enum(DOCUMENT_FONTS).default('sans'),
   fontScale: z.enum(['sm', 'md', 'lg']),
   logoPlacement: z.enum(['left', 'right', 'none']),
@@ -155,6 +169,7 @@ export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   handlingMarks: [],
   templateId: 'tally',
   accent: 'ink',
+  paper: 'sand',
   fontFamily: 'sans',
   fontScale: 'md',
   logoPlacement: 'left',

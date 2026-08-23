@@ -537,6 +537,12 @@
   color: #111;
   background: #fff;
 }
+/* The stock. #E8D3BE is the owner's colour and the default; white is what a
+   laser printer on plain stock actually produces, so it stays available. */
+.a4-paper[data-paper='sand'] { background: #e8d3be; }
+.a4-paper[data-paper='ivory'] { background: #faf6ee; }
+.a4-paper[data-paper='white'] { background: #fff; }
+
 .a4-paper[data-accent='blue'] { --paper-accent: #1d4ed8; --paper-accent-soft: #eff6ff; }
 .a4-paper[data-accent='teal'] { --paper-accent: #0f766e; --paper-accent-soft: #f0fdfa; }
 .a4-paper[data-accent='green'] { --paper-accent: #15803d; --paper-accent-soft: #f0fdf4; }
