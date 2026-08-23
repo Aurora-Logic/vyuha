@@ -303,6 +303,7 @@ function labelBody(ctx: SlipContext): ReactNode {
         <Barcode value={number} className={a4 ? 'h-[20mm] w-full' : 'h-[16mm] w-full'} label="" />
         <span className="text-[11pt] font-bold tracking-[0.3em] tabular-nums">{number}</span>
         <span className="text-[7.5pt] text-[#444]">{note ? 'Scan to mark delivered' : 'Scan to ship or to mark delivered'}</span>
+        {design.footerNote.trim() !== '' ? <span className="text-[7.5pt] text-[#444]">{design.footerNote}</span> : null}
       </footer>
     </>
   );

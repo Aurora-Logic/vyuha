@@ -17,7 +17,7 @@ export const DOCUMENT_TEMPLATE_LABELS: Record<DocumentTemplateId, { label: strin
   ledger: { label: 'Ledger', note: 'Ruled rows and columns, a double rule under the total: the account book.' },
   formal: { label: 'Formal', note: 'A ruled masthead over roomy rows, uppercase section labels: the company letter.' },
   compact: { label: 'Compact', note: 'Small type and tight rows on hairlines; fits the longest list on one page.' },
-  executive: { label: 'Executive', note: 'A heavy masthead rule, shaded column heads and a strong total: the corporate look.' },
+  executive: { label: 'Executive', note: 'A bold masthead, heavy ruled column heads and boxed totals: the corporate look.' },
 };
 /**
  * Templates that were offered once and are no longer; a saved design that

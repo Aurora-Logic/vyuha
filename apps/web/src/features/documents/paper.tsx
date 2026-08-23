@@ -756,14 +756,17 @@ const TEMPLATES: Record<Exclude<DocumentTemplateId, 'tally'>, TemplateStyle> = {
     header: 'flex items-start justify-between gap-6 border-b-4 border-neutral-900 pb-4',
     title: 'text-[1.7em] font-bold tracking-tight',
     business: 'text-right',
-    metaBox: 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 bg-neutral-100 px-3 py-2',
+    metaBox: 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-2 border-neutral-900 px-3 py-2',
     metaLabel: 'text-[0.8em] text-neutral-500',
-    tableHeadCell: 'bg-neutral-900 py-1.5 text-[0.8em] font-semibold text-white',
+    // Ink, not a fill: browsers drop background-color in print by default and
+    // the paper stock is not meant to print, so a white-on-black head would
+    // vanish. A heavy double rule carries the same weight in ink.
+    tableHeadCell: 'border-y-2 border-neutral-900 py-1.5 text-[0.8em] font-semibold uppercase tracking-wide',
     row: 'border-b border-neutral-200',
     cell: 'align-top py-2',
-    summaryHead: 'bg-neutral-100 text-[0.8em] font-semibold uppercase tracking-wide',
+    summaryHead: 'border-y-2 border-neutral-900 text-[0.8em] font-semibold uppercase tracking-wide',
     summaryCell: 'border-b border-neutral-200 py-1',
-    totalsBox: 'ml-auto w-[38%] min-w-[220px] bg-neutral-100 px-3 py-2',
+    totalsBox: 'ml-auto w-[38%] min-w-[220px] border-2 border-neutral-900 px-3 py-2',
     grandTotal: 'mt-1 border-t-2 border-neutral-900 pt-1.5 text-[1.2em] font-bold',
     footer: 'border-t-2 border-neutral-900 pt-3 text-[0.85em] text-neutral-500',
     section: 'text-[0.8em] font-semibold uppercase tracking-wide text-neutral-500',
