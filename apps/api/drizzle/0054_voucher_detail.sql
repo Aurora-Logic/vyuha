@@ -1,0 +1,26 @@
+ALTER TABLE "voucher_lines" ADD COLUMN "settlement_type" text;--> statement-breakpoint
+ALTER TABLE "voucher_lines" ADD COLUMN "settlement_mode" text;--> statement-breakpoint
+ALTER TABLE "voucher_lines" ADD COLUMN "instrument_number" text;--> statement-breakpoint
+ALTER TABLE "voucher_lines" ADD COLUMN "instrument_date" date;--> statement-breakpoint
+ALTER TABLE "voucher_lines" ADD COLUMN "bank_name" text;--> statement-breakpoint
+ALTER TABLE "voucher_lines" ADD COLUMN "payment_favouring" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "reference" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "reference_date" date;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "order_ref" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "buyer_order_number" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "buyer_order_date" date;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "payment_terms" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "delivery_terms" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "dispatched_through" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "dispatch_doc_no" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "vehicle_number" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "destination" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "buyer_name" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "buyer_address" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "party_gstin" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "party_state" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "place_of_supply" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "consignee_name" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "consignee_state" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "consignee_pincode" text;--> statement-breakpoint
+ALTER TABLE "vouchers" ADD COLUMN "consignee_gstin" text;

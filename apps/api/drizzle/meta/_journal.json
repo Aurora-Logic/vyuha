@@ -372,6 +372,20 @@
       "when": 1787236020569,
       "tag": "0052_magenta_shinobi_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1787441263642,
+      "tag": "0053_party_detail",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1787470472394,
+      "tag": "0054_voucher_detail",
+      "breakpoints": true
     }
   ]
 }

@@ -54,13 +54,30 @@ export const parties = pgTable(
     /** Sundry Debtors / Sundry Creditors, verbatim (08 §3: what a party is). */
     parentGroup: text('parent_group').notNull(),
     gstin: text('gstin'),
+    /** Regular / Composition / Unregistered / Consumer, verbatim. */
+    gstRegistrationType: text('gst_registration_type'),
+    /** The mailing address as one block; a multi-line source joins on newlines. */
     address: text('address'),
+    state: text('state'),
+    country: text('country'),
+    /** Text, not a number: a postal code's leading zero is part of it. */
+    pincode: text('pincode'),
     /** 12 REQ-AA-28: the ledger's email and mobile, where the company keeps them in Tally. */
     email: text('email'),
     phone: text('phone'),
+    contactPerson: text('contact_person'),
     creditLimit: numeric('credit_limit'),
     creditDays: integer('credit_days'),
     openingBalance: numeric('opening_balance'),
+    /**
+     * The outstanding as Tally last reported it. Held, never computed on
+     * (D-01): this is a projection of Tally's own figure, not a receivable
+     * Vyuha asserts. Nothing in this application nets it, ages it, or sums it
+     * into a total a person might mistake for an accounting position.
+     */
+    closingBalance: numeric('closing_balance'),
+    /** Whether Tally tracks this party bill by bill. */
+    billWiseTracking: boolean('bill_wise_tracking'),
     /** REQ-R-06: gone from Tally is a fact worth keeping, not a row worth losing. */
     absentInTally: boolean('absent_in_tally').notNull().default(false),
     lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }).notNull().defaultNow(),
@@ -184,6 +201,35 @@ export const vouchers = pgTable(
     narration: text('narration').notNull().default(''),
     isCancelled: boolean('is_cancelled').notNull().default(false),
     amount: numeric('amount').notNull(),
+    /*
+     * Order, terms, dispatch and consignee detail, as the source reported it.
+     * All nullable, and null means "not reported" rather than "blank in Tally":
+     * which of these a company fills is a data-entry habit, not a property of
+     * the integration, and two real companies fill disjoint subsets. Nothing
+     * here may be treated as reliably present.
+     */
+    reference: text('reference'),
+    referenceDate: date('reference_date'),
+    orderRef: text('order_ref'),
+    buyerOrderNumber: text('buyer_order_number'),
+    buyerOrderDate: date('buyer_order_date'),
+    paymentTerms: text('payment_terms'),
+    /** Terms of delivery as one block; a multi-line source joins on newlines. */
+    deliveryTerms: text('delivery_terms'),
+    dispatchedThrough: text('dispatched_through'),
+    dispatchDocNo: text('dispatch_doc_no'),
+    vehicleNumber: text('vehicle_number'),
+    destination: text('destination'),
+    buyerName: text('buyer_name'),
+    buyerAddress: text('buyer_address'),
+    partyGstin: text('party_gstin'),
+    partyState: text('party_state'),
+    placeOfSupply: text('place_of_supply'),
+    consigneeName: text('consignee_name'),
+    consigneeState: text('consignee_state'),
+    /** Text, not a number: a postal code's leading zero is part of it. */
+    consigneePincode: text('consignee_pincode'),
+    consigneeGstin: text('consignee_gstin'),
     lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -227,6 +273,18 @@ export const voucherLines = pgTable(
     billedQty: text('billed_qty'),
     rate: numeric('rate'),
     amount: numeric('amount').notNull(),
+    /*
+     * Bank settlement, held on the LINE because that is where Tally records it.
+     * Deliberately not flattened onto the voucher header: a header field would
+     * be easier to query but would assert that a voucher has one settlement,
+     * which a contra with two bank lines disproves. Null on every non-bank line.
+     */
+    settlementType: text('settlement_type'),
+    settlementMode: text('settlement_mode'),
+    instrumentNumber: text('instrument_number'),
+    instrumentDate: date('instrument_date'),
+    bankName: text('bank_name'),
+    paymentFavouring: text('payment_favouring'),
   },
   (t) => [
     uniqueIndex('voucher_lines_uq').on(t.voucherId, t.lineNo),
