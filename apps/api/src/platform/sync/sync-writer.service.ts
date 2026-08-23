@@ -483,18 +483,35 @@ export class SyncWriterService {
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'party', row.guid);
     if (mapping.internalId !== null) {
+      /*
+       * Identity fields are assigned: Tally wins, and a name that cleared in
+       * Tally should clear here. The detail fields below are COALESCEd instead,
+       * because a source that omits one is saying "not reported", not
+       * "cleared" -- an OpsTally Agent older than the party-detail fields sends
+       * no address and no balance at all, and must not wipe what a newer Agent
+       * or a Tally XML pull already wrote. `closingBalance` is COALESCEd on the
+       * same reading, but a zero that *is* sent lands: a settled account is a
+       * real balance, unlike a zero price, which means "unresolvable".
+       */
       await tx.execute(sql`
         UPDATE parties
            SET name = ${row.name},
                alias = ${row.alias ?? null},
                parent_group = ${row.parentGroup},
                gstin = ${row.gstin ?? null},
-               address = ${row.address ?? null},
+               gst_registration_type = COALESCE(${row.gstRegistrationType ?? null}, gst_registration_type),
+               address = COALESCE(${row.address ?? null}, address),
+               state = COALESCE(${row.state ?? null}, state),
+               country = COALESCE(${row.country ?? null}, country),
+               pincode = COALESCE(${row.pincode ?? null}, pincode),
                email = ${row.email ?? null},
                phone = ${row.phone ?? null},
+               contact_person = COALESCE(${row.contactPerson ?? null}, contact_person),
                credit_limit = ${row.creditLimit ?? null},
                credit_days = ${row.creditDays ?? null},
                opening_balance = ${row.openingBalance ?? null},
+               closing_balance = COALESCE(${row.closingBalance ?? null}::numeric, closing_balance),
+               bill_wise_tracking = COALESCE(${row.billWiseTracking ?? null}, bill_wise_tracking),
                connection_id = ${agent.connectionId},
                absent_in_tally = false,
                last_pulled_at = now(),
@@ -507,12 +524,16 @@ export class SyncWriterService {
 
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO parties
-        (org_id, connection_id, name, alias, parent_group, gstin, address, email, phone,
-         credit_limit, credit_days, opening_balance)
+        (org_id, connection_id, name, alias, parent_group, gstin, gst_registration_type,
+         address, state, country, pincode, email, phone, contact_person,
+         credit_limit, credit_days, opening_balance, closing_balance, bill_wise_tracking)
       VALUES
         (${agent.orgId}, ${agent.connectionId}, ${row.name}, ${row.alias ?? null},
-         ${row.parentGroup}, ${row.gstin ?? null}, ${row.address ?? null}, ${row.email ?? null}, ${row.phone ?? null},
-         ${row.creditLimit ?? null}, ${row.creditDays ?? null}, ${row.openingBalance ?? null})
+         ${row.parentGroup}, ${row.gstin ?? null}, ${row.gstRegistrationType ?? null},
+         ${row.address ?? null}, ${row.state ?? null}, ${row.country ?? null}, ${row.pincode ?? null},
+         ${row.email ?? null}, ${row.phone ?? null}, ${row.contactPerson ?? null},
+         ${row.creditLimit ?? null}, ${row.creditDays ?? null}, ${row.openingBalance ?? null},
+         ${row.closingBalance ?? null}, ${row.billWiseTracking ?? null})
       RETURNING id
     `);
     const partyId = inserted.rows[0]?.id;
@@ -608,6 +629,32 @@ export class SyncWriterService {
                narration = ${row.narration ?? ''},
                is_cancelled = ${row.isCancelled},
                amount = ${row.amount},
+               /*
+                * COALESCEd, unlike the identity fields above: a source that
+                * omits one of these is saying "not reported", not "cleared".
+                * An OpsTally Agent older than the order/dispatch fields sends
+                * none of them, and must not blank detail a newer Agent wrote.
+                */
+               reference = COALESCE(${row.reference ?? null}, reference),
+               reference_date = COALESCE(${row.referenceDate ?? null}::date, reference_date),
+               order_ref = COALESCE(${row.orderRef ?? null}, order_ref),
+               buyer_order_number = COALESCE(${row.buyerOrderNumber ?? null}, buyer_order_number),
+               buyer_order_date = COALESCE(${row.buyerOrderDate ?? null}::date, buyer_order_date),
+               payment_terms = COALESCE(${row.paymentTerms ?? null}, payment_terms),
+               delivery_terms = COALESCE(${row.deliveryTerms ?? null}, delivery_terms),
+               dispatched_through = COALESCE(${row.dispatchedThrough ?? null}, dispatched_through),
+               dispatch_doc_no = COALESCE(${row.dispatchDocNo ?? null}, dispatch_doc_no),
+               vehicle_number = COALESCE(${row.vehicleNumber ?? null}, vehicle_number),
+               destination = COALESCE(${row.destination ?? null}, destination),
+               buyer_name = COALESCE(${row.buyerName ?? null}, buyer_name),
+               buyer_address = COALESCE(${row.buyerAddress ?? null}, buyer_address),
+               party_gstin = COALESCE(${row.partyGstin ?? null}, party_gstin),
+               party_state = COALESCE(${row.partyState ?? null}, party_state),
+               place_of_supply = COALESCE(${row.placeOfSupply ?? null}, place_of_supply),
+               consignee_name = COALESCE(${row.consigneeName ?? null}, consignee_name),
+               consignee_state = COALESCE(${row.consigneeState ?? null}, consignee_state),
+               consignee_pincode = COALESCE(${row.consigneePincode ?? null}, consignee_pincode),
+               consignee_gstin = COALESCE(${row.consigneeGstin ?? null}, consignee_gstin),
                connection_id = ${agent.connectionId},
                last_pulled_at = now(),
                updated_at = now()
@@ -620,11 +667,22 @@ export class SyncWriterService {
       const inserted = await tx.execute<{ id: string }>(sql`
         INSERT INTO vouchers
           (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number,
-           party_name, party_id, narration, is_cancelled, amount)
+           party_name, party_id, narration, is_cancelled, amount,
+           reference, reference_date, order_ref, buyer_order_number, buyer_order_date,
+           payment_terms, delivery_terms, dispatched_through, dispatch_doc_no, vehicle_number,
+           destination, buyer_name, buyer_address, party_gstin, party_state, place_of_supply,
+           consignee_name, consignee_state, consignee_pincode, consignee_gstin)
         VALUES
           (${agent.orgId}, ${agent.connectionId}, ${row.masterId ?? null}, ${row.alterId}, ${row.date},
            ${row.voucherType}, ${row.voucherNumber ?? ''}, ${row.partyName ?? ''}, ${partyId},
-           ${row.narration ?? ''}, ${row.isCancelled}, ${row.amount})
+           ${row.narration ?? ''}, ${row.isCancelled}, ${row.amount},
+           ${row.reference ?? null}, ${row.referenceDate ?? null}, ${row.orderRef ?? null},
+           ${row.buyerOrderNumber ?? null}, ${row.buyerOrderDate ?? null},
+           ${row.paymentTerms ?? null}, ${row.deliveryTerms ?? null}, ${row.dispatchedThrough ?? null},
+           ${row.dispatchDocNo ?? null}, ${row.vehicleNumber ?? null}, ${row.destination ?? null},
+           ${row.buyerName ?? null}, ${row.buyerAddress ?? null}, ${row.partyGstin ?? null},
+           ${row.partyState ?? null}, ${row.placeOfSupply ?? null}, ${row.consigneeName ?? null},
+           ${row.consigneeState ?? null}, ${row.consigneePincode ?? null}, ${row.consigneeGstin ?? null})
         RETURNING id
       `);
       const id = inserted.rows[0]?.id;
@@ -637,12 +695,19 @@ export class SyncWriterService {
     for (const line of row.lines) {
       lineNo += 1;
       if (line.kind === 'ledger') {
+        // Lines are deleted and reinserted wholesale above, so settlement is
+        // assigned rather than COALESCEd: there is no prior row to preserve.
         await tx.execute(sql`
           INSERT INTO voucher_lines
-            (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount)
+            (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount,
+             settlement_type, settlement_mode, instrument_number, instrument_date,
+             bank_name, payment_favouring)
           VALUES
             (${agent.orgId}, ${voucherId}, ${lineNo}, 'ledger', ${line.ledgerName},
-             ${line.isDeemedPositive}, ${line.amount})
+             ${line.isDeemedPositive}, ${line.amount},
+             ${line.settlementType ?? null}, ${line.settlementMode ?? null},
+             ${line.instrumentNumber ?? null}, ${line.instrumentDate ?? null},
+             ${line.bankName ?? null}, ${line.paymentFavouring ?? null})
         `);
       } else {
         const itemId = await this.resolveStockItemId(tx, agent, line.stockItemName);

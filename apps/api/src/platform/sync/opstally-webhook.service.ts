@@ -46,9 +46,13 @@ import { SyncWriterService, type WriterScope } from './sync-writer.service.js';
  * 3. **Dedupe.** Retries reuse the event id, so the id is the idempotency
  *    key: `sync_inbox` holds one row per id, inserted inside the same
  *    transaction as the writes, and a repeat is a 200 that does nothing.
- * 4. **Project.** Ledgers under the party groups become parties, stock items
- *    become stock items — through the same writer the pull path uses, so a
- *    master arriving by push lands exactly as one arriving by pull. Vouchers
+ * 4. **Project.** Ledgers under the party groups become parties — with the
+ *    balances, address, contact and credit terms OpsTally reports for them —
+ *    stock items become stock items, through the same writer the pull path
+ *    uses, so a master arriving by push lands exactly as one arriving by pull.
+ *    A `ledger.snapshot` is the same projection applied to a chunk of the
+ *    company's whole account list; ledgers outside the party groups are
+ *    counted and skipped, not written. Vouchers
  *    are accepted, journalled, and *retained* in the inbox for Phase 6c to
  *    replay; acknowledging them now keeps the Agent from retrying for ten
  *    hours, retaining them keeps ninety days of vouchers from vanishing at a
@@ -75,18 +79,85 @@ function decimal(value: number): string {
   return String(value);
 }
 
+/**
+ * A field OpsTally did not report is omitted rather than sent as empty, so the
+ * writer's COALESCE can hold what is stored. An Agent older than the
+ * party-detail fields sends none of them, and must not blank a projection a
+ * newer Agent already filled.
+ */
+function optionalText(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+/**
+ * A held figure as an exact decimal string (D-01). `zeroMeansUnset` is the
+ * reference's own reading for credit limit and credit period — "0 means unset,
+ * not no credit" — and must NOT be applied to a balance, where zero is a
+ * settled account and a fact worth landing.
+ */
+function optionalDecimal(value: number | null | undefined, zeroMeansUnset = false): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  if (zeroMeansUnset && value === 0) return undefined;
+  return decimal(value);
+}
+
 function ledgerToParty(ledger: OpsTallyLedger): PartyPullRow {
+  // OpsTally reports the mobile and the landline separately; Vyuha's party has
+  // one contact number. The mobile is the one a person is reached on, so it
+  // wins and the landline only fills a gap it leaves.
+  const contactNumber = optionalText(ledger.mobile) ?? optionalText(ledger.phone);
+  // Address arrives as Tally's own lines; keeping the line breaks keeps it
+  // legible as a postal address rather than one run-on string.
+  const addressLines = (ledger.address ?? [])
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  const creditDays = ledger.creditPeriodDays;
+
   return {
     guid: ledger.guid,
     alterId: ledger.alterId,
     name: ledger.name,
     parentGroup: ledger.parent,
-    ...(ledger.gstin === null || ledger.gstin === undefined || ledger.gstin === ''
-      ? {}
-      : { gstin: ledger.gstin }),
-    ...(ledger.email === null || ledger.email === undefined || ledger.email === '' ? {} : { email: ledger.email }),
-    ...(ledger.mobile === null || ledger.mobile === undefined || ledger.mobile === '' ? {} : { phone: ledger.mobile }),
+    ...maybe('gstin', optionalText(ledger.gstin)),
+    ...maybe('gstRegistrationType', optionalText(ledger.gstRegistrationType)),
+    ...maybe('address', addressLines.length === 0 ? undefined : addressLines.join('\n')),
+    ...maybe('state', optionalText(ledger.state)),
+    ...maybe('country', optionalText(ledger.country)),
+    ...maybe('pincode', optionalText(ledger.pincode)),
+    ...maybe('email', optionalText(ledger.email)),
+    ...maybe('phone', contactNumber),
+    ...maybe('contactPerson', optionalText(ledger.contactPerson)),
+    ...maybe('creditLimit', optionalDecimal(ledger.creditLimit, true)),
+    ...maybe('creditDays', creditDays === null || creditDays === undefined || creditDays === 0 ? undefined : creditDays),
+    ...maybe('openingBalance', optionalDecimal(ledger.openingBalance)),
+    ...maybe('closingBalance', optionalDecimal(ledger.closingBalance)),
+    ...maybe('billWiseTracking', ledger.isBillWiseOn ?? undefined),
   };
+}
+
+/** `exactOptionalPropertyTypes`: an absent field is an absent key, not `undefined`. */
+function maybe<K extends string, V>(key: K, value: V | undefined): Record<K, V> | Record<string, never> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
+
+/**
+ * Drop the keys whose value is undefined, in one pass.
+ *
+ * `maybe()` is fine for a handful of fields but returns a union per call, so
+ * spreading twenty of them multiplies out to 2^20 combinations and TypeScript
+ * gives up (TS2590). This collapses the same intent into a single object, and
+ * `exactOptionalPropertyTypes` still holds: an unreported field is an absent
+ * key, never an explicit `undefined`.
+ */
+function compact<T extends Record<string, unknown>>(obj: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out as { [K in keyof T]?: Exclude<T[K], undefined> };
 }
 
 function stockToRow(item: OpsTallyStockItem): StockItemPullRow {
@@ -107,6 +178,24 @@ function tallyDateToIso(yyyymmdd: string): string {
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 }
 
+/**
+ * An optional Tally YYYYMMDD as an ISO date. Tally sends an empty string for an
+ * unset date, and `tallyDateToIso('')` would slice that into `--`, which the
+ * projection's `date` column rejects — so anything not eight digits is treated
+ * as absent rather than converted.
+ */
+function optionalTallyDate(value: string | null | undefined): string | undefined {
+  const raw = optionalText(value);
+  if (raw === undefined || !/^\d{8}$/u.test(raw)) return undefined;
+  return tallyDateToIso(raw);
+}
+
+/** Multi-line source joined into the one block the projection column holds. */
+function optionalBlock(lines: readonly string[] | null | undefined): string | undefined {
+  const kept = (lines ?? []).map((line) => line.trim()).filter((line) => line !== '');
+  return kept.length === 0 ? undefined : kept.join('\n');
+}
+
 function voucherToRow(voucher: OpsTallyVoucher): VoucherPullRow {
   return {
     guid: voucher.guid,
@@ -119,13 +208,47 @@ function voucherToRow(voucher: OpsTallyVoucher): VoucherPullRow {
     narration: voucher.narration,
     isCancelled: voucher.isCancelled,
     amount: decimal(voucher.amount),
+    ...compact({
+      reference: optionalText(voucher.reference),
+      referenceDate: optionalTallyDate(voucher.referenceDate),
+      orderRef: optionalText(voucher.orderRef),
+      buyerOrderNumber: optionalText(voucher.buyerOrderNumber),
+      buyerOrderDate: optionalTallyDate(voucher.buyerOrderDate),
+      paymentTerms: optionalText(voucher.paymentTerms),
+      deliveryTerms: optionalBlock(voucher.deliveryTerms),
+      dispatchedThrough: optionalText(voucher.dispatchedThrough),
+      dispatchDocNo: optionalText(voucher.dispatchDocNo),
+      vehicleNumber: optionalText(voucher.vehicleNumber),
+      destination: optionalText(voucher.destination),
+      buyerName: optionalText(voucher.buyerName),
+      buyerAddress: optionalBlock(voucher.buyerAddress),
+      partyGstin: optionalText(voucher.partyGstin),
+      partyState: optionalText(voucher.partyState),
+      placeOfSupply: optionalText(voucher.placeOfSupply),
+      consigneeName: optionalText(voucher.consigneeName),
+      consigneeState: optionalText(voucher.consigneeState),
+      consigneePincode: optionalText(voucher.consigneePincode),
+      consigneeGstin: optionalText(voucher.consigneeGstin),
+    }),
     lines: [
-      ...voucher.ledgerEntries.map((entry) => ({
-        kind: 'ledger' as const,
-        ledgerName: entry.ledgerName,
-        amount: decimal(entry.amount),
-        isDeemedPositive: entry.isDeemedPositive,
-      })),
+      ...voucher.ledgerEntries.map((entry) => {
+        // Settlement rides on the bank line, which is where Tally records it.
+        const bank = entry.bankAllocation ?? undefined;
+        return {
+          kind: 'ledger' as const,
+          ledgerName: entry.ledgerName,
+          amount: decimal(entry.amount),
+          isDeemedPositive: entry.isDeemedPositive,
+          ...compact({
+            settlementType: optionalText(bank?.transactionType),
+            settlementMode: optionalText(bank?.paymentMode),
+            instrumentNumber: optionalText(bank?.instrumentNumber),
+            instrumentDate: optionalTallyDate(bank?.instrumentDate),
+            bankName: optionalText(bank?.bankName),
+            paymentFavouring: optionalText(bank?.paymentFavouring),
+          }),
+        };
+      }),
       ...voucher.inventoryEntries.map((entry) => ({
         kind: 'inventory' as const,
         stockItemName: entry.stockItemName,
@@ -335,6 +458,33 @@ export class OpsTallyWebhookService {
         await this.writer.applyRows(tx, scope, { entityType: 'party', rows: [row] });
         await this.advanceCursor(tx, scope, 'party', row.alterId);
         return { entityType: 'party', result: 'ok: 1 party', retainPayload: false };
+      }
+
+      case 'ledger.snapshot': {
+        // A snapshot carries every ledger in the company, not only the party
+        // groups — bank, tax and expense accounts ride along. Only the party
+        // groups project, on exactly the rule the single-ledger path uses.
+        const parties = event.payload.ledgers.filter((ledger) => isPartyGroup(ledger.parent));
+        const skipped = event.payload.ledgers.length - parties.length;
+        const chunkLabel = `chunk ${String(event.payload.chunk)}/${String(event.payload.total_chunks)}`;
+        if (parties.length === 0) {
+          return {
+            entityType: 'ledger',
+            result: `skipped: snapshot ${chunkLabel}, no party-group ledgers in ${String(skipped)} ledgers`,
+            retainPayload: false,
+          };
+        }
+        const rows = parties.map(ledgerToParty);
+        await this.writer.applyRows(tx, scope, { entityType: 'party', rows });
+        const maxAlterId = rows.reduce((max, row) => Math.max(max, row.alterId), 0);
+        await this.advanceCursor(tx, scope, 'party', maxAlterId);
+        return {
+          entityType: 'party',
+          result:
+            `ok: snapshot ${chunkLabel}, ${String(rows.length)} parties` +
+            (skipped > 0 ? `, ${String(skipped)} non-party ledgers skipped` : ''),
+          retainPayload: false,
+        };
       }
 
       case 'voucher.created':
