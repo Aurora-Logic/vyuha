@@ -68,3 +68,34 @@ describe('PackingSlipPaper', () => {
     expect(screen.queryByText(/of 1$/u)).toBeNull();
   });
 });
+
+describe('the three slip layouts', () => {
+  const design = (slipTemplate: 'barcode' | 'label' | 'list') => ({ ...DEFAULT_DOCUMENT_DESIGN, slipTemplate });
+
+  it('the shipping label enlarges the ship-to, the box and the code, and lists contents', () => {
+    const { container } = render(<PackingSlipPaper design={design('label')} profile={profile} orgName="Acme" logoUrl={LOGO} model={slipModel(3)} box={2} />);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(LOGO);
+    expect(screen.getByText('Live Drive Traders')).toBeTruthy();
+    expect(screen.getByText('Contents')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Packing slip PACK-1, box 2 of 3"]')).toBeTruthy();
+    expect(screen.getByText('of 3')).toBeTruthy();
+  });
+
+  it('the packing list rules an item table with a packer tick column and signature lines', () => {
+    render(<PackingSlipPaper design={design('list')} profile={profile} orgName="Acme" logoUrl={LOGO} model={slipModel(3)} box={1} />);
+    // The HSN column is shown, unlike the compact barcode A5 slip.
+    expect(screen.getByText('8544')).toBeTruthy();
+    // A signature block a packing list has and the label does not.
+    expect(screen.getByText(/Received by/u)).toBeTruthy();
+    expect(screen.getByText('of 3')).toBeTruthy();
+  });
+
+  it('every layout still prints the logo and the box number', () => {
+    for (const slipTemplate of ['barcode', 'label', 'list'] as const) {
+      const { container, unmount } = render(<PackingSlipPaper design={design(slipTemplate)} profile={profile} orgName="Acme" logoUrl={LOGO} model={slipModel(4)} box={3} />);
+      expect(container.querySelector('img')?.getAttribute('src')).toBe(LOGO);
+      expect(container.querySelector('[aria-label="Packing slip PACK-1, box 3 of 4"]')).toBeTruthy();
+      unmount();
+    }
+  });
+});

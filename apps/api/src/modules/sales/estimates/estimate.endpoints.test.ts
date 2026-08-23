@@ -217,11 +217,11 @@ describe('the printed page (documents settings, Excel)', () => {
     expect(forbidden.status).toBe(403);
     const written = await harness.put<{ profile: { legalName: string }; designs: { ESTIMATE: { templateId: string; accent: string } } }>('/documents/settings', {
       token: adminToken,
-      body: { ...defaults.body, profile: { ...defaults.body.profile, legalName: 'Estimates Fixture Pvt Ltd', gstin: '27AAAAA0000A1Z5' }, designs: { ...defaults.body.designs, ESTIMATE: { ...defaults.body.designs.ESTIMATE, templateId: 'modern', accent: 'teal' } } },
+      body: { ...defaults.body, profile: { ...defaults.body.profile, legalName: 'Estimates Fixture Pvt Ltd', gstin: '27AAAAA0000A1Z5' }, designs: { ...defaults.body.designs, ESTIMATE: { ...defaults.body.designs.ESTIMATE, templateId: 'minimal', accent: 'teal' } } },
     });
     expect(written.status).toBe(200);
     expect(written.body.profile.legalName).toBe('Estimates Fixture Pvt Ltd');
-    expect(written.body.designs.ESTIMATE.templateId).toBe('modern');
+    expect(written.body.designs.ESTIMATE.templateId).toBe('minimal');
     expect(await harness.waitForAuditAction('documents.settings.updated')).toBe(true);
 
     const list = await harness.get<{ data: { id: string; number: string }[] }>('/sales/estimates?page=1&pageSize=1', { token: salesToken });

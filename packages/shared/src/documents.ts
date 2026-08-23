@@ -8,17 +8,23 @@ import { z } from 'zod';
  * worn four ways. Stored as a setting; nothing here is a table.
  */
 
-export const DOCUMENT_TEMPLATE_IDS = ['tally', 'modern', 'minimal', 'bordered', 'ledger'] as const;
+export const DOCUMENT_TEMPLATE_IDS = ['tally', 'minimal', 'bordered', 'ledger', 'formal', 'compact', 'executive'] as const;
 export type DocumentTemplateId = (typeof DOCUMENT_TEMPLATE_IDS)[number];
 export const DOCUMENT_TEMPLATE_LABELS: Record<DocumentTemplateId, { label: string; note: string }> = {
   tally: { label: 'Tally', note: 'The GST tax invoice everyone knows: boxed seller, consignee and buyer, the details grid, HSN summary, amount in words.' },
-  modern: { label: 'Modern', note: 'Accent band across the top, generous white space.' },
   minimal: { label: 'Minimal', note: 'Type and hairlines only; the logo carries the identity.' },
   bordered: { label: 'Bordered', note: 'The minimal page inside a ruled frame, every block boxed by a hairline.' },
   ledger: { label: 'Ledger', note: 'Ruled rows and columns, a double rule under the total: the account book.' },
+  formal: { label: 'Formal', note: 'A ruled masthead over roomy rows, uppercase section labels: the company letter.' },
+  compact: { label: 'Compact', note: 'Small type and tight rows on hairlines; fits the longest list on one page.' },
+  executive: { label: 'Executive', note: 'A heavy masthead rule, shaded column heads and a strong total: the corporate look.' },
 };
-/** Templates that were offered once and are no longer; a saved design that names one wears its nearest successor. */
-const RETIRED_TEMPLATES: Record<string, DocumentTemplateId> = { classic: 'bordered', bold: 'modern' };
+/**
+ * Templates that were offered once and are no longer; a saved design that
+ * names one wears its nearest successor. Modern (an accent band) and the older
+ * bold both fall back to Tally, the invoice everyone in the office reads.
+ */
+const RETIRED_TEMPLATES: Record<string, DocumentTemplateId> = { classic: 'bordered', bold: 'tally', modern: 'tally' };
 
 /** System font stacks, so every machine and every printer renders the same page without fetching anything. */
 export const DOCUMENT_FONTS = ['sans', 'serif', 'humanist', 'mono'] as const;
@@ -118,6 +124,20 @@ export const HANDLING_MARK_LABELS: Record<HandlingMark, string> = {
   open_with_care: 'Open with care',
 };
 
+/**
+ * D-47: the packing slip and delivery note have their own paper (not the money
+ * templates), and three layouts of it. Barcode is the balanced carton slip;
+ * Shipping label enlarges the ship-to, the box number and the scan code for a
+ * warehouse; Packing list is the ruled item sheet that travels inside the box.
+ */
+export const SLIP_TEMPLATE_IDS = ['barcode', 'label', 'list'] as const;
+export type SlipTemplateId = (typeof SLIP_TEMPLATE_IDS)[number];
+export const SLIP_TEMPLATE_LABELS: Record<SlipTemplateId, { label: string; note: string }> = {
+  barcode: { label: 'Barcode', note: 'The balanced carton slip: ship-to, box number, items and a scan code.' },
+  label: { label: 'Shipping label', note: 'Big ship-to and box number over a large scan code — read across a warehouse.' },
+  list: { label: 'Packing list', note: 'A ruled item list under a letterhead — the sheet that goes inside the box.' },
+};
+
 export const documentDesignSchema = z.object({
   templateId: z.preprocess((value) => (typeof value === 'string' && value in RETIRED_TEMPLATES ? RETIRED_TEMPLATES[value] : value), z.enum(DOCUMENT_TEMPLATE_IDS)),
   accent: z.enum(DOCUMENT_ACCENTS),
@@ -154,6 +174,8 @@ export const documentDesignSchema = z.object({
   paperSize: z.enum(['A4', 'A5']).default('A4'),
   /** D-47 (owner): the handling marks the slip prints, as icons — switched on per organisation in the Design rail. */
   handlingMarks: z.array(z.enum(HANDLING_MARKS)).default([]),
+  /** D-47: which of the three goods-paper layouts the slip and delivery note wear; defaulted so an older design still parses. */
+  slipTemplate: z.enum(SLIP_TEMPLATE_IDS).default('barcode'),
 });
 export type DocumentDesign = z.infer<typeof documentDesignSchema>;
 export type PaperSize = DocumentDesign['paperSize'];
@@ -167,6 +189,7 @@ export type DocumentSettings = z.infer<typeof documentSettingsSchema>;
 export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   paperSize: 'A4',
   handlingMarks: [],
+  slipTemplate: 'barcode',
   templateId: 'tally',
   accent: 'ink',
   paper: 'sand',

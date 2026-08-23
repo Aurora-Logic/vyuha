@@ -28,6 +28,8 @@ import {
   DOCUMENT_TEMPLATE_LABELS,
   HANDLING_MARKS,
   HANDLING_MARK_LABELS,
+  SLIP_TEMPLATE_IDS,
+  SLIP_TEMPLATE_LABELS,
   type DocumentAccent,
   type DocumentDesign,
   type DocumentFont,
@@ -36,6 +38,7 @@ import {
   type DocumentSettings,
   type DocumentTemplateId,
   type PrintedDocumentType,
+  type SlipTemplateId,
 } from '@vyuha/shared';
 
 /**
@@ -93,6 +96,8 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
   const onSlipStock = SLIP_PAPER_TYPES.includes(docType);
   const design = settings.designs[docType];
   const profile = settings.profile;
+  // The goods papers (slip, delivery note) wear their own layouts and ignore the money templates.
+  const isSlip = docType === 'PACKING_SLIP' || docType === 'DELIVERY_NOTE';
   const setDesign = (patch: Partial<DocumentDesign>) => {
     onChange({ ...settings, designs: { ...settings.designs, [docType]: { ...design, ...patch } } });
   };
@@ -113,27 +118,51 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
           <FieldGroup className="gap-5">
             <Field>
               <FieldLabel>Template</FieldLabel>
-              <ToggleGroup
-                variant="outline"
-                aria-label="Template"
-                value={[design.templateId]}
-                onValueChange={(value: string[]) => {
-                  const next = value[0];
-                  if (next !== undefined && (DOCUMENT_TEMPLATE_IDS as readonly string[]).includes(next)) setDesign({ templateId: next as DocumentTemplateId });
-                }}
-                className="grid grid-cols-1 gap-2"
-              >
-                {DOCUMENT_TEMPLATE_IDS.map((id) => (
-                  <ToggleGroupItem key={id} value={id} aria-label={DOCUMENT_TEMPLATE_LABELS[id].label} className="h-auto justify-start gap-3 px-3 py-2 text-left data-pressed:border-primary">
-                    <TemplateThumb id={id} accent={design.accent} />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="text-sm font-medium">{DOCUMENT_TEMPLATE_LABELS[id].label}</span>
-                      <span className="text-muted-foreground line-clamp-2 text-xs font-normal whitespace-normal">{DOCUMENT_TEMPLATE_LABELS[id].note}</span>
-                    </span>
-                    {design.templateId === id ? <CheckIcon className="ml-auto shrink-0" /> : null}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
+              {isSlip ? (
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="Slip template"
+                  value={[design.slipTemplate]}
+                  onValueChange={(value: string[]) => {
+                    const next = value[0];
+                    if (next !== undefined && (SLIP_TEMPLATE_IDS as readonly string[]).includes(next)) setDesign({ slipTemplate: next as SlipTemplateId });
+                  }}
+                  className="grid grid-cols-1 gap-2"
+                >
+                  {SLIP_TEMPLATE_IDS.map((id) => (
+                    <ToggleGroupItem key={id} value={id} aria-label={SLIP_TEMPLATE_LABELS[id].label} className="h-auto justify-start gap-3 px-3 py-2 text-left data-pressed:border-primary">
+                      <SlipThumb id={id} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="text-sm font-medium">{SLIP_TEMPLATE_LABELS[id].label}</span>
+                        <span className="text-muted-foreground line-clamp-2 text-xs font-normal whitespace-normal">{SLIP_TEMPLATE_LABELS[id].note}</span>
+                      </span>
+                      {design.slipTemplate === id ? <CheckIcon className="ml-auto shrink-0" /> : null}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              ) : (
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="Template"
+                  value={[design.templateId]}
+                  onValueChange={(value: string[]) => {
+                    const next = value[0];
+                    if (next !== undefined && (DOCUMENT_TEMPLATE_IDS as readonly string[]).includes(next)) setDesign({ templateId: next as DocumentTemplateId });
+                  }}
+                  className="grid grid-cols-1 gap-2"
+                >
+                  {DOCUMENT_TEMPLATE_IDS.map((id) => (
+                    <ToggleGroupItem key={id} value={id} aria-label={DOCUMENT_TEMPLATE_LABELS[id].label} className="h-auto justify-start gap-3 px-3 py-2 text-left data-pressed:border-primary">
+                      <TemplateThumb id={id} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="text-sm font-medium">{DOCUMENT_TEMPLATE_LABELS[id].label}</span>
+                        <span className="text-muted-foreground line-clamp-2 text-xs font-normal whitespace-normal">{DOCUMENT_TEMPLATE_LABELS[id].note}</span>
+                      </span>
+                      {design.templateId === id ? <CheckIcon className="ml-auto shrink-0" /> : null}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              )}
             </Field>
 
             {onSlipStock ? null : (
@@ -385,9 +414,8 @@ function TextRow({ id, label, value, onChange, placeholder }: { id: string; labe
   );
 }
 
-/** A schematic of each template, drawn from the same accent, so the rail's five choices read at a glance. */
-function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: DocumentAccent }) {
-  const bar = ACCENT_SWATCH[accent];
+/** A schematic of each template, so the rail's choices read at a glance. */
+function TemplateThumb({ id }: { id: DocumentTemplateId }) {
   return (
     <span aria-hidden className="flex h-14 w-11 shrink-0 flex-col gap-0.5 border bg-white p-1">
       {id === 'bordered' ? (
@@ -401,13 +429,33 @@ function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: Documen
           </span>
         </>
       ) : null}
-      {id === 'modern' ? (
+      {id === 'formal' ? (
         <>
-          <span className={cn('-m-1 mb-0 h-3', bar)} />
-          <span className="mt-1 h-0.5 w-full bg-neutral-200" />
-          <span className="h-0.5 w-full bg-neutral-200" />
-          <span className="h-0.5 w-full bg-neutral-200" />
-          <span className="mt-auto ml-auto h-2 w-5 bg-neutral-100" />
+          <span className="h-1 w-4 bg-neutral-800" />
+          <span className="mt-0.5 h-0.5 w-full bg-neutral-800" />
+          <span className="mt-1 h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="mt-auto ml-auto h-1 w-4 border-t border-neutral-800" />
+        </>
+      ) : null}
+      {id === 'compact' ? (
+        <>
+          <span className="flex justify-between"><span className="h-1 w-2 bg-neutral-700" /><span className="h-1 w-1.5 bg-neutral-300" /></span>
+          <span className="mt-0.5 h-px w-full bg-neutral-400" />
+          <span className="mt-0.5 h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="mt-auto ml-auto h-px w-4 bg-neutral-800" />
+        </>
+      ) : null}
+      {id === 'executive' ? (
+        <>
+          <span className="flex items-center justify-between border-b-2 border-neutral-800 pb-0.5"><span className="h-1.5 w-4 bg-neutral-800" /><span className="h-1 w-2 bg-neutral-200" /></span>
+          <span className="mt-1 h-1.5 w-full bg-neutral-800" />
+          <span className="mt-0.5 h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="mt-auto ml-auto h-1.5 w-5 bg-neutral-200" />
         </>
       ) : null}
       {id === 'minimal' ? (
@@ -437,6 +485,38 @@ function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: Documen
             <span className="bg-neutral-100" /><span className="bg-neutral-100" /><span className="bg-neutral-100" />
             <span className="bg-white" /><span className="bg-white" /><span className="bg-white" />
           </span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/** A schematic of each slip layout, the same size as the document thumbs. */
+function SlipThumb({ id }: { id: SlipTemplateId }) {
+  return (
+    <span aria-hidden className="flex h-14 w-11 shrink-0 flex-col gap-0.5 border bg-white p-1">
+      {id === 'barcode' ? (
+        <>
+          <span className="flex justify-between"><span className="h-1 w-3 bg-neutral-600" /><span className="h-1.5 w-2 bg-neutral-800" /></span>
+          <span className="mt-0.5 flex items-start justify-between"><span className="h-1 w-3 bg-neutral-300" /><span className="h-3 w-3 border border-neutral-700" /></span>
+          <span className="mt-auto h-2 w-full bg-neutral-800" />
+        </>
+      ) : null}
+      {id === 'label' ? (
+        <>
+          <span className="h-2.5 w-7 bg-neutral-800" />
+          <span className="mt-0.5 ml-auto h-3 w-3 border-2 border-neutral-800" />
+          <span className="mt-auto h-3 w-full bg-neutral-800" />
+        </>
+      ) : null}
+      {id === 'list' ? (
+        <>
+          <span className="h-1 w-4 bg-neutral-700" />
+          <span className="mt-0.5 h-px w-full bg-neutral-400" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="mt-auto h-1 w-full bg-neutral-700" />
         </>
       ) : null}
     </span>
