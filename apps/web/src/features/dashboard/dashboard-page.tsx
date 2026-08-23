@@ -257,7 +257,7 @@ export function DashboardPage() {
 
             <ChartCard
               title="Hours worked, day by day"
-              description="Bar. Everyone's minutes added together"
+              description="Line. Everyone's minutes added together"
               pending={orgRange.isPending}
               empty={!hasValues(teamHoursPoints, ['workedMinutes'])}
               emptyNote="No hours recorded in this period."

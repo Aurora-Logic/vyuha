@@ -345,7 +345,7 @@ function teamHoursValue(value: unknown, _name: unknown, item: unknown): string {
 /**
  * The team's worked hours, day by day.
  *
- * The bar is everyone's minutes added together and the tooltip names the
+ * The line is everyone's minutes added together and the tooltip names the
  * headcount behind it, because the total on its own cannot tell a quiet week
  * from a short-staffed one.
  */
@@ -356,7 +356,7 @@ export function TeamHoursChart({ points, animate }: ChartProps<TeamHoursPoint>) 
 
   return (
     <ChartContainer config={TEAM_HOURS_CONFIG} className="aspect-auto h-44 w-full min-w-0 sm:h-48">
-      <BarChart accessibilityLayer data={[...points]} margin={AXIS_MARGIN}>
+      <LineChart accessibilityLayer data={[...points]} margin={LINE_MARGIN}>
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="date"
@@ -386,17 +386,18 @@ export function TeamHoursChart({ points, animate }: ChartProps<TeamHoursPoint>) 
             />
           }
         />
-        <Bar
+        <Line
           dataKey="workedMinutes"
-          fill="var(--color-workedMinutes)"
-          maxBarSize={16}
+          type="monotone"
+          stroke="var(--color-workedMinutes)"
+          strokeWidth={2}
+          dot={{ r: 2.5, fill: 'var(--color-workedMinutes)', strokeWidth: 0 }}
+          activeDot={{ r: 4 }}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        >
-          <LabelList {...valueCaps('workedMinutes', compactCount)} />
-        </Bar>
-      </BarChart>
+        />
+      </LineChart>
     </ChartContainer>
   );
 }
