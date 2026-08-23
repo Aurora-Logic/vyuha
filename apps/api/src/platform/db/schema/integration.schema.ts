@@ -2,6 +2,7 @@ import type { AgentCondition } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  check,
   date,
   index,
   jsonb,
@@ -109,6 +110,17 @@ export const integrationConnections = pgTable(
   },
   (t) => [
     uniqueIndex('integration_connections_uq').on(t.orgId, t.system, t.name).where(ALIVE),
+    /*
+     * One company, one connection, one door. The comment on
+     * `webhookSecretEnc` already says the two credentials are exclusive, and
+     * the service checked it -- by reading the row first, outside any lock,
+     * so two administrators acting at once both read "no other credential"
+     * and both wrote. A connection then had an agent token and a webhook
+     * secret at the same time, and which transport it used depended on which
+     * lookup ran. This is that sentence made load-bearing, beside the two
+     * unique indexes that hold the neighbouring rules for the same reason.
+     */
+    check('integration_connections_one_door', sql`agent_token_hash IS NULL OR webhook_secret_enc IS NULL`),
     /*
      * The hot auth lookup, and a guarantee in one: a credential can never
      * resolve to two connections, however the issuance code evolves.
