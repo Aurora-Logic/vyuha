@@ -34,13 +34,39 @@ export function currencySymbol(): string {
   return locale.currencySymbol;
 }
 
-/** A decimal string as the API sends it, grouped the way the workspace writes figures; two decimals. */
+/**
+ * A decimal string as the API sends it, grouped the way the workspace writes
+ * figures; two decimals.
+ *
+ * The third decimal is rounded, not chopped. It used to be sliced off, so
+ * every figure the API sends with more than two decimals -- and the
+ * projection keeps three on purpose (D-01), so quantities, rates and any
+ * derived amount do -- was shown a paisa short: 1234.567 read as 1234.56, and
+ * a column of them drifted further the longer it got.
+ *
+ * Scaled to paise once with BigInt rather than through a float: `Number` on a
+ * long rupee figure is not exact, and this runs on totals. Only the fraction
+ * needs the big arithmetic, so the carry is a single add.
+ */
 export function formatAmount(value: string | null): string {
   if (value === null) return EMPTY_VALUE;
   const negative = value.startsWith('-');
-  const [whole = '0', fraction] = value.replace(/^-/u, '').split('.');
-  const decimals = fraction === undefined ? '00' : fraction.padEnd(2, '0').slice(0, 2);
-  return `${negative ? '−' : ''}${groupDigits(whole, locale.numberFormat)}.${decimals}`;
+  const magnitude = value.replace(/^-/u, '');
+  const [whole = '0', fraction] = magnitude.split('.');
+  let rupees = whole === '' ? '0' : whole;
+  let decimals = '00';
+  if (fraction !== undefined && fraction !== '') {
+    // Half-up on the third decimal, carried into the rupees when it overflows.
+    const paise = BigInt(fraction.padEnd(3, '0').slice(0, 3));
+    const rounded = (paise + 5n) / 10n;
+    if (rounded >= 100n) {
+      rupees = (BigInt(rupees) + 1n).toString();
+      decimals = '00';
+    } else {
+      decimals = rounded.toString().padStart(2, '0');
+    }
+  }
+  return `${negative ? '−' : ''}${groupDigits(rupees, locale.numberFormat)}.${decimals}`;
 }
 
 /**

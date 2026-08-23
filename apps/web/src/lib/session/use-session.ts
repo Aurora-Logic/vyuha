@@ -87,6 +87,13 @@ const meSnapshotSchema = z.object({
       ),
     ),
   accessWindow: z.object({ closesInMinutes: z.number().nullable(), exempt: z.boolean() }).optional(),
+  // REQ-B-09. `rememberMe` has always written this; only the read side
+  // dropped it, so an offline reload rendered the whole shell for an account
+  // whose enrolment the session gate would have stopped. Optional on purpose:
+  // a snapshot written before this existed has no key, and absent has to keep
+  // meaning "not required" -- failing closed would strand every one of those
+  // readers on an enrolment screen that cannot be completed without a server.
+  mfa: z.object({ enabled: z.boolean(), required: z.boolean(), enrolmentRequired: z.boolean() }).optional(),
 });
 
 // localStorage can be denied outright (privacy modes). Each helper treats

@@ -77,9 +77,14 @@ export function useSaveSettings(): UseMutationResult<OrgSettings, Error, Setting
         value: saved,
         sample: false,
       });
-      // A changed max-work cap or punch window changes what every derived day
-      // means, so anything already on screen is stale.
-      void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      // This screen writes ten policy groups, and they are read back through
+      // caches that have nothing to do with each other: derived attendance
+      // days, the shell's branding (the number format and currency symbol are
+      // module-level state), the return-reason list. Naming them was a list
+      // that rotted -- branding was the third key to be forgotten. A save
+      // happens a few times a year and an unfiltered invalidation refetches
+      // only what is actually mounted, which is the cheaper mistake.
+      void queryClient.invalidateQueries();
     },
   });
 }

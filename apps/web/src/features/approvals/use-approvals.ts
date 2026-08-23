@@ -3,6 +3,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
@@ -127,9 +128,7 @@ export function useDecideApproval(): UseMutationResult<void, Error, SingleDecisi
       );
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: APPROVALS_QUERY_ROOT });
-      // An approved leave moves a balance, so the leave screens are stale too.
-      void queryClient.invalidateQueries({ queryKey: ['leave'] });
+      invalidateAfterDecision(queryClient);
     },
   });
 }
@@ -140,6 +139,22 @@ export function useDecideApproval(): UseMutationResult<void, Error, SingleDecisi
  * the server can apply the whole set in one call and one audit entry per
  * request it actually moved.
  */
+/**
+ * What a decision here makes stale.
+ *
+ * An approved leave moves a balance, and leave, corrections and on-duty all
+ * recompute the affected days inline on the server -- so a decision taken in
+ * the inbox moves the muster and the day sheet as surely as it moves the
+ * inbox itself. Only the inbox and leave were refreshed, so a manager who
+ * approved a correction and looked at the day still saw the old one.
+ */
+function invalidateAfterDecision(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: APPROVALS_QUERY_ROOT });
+  void queryClient.invalidateQueries({ queryKey: ['leave'] });
+  void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+  void queryClient.invalidateQueries({ queryKey: ['regularization'] });
+}
+
 export function useBulkDecision(): UseMutationResult<void, Error, BulkAction> {
   const queryClient = useQueryClient();
   return useMutation({
@@ -150,8 +165,7 @@ export function useBulkDecision(): UseMutationResult<void, Error, BulkAction> {
       });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: APPROVALS_QUERY_ROOT });
-      void queryClient.invalidateQueries({ queryKey: ['leave'] });
+      invalidateAfterDecision(queryClient);
     },
   });
 }

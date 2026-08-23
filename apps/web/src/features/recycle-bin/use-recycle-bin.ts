@@ -8,6 +8,7 @@ import {
 import type { SoftDeletableEntity } from '@vyuha/shared';
 
 import { parseOrThrow } from '@/features/attendance/api';
+import { invalidateAfterMasterWrite } from '@/features/org-masters/use-master-delete';
 import { apiRequest } from '@/lib/api/client';
 
 import { recycleBinResponseSchema, type RecycleBinResponse } from './types';
@@ -67,31 +68,14 @@ export function useRestore(): UseMutationResult<unknown, Error, RestoreInput> {
         body: { reason: input.reason },
       }),
     onSuccess: (_result, input) => {
-      void queryClient.invalidateQueries({ queryKey: BIN_KEY });
       // A restored record reappears in its own list, which is very likely open
-      // in another tab of the same session. Naming the caches rather than
-      // clearing everything: these are the six that can now be wrong.
-      for (const key of cachesTouchedBy(input.entityType)) {
-        void queryClient.invalidateQueries({ queryKey: [key] });
-      }
+      // in another tab of the same session. The table of which caches that
+      // touches is the delete path's, not a second copy of it: there was one
+      // here too and the two had already drifted -- this one invalidated
+      // `holidays`, a key nothing registers under, so a restored holiday
+      // calendar stayed missing until the tab was reloaded, and it never
+      // knew about rosters at all.
+      invalidateAfterMasterWrite(queryClient, input.entityType);
     },
   });
-}
-
-function cachesTouchedBy(entityType: SoftDeletableEntity): readonly string[] {
-  switch (entityType) {
-    case 'department':
-    case 'designation':
-    case 'location':
-      // The employee form's pickers are built from all three.
-      return ['departments', 'designations', 'locations', 'employees'];
-    case 'shift':
-      return ['shifts'];
-    case 'leaveType':
-      return ['leave'];
-    case 'holidayCalendar':
-      return ['holidays'];
-    case 'role':
-      return ['roles'];
-  }
 }

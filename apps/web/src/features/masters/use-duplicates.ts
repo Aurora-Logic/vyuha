@@ -10,9 +10,12 @@ const DUPLICATES_KEY = ['masters', 'duplicates'] as const;
 
 function useInvalidate(): () => Promise<void> {
   const client = useQueryClient();
-  // The flags ride on the party and item lists, so those refresh too.
+  // The flags ride on the party and item lists, so those refresh too. The
+  // item register's key is `['masters','stock-items']` (use-stock-items.ts);
+  // this said `['masters','items']`, which nothing registers under, so
+  // dismissing a duplicate left its badge on the register until a reload.
   return async () => {
-    await Promise.all([client.invalidateQueries({ queryKey: DUPLICATES_KEY }), client.invalidateQueries({ queryKey: ['masters', 'parties'] }), client.invalidateQueries({ queryKey: ['masters', 'items'] })]);
+    await Promise.all([client.invalidateQueries({ queryKey: DUPLICATES_KEY }), client.invalidateQueries({ queryKey: ['masters', 'parties'] }), client.invalidateQueries({ queryKey: ['masters', 'stock-items'] })]);
   };
 }
 
