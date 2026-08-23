@@ -5,6 +5,8 @@ import { toast } from '@/components/ui/toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+
+import { SLIP_PAPER_TYPES } from './paper-support';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -80,7 +82,15 @@ interface DesignRailProps {
   onDiscard: () => void;
 }
 
+/**
+ * The slip and the delivery note are drawn by `PackingSlipPaper`, which reads
+ * only the paper size, the logo placement, the handling marks, the footer note
+ * and its own template -- black on white, because it goes on a carton or
+ * through a thermal printer. Offering a paper colour or an accent for them is
+ * offering a control that does nothing.
+ */
 export function DesignRail({ docType, settings, onChange, canSave, dirty, saving, saveError, onSave, onDiscard }: DesignRailProps) {
+  const onSlipStock = SLIP_PAPER_TYPES.includes(docType);
   const design = settings.designs[docType];
   const profile = settings.profile;
   const setDesign = (patch: Partial<DocumentDesign>) => {
@@ -126,6 +136,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               </ToggleGroup>
             </Field>
 
+            {onSlipStock ? null : (
             <Field>
               <FieldLabel>Paper</FieldLabel>
               <ToggleGroup
@@ -145,7 +156,9 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                 ))}
               </ToggleGroup>
             </Field>
+            )}
 
+            {onSlipStock ? null : (
             <Field>
               <FieldLabel>Accent</FieldLabel>
               <ToggleGroup
@@ -165,8 +178,9 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                 ))}
               </ToggleGroup>
             </Field>
+            )}
 
-            {docType === 'PACKING_SLIP' || docType === 'DELIVERY_NOTE' ? (
+            {onSlipStock ? (
               <Field>
                 <FieldLabel>Handling marks</FieldLabel>
                 {/* D-47 (owner): the marks the slip prints, switched on here; each wears the glyph the paper prints. */}

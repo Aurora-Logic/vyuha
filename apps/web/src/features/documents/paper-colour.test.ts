@@ -37,3 +37,28 @@ describe('paper colour', () => {
     expect(parsed.paper).toBe('sand');
   });
 });
+
+describe('the design rail offers only controls that do something', () => {
+  const rail = readFileSync(resolve(__dirname, 'design-rail.tsx'), 'utf8');
+  const slip = readFileSync(resolve(__dirname, 'packing-slip-paper.tsx'), 'utf8');
+
+  it('asks the shared list whether this is slip stock, rather than naming the types again', () => {
+    expect(rail).toContain('SLIP_PAPER_TYPES.includes(docType)');
+  });
+
+  it('hides paper and accent on slip stock, because the slip reads neither', () => {
+    // What the slip actually reads from the design. If this grows to include
+    // paper or accent, the rail should stop hiding them.
+    const used = new Set([...slip.matchAll(/design\.([a-zA-Z]+)/gu)].map((m) => m[1]));
+    expect(used.has('paper'), 'the slip now reads paper — unhide it in the rail').toBe(false);
+    expect(used.has('accent'), 'the slip now reads accent — unhide it in the rail').toBe(false);
+    expect(rail).toMatch(/\{onSlipStock \? null : \(\s*<Field>\s*<FieldLabel>Paper</u);
+    expect(rail).toMatch(/\{onSlipStock \? null : \(\s*<Field>\s*<FieldLabel>Accent</u);
+  });
+
+  it('still offers them on a document that is drawn on paper', () => {
+    // The gate is a condition, not a deletion.
+    expect(rail).toContain('<FieldLabel>Paper</FieldLabel>');
+    expect(rail).toContain('<FieldLabel>Accent</FieldLabel>');
+  });
+});
