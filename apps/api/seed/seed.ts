@@ -314,10 +314,33 @@ async function ensureAdministrator(
   const existing = await tx
     .select({ id: users.id, email: users.email })
     .from(users)
-    .where(and(sql`lower(${users.email}) = ${email}`, isNull(users.deletedAt)))
+    .where(and(eq(users.orgId, orgId), sql`lower(${users.email}) = ${email}`, isNull(users.deletedAt)))
     .limit(1);
 
   const found = existing[0];
+
+  if (found === undefined) {
+    // An email identifies one person across the whole deployment
+    // (`users_email_uq` is on lower(email), not on the pair). This lookup used
+    // to omit the organisation, so seeding a second one with an address that
+    // already existed found the other organisation's user, granted them a role
+    // row that `PrincipalService` will never honour -- it filters roles by the
+    // principal's own org -- and returned created:false with no password. The
+    // operator was told the administrator already existed, and the new
+    // organisation had none. Refusing says the true thing instead.
+    const elsewhere = await tx
+      .select({ orgId: users.orgId })
+      .from(users)
+      .where(and(sql`lower(${users.email}) = ${email}`, isNull(users.deletedAt)))
+      .limit(1);
+    const other = elsewhere[0];
+    if (other !== undefined) {
+      throw new Error(
+        `${email} already belongs to organisation ${other.orgId}. An email address identifies one person across the ` +
+          'whole deployment, so this organisation needs an administrator address of its own; pass --admin-email.',
+      );
+    }
+  }
 
   if (found !== undefined) {
     // The role assignment is still reconciled: an administrator who lost the
@@ -382,10 +405,15 @@ async function linkAdministratorEmployee(
   orgId: string,
   userId: string,
 ): Promise<AdminEmployeeLink> {
+  // The organisation is named as well as the id. `ensureAdministrator` now
+  // guarantees the user belongs to it, so this cannot select anything else --
+  // which is the point of writing it down: the guarantee lives one function
+  // away, and this join sets `users.employee_id`, the column every self-scoped
+  // read resolves through.
   const current = await tx
     .select({ employeeId: users.employeeId })
     .from(users)
-    .where(eq(users.id, userId))
+    .where(and(eq(users.id, userId), eq(users.orgId, orgId)))
     .limit(1);
 
   const alreadyJoined = current[0]?.employeeId ?? null;
