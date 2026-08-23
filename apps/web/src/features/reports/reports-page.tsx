@@ -101,7 +101,7 @@ import { GenericReportChart, ReportChart, type ChartDrill } from './report-chart
 import { chartKindOf, primaryNumericColumn } from './report-series';
 import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from '@/lib/period-compare';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
-import { periodFor, periodModeOf } from './period';
+import { periodFor, periodModeOf, toDateParam } from './period';
 import { ScheduleDialog } from './schedule-dialog';
 import { isNumericColumn, renderCell } from './format';
 import { PunchPhotoSheet } from './punch-photo-sheet';
@@ -127,14 +127,6 @@ function readPositiveInt(raw: string | null, fallback: number, max: number): num
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, max);
-}
-
-/** `YYYY-MM-DD` for an endpoint, from a Date. Never the ISO instant (NFR-05). */
-function toDateParam(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${String(year)}-${month}-${day}`;
 }
 
 function fromDateParam(raw: string | null): Date | undefined {
