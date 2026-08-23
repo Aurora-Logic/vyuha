@@ -277,25 +277,23 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     const partyId = filters.partyId ?? '';
     const from = filters.from;
     const desc = sort === '-date';
-    const openingRow: CustomerStatementSource | null =
-      offset === 0 && !desc
-        ? {
-            id: `opening-${partyId}`,
-            date: from ?? '',
-            voucherType: 'Opening balance',
-            voucherNumber: '',
-            narration: from === undefined ? 'Before the first voucher held' : `Before ${from}`,
-            debit: null,
-            credit: null,
-            unclassified: null,
-            balance: await this.openingBalance(orgId, partyId, from),
-            asOf,
-          }
-        : null;
-    // The opening row takes slot zero of page one; vouchers shift by one.
-    const voucherOffset = desc ? offset : Math.max(0, offset - 1);
-    const voucherLimit = openingRow === null ? limit : limit - 1;
-    if (voucherLimit <= 0) return openingRow === null ? [] : [openingRow];
+    // The opening row exists whichever way the statement is read, because
+    // `count()` promises vouchers + 1 and knows nothing about the sort. It
+    // used to be built only for an ascending page one, so a descending
+    // statement returned one row fewer than the total said -- and the pager
+    // offered a last page that was always empty.
+    const openingRow: CustomerStatementSource = {
+      id: `opening-${partyId}`,
+      date: from ?? '',
+      voucherType: 'Opening balance',
+      voucherNumber: '',
+      narration: from === undefined ? 'Before the first voucher held' : `Before ${from}`,
+      debit: null,
+      credit: null,
+      unclassified: null,
+      balance: await this.openingBalance(orgId, partyId, from),
+      asOf,
+    };
 
     const rows = await this.db.execute<{
       id: string;
@@ -323,7 +321,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     // period and the page are cut afterwards. A party's vouchers number in
     // the thousands at most, which the projection's shape already assumes.
     const inPeriod = rows.rows.filter((row) => (from === undefined || row.voucher_date >= from) && (filters.to === undefined || row.voucher_date <= filters.to));
-    const paged = inPeriod.slice(voucherOffset, voucherOffset + voucherLimit).map((row): CustomerStatementSource => ({
+    const vouchers = inPeriod.map((row): CustomerStatementSource => ({
       id: row.id,
       date: row.voucher_date,
       voucherType: row.voucher_type,
@@ -335,7 +333,12 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       balance: row.balance,
       asOf,
     }));
-    return openingRow === null ? paged : [openingRow, ...paged];
+    // Read forwards the opening balance is the first line; read backwards it
+    // is the last, which is where reverse-chronological order puts what came
+    // before everything. Sliced from the whole statement rather than offset by
+    // hand, so the page arithmetic cannot disagree with the total.
+    const statement = desc ? [...vouchers, openingRow] : [openingRow, ...vouchers];
+    return statement.slice(offset, offset + limit);
   }
 
   private async openingBalance(orgId: string, partyId: string, from: string | undefined): Promise<string> {

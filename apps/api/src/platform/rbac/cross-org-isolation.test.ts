@@ -5,6 +5,7 @@ import { SYSTEM_ROLES } from '@vyuha/shared';
 
 import { runSeed } from '../../../seed/seed.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { hashPassword } from '../auth/password.js';
 
 /**
  * P-25: every route, walked as somebody else's administrator.
@@ -21,8 +22,12 @@ import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
  * there is, so a refusal can only be about the organisation, never about the
  * key. Anything but a refusal is a row crossing a tenant boundary.
  *
- * Two organisations, two app instances, one database and one signing secret --
- * so B's token is a real token, exactly as it would be in production.
+ * The second organisation is built directly against the first harness's
+ * database and signs in through the same server. It used to get a harness of
+ * its own, which meant a second Nest app -- and a second set of BullMQ workers
+ * competing for the shared queues for as long as this file ran. That made
+ * other files fail at random: punch approvals, a discount inbox, a retention
+ * sweep, a timing test, a different one each run. One app, one worker set.
  *
  * What it cannot reach is counted and named at the end rather than passed over
  * in silence: a route whose list needs filters answers 400 and yields no id,
@@ -52,7 +57,6 @@ interface Route {
 }
 
 let a: ApiHarness;
-let b: ApiHarness;
 let tokenA = '';
 let tokenB = '';
 let routes: Route[] = [];
@@ -70,15 +74,39 @@ function routeTable(harness: ApiHarness): Route[] {
 
 beforeAll(async () => {
   a = await ApiHarness.start(ORG_A, 'Isolation Org A');
-  b = await ApiHarness.start(ORG_B, 'Isolation Org B');
 
   const roleA = await a.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
   const adminA = await a.createUser({ email: scopedEmail('iso-a-admin'), roleIds: [roleA] });
   tokenA = (await a.login(adminA.email, adminA.password)).token;
 
-  const roleB = await b.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
-  const adminB = await b.createUser({ email: scopedEmail('iso-b-admin'), roleIds: [roleB] });
-  tokenB = (await b.login(adminB.email, adminB.password)).token;
+  // The second organisation, written straight into the same database: an
+  // administrator of it, holding every permission the catalogue defines, who
+  // signs in through the same server. Nothing about the request that follows
+  // is unusual -- only the tenant.
+  const emailB = scopedEmail('iso-b-admin');
+  const passwordB = 'fixture-passphrase-2026';
+  await a.db.execute(sql`DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE org_id = ${ORG_B})`);
+  await a.db.execute(sql`DELETE FROM users WHERE org_id = ${ORG_B}`);
+  await a.db.execute(sql`DELETE FROM role_permissions WHERE role_id IN (SELECT id FROM roles WHERE org_id = ${ORG_B})`);
+  await a.db.execute(sql`DELETE FROM roles WHERE org_id = ${ORG_B}`);
+  await a.db.execute(sql`
+    INSERT INTO organizations (id, name) VALUES (${ORG_B}, 'Isolation Org B')
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, deleted_at = NULL
+  `);
+  const roleB = await a.db.execute<{ id: string }>(sql`
+    INSERT INTO roles (org_id, name, is_system) VALUES (${ORG_B}, ${SYSTEM_ROLES.ADMIN}, true) RETURNING id
+  `);
+  const roleBId = roleB.rows[0]?.id ?? '';
+  await a.db.execute(sql`
+    INSERT INTO role_permissions (role_id, permission_id) SELECT ${roleBId}, id FROM permissions
+  `);
+  const userB = await a.db.execute<{ id: string }>(sql`
+    INSERT INTO users (org_id, email, password_hash, status, password_changed_at)
+    VALUES (${ORG_B}, ${emailB}, ${await hashPassword(passwordB)}, 'ACTIVE', now() - interval '1 minute')
+    RETURNING id
+  `);
+  await a.db.execute(sql`INSERT INTO user_roles (user_id, role_id) VALUES (${userB.rows[0]?.id ?? ''}, ${roleBId})`);
+  tokenB = (await a.login(emailB, passwordB)).token;
 
   // The real seed, so the fixture is the product's own master data rather
   // than a hand-written imitation that drifts: departments, designations,
@@ -159,7 +187,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await a.close();
-  await b.close();
 });
 
 describe('every route, as the wrong organisation (P-25)', () => {

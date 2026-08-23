@@ -28,4 +28,33 @@ describe('report row shapes', () => {
     });
     expect(missing).toEqual([]);
   });
+
+  it('fills the payment analysis verdict, which is derived rather than sent', () => {
+    // "Pays on time" is computed from the slippage by `paymentAnalysisCell`;
+    // it is not a column the API sends. Routed through the generic record
+    // shape, the cell looked up a key that was not there and the column was
+    // blank on every screen -- while the exported file, which runs the same
+    // cell function on the server, had it filled in.
+    const row = {
+      partyId: 'p1',
+      partyName: 'Asha Traders',
+      creditDays: 30,
+      avgDaysToPay: 41,
+      slippage: 11,
+      billsPaid: 4,
+      billsOpen: 1,
+      oldestOpenDays: 62,
+      asOf: '2026-08-23T00:00:00.000Z',
+    };
+    const [late] = toRowViews('payment-analysis', [row]);
+    expect(late?.cells.onTime).toBe('LATE');
+    expect(late?.status).toBe('LATE');
+
+    const [onTime] = toRowViews('payment-analysis', [{ ...row, slippage: -2 }]);
+    expect(onTime?.cells.onTime).toBe('ON TIME');
+
+    // Nothing settled yet is not a verdict, and must not read as one.
+    const [unknown] = toRowViews('payment-analysis', [{ ...row, slippage: null, avgDaysToPay: null, billsPaid: 0 }]);
+    expect(unknown?.cells.onTime).toBe('NOT YET KNOWN');
+  });
 });

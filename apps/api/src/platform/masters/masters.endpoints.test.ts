@@ -305,6 +305,27 @@ describe('the receivables reports (Phase 6d, REQ-Y-01, Y-03, Y-05, Y-07)', () =>
     `);
   });
 
+  it('is the same number of rows whichever way it is read (audit 21)', async () => {
+    type Body = { data: { voucherType: string }[]; meta: { total: number } };
+    const url = (extra: string): string => `/reports/customer-statement/rows?partyId=${ashaId}&from=2026-08-01&to=2026-08-31&pageSize=100&${extra}`;
+
+    const forwards = (await harness.get<Body>(url('page=1'), { token: adminToken })).body;
+    const backwards = (await harness.get<Body>(url('page=1&sort=-date'), { token: adminToken })).body;
+
+    // The total counts the opening row, and knows nothing about the sort. Read
+    // backwards the opening row used to be dropped, so the count was one
+    // higher than the statement and the pager offered an empty last page.
+    expect(backwards.meta.total).toBe(forwards.meta.total);
+    expect(backwards.data).toHaveLength(forwards.data.length);
+    expect(forwards.data.length).toBe(forwards.meta.total);
+
+    // Forwards it opens the statement; backwards it closes it, which is where
+    // reverse-chronological order puts what came before everything.
+    expect(forwards.data[0]?.voucherType).toBe('Opening balance');
+    expect(backwards.data.at(-1)?.voucherType).toBe('Opening balance');
+    expect(backwards.data.filter((row) => row.voucherType === 'Opening balance')).toHaveLength(1);
+  });
+
   it('a customer statement needs a party, opens from what came before, and runs a balance across the period', async () => {
     const noParty = await harness.get<{ error: { details?: { fields?: { path: string }[] } } }>(
       '/reports/customer-statement/rows?from=2026-08-01&to=2026-08-31',

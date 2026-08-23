@@ -14,6 +14,7 @@ import {
   attendanceRegisterCell,
   headcountCell,
   creditCycleCell,
+  paymentAnalysisCell,
   customerLapseCell,
   customerStatementCell,
   lowStockCell,
@@ -422,6 +423,27 @@ export const creditCycleRowSchema = z.object({
 });
 export type CreditCycleRow = z.infer<typeof creditCycleRowSchema>;
 
+/**
+ * The payment-analysis row, declared rather than left to the generic record
+ * shape. "Pays on time" is derived from the slippage by `paymentAnalysisCell`
+ * and is not a column the API sends, so the generic `recordCell` looked up a
+ * key that was not there and the column was blank on every screen -- while the
+ * exported file, which goes through that same cell function on the server,
+ * had it filled in. The screen and the file now read the row the same way.
+ */
+export const paymentAnalysisRowSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  creditDays: z.number().nullable(),
+  avgDaysToPay: z.number().nullable(),
+  slippage: z.number().nullable(),
+  billsPaid: z.number(),
+  billsOpen: z.number(),
+  oldestOpenDays: z.number().nullable(),
+  asOf: z.string().nullable(),
+});
+export type PaymentAnalysisRow = z.infer<typeof paymentAnalysisRowSchema>;
+
 export const salesAnalysisRowSchema = z.object({
   key: z.string(),
   label: z.string(),
@@ -622,6 +644,15 @@ const CREDIT_CYCLE_SHAPE: RowViewShape<CreditCycleRow> = {
   status: (row) => (row.overLimit ? 'OVER_LIMIT' : null),
 };
 
+const PAYMENT_ANALYSIS_SHAPE: RowViewShape<PaymentAnalysisRow> = {
+  schema: paymentAnalysisRowSchema,
+  cell: paymentAnalysisCell,
+  id: (row) => row.partyId,
+  primary: (row) => row.partyName,
+  // The same three words the cell renders, so the badge and the column agree.
+  status: (row) => (row.slippage === null ? 'NOT YET KNOWN' : row.slippage <= 0 ? 'ON TIME' : 'LATE'),
+};
+
 const SALES_ANALYSIS_SHAPE: RowViewShape<SalesAnalysisRow> = {
   schema: salesAnalysisRowSchema,
   cell: salesAnalysisCell,
@@ -747,7 +778,6 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   // shape, so every screen reading them showed the error state instead of the
   // rows the API was returning. `row-shapes.test.ts` now fails on the next one.
   ageing: analyticsShape(['partyId', 'billName'], 'partyName', 'bucket'),
-  'payment-analysis': analyticsShape('partyId', 'partyName'),
   'promised-vs-collected': analyticsShape('id', 'partyName'),
   'broken-promises': analyticsShape('id', 'partyName'),
   'return-rate-by-item': analyticsShape('id', 'itemName'),
@@ -817,6 +847,8 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(CUSTOMER_STATEMENT_SHAPE, reportKey, rows);
     case 'credit-cycle':
       return build(CREDIT_CYCLE_SHAPE, reportKey, rows);
+    case 'payment-analysis':
+      return build(PAYMENT_ANALYSIS_SHAPE, reportKey, rows);
     case 'sales-analysis':
       return build(SALES_ANALYSIS_SHAPE, reportKey, rows);
     case 'pending-dispatch':
