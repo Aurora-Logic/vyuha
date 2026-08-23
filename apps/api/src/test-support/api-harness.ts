@@ -471,6 +471,14 @@ export class ApiHarness {
       await this.db.delete(roles).where(eq(roles.orgId, this.orgId));
     }
 
+    // Holiday calendars, which nothing cleared. They accumulated run after
+    // run -- 467 of them in one fixture organisation -- and a suite that
+    // lists them a page at a time eventually found its own fixture past the
+    // end of the first page and failed on an undefined. Safe to delete
+    // outright: holidays cascade, and the employee and location references
+    // are ON DELETE SET NULL.
+    await this.db.execute(sql`DELETE FROM holiday_calendars WHERE org_id = ${this.orgId}`);
+
     if (preservePeople) return;
 
     // Requests that reference an employee with RESTRICT, cleared before the

@@ -84,12 +84,37 @@ export class RequirementsService {
     return id;
   }
 
+  /**
+   * Give up on what a sales order was waiting for.
+   *
+   * Called when the order stops being something to fulfil -- short-closed, or
+   * cancelled in Tally, which is the same fact arriving from the other
+   * direction. The Tally path did nothing at all, so the shortages that order
+   * had raised stayed open for ever: the buyer went on purchasing for an order
+   * that no longer existed, and the requirement queue carried work nobody
+   * wanted done.
+   *
+   * Here rather than in the sales module because `procurement_requirements` is
+   * the platform's table (D-35) -- the sales module was reaching into it by
+   * hand, which is the boundary this repairs along with the bug.
+   */
+  async closeForSalesOrder(tx: Database, orgId: string, salesOrderId: string, reason: string): Promise<number> {
+    const closed = await tx.execute<{ id: string }>(sql`
+      UPDATE procurement_requirements
+         SET state = 'closed', closed_reason = ${reason}, closed_at = now(), updated_at = now()
+       WHERE org_id = ${orgId} AND sales_order_id = ${salesOrderId}
+         AND state IN ('open', 'ordered') AND deleted_at IS NULL
+      RETURNING id
+    `);
+    return closed.rows.length;
+  }
+
   /** REQ-X-09: one open requirement per item at or below its reorder level, skipping items an open PO already covers. */
   async raiseReorderBreaches(orgId: string): Promise<number> {
     const rows = await this.db.execute<{ id: string; stock_item_id: string; quantity: string }>(sql`
       INSERT INTO procurement_requirements (org_id, stock_item_id, quantity, source, state)
       SELECT s.org_id, s.id,
-             GREATEST(i.reorder_level - (COALESCE(s.closing_qty, 0) - COALESCE(c.committed, 0) + COALESCE(p.open_po, 0)), COALESCE(i.minimum_order_qty, 1)),
+             GREATEST(i.reorder_level - (COALESCE(s.closing_qty, 0) - COALESCE(c.committed, 0) + COALESCE(p.open_po, 0)), COALESCE(NULLIF(i.minimum_order_qty, 0), 1)),
              'reorder', 'open'
         FROM stock_items s
         JOIN item_settings i ON i.stock_item_id = s.id AND i.deleted_at IS NULL AND i.reorder_level IS NOT NULL
@@ -107,10 +132,20 @@ export class RequirementsService {
         ) p ON true
        WHERE s.org_id = ${orgId}
          AND (COALESCE(s.closing_qty, 0) - COALESCE(c.committed, 0) + COALESCE(p.open_po, 0)) <= i.reorder_level
+         -- An item already being dealt with is not raised again. "Already"
+         -- includes one whose goods have arrived but whose receipt has not
+         -- come back from Tally yet: closing_qty is Tally's figure, so between
+         -- the GRN and the next pull the shelf still reads empty and the sweep
+         -- raised the same reorder a second time, every night, until Tally
+         -- caught up. last_pulled_at is when this item's figure was last true
+         -- (NOT NULL, defaulted to now()), so a requirement received after it
+         -- is one the closing quantity does not yet know about.
          AND NOT EXISTS (
            SELECT 1 FROM procurement_requirements r
             WHERE r.org_id = s.org_id AND r.stock_item_id = s.id AND r.source = 'reorder'
-              AND r.state IN ('open', 'ordered') AND r.deleted_at IS NULL
+              AND r.deleted_at IS NULL
+              AND (r.state IN ('open', 'ordered')
+                   OR (r.state = 'received' AND r.updated_at > s.last_pulled_at))
          )
       RETURNING id, stock_item_id, quantity::text AS quantity
     `);

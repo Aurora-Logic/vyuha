@@ -268,6 +268,63 @@ describe('the nightly reorder sweep (13 REQ-X-09)', () => {
     await harness.post(`/purchase/requirements/${reorder?.id ?? ''}/close`, { token: adminToken, body: { reason: 'test: reorder level restored' } });
     await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
   });
+
+  it('refuses a minimum order quantity of nought (audit 5)', async () => {
+    // Stored as zero it reaches the sweep, where it is the floor of a
+    // GREATEST: an item sitting exactly on its reorder level then produced a
+    // requirement to buy nought, which the buyer sees as a job to do and can
+    // do nothing with. Empty is how "no minimum" is said.
+    const refused = await harness.put<ErrorBody>(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '20', minimumOrderQty: '0' },
+    });
+    expect(refused.status).toBe(400);
+    const alsoRefused = await harness.put<ErrorBody>(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '20', minimumOrderQty: '0.000' },
+    });
+    expect(alsoRefused.status).toBe(400);
+    // Clearing it still means "no minimum".
+    const cleared = await harness.put(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '20', minimumOrderQty: null },
+    });
+    expect(cleared.status).toBe(200);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
+  });
+
+  it('does not reorder an item whose receipt has not come back from Tally (audit 6)', async () => {
+    const requirements = harness.resolve(RequirementsService);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '1000', minimumOrderQty: '5' } });
+    const raised = await requirements.raiseReorderBreaches(ORG_ID);
+    expect(raised).toBe(1);
+    const open = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
+    const mine = open.body.find((r) => r.stockItemId === cableId && r.source === 'reorder');
+    expect(mine).toBeDefined();
+
+    // The goods arrive: the requirement is received, but closing_qty is
+    // Tally's figure and Tally has not been pulled since. The guard only
+    // looked at open and ordered, so the sweep raised the same reorder again
+    // -- every night, until Tally caught up.
+    await harness.db.execute(sql`
+      UPDATE procurement_requirements SET state = 'received', received_qty = quantity, updated_at = now()
+       WHERE id = ${mine?.id ?? ''}
+    `);
+    await harness.db.execute(sql`UPDATE stock_items SET last_pulled_at = now() - interval '1 hour' WHERE id = ${cableId}`);
+
+    expect(await requirements.raiseReorderBreaches(ORG_ID)).toBe(0);
+
+    // Once Tally has been pulled since, its closing quantity knows about the
+    // receipt -- and if the item is still short, it is short for real.
+    await harness.db.execute(sql`UPDATE stock_items SET last_pulled_at = now() WHERE id = ${cableId}`);
+    expect(await requirements.raiseReorderBreaches(ORG_ID)).toBe(1);
+
+    await harness.db.execute(sql`
+      UPDATE procurement_requirements SET state = 'closed', closed_at = now()
+       WHERE org_id = ${ORG_ID} AND stock_item_id = ${cableId} AND source = 'reorder' AND state <> 'closed'
+    `);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
+  });
 });
 
 describe('approval by value through the inbox (13 REQ-X-16)', () => {
