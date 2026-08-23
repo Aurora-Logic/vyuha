@@ -1,5 +1,5 @@
 import { compactCount, endpointLabel, stackTotal, valueCaps } from '@/components/shared/chart-labels';
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -235,7 +235,13 @@ export function AttendanceTrendChart({ points, animate }: ChartProps<TrendPoint>
 export function LateArrivalsChart({ points, animate }: ChartProps<LatePoint>) {
   return (
     <ChartContainer config={LATE_CONFIG} className="aspect-auto h-40 w-full min-w-0 sm:h-44">
-      <LineChart accessibilityLayer data={[...points]} margin={LINE_MARGIN}>
+      <AreaChart accessibilityLayer data={[...points]} margin={LINE_MARGIN}>
+        <defs>
+          <linearGradient id="fill-late" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--color-late)" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="var(--color-late)" stopOpacity={0.03} />
+          </linearGradient>
+        </defs>
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="date"
@@ -258,23 +264,26 @@ export function LateArrivalsChart({ points, animate }: ChartProps<LatePoint>) {
         <ChartTooltip
           content={<ChartTooltipContent labelFormatter={fullDate} indicator="line" />}
         />
-        {/* `linear` rather than a curve: a curve through daily counts draws
-            values between the days that nobody measured. The dots mark where
-            the measurements actually are. */}
-        <Line
+        {/* `linear`, not a curve: a curve through daily counts would draw
+            values between the days nobody measured. The fill under the line
+            carries the volume of late mornings, which is what an area is for;
+            per-point dots would smear across a year, so only the endpoint is
+            marked. */}
+        <Area
           dataKey="late"
           type="linear"
           stroke="var(--color-late)"
           strokeWidth={2}
-          dot={{ r: 2, fill: 'var(--color-late)' }}
+          fill="url(#fill-late)"
+          dot={false}
           activeDot={{ r: 4 }}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
         >
           <LabelList {...endpointLabel('late', points)} />
-        </Line>
-      </LineChart>
+        </Area>
+      </AreaChart>
     </ChartContainer>
   );
 }
