@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-import { STEPS, type FulfilmentProgress } from './fulfilment-progress';
+import { STEP_BAR, STEP_TICK, STEPS, type FulfilmentProgress } from './fulfilment-progress';
 import type { PackRecord } from './types';
 
 /**
@@ -79,9 +79,19 @@ export function FulfilmentSteps({
           const isCurrent = current === step.key;
           return (
             <li key={step.key} className="flex min-w-0 flex-col gap-1.5" aria-current={isCurrent ? 'step' : undefined}>
-              <span className={cn('h-1 rounded-none', isDone ? 'bg-primary' : isCurrent ? 'bg-primary/50' : 'bg-border')} aria-hidden />
+              <span
+                className={cn(
+                  'h-1 rounded-none',
+                  isDone ? STEP_BAR[step.key].done : isCurrent ? STEP_BAR[step.key].current : 'bg-border',
+                )}
+                aria-hidden
+              />
               <span className={cn('flex items-center gap-1 truncate text-xs', isDone || isCurrent ? 'text-foreground font-medium' : 'text-muted-foreground')}>
-                {isDone ? <CheckIcon className="text-primary size-3.5 shrink-0" /> : <span className="tabular-nums text-muted-foreground">{index + 1}</span>}
+                {isDone ? (
+                  <CheckIcon className={cn('size-3.5 shrink-0', STEP_TICK[step.key])} />
+                ) : (
+                  <span className="text-muted-foreground tabular-nums">{index + 1}</span>
+                )}
                 {step.label}
               </span>
             </li>

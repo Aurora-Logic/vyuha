@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fulfilmentProgress } from './fulfilment-progress';
+import { STEPS, STEP_BAR, STEP_TICK, fulfilmentProgress } from './fulfilment-progress';
 import type { Dispatch, Estimate, PackRecord } from './types';
 
 /** The owner's four steps, decided from the order's own quantities. */
@@ -41,5 +41,38 @@ describe('fulfilmentProgress', () => {
     const home = fulfilmentProgress(out, [pack], [delivered]);
     expect(home.current).toBeNull();
     expect([...home.done]).toEqual(['picked', 'packed', 'shipped', 'delivered']);
+  });
+});
+
+describe('a colour per step', () => {
+  /**
+   * All four bars were the same accent at three opacities, so the eye could
+   * read "some of this is done" and nothing else. The difference between
+   * packed and shipped is what anyone is actually looking for.
+   */
+  it('gives every step its own colour, none repeated', () => {
+    const done = STEPS.map((step) => STEP_BAR[step.key].done);
+    expect(new Set(done).size).toBe(STEPS.length);
+  });
+
+  it('dims the current step from its own colour rather than a shared one', () => {
+    for (const step of STEPS) {
+      const { done, current } = STEP_BAR[step.key];
+      expect(current.startsWith(done), `${step.key} dims from a different colour`).toBe(true);
+      expect(current).not.toBe(done);
+    }
+  });
+
+  it('ticks a finished step in the colour its bar carries', () => {
+    for (const step of STEPS) {
+      const hue = /var\(--[a-z0-9-]+\)/u.exec(STEP_BAR[step.key].done)?.[0];
+      expect(STEP_TICK[step.key], `${step.key} ticks in a different colour`).toContain(hue ?? '');
+    }
+  });
+
+  it('spells the classes out, because Tailwind cannot see one built at runtime', () => {
+    for (const step of STEPS) {
+      expect(STEP_BAR[step.key].done).toMatch(/^bg-\[var\(--[a-z0-9-]+\)\]$/u);
+    }
   });
 });
