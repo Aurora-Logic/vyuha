@@ -5,6 +5,7 @@ import {
   type AttendanceDayDetail,
 } from '@vyuha/shared';
 import { and, eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { employees } from '../../../platform/db/schema/index.js';
@@ -441,5 +442,53 @@ describe('GET /attendance/locks', () => {
       token: hrToken,
     });
     expect(listed.status).toBe(200);
+  });
+});
+
+describe('the reason the database keeps (audit 19)', () => {
+  /**
+   * REQ-E-09: a period is closed with a reason and reopened with one. Both
+   * CHECKs were satisfied by leaving the reason out entirely --
+   * `char_length(btrim(NULL)) >= 10` is NULL, and a CHECK refuses only on
+   * FALSE -- so the one rule the slice exists for was the one it did not
+   * hold. A blank reason was refused; an absent one was not.
+   */
+  it('refuses a lock with no reason at all, not only a short one', async () => {
+    await expect(
+      harness.db.execute(sql`
+        INSERT INTO attendance_period_locks (org_id, year, month, locked_by)
+        VALUES (${ORG_ID}, 2099, 7, NULL)
+      `),
+    ).rejects.toThrow();
+  });
+
+  it('refuses an unlock with no reason at all', async () => {
+    const row = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO attendance_period_locks (org_id, year, month, lock_reason)
+      VALUES (${ORG_ID}, 2099, 8, 'Closed for the audit sample')
+      RETURNING id
+    `);
+    const id = row.rows[0]?.id ?? '';
+
+    await expect(
+      harness.db.execute(sql`UPDATE attendance_period_locks SET unlocked_at = now() WHERE id = ${id}`),
+    ).rejects.toThrow();
+
+    // A short reason was always refused, and still is.
+    await expect(
+      harness.db.execute(sql`UPDATE attendance_period_locks SET unlocked_at = now(), unlock_reason = 'oops' WHERE id = ${id}`),
+    ).rejects.toThrow();
+
+    // A real one is accepted, so the rule is about the reason and not the unlock.
+    await harness.db.execute(sql`
+      UPDATE attendance_period_locks SET unlocked_at = now(), unlock_reason = 'Reopened to correct a mis-keyed shift'
+       WHERE id = ${id}
+    `);
+    const after = await harness.db.execute<{ unlock_reason: string | null }>(sql`
+      SELECT unlock_reason FROM attendance_period_locks WHERE id = ${id}
+    `);
+    expect(after.rows[0]?.unlock_reason).toContain('mis-keyed');
+
+    await harness.db.execute(sql`DELETE FROM attendance_period_locks WHERE id = ${id}`);
   });
 });

@@ -797,7 +797,7 @@ describe('deciding a regularization (REQ-F-03, REQ-F-05, REQ-I-05)', () => {
     const [year, month] = [Number(SECOND_DAY.slice(0, 4)), Number(SECOND_DAY.slice(5, 7))];
     const lockRows = await harness.db
       .insert(attendancePeriodLocks)
-      .values({ orgId: ORG_ID, year, month, lockedBy: null })
+      .values({ orgId: ORG_ID, year, month, lockedBy: null, lockReason: 'Closed for the payroll handoff' })
       .returning({ id: attendancePeriodLocks.id });
     const lockId = lockRows[0]?.id;
     if (lockId === undefined) throw new Error('period lock fixture returned no row');
@@ -841,7 +841,7 @@ describe('deciding a regularization (REQ-F-03, REQ-F-05, REQ-I-05)', () => {
     const [year, month] = [Number(THIRD_DAY.slice(0, 4)), Number(THIRD_DAY.slice(5, 7))];
     const lockRows = await harness.db
       .insert(attendancePeriodLocks)
-      .values({ orgId: ORG_ID, year, month, lockedBy: null })
+      .values({ orgId: ORG_ID, year, month, lockedBy: null, lockReason: 'Closed for the payroll handoff' })
       .returning({ id: attendancePeriodLocks.id });
     const lockId = lockRows[0]?.id;
     if (lockId === undefined) throw new Error('period lock fixture returned no row');
