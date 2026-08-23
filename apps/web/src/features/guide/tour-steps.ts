@@ -429,7 +429,7 @@ const TRADING_INTROS: GuideStep[] = [
     id: 'screen.regularizations',
     route: '/regularizations',
     anchor: ANCHORS.screenHeader,
-    permission: PERMISSIONS.REGULARIZATION_RAISE,
+    permission: PERMISSIONS.PUNCH_SELF,
     title: 'Corrections',
     body: 'Ask for a day to be corrected — a missed punch, a wrong time, a day spent on site. It goes to your approver with the reason you give; the approver\'s side is a band on Approvals.',
   },

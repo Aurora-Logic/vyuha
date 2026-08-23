@@ -35,8 +35,6 @@ export const PERMISSIONS = {
   LEAVE_APPROVE_ALL: 'leave.approve.all',
   LEAVE_POLICY_MANAGE: 'leave.policy.manage',
 
-  REGULARIZATION_RAISE: 'regularization.raise',
-  REGULARIZATION_APPROVE: 'regularization.approve',
 
   EMPLOYEE_VIEW: 'employee.view',
   EMPLOYEE_MANAGE: 'employee.manage',
@@ -136,8 +134,6 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'leave.approve.team': "Approve the team's leave",
   'leave.approve.all': 'Approve leave for anyone',
   'leave.policy.manage': 'Manage leave types and balances',
-  'regularization.raise': 'Raise a regularization request',
-  'regularization.approve': 'Approve a regularization request',
   'employee.view': 'View employee records',
   'employee.manage': 'Create and edit employee records',
   'shift.manage': 'Manage shifts, rosters, and weekly-off patterns',
@@ -217,14 +213,12 @@ const EMPLOYEE_PERMISSIONS = [
   PERMISSIONS.PUNCH_SELF,
   PERMISSIONS.ATTENDANCE_VIEW_SELF,
   PERMISSIONS.LEAVE_APPLY_SELF,
-  PERMISSIONS.REGULARIZATION_RAISE,
 ] as const satisfies readonly PermissionKey[];
 
 const OPERATIONS_PERMISSIONS = [
   ...EMPLOYEE_PERMISSIONS,
   PERMISSIONS.ATTENDANCE_VIEW_TEAM,
   PERMISSIONS.LEAVE_APPROVE_TEAM,
-  PERMISSIONS.REGULARIZATION_APPROVE,
   PERMISSIONS.EMPLOYEE_VIEW,
   PERMISSIONS.SHIFT_MANAGE,
   PERMISSIONS.REPORT_VIEW,

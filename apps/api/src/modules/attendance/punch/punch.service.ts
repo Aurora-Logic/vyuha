@@ -25,6 +25,8 @@ import {
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
+import { ApprovalService } from '../../../platform/approvals/approval.service.js';
+import { PUNCH_SUBJECT_TYPE } from './punch-flag-review.service.js';
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AuditService } from '../../../platform/audit/audit.service.js';
 import { env } from '../../../platform/common/env.js';
@@ -184,6 +186,7 @@ export class PunchService {
     private readonly notifications: NotificationDispatcher,
     private readonly consent: ConsentService,
     private readonly regularization: RegularizationService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   // -------------------------------------------------------------- commands
@@ -801,7 +804,7 @@ export class PunchService {
     // 11. Technical design §5: the engine runs inline on punch creation, "so
     //     the employee sees immediate status".
     const day = await this.computeDayInline(principal, employee.id, attendanceDate, now);
-    await this.raiseFlagAlerts(repository, principal.orgId, employee, inserted, attendanceDate);
+    await this.raiseFlagAlerts(repository, principal, employee, inserted, attendanceDate);
     if (day !== null && (day.flags.includes('late') || day.flags.includes('outside_window'))) {
       await this.raiseAutoFileDraft(principal, employee.id, attendanceDate, day);
     }
@@ -1326,7 +1329,7 @@ export class PunchService {
    */
   private async raiseFlagAlerts(
     repository: PunchRepository,
-    orgId: string,
+    principal: Principal,
     employee: PunchEmployee,
     punch: PunchRecord,
     attendanceDate: string,
@@ -1344,9 +1347,11 @@ export class PunchService {
 
     if (noteworthy.length === 0) return;
 
+    await this.raiseFlagApproval(principal, punch, attendanceDate, noteworthy);
+
     try {
       await this.notifications.emit({
-        orgId,
+        orgId: principal.orgId,
         type: NOTIFICATION_EVENTS.PUNCH_FLAGGED,
         audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_VIEW_ALL },
         payload: {
@@ -1360,6 +1365,50 @@ export class PunchService {
     } catch (error: unknown) {
       this.logger.error({
         msg: 'Could not queue the flagged-punch notification; the punch itself is recorded.',
+        punchId: punch.id,
+        reason: describeError(error),
+      });
+    }
+  }
+
+  /**
+   * Owner, 21 Aug 2026: a flagged punch is raised into Approvals and acted on
+   * by whoever may edit attendance -- the keys `approval-keys.ts` names for the
+   * `punch` subject, and the reason `PunchFlagApprovalHandler` exists.
+   *
+   * That handler settles a request; nothing ever created one, so the four
+   * review actions were reachable only from the punch itself and the inbox
+   * never showed a flagged punch at all. The same review-worthy set that
+   * decides whether HR is notified decides whether a request is opened, so the
+   * notification and the inbox can never disagree about what is worth looking
+   * at.
+   */
+  private async raiseFlagApproval(
+    principal: Principal,
+    punch: PunchRecord,
+    attendanceDate: string,
+    noteworthy: readonly PunchFlag[],
+  ): Promise<void> {
+    const ctx = orgContextOf(principal);
+    try {
+      // One request per punch: a replayed punch returns the stored row and
+      // must not open a second.
+      if ((await this.approvals.findForSubject(ctx, PUNCH_SUBJECT_TYPE, punch.id)) !== null) return;
+      await this.approvals.raise(ctx, {
+        type: 'FLAGGED_PUNCH',
+        subjectType: PUNCH_SUBJECT_TYPE,
+        subjectId: punch.id,
+        subject: flaggedPunchSubjectLine(punch.employee.name, attendanceDate, noteworthy),
+        requesterUserId: principal.userId,
+      });
+    } catch (error: unknown) {
+      // The punch is already committed, and REQ-D-01's promise is that it is
+      // recorded -- so a failure to open the inbox row must not turn a
+      // recorded punch into a refused one, exactly as the notification above.
+      // It is logged at error, because a flag nobody is shown is the thing
+      // this was built to prevent.
+      this.logger.error({
+        msg: 'Could not raise the flagged punch into Approvals; the punch itself is recorded.',
         punchId: punch.id,
         reason: describeError(error),
       });
@@ -1390,6 +1439,23 @@ export class PunchService {
 }
 
 // ------------------------------------------------------------- free helpers
+
+/**
+ * The inbox reads this line, so it is a sentence rather than a list of enum
+ * members. Only the flags that can reach it need a word.
+ */
+const FLAGGED_PUNCH_WORDS: Partial<Record<PunchFlag, string>> = {
+  outside_window: 'punched outside the shift window',
+  outside_geofence: 'punched outside the geofence',
+  device_mismatch: 'punched from a different device',
+  clock_skew: 'punched with a device clock out of step',
+  no_location: 'punched without a location, repeatedly',
+};
+
+function flaggedPunchSubjectLine(employeeName: string, date: string, flags: readonly PunchFlag[]): string {
+  const words = flags.map((flag) => FLAGGED_PUNCH_WORDS[flag] ?? flag).join(', ');
+  return `${employeeName}, ${words} on ${date}`;
+}
 
 function employeeContextOf(employee: PunchEmployee): EmployeeContext {
   return {

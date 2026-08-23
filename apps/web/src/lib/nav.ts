@@ -164,7 +164,7 @@ export const NAV_GROUPS: NavGroup[] = [
         // The raise key, not the approve key: this screen is what a person
         // opens about their own days, and every Employee holds it. The
         // approver's surface is a band on /approvals.
-        permission: PERMISSIONS.REGULARIZATION_RAISE,
+        permission: PERMISSIONS.PUNCH_SELF,
         phase: 2,
         reqs: 'REQ-F-01…F-05',
       },
