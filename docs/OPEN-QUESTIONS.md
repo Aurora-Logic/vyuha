@@ -462,9 +462,13 @@ expectation as a one-line update. Not touched here because it is another
 developer's in-flight feature and a security control is the wrong place for
 a guess.
 
-## Corrections came back in the merge, against a decision in writing (23 Aug 2026)
+## Corrections came back in the merge, against a decision in writing (23 Aug 2026) — CLOSED 23 Aug 2026
 
-**Not mine, and nothing has been changed either way.**
+**Owner's answer: the 21 August decision stands.** Both keys are out of the
+catalogue again, Operations no longer holds the approve key, and the slice runs
+on the keys `approval-keys.ts` had named for it all along — `punch.self` to
+raise, `attendance.edit` to decide — so the feature itself was not thrown away.
+Commit `e6caaf3`. The record of the disagreement is kept below.
 
 `docs/05-decisions.md` line 84 and `PENDING.md` row A-01 record that
 corrections and on-duty requests were removed as employee-raised features on
