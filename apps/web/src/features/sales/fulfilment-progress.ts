@@ -27,18 +27,18 @@ export type FulfilmentStep = 'picked' | 'packed' | 'shipped' | 'delivered';
  * swatches out.
  */
 export const STEP_BAR: Record<FulfilmentStep, { done: string; current: string }> = {
-  picked: { done: 'bg-[var(--info)]', current: 'bg-[var(--info)]/45' },
-  packed: { done: 'bg-[var(--tint-6)]', current: 'bg-[var(--tint-6)]/45' },
-  shipped: { done: 'bg-[var(--warning)]', current: 'bg-[var(--warning)]/45' },
-  delivered: { done: 'bg-[var(--success)]', current: 'bg-[var(--success)]/45' },
+  picked: { done: 'bg-[var(--step-picked)]', current: 'bg-[var(--step-picked)]/45' },
+  packed: { done: 'bg-[var(--step-packed)]', current: 'bg-[var(--step-packed)]/45' },
+  shipped: { done: 'bg-[var(--step-shipped)]', current: 'bg-[var(--step-shipped)]/45' },
+  delivered: { done: 'bg-[var(--step-delivered)]', current: 'bg-[var(--step-delivered)]/45' },
 };
 
 /** The tick beside a finished step, in that step's own colour. */
 export const STEP_TICK: Record<FulfilmentStep, string> = {
-  picked: 'text-[var(--info)]',
-  packed: 'text-[var(--tint-6)]',
-  shipped: 'text-[var(--warning)]',
-  delivered: 'text-[var(--success)]',
+  picked: 'text-[var(--step-picked)]',
+  packed: 'text-[var(--step-packed)]',
+  shipped: 'text-[var(--step-shipped)]',
+  delivered: 'text-[var(--step-delivered)]',
 };
 
 export const STEPS: readonly { key: FulfilmentStep; label: string }[] = [

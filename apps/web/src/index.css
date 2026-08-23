@@ -334,6 +334,19 @@
     --info: oklch(0.567 0.183 259.052);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
+/* The four fulfilment steps.
+       Their own colours rather than borrowed semantic ones: --info, --warning
+       and --success are muted on purpose, being warnings, and four steps at
+       three opacities of the accent said only "some of this is done". These
+       are picked to be told apart at a glance and checked against the data-viz
+       validator in both modes -- lightness band, chroma floor, colour-blind
+       separation, contrast -- rather than chosen by eye. No green: cyan closes
+       the run instead. */
+    --step-picked: oklch(0.55 0.22 270);
+    --step-packed: oklch(0.6 0.23 350);
+    --step-shipped: oklch(0.72 0.17 70);
+    --step-delivered: oklch(0.66 0.14 215);
+
     --flag-late: oklch(0.58 0.17 71);
     --flag-early-exit: oklch(0.58 0.17 50);
     --flag-missing-punch: oklch(0.58 0.17 27);
@@ -440,6 +453,13 @@
     --info: oklch(0.707 0.165 254.624);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
+    /* Chosen for the dark ground, not lightened from the light set: the band a
+       mark stays a mark in is narrower here. */
+    --step-picked: oklch(0.62 0.2 270);
+    --step-packed: oklch(0.64 0.21 350);
+    --step-shipped: oklch(0.66 0.16 70);
+    --step-delivered: oklch(0.58 0.14 215);
+
     --flag-late: oklch(0.74 0.16 71);
     --flag-early-exit: oklch(0.74 0.16 50);
     --flag-missing-punch: oklch(0.74 0.16 27);
