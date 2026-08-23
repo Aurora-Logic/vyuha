@@ -21,7 +21,7 @@ import {
   type ShipTo,
 } from '@vyuha/shared';
 
-import { hsnSummary } from './paper-hsn';
+import { hsnHalves, hsnSummary, taxHalves } from './paper-hsn';
 import { DETAIL_LABELS, DETAIL_ORDER, E_INVOICE_KEYS, useEnterMoves } from './paper-support';
 import { moneyToIndianWords } from './words';
 
@@ -189,8 +189,17 @@ function splitOf(profile: DocumentProfile, buyerStateCode: string): TaxSplit {
   return { kind: seller === buyer ? 'intra' : 'inter' };
 }
 
-function half(value: string): string {
-  return (Math.round((Number(value) / 2) * 100) / 100).toFixed(2);
+/**
+ * One side of a CGST/SGST pair. Always taken from `taxHalves`, so the two
+ * printed figures add up to the tax they came from -- halving and rounding
+ * each independently printed an odd paisa twice.
+ */
+function cgstOf(value: string): string {
+  return taxHalves(Number(value)).cgst.toFixed(2);
+}
+
+function sgstOf(value: string): string {
+  return taxHalves(Number(value)).sgst.toFixed(2);
 }
 
 
@@ -245,6 +254,8 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
   // printing the latter made the Total disagree with the column above it on
   // any document carrying a discount.
   const taxableTotal = summary.reduce((sum, row) => sum + row.taxable, 0);
+  // The CGST and SGST columns, and the totals that must add up to them.
+  const halves = hsnHalves(summary);
   const details = model.details;
   const detailBox = (label: string, key: keyof DocumentDetails, placeholder = '') => (
     <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
@@ -473,8 +484,8 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
           {showTax && Number(model.totals.taxTotal) > 0 ? (
             split.kind === 'intra' ? (
               <>
-                <TaxRow label="CGST" value={half(model.totals.taxTotal)} colCount={colCount} editable={editable} />
-                <TaxRow label="SGST" value={half(model.totals.taxTotal)} colCount={colCount} editable={editable} />
+                <TaxRow label="CGST" value={cgstOf(model.totals.taxTotal)} colCount={colCount} editable={editable} />
+                <TaxRow label="SGST" value={sgstOf(model.totals.taxTotal)} colCount={colCount} editable={editable} />
               </>
             ) : (
               <TaxRow label={split.kind === 'inter' ? 'IGST' : 'GST'} value={model.totals.taxTotal} colCount={colCount} editable={editable} />
@@ -544,16 +555,16 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             </TableRow>
           </TableHeader>
           <TableBody>
-            {summary.map((row) => (
+            {summary.map((row, index) => (
               <TableRow key={`${row.hsn}-${String(row.ratePct)}`} className="hover:bg-transparent">
                 <TableCell className={cn(BOX, 'py-0.5')}>{row.hsn}</TableCell>
                 <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney(row.taxable.toFixed(2))}</TableCell>
                 {split.kind === 'intra' ? (
                   <>
                     <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.cgst ?? 0).toFixed(2))}</TableCell>
                     <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.sgst ?? 0).toFixed(2))}</TableCell>
                   </>
                 ) : (
                   <>
@@ -570,9 +581,9 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
               {split.kind === 'intra' ? (
                 <>
                   <TableCell className={cn(BOX, 'py-0.5')} />
-                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(halves.cgstTotal.toFixed(2))}</TableCell>
                   <TableCell className={cn(BOX, 'py-0.5')} />
-                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(halves.sgstTotal.toFixed(2))}</TableCell>
                 </>
               ) : (
                 <>
@@ -806,6 +817,8 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
   // printing the latter made the Total disagree with the column above it on
   // any document carrying a discount.
   const taxableTotal = summary.reduce((sum, row) => sum + row.taxable, 0);
+  // The CGST and SGST columns, and the totals that must add up to them.
+  const halves = hsnHalves(summary);
   const taxed = money && Number(model.totals.taxTotal) > 0;
 
   const logo = logoUrl !== null && design.logoPlacement !== 'none' ? <img src={logoUrl} alt="" className="max-h-16 max-w-[48mm] object-contain" /> : null;
@@ -1036,8 +1049,8 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               {showTax ? (
                 split.kind === 'intra' ? (
                   <>
-                    <Row label="CGST" value={half(model.totals.taxTotal)} />
-                    <Row label="SGST" value={half(model.totals.taxTotal)} />
+                    <Row label="CGST" value={cgstOf(model.totals.taxTotal)} />
+                    <Row label="SGST" value={sgstOf(model.totals.taxTotal)} />
                   </>
                 ) : (
                   <Row label={split.kind === 'inter' ? 'IGST' : 'Tax'} value={model.totals.taxTotal} />
@@ -1076,16 +1089,16 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.map((row) => (
+                {summary.map((row, index) => (
                   <TableRow key={`${row.hsn}-${String(row.ratePct)}`} className="hover:bg-transparent">
                     <TableCell className={t.summaryCell}>{row.hsn}</TableCell>
                     <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(row.taxable.toFixed(2))}</TableCell>
                     {split.kind === 'intra' ? (
                       <>
                         <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.cgst ?? 0).toFixed(2))}</TableCell>
                         <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.sgst ?? 0).toFixed(2))}</TableCell>
                       </>
                     ) : (
                       <>
@@ -1102,9 +1115,9 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                   {split.kind === 'intra' ? (
                     <>
                       <TableCell className={t.summaryCell} />
-                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(halves.cgstTotal.toFixed(2))}</TableCell>
                       <TableCell className={t.summaryCell} />
-                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(halves.sgstTotal.toFixed(2))}</TableCell>
                     </>
                   ) : (
                     <>

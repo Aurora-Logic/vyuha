@@ -36,7 +36,7 @@ interface OrderView {
   status: string;
   grandTotal: string;
   returnId?: string | null;
-  lines: { id: string; description: string; quantity: string; rate: string; invoicedQty: string; dispatchedQty: string; freeOfCharge: boolean }[];
+  lines: { id: string; description: string; quantity: string; rate: string; invoicedQty: string; dispatchedQty: string; freeOfCharge: boolean; taxPct: string }[];
 }
 
 async function multipart<T>(path: string, token: string, payload: unknown, photos: readonly { field: string; bytes: Buffer }[] = []): Promise<{ status: number; body: T }> {
@@ -382,6 +382,34 @@ describe('Area AK: sales returns', () => {
     const after = await harness.get<OrderView>(`/sales/orders/${orderIdD}`, { token: adminToken });
     expect(after.body.lines[0]?.dispatchedQty).toBe('2.000');
     expect(after.body.lines[0]?.invoicedQty).toBe('0.000');
+  });
+
+  it('gives a chargeable replacement the item\'s tax, like any other sale (audit 16)', async () => {
+    // A chargeable replacement is an ordinary sale. It went straight to the
+    // repository without resolving its lines, so every one of them was
+    // written at 0% and the customer was invoiced with no GST on it -- while
+    // the same goods sold the ordinary way carried eighteen.
+    const fifth = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '1', reason: 'Warranty', condition: 'sealed', disposition: 'restock' }],
+    });
+    const raised = await harness.post<SalesReturnView>(`/sales/returns/${fifth.body.id}/replacement`, { token: adminToken, body: { charge: 'chargeable' } });
+    expect(raised.status).toBe(201);
+    const replacement = await harness.get<OrderView>(`/sales/orders/${raised.body.replacement?.documentId ?? ''}`, { token: adminToken });
+    expect(replacement.body.lines[0]?.taxPct).toBe('18.00');
+    expect(replacement.body.lines[0]?.freeOfCharge).toBe(false);
+
+    // A free one is still written as decided: no rate, no tax, marked.
+    const sixth = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '1', reason: 'Warranty', condition: 'sealed', disposition: 'restock' }],
+    });
+    const free = await harness.post<SalesReturnView>(`/sales/returns/${sixth.body.id}/replacement`, { token: adminToken, body: { charge: 'free' } });
+    const freeOrder = await harness.get<OrderView>(`/sales/orders/${free.body.replacement?.documentId ?? ''}`, { token: adminToken });
+    expect(freeOrder.body.lines[0]?.taxPct).toBe('0.00');
+    expect(freeOrder.body.grandTotal).toBe('0.00');
   });
 
   it('holds a chargeable replacement to the invoice rule the rest of the product keeps (REQ-AK-09)', async () => {

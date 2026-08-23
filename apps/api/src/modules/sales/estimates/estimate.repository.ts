@@ -8,7 +8,6 @@ import {
   type EstimateView,
   type ItemHistoryEntry,
   type SalesDocumentType,
-  type SalesLineInput,
   type SalesLineView,
   type ShipTo,
   type SortTerm,
@@ -16,6 +15,7 @@ import {
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
+import { type ResolvedLine } from '../../../platform/documents/document-support.js';
 import type { Database, Transaction } from '../../../platform/db/db.provider.js';
 import { resolveRate } from '../../../platform/pricing/pricing-resolver.js';
 import { employees, stockItems, voucherLines, vouchers } from '../../../platform/db/schema/index.js';
@@ -67,7 +67,15 @@ export interface EstimateListFilters {
  * no request may carry: 15 REQ-AK-09's free-of-charge mark, set by the
  * return that raises a replacement and by nothing else.
  */
-export type RepositoryLineInput = SalesLineInput & { readonly freeOfCharge?: boolean };
+/**
+ * A line as the repository writes it: every field the row needs decided.
+ *
+ * `taxPct` is required here rather than optional, which is the point --
+ * `resolveDocumentLines` is what turns "not supplied" into the item's rate,
+ * and a caller that skips it now fails to compile instead of writing a null
+ * tax percentage into a NOT NULL column.
+ */
+export type RepositoryLineInput = ResolvedLine & { readonly freeOfCharge?: boolean };
 
 export interface EstimateHeaderInput {
   /** Only on create; the estimate's DRAFT or an order's DRAFT. */

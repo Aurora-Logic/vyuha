@@ -1229,3 +1229,39 @@ describe('an organisation with two Tally companies (audit 25)', () => {
     await harness.db.execute(sql`DELETE FROM integration_connections WHERE id = ${olderConnection}`);
   });
 });
+
+describe('a line deliberately zero-rated (audit 14)', () => {
+  /**
+   * The tax percentage defaulted to '0' in the schema, so zero and "not
+   * supplied" were the same value, and the resolver read that as permission
+   * to overwrite it with the item's GST rate. A line zero-rated on purpose --
+   * an exempt supply, a zero-rated export, a sample -- silently became an 18%
+   * line, and the customer was charged tax the salesperson had said not to
+   * charge. Omitted now means the item's rate; given means given.
+   */
+  it('keeps a zero somebody typed, and fills in one nobody did', async () => {
+    const zeroRated = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100', taxPct: '0' }] },
+    });
+    expect(zeroRated.status).toBe(201);
+    expect(zeroRated.body.lines[0]?.taxPct).toBe('0.00');
+    expect(zeroRated.body.lines[0]?.taxAmount).toBe('0.00');
+    expect(zeroRated.body.grandTotal).toBe('100.00');
+
+    // The item carries 18%, and a line that says nothing takes it.
+    const unstated = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100' }] },
+    });
+    expect(unstated.body.lines[0]?.taxPct).toBe('18.00');
+    expect(unstated.body.grandTotal).toBe('118.00');
+
+    // And a rate somebody typed that is neither stands as typed.
+    const explicit = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100', taxPct: '5' }] },
+    });
+    expect(explicit.body.lines[0]?.taxPct).toBe('5.00');
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { hsnSummary } from './paper-hsn';
+import { hsnSummary, hsnHalves, taxHalves } from './paper-hsn';
 import type { PaperLine } from './paper';
 
 /**
@@ -72,5 +72,43 @@ describe('the printed column reconciles to the printed total', () => {
 
     // What it used to show, with the extra "Less: Discount" row: short by the discount.
     expect(columnPlusTax - discountTotal).not.toBeCloseTo(grandTotal, 2);
+  });
+});
+
+describe('the CGST and SGST split (audit 13)', () => {
+  /**
+   * GST is charged as one rate and only split in two on the page. Halving the
+   * tax and rounding each side independently prints an odd paisa twice, so
+   * the two figures add up to a paisa more than the tax they came from -- on
+   * a printed tax invoice, which is the document the split exists for.
+   */
+  it('adds up to the tax it came from, odd paise and all', () => {
+    for (const total of [9.01, 0.01, 1234.57, 373.53, 8999.99, 0.03, 100.05]) {
+      const { cgst, sgst } = taxHalves(total);
+      expect(Math.round((cgst + sgst) * 100) / 100, `${String(total)} split as ${String(cgst)} + ${String(sgst)}`).toBe(total);
+    }
+  });
+
+  it('splits an even amount down the middle', () => {
+    expect(taxHalves(18)).toEqual({ cgst: 9, sgst: 9 });
+    expect(taxHalves(0)).toEqual({ cgst: 0, sgst: 0 });
+  });
+
+  it('makes the HSN column add up to its own total row', () => {
+    // The Total row printed half of the document's tax rather than the sum of
+    // the halves above it, so the column disagreed with its own total even
+    // once each row was split correctly.
+    const rows = [
+      { hsn: '8544', taxable: 4150.5, ratePct: 18, tax: 747.09 },
+      { hsn: '8517', taxable: 2500, ratePct: 18, tax: 450.01 },
+      { hsn: '3926', taxable: 100, ratePct: 18, tax: 18.01 },
+    ];
+    const { perRow, cgstTotal, sgstTotal } = hsnHalves(rows);
+    expect(perRow).toHaveLength(3);
+    expect(Math.round(perRow.reduce((sum, half) => sum + half.cgst, 0) * 100) / 100).toBe(cgstTotal);
+    expect(Math.round(perRow.reduce((sum, half) => sum + half.sgst, 0) * 100) / 100).toBe(sgstTotal);
+    // And the two columns together are the tax on the summary.
+    const tax = Math.round(rows.reduce((sum, row) => sum + row.tax, 0) * 100) / 100;
+    expect(Math.round((cgstTotal + sgstTotal) * 100) / 100).toBe(tax);
   });
 });

@@ -21,7 +21,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
-import { orgToday } from '../../../platform/documents/document-support.js';
+import { orgToday, resolveDocumentLines } from '../../../platform/documents/document-support.js';
 import { FileService } from '../../../platform/files/file.service.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { EstimateRepository } from '../estimates/estimate.repository.js';
@@ -343,6 +343,24 @@ export class ReturnService {
 
     const ctx = orgContextOf(principal);
     const orders = new EstimateRepository(this.db, ctx, 'SALES_ORDER');
+
+    const base = wanted.map(({ line, quantity }) => ({
+      stockItemId: line.stockItemId ?? null,
+      description: line.description,
+      quantity: quantity.toFixed(3),
+      unit: line.unit,
+      discountPct: '0',
+    }));
+    // A line given away is written as decided: zero rate, no tax, marked. A
+    // chargeable one is an ordinary sale and is resolved like one -- it went
+    // straight to the repository before, so every chargeable replacement was
+    // written at 0% and the customer was invoiced with no GST on it. The rate
+    // is deliberately left out so the price lists resolve it at today's date.
+    const replacementLines =
+      input.charge === 'free'
+        ? base.map((line) => ({ ...line, rate: '0', taxPct: '0', freeOfCharge: true }))
+        : (await resolveDocumentLines(this.db, principal, base)).map((line) => ({ ...line, freeOfCharge: false }));
+
     const documentId = await orders.create(
       {
         date: await orgToday(this.db, ctx.orgId),
@@ -356,18 +374,7 @@ export class ReturnService {
         notes: `Replacement for return ${existing.number}${input.charge === 'free' ? ' (free of charge)' : ''}.`,
         terms: null,
       },
-      wanted.map(({ line, quantity }) => ({
-        stockItemId: line.stockItemId ?? null,
-        description: line.description,
-        quantity: quantity.toFixed(3),
-        unit: line.unit,
-        // Free lines are written at zero and marked; chargeable ones leave
-        // the rate blank so the price lists resolve it at today's date.
-        ...(input.charge === 'free' ? { rate: '0' } : {}),
-        discountPct: '0',
-        taxPct: '0',
-        freeOfCharge: input.charge === 'free',
-      })),
+      replacementLines,
     );
     await this.db.transaction(async (tx) => {
       await tx.execute(sql`UPDATE sales_returns SET replacement_charge = ${input.charge}, updated_at = now(), updated_by = ${ctx.actorUserId} WHERE id = ${returnId} AND org_id = ${ctx.orgId}`);

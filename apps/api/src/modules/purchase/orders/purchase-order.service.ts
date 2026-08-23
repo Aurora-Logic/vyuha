@@ -158,7 +158,10 @@ export class PurchaseOrderService implements OnModuleInit {
       `);
       const poId = inserted.rows[0]?.id;
       if (poId === undefined) throw new Error('Purchase order insert returned no row.');
-      await this.replaceLines(tx, principal, poId, input.lines.map((line, i) => ({ ...line, ...lines[i] })));
+      // Built from the resolved lines and given back their requirement ids,
+      // rather than spread over the input by index -- an indexed read can be
+      // undefined, which quietly put back the unresolved tax percentage.
+      await this.replaceLines(tx, principal, poId, lines.map((line, i) => ({ ...line, requirementIds: input.lines[i]?.requirementIds ?? [] })));
       return poId;
     });
     this.auditContext.record({ action: 'purchase.order.created', entityType: 'purchase_order', entityId: id, before: null, after: { partyId: input.partyId, lines: input.lines.length } });
@@ -213,9 +216,10 @@ export class PurchaseOrderService implements OnModuleInit {
           updated_at = now(), updated_by = ${principal.userId}
          WHERE id = ${id} AND org_id = ${principal.orgId}
       `);
-      if (input.lines !== undefined) {
-        const resolved = await resolveDocumentLines(this.db, principal, input.lines);
-        await this.replaceLines(tx, principal, id, input.lines.map((line, i) => ({ ...line, ...resolved[i] })));
+      const requested = input.lines;
+      if (requested !== undefined) {
+        const resolved = await resolveDocumentLines(this.db, principal, requested);
+        await this.replaceLines(tx, principal, id, resolved.map((line, i) => ({ ...line, requirementIds: requested[i]?.requirementIds ?? [] })));
       }
     });
     this.auditContext.record({ action: 'purchase.order.updated', entityType: 'purchase_order', entityId: id, before: { grandTotal: existing.grandTotal }, after: null });
@@ -707,7 +711,12 @@ export class PurchaseOrderService implements OnModuleInit {
     return row.name;
   }
 
-  private async replaceLines(tx: Transaction, principal: Principal, poId: string, lines: readonly PurchaseLineInput[]): Promise<void> {
+  /**
+   * `taxPct` is required rather than optional: it is bound straight into SQL
+   * below, where the compiler cannot see it, and a NOT NULL column would take
+   * the null at runtime. `resolveDocumentLines` is what fills it in.
+   */
+  private async replaceLines(tx: Transaction, principal: Principal, poId: string, lines: readonly (PurchaseLineInput & { taxPct: string })[]): Promise<void> {
     await tx.execute(sql`DELETE FROM purchase_order_lines WHERE purchase_order_id = ${poId}`);
     for (const [index, line] of lines.entries()) {
       const inserted = await tx.execute<{ id: string }>(sql`

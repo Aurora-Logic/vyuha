@@ -110,8 +110,17 @@ export const salesLineInputSchema = z
     /** REQ-AN-16: required when the rate is below what resolved. */
     rateOverrideReason: z.string().trim().min(3).max(500).nullish(),
     discountPct: percentText.default('0'),
-    /** Shown for information (REQ-W-01); defaults from the item's GST rate. */
-    taxPct: percentText.default('0'),
+    /**
+     * Shown for information (REQ-W-01). Omitted, the item's GST rate fills it
+     * in; given, it stands -- including when it is given as zero.
+     *
+     * No default, deliberately. It used to default to '0', which made zero
+     * indistinguishable from "not supplied", and `resolveDocumentLines` read
+     * that as permission to overwrite it with the item's rate. A line
+     * deliberately zero-rated -- an exempt supply, a zero-rated export, a
+     * sample -- silently became an 18% line.
+     */
+    taxPct: percentText.optional(),
     /** GST's HSN (goods) or SAC (services) code, printed per line and summarised per code. */
     hsnCode: z.string().trim().max(12).nullish(),
   })
