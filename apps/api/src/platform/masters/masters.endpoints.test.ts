@@ -662,6 +662,64 @@ describe('comparison flows into the exported file (data-analyst §3)', () => {
 });
 
 describe('the second analytics set (owner, 22 Aug 2026)', () => {
+  it('reports every confirmed order line and where it has got to (P-33, D-48)', async () => {
+    // Its own order, taken one step at a time, so each row's word is the
+    // furthest step that line actually reached rather than a coincidence of
+    // whatever else the fixtures left behind.
+    const order = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sales_documents (org_id, doc_type, number, status, date, party_id, customer_name, grand_total)
+      VALUES (${ORG_ID}, 'SALES_ORDER', 'SO-FULFIL-1', 'CONFIRMED', '2026-08-18', ${ashaId}, 'Asha Traders', '900.00')
+      RETURNING id
+    `);
+    const orderId = order.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO sales_document_lines (org_id, document_id, line_no, description, quantity, rate, amount, picked_qty, packed_qty, invoiced_qty, dispatched_qty)
+      VALUES (${ORG_ID}, ${orderId}, 1, 'Fully out', 5, 100, 500, 5, 5, 5, 5),
+             (${ORG_ID}, ${orderId}, 2, 'Half out', 4, 100, 400, 4, 4, 4, 2),
+             (${ORG_ID}, ${orderId}, 3, 'Invoiced only', 3, 100, 300, 3, 3, 3, 0),
+             (${ORG_ID}, ${orderId}, 4, 'Packed only', 2, 100, 200, 2, 2, 0, 0),
+             (${ORG_ID}, ${orderId}, 5, 'Picked only', 2, 100, 200, 1, 0, 0, 0),
+             (${ORG_ID}, ${orderId}, 6, 'Not started', 7, 100, 700, 0, 0, 0, 0)
+    `);
+
+    const rows = await harness.get<{ data: { number: string; item: string; state: string; balanceQty: string }[]; meta: { total: number } }>(
+      '/reports/order-fulfilment/rows?from=2026-08-01&to=2026-08-31&page=1&pageSize=200',
+      { token: adminToken },
+    );
+    expect(rows.status).toBe(200);
+    const mine = rows.body.data.filter((row) => row.number === 'SO-FULFIL-1');
+    expect(mine).toHaveLength(6);
+    expect(new Map(mine.map((row) => [row.item, row.state]))).toEqual(
+      new Map([
+        ['Fully out', 'closed'],
+        ['Half out', 'partially_dispatched'],
+        ['Invoiced only', 'ready_to_dispatch'],
+        ['Packed only', 'awaiting_invoice'],
+        ['Picked only', 'picking'],
+        ['Not started', 'open'],
+      ]),
+    );
+    // What is still to go is against what was ordered, and never negative.
+    expect(new Map(mine.map((row) => [row.item, row.balanceQty]))).toEqual(
+      new Map([
+        ['Fully out', '0.000'],
+        ['Half out', '2.000'],
+        ['Invoiced only', '3.000'],
+        ['Packed only', '2.000'],
+        ['Picked only', '2.000'],
+        ['Not started', '7.000'],
+      ]),
+    );
+
+    // A short-closed order says so, whatever its lines have reached.
+    await harness.db.execute(sql`UPDATE sales_documents SET short_closed_at = now() WHERE id = ${orderId}`);
+    const closed = await harness.get<{ data: { number: string; state: string }[] }>(
+      '/reports/order-fulfilment/rows?from=2026-08-01&to=2026-08-31&page=1&pageSize=200',
+      { token: adminToken },
+    );
+    expect(closed.body.data.filter((row) => row.number === 'SO-FULFIL-1').every((row) => row.state === 'short_closed')).toBe(true);
+  });
+
   it('a headline total is the whole report, not whatever the page held', async () => {
     await harness.db.execute(sql`
       INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)

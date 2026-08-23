@@ -726,6 +726,9 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'order-pipeline': analyticsShape('id', 'number', 'stage'),
   'dispatch-performance': analyticsShape('id', 'number', 'mode'),
   'order-fill-rate': analyticsShape('partyId', 'partyName'),
+  // One row is one line of one order, and both parts are needed for a key:
+  // an order repeats down the page and so does an item name.
+  'order-fulfilment': analyticsShape(['number', 'item'], 'number', 'state'),
   'new-vs-repeat': analyticsShape('month', 'month'),
   'requirement-ageing': analyticsShape('id', 'item', 'source'),
   // Owner, 22 Aug 2026: the second analytics set.

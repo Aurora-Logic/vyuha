@@ -598,6 +598,35 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
              ${this.periodClause(f, 'd.date')}
            GROUP BY d.party_id HAVING sum(l.quantity) > 0
         `;
+      case 'order-fulfilment':
+        // D-48 / P-33: one row per confirmed order line, and the one word for
+        // where it has got to. The ladder is read downwards, so a line reads
+        // as the furthest step it has actually reached.
+        //
+        // The words are the document screens' own, not prettier ones: one
+        // state means one thing across the product, and `status-tone.ts`
+        // already gives each of these a colour and a glyph, so the report's
+        // badge matches the order page without a second table to keep in
+        // step.
+        return sql`
+          SELECT d.number, d.date::text AS date, d.customer_name AS "partyName", l.description AS item,
+                 l.quantity::text AS "orderedQty", l.picked_qty::text AS "pickedQty", l.packed_qty::text AS "packedQty",
+                 l.invoiced_qty::text AS "invoicedQty", l.dispatched_qty::text AS "dispatchedQty",
+                 GREATEST(l.quantity - l.dispatched_qty, 0)::text AS "balanceQty",
+                 CASE
+                   WHEN d.short_closed_at IS NOT NULL THEN 'short_closed'
+                   WHEN l.dispatched_qty >= l.quantity THEN 'closed'
+                   WHEN l.dispatched_qty > 0 THEN 'partially_dispatched'
+                   WHEN l.invoiced_qty > l.dispatched_qty THEN 'ready_to_dispatch'
+                   WHEN l.packed_qty > l.invoiced_qty THEN 'awaiting_invoice'
+                   WHEN l.picked_qty > 0 THEN 'picking'
+                   ELSE 'open' END AS state
+            FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id AND l.org_id = d.org_id
+           WHERE d.org_id = ${orgId} AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED'
+             AND d.deleted_at IS NULL AND l.deleted_at IS NULL
+             ${f.partyId === undefined ? sql`` : sql`AND d.party_id = ${f.partyId}`}
+             ${this.periodClause(f, 'd.date')}
+        `;
       case 'new-vs-repeat':
         // A party's first-ever Sales voucher decides which month it was new in.
         return sql`
@@ -869,6 +898,7 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
   'vendor-item-history': { vendorName: '"vendorName"', item: '"item"', lastDate: '"lastDate"' },
   'vendor-price-comparison': { item: '"item"', spreadPct: '"spreadPct"::numeric' },
   'credit-breaches': { partyName: '"partyName"', exposure: '"exposure"::numeric', overBy: '"overBy"::numeric' },
+  'order-fulfilment': { number: 'number', date: 'date', partyName: '"partyName"', item: 'item', balanceQty: '"balanceQty"::numeric', state: 'state' },
   'stock-ageing': { item: '"item"', valueLocked: '"valueLocked"::numeric' },
 };
 
@@ -903,5 +933,6 @@ const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
   'vendor-item-history': '"lastDate" DESC',
   'vendor-price-comparison': '"spreadPct"::numeric DESC',
   'credit-breaches': '"overBy"::numeric DESC',
+  'order-fulfilment': 'date DESC, number DESC, item ASC',
   'stock-ageing': '"valueLocked"::numeric DESC NULLS LAST',
 };

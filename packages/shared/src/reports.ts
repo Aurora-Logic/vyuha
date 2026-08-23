@@ -84,6 +84,7 @@ export const REPORT_KEYS = [
   'order-pipeline',
   'dispatch-performance',
   'order-fill-rate',
+  'order-fulfilment',
   'new-vs-repeat',
   'requirement-ageing',
   // Owner, 22 Aug 2026: the second analytics set, each named by the decision it changes.
@@ -132,6 +133,7 @@ export const ANALYTICS_REPORT_KEYS = [
   'order-pipeline',
   'dispatch-performance',
   'order-fill-rate',
+  'order-fulfilment',
   'new-vs-repeat',
   'requirement-ageing',
   'aov-trend',
@@ -1013,6 +1015,29 @@ const ORDER_FILL_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+/**
+ * D-48 / P-33: one row per order line, and where that line has got to.
+ *
+ * `order-fill-rate` answers the same question one level up -- which customer
+ * is being short-supplied -- and the screens carry the per-line state. What
+ * neither of them does is leave the building: this is the grain somebody
+ * takes into a meeting about one order.
+ */
+const ORDER_FULFILMENT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'number', header: 'Order', type: 'text', sortField: 'number', width: 12 },
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 24 },
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'orderedQty', header: 'Ordered', type: 'text', width: 10 },
+  { key: 'pickedQty', header: 'Picked', type: 'text', width: 10 },
+  { key: 'packedQty', header: 'Packed', type: 'text', width: 10 },
+  { key: 'invoicedQty', header: 'Invoiced', type: 'text', width: 10 },
+  { key: 'dispatchedQty', header: 'Dispatched', type: 'text', width: 10 },
+  { key: 'balanceQty', header: 'Still to go', type: 'text', sortField: 'balanceQty', width: 10 },
+  { key: 'state', header: 'Where it sits', type: 'text', sortField: 'state', width: 18 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 /** Is growth coming from new names or the same ones. */
 const NEW_REPEAT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
@@ -1597,6 +1622,15 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     columns: ORDER_FILL_COLUMNS,
     defaultSort: 'fillPct',
     filters: ['period'],
+  },
+  'order-fulfilment': {
+    key: 'order-fulfilment',
+    category: 'Customers',
+    label: 'Order fulfilment by line',
+    description: 'Every confirmed order line and where it has got to — ordered, picked, packed, invoiced, dispatched, and what is still to go.',
+    columns: ORDER_FULFILMENT_COLUMNS,
+    defaultSort: '-date',
+    filters: ['period', 'partyId'],
   },
   'new-vs-repeat': {
     key: 'new-vs-repeat',
