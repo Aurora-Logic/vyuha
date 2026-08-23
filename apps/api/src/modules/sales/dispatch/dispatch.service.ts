@@ -122,8 +122,17 @@ export class DispatchService implements OnModuleInit {
     for (const [index, entry] of input.lines.entries()) {
       const line = byId.get(entry.lineId);
       if (line === undefined) throw AppError.validation('A dispatch line names a line that is not on this order.', { lineId: entry.lineId });
-      const invoicedBalance = Number(line.invoicedQty) - Number(line.dispatchedQty);
+      // 15 REQ-AK-09: a free replacement line has no invoice to wait for, so
+      // what limits it is what was packed. The database's CHECK reads the
+      // same mark; this is only the sentence in front of it.
+      const invoicedBalance = (line.freeOfCharge ? Number(line.packedQty) : Number(line.invoicedQty)) - Number(line.dispatchedQty);
       if (Number(entry.quantity) > invoicedBalance + 1e-9) {
+        if (line.freeOfCharge) {
+          throw AppError.validation(
+            `Line ${String(line.lineNo)} (${line.description}) has ${invoicedBalance.toFixed(3)} packed and not yet dispatched.`,
+            { fields: [{ path: `lines.${String(index)}.quantity`, message: 'exceeds the packed balance' }] },
+          );
+        }
         // REQ-AA-14: goods do not leave ahead of the paperwork.
         throw AppError.validation(
           `Line ${String(line.lineNo)} (${line.description}) has ${invoicedBalance.toFixed(3)} invoiced and not yet dispatched; ${entry.quantity} cannot leave until an invoice covers it.`,
@@ -329,7 +338,12 @@ export class DispatchService implements OnModuleInit {
       remoteGuid: null,
       lines: dispatch.lines.map((line) => ({ stockItemName: line.description, quantity: line.quantity, unit: line.unit, rate: '0', discountPct: '0', amount: '0' })),
     };
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    // The order names the party, and the party names the Tally company this
+    // voucher belongs in.
+    const owner = await this.db.execute<{ party_id: string | null }>(
+      sql`SELECT party_id FROM sales_documents WHERE id = ${dispatch.documentId} AND org_id = ${principal.orgId}`,
+    );
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, owner.rows[0]?.party_id ?? null);
     await this.db.execute(sql`
       UPDATE dispatches SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${dispatchId}
     `);

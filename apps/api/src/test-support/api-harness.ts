@@ -181,7 +181,8 @@ export class ApiHarness {
       .useClass(RecordingMailer)
       .compile();
 
-    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
+    // VYUHA_TEST_LOGS=1 surfaces the errors a 500 hides; silent otherwise so a run reads clean.
+    const app = moduleRef.createNestApplication({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -214,7 +215,8 @@ export class ApiHarness {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
-    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
+    // VYUHA_TEST_LOGS=1 surfaces the errors a 500 hides; silent otherwise so a run reads clean.
+    const app = moduleRef.createNestApplication({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -252,6 +254,10 @@ export class ApiHarness {
         loginRateLimitKey(ip),
         loginRateLimitKey(ip, 'agent'),
         loginRateLimitKey(ip, 'webhook'),
+        // 15 REQ-AL-05: the portal's window is fifteen minutes long and
+        // loopback is one address, so a suite run twice within it inherits
+        // the first run's refusals and starts already throttled.
+        loginRateLimitKey(ip, 'portal'),
       ]),
     );
   }
@@ -444,6 +450,10 @@ export class ApiHarness {
         .where(inArray(consentAcceptances.userId, userIds));
     }
 
+    // Claimed notification keys are durable on purpose (audit 20), so a file
+    // that emits with a fixed key would find it already claimed on its second
+    // run and see the notice suppressed.
+    await this.db.execute(sql`DELETE FROM notification_idempotency WHERE org_id = ${this.orgId}`);
     await this.db.delete(invitations).where(eq(invitations.orgId, this.orgId));
     await this.db.delete(users).where(eq(users.orgId, this.orgId));
 
@@ -483,6 +493,21 @@ export class ApiHarness {
     // CRM records own an employee (`owner_id`, RESTRICT), so they go before
     // the employees do — same reasoning, same raw SQL.
     // Fulfilment and procurement rows point at documents, lines and stock items.
+    // 15 Area AJ: a collector assignment holds an employee (RESTRICT) and a
+    // party, and a promise holds both; all three go before either does.
+    await this.db.execute(sql`DELETE FROM reminder_notices WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM promises_to_pay WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM collector_assignments WHERE org_id = ${this.orgId}`);
+    // 15 Area AL: a portal key holds a party (RESTRICT), and the access log
+    // holds the key, so both go before anything clears the projection.
+    await this.db.execute(sql`DELETE FROM portal_access_log WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM portal_link_keys WHERE org_id = ${this.orgId}`);
+    // 15 Area AK: a return holds an employee (RESTRICT), a dispatch and the
+    // document lines it came off, so it goes before every one of them.
+    await this.db.execute(sql`DELETE FROM sales_return_credit_notes WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_return_attachments WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_return_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_returns WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_notifications WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_attachments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_lines WHERE org_id = ${this.orgId}`);
@@ -793,6 +818,20 @@ export class ApiHarness {
   async waitForAuditAction(action: string, timeoutMs = 3_000): Promise<boolean> {
     return this.pollAudit(
       sql`SELECT 1 FROM audit_logs WHERE org_id = ${this.orgId} AND action = ${action} LIMIT 1`,
+      timeoutMs,
+    );
+  }
+
+  /**
+   * The precise row: this action, on this record. `waitForAuditAction` alone
+   * can be satisfied by a row an earlier run of the same file left behind --
+   * the audit trail is append-only and outlives `resetOrganisation` -- and
+   * `waitForAuditEntity` by any action on the record, including the one that
+   * created it.
+   */
+  async waitForAuditEntityAction(entityId: string, action: string, timeoutMs = 3_000): Promise<boolean> {
+    return this.pollAudit(
+      sql`SELECT 1 FROM audit_logs WHERE org_id = ${this.orgId} AND entity_id = ${entityId} AND action = ${action} LIMIT 1`,
       timeoutMs,
     );
   }

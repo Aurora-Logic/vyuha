@@ -5,6 +5,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -82,4 +83,32 @@ export const notificationPreferences = pgTable(
       .on(t.userId, t.eventType, t.channel)
       .where(ALIVE),
   ],
+);
+
+/**
+ * Which notifications have already been sent, for the events that must not be
+ * sent twice.
+ *
+ * This used to be BullMQ's own job id: `emit` passed `jobId: notify-<key>` and
+ * relied on the queue refusing a duplicate. That works only while the
+ * completed job still exists, and `DEFAULT_JOB_OPTIONS` keeps 200 of them --
+ * so on any busy day the key that was meant to suppress a repeat for ever was
+ * evicted, and the morning sweep told everybody a second time about a punch
+ * they had already been told about. The retention window was the silent part:
+ * nothing failed, the notice simply went out again.
+ *
+ * A row here is the claim, so the promise no longer depends on how many other
+ * jobs ran. Pruned by the daily sweep, well past any window in which a repeat
+ * would still read as a repeat.
+ */
+export const notificationIdempotency = pgTable(
+  'notification_idempotency',
+  {
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    key: text('key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.key] }), index('notification_idempotency_age_idx').on(t.createdAt)],
 );

@@ -29,8 +29,15 @@ import { RegularizationService } from './regularization.service.js';
  * service's. The permissions read as a table:
  *
  *   reading           -- either key, narrowed to self or team by `ScopeService`
- *   raising           -- `regularization.raise`, which every Employee holds
- *   deciding          -- `regularization.approve`
+ *   raising           -- `punch.self`, which every Employee holds
+ *   deciding          -- `attendance.edit`
+ *
+ * Owner, 21 Aug 2026 (docs/05-decisions.md, PENDING A-01): corrections are no
+ * longer an employee-raised feature and `regularization.raise` /
+ * `regularization.approve` are gone from the catalogue. These routes stand on
+ * the keys `packages/shared/src/approval-keys.ts` has named for this subject
+ * all along, so a request already open is still decided by whoever may edit
+ * attendance, and an employee still sees their own.
  *
  * `RequirePermission` only keeps out an account holding neither key. Whose
  * requests the holder actually sees is `ScopeService`'s answer, and the two
@@ -38,7 +45,7 @@ import { RegularizationService } from './regularization.service.js';
  * request (REQ-I-05), and that raising for somebody else needs the approver
  * key -- are re-checked in the service.
  */
-const VIEW_KEYS = [PERMISSIONS.REGULARIZATION_RAISE, PERMISSIONS.REGULARIZATION_APPROVE] as const;
+const VIEW_KEYS = [PERMISSIONS.PUNCH_SELF, PERMISSIONS.ATTENDANCE_EDIT] as const;
 
 @Controller('regularizations')
 export class RegularizationController {
@@ -71,7 +78,7 @@ export class RegularizationController {
 
   /** REQ-F-01. */
   @Post()
-  @RequirePermission(PERMISSIONS.REGULARIZATION_RAISE)
+  @RequirePermission(PERMISSIONS.PUNCH_SELF)
   raise(
     @CurrentUser() principal: Principal,
     @Body() body: RegularizationInputDto,
@@ -94,7 +101,7 @@ export class RegularizationController {
    * permission as raising one from scratch -- this is that, just prefilled.
    */
   @Patch(':id/complete')
-  @RequirePermission(PERMISSIONS.REGULARIZATION_RAISE)
+  @RequirePermission(PERMISSIONS.PUNCH_SELF)
   complete(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
@@ -105,7 +112,7 @@ export class RegularizationController {
 
   /** REQ-F-03: writes the adjustment and recomputes the day. */
   @Post(':id/approve')
-  @RequirePermission(PERMISSIONS.REGULARIZATION_APPROVE)
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
   approve(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
@@ -116,7 +123,7 @@ export class RegularizationController {
 
   /** REQ-F-05: the reason is required by the schema, not by a check in here. */
   @Post(':id/reject')
-  @RequirePermission(PERMISSIONS.REGULARIZATION_APPROVE)
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
   reject(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
@@ -141,7 +148,7 @@ export class OnDutyController {
 
   /** REQ-F-04. */
   @Post()
-  @RequirePermission(PERMISSIONS.REGULARIZATION_RAISE)
+  @RequirePermission(PERMISSIONS.PUNCH_SELF)
   raise(
     @CurrentUser() principal: Principal,
     @Body() body: OnDutyInputDto,
@@ -160,7 +167,7 @@ export class OnDutyController {
 
   /** REQ-F-04: "those days become ON_DUTY and count as present". */
   @Post(':id/approve')
-  @RequirePermission(PERMISSIONS.REGULARIZATION_APPROVE)
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
   approve(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
@@ -170,7 +177,7 @@ export class OnDutyController {
   }
 
   @Post(':id/reject')
-  @RequirePermission(PERMISSIONS.REGULARIZATION_APPROVE)
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
   reject(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,

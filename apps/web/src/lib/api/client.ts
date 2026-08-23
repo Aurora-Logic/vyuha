@@ -370,6 +370,20 @@ export async function ensureAccessToken(): Promise<boolean> {
   return (await refreshAccessToken()) === 'refreshed';
 }
 
+/**
+ * 15 REQ-AL-01: a request from a reader who has no account.
+ *
+ * The customer portal's key is in the path, and the reader has no session,
+ * no refresh cookie and nothing to exchange. Going through `apiRequest`
+ * would make every portal view attempt a refresh first, fail it, and then
+ * retry the whole request on the 401 the server correctly returned —
+ * three round trips on a phone for one page. `skipRefresh` says the plain
+ * truth: there is no token here and a 401 is the answer, not a hint.
+ */
+export function publicApiRequest<T>(path: string, options: Omit<RequestOptions, 'skipRefresh'> = {}): Promise<T> {
+  return apiRequest<T>(path, { ...options, skipRefresh: true });
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   // Every path through this function except the public auth endpoints needs a
   // bearer token, so a cold document exchanges the cookie before it asks

@@ -1,3 +1,10 @@
+ALTER TABLE "parties" ADD COLUMN "gst_registration_type" text;--> statement-breakpoint
+ALTER TABLE "parties" ADD COLUMN "state" text;--> statement-breakpoint
+ALTER TABLE "parties" ADD COLUMN "country" text;--> statement-breakpoint
+ALTER TABLE "parties" ADD COLUMN "pincode" text;--> statement-breakpoint
+ALTER TABLE "parties" ADD COLUMN "contact_person" text;--> statement-breakpoint
+ALTER TABLE "parties" ADD COLUMN "closing_balance" numeric;--> statement-breakpoint
+ALTER TABLE "parties" ADD COLUMN "bill_wise_tracking" boolean;--> statement-breakpoint
 ALTER TABLE "voucher_lines" ADD COLUMN "settlement_type" text;--> statement-breakpoint
 ALTER TABLE "voucher_lines" ADD COLUMN "settlement_mode" text;--> statement-breakpoint
 ALTER TABLE "voucher_lines" ADD COLUMN "instrument_number" text;--> statement-breakpoint

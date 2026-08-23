@@ -71,12 +71,20 @@ export async function resolveDocumentCustomer(
  * Lines with a stock item take the item's name as description when none
  * was typed, and its GST rate as tax when none was given; a free-text line
  * stands as typed. An item id from another organisation is refused.
+ *
+ * "None was given" is `undefined`, not zero. It used to be zero, because the
+ * schema defaulted the field -- so a line deliberately zero-rated, an exempt
+ * supply or a zero-rated export, was silently rewritten to the item's 18% and
+ * the customer was charged tax the salesperson had said not to charge. Every
+ * line comes back with a tax percentage, which is what `ResolvedLine` says.
  */
-export async function resolveDocumentLines(db: Database, principal: Principal, lines: readonly SalesLineInput[]): Promise<SalesLineInput[]> {
-  const resolved: SalesLineInput[] = [];
+export type ResolvedLine = SalesLineInput & { readonly taxPct: string };
+
+export async function resolveDocumentLines(db: Database, principal: Principal, lines: readonly SalesLineInput[]): Promise<ResolvedLine[]> {
+  const resolved: ResolvedLine[] = [];
   for (const line of lines) {
     if (line.stockItemId === undefined || line.stockItemId === null) {
-      resolved.push({ ...line, stockItemId: null });
+      resolved.push({ ...line, stockItemId: null, taxPct: line.taxPct ?? '0' });
       continue;
     }
     const rows = await db
@@ -90,7 +98,7 @@ export async function resolveDocumentLines(db: Database, principal: Principal, l
       ...line,
       description: line.description === '' ? item.name : line.description,
       unit: line.unit ?? item.unit,
-      taxPct: line.taxPct === '0' && item.gstRate !== null ? String(Number(item.gstRate)) : line.taxPct,
+      taxPct: line.taxPct ?? (item.gstRate === null ? '0' : String(Number(item.gstRate))),
     });
   }
   return resolved;

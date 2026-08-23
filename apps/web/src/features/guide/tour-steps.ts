@@ -168,7 +168,7 @@ const SHELL_STEPS: GuideStep[] = [
 const SCREEN_INTROS: GuideStep[] = [
   {
     id: 'screen.dashboard',
-    route: '/',
+    route: '/dashboard',
     anchor: ANCHORS.screenHeader,
     // No permission: everyone lands here, and a landing screen nobody can be
     // guided through is the one gap people notice first.
@@ -423,7 +423,47 @@ const TRADING_INTROS: GuideStep[] = [
     anchor: ANCHORS.screenHeader,
     permission: PERMISSIONS.MASTERS_TALLY_VIEW,
     title: 'Price lists',
-    body: 'Where the company maintains them in Tally, they pull per party group and are what a document prices against.',
+    body: "Vyuha's own price lists: versioned, approved into force, and the floor on every sales line. The simulator beside them answers \"why this rate\" for any party and item.",
+  },
+  {
+    id: 'screen.regularizations',
+    route: '/regularizations',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.PUNCH_SELF,
+    title: 'Corrections',
+    body: 'Ask for a day to be corrected — a missed punch, a wrong time, a day spent on site. It goes to your approver with the reason you give; the approver\'s side is a band on Approvals.',
+  },
+  {
+    id: 'screen.sales-returns',
+    route: '/sales/returns',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.RETURNS_VIEW,
+    title: 'Returns',
+    body: 'Goods that came back: how many, why, in what state, and where they went next. Vyuha raises no credit note — each receipt waits for Tally\'s, and a restocked line rises in Tally rather than here.',
+  },
+  {
+    id: 'screen.collections',
+    route: '/collections',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.COLLECTIONS_VIEW_SELF,
+    title: 'Collections',
+    body: 'Who owes what, how much of it is late, and what each customer promised. A promise is never marked kept here: the receipts Tally sends decide it, and a broken one flags the credit check without blocking an order.',
+  },
+  {
+    id: 'screen.portal-links',
+    route: '/masters/portal-links',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.PORTAL_MANAGE,
+    title: 'Customer links',
+    body: 'One read-only link per customer, showing them their own orders, dispatches, invoices and statement. There is no customer sign-in: the link is the credential, so it is shown once, lasts ninety days, and can be withdrawn the moment it should stop working.',
+  },
+  {
+    id: 'screen.masters-duplicates',
+    route: '/masters/duplicates',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.DUPLICATES_VIEW,
+    title: 'Duplicates',
+    body: 'Parties and items Tally holds twice, found after each pull and ranked by what they split. Mark a cluster sent to Tally or genuinely different; the merge itself happens in Tally.',
   },
   {
     id: 'screen.masters-vouchers',

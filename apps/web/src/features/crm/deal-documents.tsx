@@ -4,9 +4,8 @@ import { Link, useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatMoney } from '@/features/sales/money';
 import { useEstimates } from '@/features/sales/use-estimates';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS } from '@vyuha/shared';
 

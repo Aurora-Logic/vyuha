@@ -9,18 +9,17 @@ import { RecordTable, type RecordColumn } from '@/components/shared/record-table
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_STATUSES, SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
 
-import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useEstimates } from './use-estimates';
 
@@ -41,7 +40,7 @@ const COLUMNS: RecordColumn<EstimateSummary>[] = [
   ) },
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
-  { key: 'status', header: 'Status', cell: (row) => <Badge variant={row.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'status', header: 'Status', cell: (row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
   { key: 'valid', header: 'Valid until', cell: (row) => formatDate(row.validUntil), className: 'tabular-nums', secondary: true },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
@@ -238,7 +237,7 @@ export function EstimatesPage() {
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => `${row.number} · ${row.customerName}`}
-              mobileStatus={(row) => <Badge variant={row.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge>}
+              mobileStatus={(row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)}`}
               onRowActivate={(row) => {
                 void navigate(`/sales/estimates/${row.id}`);

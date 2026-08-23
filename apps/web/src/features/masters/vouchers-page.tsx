@@ -21,7 +21,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -50,7 +50,7 @@ const COLUMNS: RecordColumn<Voucher>[] = [
   },
   { key: 'party', header: 'Party', cell: (row) => row.partyName || EMPTY_VALUE, secondary: true },
   // Tally's figure verbatim; this application never does arithmetic on it.
-  { key: 'amount', header: 'Amount', cell: (row) => row.amount, numeric: true },
+  { key: 'amount', header: 'Amount', cell: (row) => formatMoney(row.amount), numeric: true },
   {
     key: 'pulled',
     header: 'As of',
@@ -128,7 +128,7 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
               </div>
               <dl className="divide-border divide-y">
                 <Row label="Amount">
-                  <span className="tabular-nums">{voucher.amount}</span>
+                  <span className="tabular-nums">{formatMoney(voucher.amount)}</span>
                 </Row>
                 {voucher.narration ? <Row label="Narration">{voucher.narration}</Row> : null}
                 <Row label="As of">{formatRelativeAge(voucher.lastPulledAt)}</Row>
@@ -150,14 +150,14 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
                         <>
                           <span>{line.stockItemName}</span>
                           <span className="text-muted-foreground ml-2 text-xs">
-                            {[line.actualQty, line.rate === null ? null : `@ ${line.rate}`]
+                            {[line.actualQty, line.rate === null ? null : `@ ${formatMoney(line.rate)}`]
                               .filter((part): part is string => part !== null && part !== '')
                               .join(' ')}
                           </span>
                         </>
                       )}
                     </span>
-                    <span className="shrink-0 tabular-nums">{line.amount}</span>
+                    <span className="shrink-0 tabular-nums">{formatMoney(line.amount)}</span>
                   </li>
                 ))}
               </ul>
@@ -207,7 +207,7 @@ export function VouchersPage() {
 
   const query = useVouchers(
     { page, ...(q ? { q } : {}), ...(includeCancelled ? { includeCancelled: true } : {}) },
-    { enabled: canView },
+    { enabled: canView, prefetchNext: true },
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
@@ -320,7 +320,7 @@ export function VouchersPage() {
               rowKey={(row) => row.id}
               mobilePrimary={(row) => `${row.voucherType} ${row.voucherNumber}`.trim()}
               mobileStatus={(row) => (row.isCancelled ? <Badge variant="outline">Cancelled</Badge> : null)}
-              mobileSupporting={(row) => `${formatDate(row.date)} · ${row.partyName || 'no party'} · ${row.amount}`}
+              mobileSupporting={(row) => `${formatDate(row.date)} · ${row.partyName || 'no party'} · ${formatMoney(row.amount)}`}
               onRowActivate={(row) => {
                 void navigate(`/masters/vouchers/${row.id}${window.location.search}`);
               }}

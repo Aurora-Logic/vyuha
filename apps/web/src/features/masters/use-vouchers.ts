@@ -1,4 +1,5 @@
-import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { z } from 'zod';
 
 import { parseOrThrow } from '@/lib/api/parse';
@@ -61,10 +62,7 @@ export interface VoucherFilters {
   includeCancelled?: boolean;
 }
 
-export function useVouchers(
-  filters: VoucherFilters,
-  options: { enabled?: boolean } = {},
-): UseQueryResult<VouchersResponse, Error> {
+function vouchersQuery(filters: VoucherFilters) {
   const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
   if (filters.q) params.set('q', filters.q);
   if (filters.voucherType) params.set('voucherType', filters.voucherType);
@@ -73,17 +71,49 @@ export function useVouchers(
   if (filters.to) params.set('to', filters.to);
   if (filters.includeCancelled) params.set('includeCancelled', 'true');
   const key = params.toString();
-
-  return useQuery({
-    enabled: options.enabled ?? true,
-    queryKey: ['masters', 'vouchers', key],
-    queryFn: async ({ signal }) => {
+  return {
+    queryKey: ['masters', 'vouchers', key] as const,
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const body = await apiRequest<unknown>(`/masters/vouchers?${key}`, { signal });
       return parseOrThrow(vouchersResponseSchema, body, 'voucher list');
     },
+  };
+}
+
+export function useVouchers(
+  filters: VoucherFilters,
+  options: { enabled?: boolean; prefetchNext?: boolean } = {},
+): UseQueryResult<VouchersResponse, Error> {
+  const enabled = options.enabled ?? true;
+  const client = useQueryClient();
+  const query = useQuery({
+    enabled,
+    ...vouchersQuery(filters),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
+
+  // See useParties: the register pre-loads the next page so paging is instant.
+  const meta = query.data?.meta;
+  const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
+  const { page, q, voucherType, partyId, from, to, includeCancelled } = filters;
+  useEffect(() => {
+    if (!options.prefetchNext || !enabled || !hasNext) return;
+    void client.prefetchQuery({
+      ...vouchersQuery({
+        page: page + 1,
+        ...(q ? { q } : {}),
+        ...(voucherType ? { voucherType } : {}),
+        ...(partyId ? { partyId } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+        ...(includeCancelled ? { includeCancelled } : {}),
+      }),
+      staleTime: 60_000,
+    });
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled]);
+
+  return query;
 }
 
 export function useVoucher(

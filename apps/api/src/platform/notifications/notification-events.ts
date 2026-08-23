@@ -252,4 +252,12 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: () => routeFor('reports.exceptions_daily'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
+  // 15 REQ-AJ-09 / D-38: only when a promise has actually been broken. A daily
+  // "nothing broken" trains people to ignore the morning it is not.
+  'collections.promises_broken': {
+    title: (p) => `${text(p, 'summary', 'Promises')} not kept`,
+    body: (p) => `${text(p, 'detail')}. The broken promises report ranks them by what is short; a broken promise flags the credit check and never blocks an order.`,
+    path: () => routeFor('collections.promises_broken'),
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
 };

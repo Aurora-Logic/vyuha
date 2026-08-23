@@ -1,64 +1,9 @@
+import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
-import { DashboardPage } from '@/features/dashboard/dashboard-page';
-import { EmployeeDetailPage, EmployeesPage } from '@/features/employees';
-import { ApprovalsPage } from '@/features/approvals';
-import { MyAttendancePage, TeamAttendancePage } from '@/features/attendance';
-import { HolidaysPage } from '@/features/holidays';
-import { LeaveTypesPage, MyLeavePage, TeamLeavePage } from '@/features/leave';
-import { PatternsPage } from '@/features/patterns/patterns-page';
-import { PunchPage } from '@/features/punch';
-import { RegularizationsPage } from '@/features/regularization';
-import { ShiftsPage } from '@/features/shifts';
-import { AnalyticsPage } from '@/features/analytics';
-import { AuditLogPage } from '@/features/audit';
-import { DownloadsPage } from '@/features/downloads';
-import { IntegrationsPage } from '@/features/integrations';
-import { PeriodLockPage } from '@/features/period-lock';
-import { RecycleBinPage } from '@/features/recycle-bin';
-import { ReportsPage } from '@/features/reports';
-import { ReportsDashboardPage } from '@/features/reports/reports-dashboard-page';
-import { AdministrationScreen } from '@/features/administration/administration-screen';
-import { RolesPage } from '@/features/roles';
-import { SettingsPage } from '@/features/settings';
-import { NotificationsPage } from '@/features/notifications';
-import { CompaniesPage } from '@/features/crm/companies-page';
-import { ContactsPage } from '@/features/crm/contacts-page';
-import { DealsPage } from '@/features/crm/deals-page';
-import { EstimatesPage } from '@/features/sales/estimates-page';
-import { EstimateEditorPage } from '@/features/sales/estimate-editor-page';
-import { DocumentPrintPage } from '@/features/documents/print-page';
-import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
-import { DispatchPaperPage } from '@/features/sales/dispatch-paper-page';
-import { PackingSlipPage } from '@/features/sales/packing-slip-page';
-import { SalesOrderEditorPage } from '@/features/sales/sales-order-editor-page';
-import { InvoicesPage } from '@/features/sales/invoices-page';
-import { InvoiceEditorPage } from '@/features/sales/invoice-editor-page';
-import { PickQueuePage } from '@/features/sales/pick-queue-page';
-import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
-import { DispatchesPage } from '@/features/sales/dispatches-page';
-import { ScanPage } from '@/features/sales/scan-page';
-import { PackedPage } from '@/features/sales/packed-page';
-import { RequirementsPage } from '@/features/purchase/requirements-page';
-import { GrnPaperPage } from '@/features/purchase/grn-paper-page';
-import { PurchaseOrderEditorPage } from '@/features/purchase/purchase-order-editor-page';
-import { PurchaseOrdersPage } from '@/features/purchase/purchase-orders-page';
-import { GrnsPage } from '@/features/purchase/grns-page';
-import { PartiesPage } from '@/features/masters/parties-page';
-import { TasksPage } from '@/features/tasks/tasks-page';
-import { PriceListsPage } from '@/features/masters/price-lists-page';
-import { StockItemsPage } from '@/features/masters/stock-items-page';
-import { StockItemPage } from '@/features/masters/item-page';
-import { PartyPage } from '@/features/masters/party-page';
-import { VouchersPage } from '@/features/masters/vouchers-page';
-import { VoucherPaperPage } from '@/features/masters/voucher-paper-page';
-import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
-import { OrgMastersPage } from '@/features/org-masters';
-import { ProfilePage } from '@/features/profile/profile-page';
-import { UpdatesPage } from '@/features/updates';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
 import { ALL_NAV_ITEMS } from '@/lib/nav';
 
@@ -86,7 +31,7 @@ const BUILT_ROUTES = new Set([
   '/masters/items',
   '/masters/price-lists',
   '/masters/vouchers',
-  '/',
+  '/dashboard',
   '/employees',
   '/punch',
   '/my-attendance',
@@ -110,6 +55,79 @@ const BUILT_ROUTES = new Set([
   '/team-leave',
 ]);
 
+
+// P-23: every page is its own chunk, loaded on navigation. The shell
+// ships in the entry bundle; a route's code arrives when the route does.
+const EmployeeDetailPage = lazy(() => import('@/features/employees').then((m) => ({ default: m.EmployeeDetailPage })));
+const EmployeesPage = lazy(() => import('@/features/employees').then((m) => ({ default: m.EmployeesPage })));
+const ApprovalsPage = lazy(() => import('@/features/approvals').then((m) => ({ default: m.ApprovalsPage })));
+const MyAttendancePage = lazy(() => import('@/features/attendance').then((m) => ({ default: m.MyAttendancePage })));
+const TeamAttendancePage = lazy(() => import('@/features/attendance').then((m) => ({ default: m.TeamAttendancePage })));
+const HolidaysPage = lazy(() => import('@/features/holidays').then((m) => ({ default: m.HolidaysPage })));
+const LeaveTypesPage = lazy(() => import('@/features/leave').then((m) => ({ default: m.LeaveTypesPage })));
+const MyLeavePage = lazy(() => import('@/features/leave').then((m) => ({ default: m.MyLeavePage })));
+const TeamLeavePage = lazy(() => import('@/features/leave').then((m) => ({ default: m.TeamLeavePage })));
+const PatternsPage = lazy(() => import('@/features/patterns/patterns-page').then((m) => ({ default: m.PatternsPage })));
+const PunchPage = lazy(() => import('@/features/punch').then((m) => ({ default: m.PunchPage })));
+const RegularizationsPage = lazy(() => import('@/features/regularization').then((m) => ({ default: m.RegularizationsPage })));
+const ShiftsPage = lazy(() => import('@/features/shifts').then((m) => ({ default: m.ShiftsPage })));
+const AnalyticsPage = lazy(() => import('@/features/analytics').then((m) => ({ default: m.AnalyticsPage })));
+const AuditLogPage = lazy(() => import('@/features/audit').then((m) => ({ default: m.AuditLogPage })));
+const DownloadsPage = lazy(() => import('@/features/downloads').then((m) => ({ default: m.DownloadsPage })));
+const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
+const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
+const RecycleBinPage = lazy(() => import('@/features/recycle-bin').then((m) => ({ default: m.RecycleBinPage })));
+const ReportsPage = lazy(() => import('@/features/reports').then((m) => ({ default: m.ReportsPage })));
+const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then((m) => ({ default: m.DashboardPage })));
+const LandingPage = lazy(() => import('@/features/dashboard/landing').then((m) => ({ default: m.LandingPage })));
+/* The reports dashboard is the shadcn-shaped one. The earlier page it replaced
+   lived at this address for months, so the address is what moved, not the
+   people using it. */
+const ReportsDashboardPage = lazy(() => import('@/features/reports/dashboard-v2').then((m) => ({ default: m.ReportsDashboardV2 })));
+const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
+const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
+const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
+const NotificationsPage = lazy(() => import('@/features/notifications').then((m) => ({ default: m.NotificationsPage })));
+const CompaniesPage = lazy(() => import('@/features/crm/companies-page').then((m) => ({ default: m.CompaniesPage })));
+const ContactsPage = lazy(() => import('@/features/crm/contacts-page').then((m) => ({ default: m.ContactsPage })));
+const DealsPage = lazy(() => import('@/features/crm/deals-page').then((m) => ({ default: m.DealsPage })));
+const EstimatesPage = lazy(() => import('@/features/sales/estimates-page').then((m) => ({ default: m.EstimatesPage })));
+const EstimateEditorPage = lazy(() => import('@/features/sales/estimate-editor-page').then((m) => ({ default: m.EstimateEditorPage })));
+const DocumentPrintPage = lazy(() => import('@/features/documents/print-page').then((m) => ({ default: m.DocumentPrintPage })));
+const SalesOrdersPage = lazy(() => import('@/features/sales/sales-orders-page').then((m) => ({ default: m.SalesOrdersPage })));
+const DispatchPaperPage = lazy(() => import('@/features/sales/dispatch-paper-page').then((m) => ({ default: m.DispatchPaperPage })));
+const PackingSlipPage = lazy(() => import('@/features/sales/packing-slip-page').then((m) => ({ default: m.PackingSlipPage })));
+const SalesOrderEditorPage = lazy(() => import('@/features/sales/sales-order-editor-page').then((m) => ({ default: m.SalesOrderEditorPage })));
+const InvoicesPage = lazy(() => import('@/features/sales/invoices-page').then((m) => ({ default: m.InvoicesPage })));
+const InvoiceEditorPage = lazy(() => import('@/features/sales/invoice-editor-page').then((m) => ({ default: m.InvoiceEditorPage })));
+const PickQueuePage = lazy(() => import('@/features/sales/pick-queue-page').then((m) => ({ default: m.PickQueuePage })));
+const AwaitingInvoicePage = lazy(() => import('@/features/sales/awaiting-invoice-page').then((m) => ({ default: m.AwaitingInvoicePage })));
+const DispatchesPage = lazy(() => import('@/features/sales/dispatches-page').then((m) => ({ default: m.DispatchesPage })));
+const ScanPage = lazy(() => import('@/features/sales/scan-page').then((m) => ({ default: m.ScanPage })));
+const PackedPage = lazy(() => import('@/features/sales/packed-page').then((m) => ({ default: m.PackedPage })));
+const RequirementsPage = lazy(() => import('@/features/purchase/requirements-page').then((m) => ({ default: m.RequirementsPage })));
+const GrnPaperPage = lazy(() => import('@/features/purchase/grn-paper-page').then((m) => ({ default: m.GrnPaperPage })));
+const PurchaseOrderEditorPage = lazy(() => import('@/features/purchase/purchase-order-editor-page').then((m) => ({ default: m.PurchaseOrderEditorPage })));
+const PurchaseOrdersPage = lazy(() => import('@/features/purchase/purchase-orders-page').then((m) => ({ default: m.PurchaseOrdersPage })));
+const GrnsPage = lazy(() => import('@/features/purchase/grns-page').then((m) => ({ default: m.GrnsPage })));
+const PartiesPage = lazy(() => import('@/features/masters/parties-page').then((m) => ({ default: m.PartiesPage })));
+const TasksPage = lazy(() => import('@/features/tasks/tasks-page').then((m) => ({ default: m.TasksPage })));
+const PriceListPage = lazy(() => import('@/features/pricing/price-list-page').then((m) => ({ default: m.PriceListPage })));
+const PriceListsPage = lazy(() => import('@/features/pricing/price-lists-page').then((m) => ({ default: m.PriceListsPage })));
+const StockItemsPage = lazy(() => import('@/features/masters/stock-items-page').then((m) => ({ default: m.StockItemsPage })));
+const StockItemPage = lazy(() => import('@/features/masters/item-page').then((m) => ({ default: m.StockItemPage })));
+const PartyPage = lazy(() => import('@/features/masters/party-page').then((m) => ({ default: m.PartyPage })));
+const ReturnsPage = lazy(() => import('@/features/returns/returns-page').then((m) => ({ default: m.ReturnsPage })));
+const PortalLinksPage = lazy(() => import('@/features/portal/portal-links-page').then((m) => ({ default: m.PortalLinksPage })));
+const CollectionsPage = lazy(() => import('@/features/collections/collections-page').then((m) => ({ default: m.CollectionsPage })));
+const DuplicatesPage = lazy(() => import('@/features/masters/duplicates-page').then((m) => ({ default: m.DuplicatesPage })));
+const VouchersPage = lazy(() => import('@/features/masters/vouchers-page').then((m) => ({ default: m.VouchersPage })));
+const VoucherPaperPage = lazy(() => import('@/features/masters/voucher-paper-page').then((m) => ({ default: m.VoucherPaperPage })));
+const PlaceholderPage = lazy(() => import('@/features/placeholder/placeholder-page').then((m) => ({ default: m.PlaceholderPage })));
+const OrgMastersPage = lazy(() => import('@/features/org-masters').then((m) => ({ default: m.OrgMastersPage })));
+const ProfilePage = lazy(() => import('@/features/profile/profile-page').then((m) => ({ default: m.ProfilePage })));
+const UpdatesPage = lazy(() => import('@/features/updates').then((m) => ({ default: m.UpdatesPage })));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -128,12 +146,22 @@ export default function App() {
       <BrowserRouter>
         <SessionGate>
         <ShortcutProvider>
+          <Suspense fallback={null}>
           <Routes>
             {/* The paper and nothing else: printed from its own tab, outside the shell (REQ-W-01, print and PDF). */}
             <Route path="print/:kind/:id" element={<DocumentPrintPage />} />
 
             <Route element={<AppShell />}>
-              <Route index element={<DashboardPage />} />
+              <Route index element={<LandingPage />} />
+              {/*
+                The attendance dashboard has its own address now. It used to
+                be "/", which was fine while "/" meant one thing -- then "/"
+                started choosing where to send people, and the two meanings
+                collided: clicking Attendance navigated to "/", which
+                immediately redirected away again, so the module could not be
+                opened at all by anyone the redirect applied to.
+              */}
+              <Route path="dashboard" element={<DashboardPage />} />
 
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="employees/:id" element={<EmployeeDetailPage />} />
@@ -155,6 +183,12 @@ export default function App() {
               <Route path="masters/items" element={<StockItemsPage />} />
               <Route path="masters/items/:id" element={<StockItemPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
+              <Route path="masters/price-lists/new" element={<PriceListPage />} />
+              <Route path="masters/price-lists/:id" element={<PriceListPage />} />
+              <Route path="sales/returns" element={<ReturnsPage />} />
+              <Route path="collections" element={<CollectionsPage />} />
+              <Route path="masters/portal-links" element={<PortalLinksPage />} />
+              <Route path="masters/duplicates" element={<DuplicatesPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id/paper" element={<VoucherPaperPage />} />
@@ -193,6 +227,9 @@ export default function App() {
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
+              {/* The comparison is over and this one won; the old link still
+                  works rather than answering "not found". */}
+              <Route path="reports/dashboard/v2" element={<Navigate to="/reports/dashboard" replace />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />
@@ -224,6 +261,7 @@ export default function App() {
               <Route path="*" element={<PlaceholderPage />} />
             </Route>
           </Routes>
+          </Suspense>
         </ShortcutProvider>
         </SessionGate>
       </BrowserRouter>

@@ -20,7 +20,7 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -86,12 +86,10 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
   const currentStage = stages.find((s) => s.id === draft.stageId) ?? null;
 
   const wonWithoutParty = record !== null && record.status === 'won' && record.companyId !== null && record.partyId === null;
-  const parties = useParties({ page: 1 }, { enabled: wonWithoutParty && canSeeParties });
 
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const contactOptions: PickerOption[] = (contacts.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.designation === null ? {} : { hint: c.designation }) }));
   const ownerOptions: PickerOption[] = (owners.data ?? []).map((o) => ({ id: o.id, label: o.name, ...(o.hint === undefined ? {} : { hint: o.hint }) }));
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
   const nameMissing = draft.name.trim().length === 0;
@@ -148,22 +146,19 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
               <AlertDescription>
                 {canSeeParties ? (
                   <div className="mt-2 flex flex-col gap-2">
-                    <RecordPicker
+                    <PartyPicker
                       label="Tally party"
                       placeholder="Choose the party Tally created"
-                      searchPlaceholder="Search parties"
-                      emptyMessage="No party matches. Create it in Tally first; it arrives on the next sync."
                       icon={<BooksIcon className="text-muted-foreground" />}
-                      options={partyOptions}
-                      loading={parties.isPending}
-                      value={null}
+                      enabled={wonWithoutParty && canSeeParties}
+                      partyId={null}
                       onValueChange={(next) => {
                         if (next === null || record.companyId === null) return;
                         link.mutate(
                           { companyId: record.companyId, partyId: next.id },
                           {
                             onSuccess: () => {
-                              toast.add({ type: 'success', title: 'Party linked', description: `${record.companyName ?? 'The company'} is now ${next.label} in Tally.` });
+                              toast.add({ type: 'success', title: 'Party linked', description: `${record.companyName ?? 'The company'} is now ${next.name} in Tally.` });
                             },
                           },
                         );

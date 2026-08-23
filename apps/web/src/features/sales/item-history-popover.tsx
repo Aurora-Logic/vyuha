@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitl
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 
 import { useItemHistory } from './use-estimates';
 
@@ -89,7 +89,7 @@ export function ItemHistoryAffordance({
                     </span>
                   </span>
                   <span className="text-muted-foreground text-xs tabular-nums">
-                    {[entry.quantity, entry.rate === null ? null : `@ ${entry.rate}`, entry.discountPct === null || entry.discountPct === '0.00' ? null : `−${entry.discountPct}%`, entry.amount === null ? null : `= ${entry.amount}`]
+                    {[entry.quantity, entry.rate === null ? null : `@ ${formatMoney(entry.rate)}`, entry.discountPct === null || entry.discountPct === '0.00' ? null : `−${entry.discountPct}%`, entry.amount === null ? null : `= ${formatMoney(entry.amount)}`]
                       .filter((p): p is string => p !== null)
                       .join(' ')}
                   </span>

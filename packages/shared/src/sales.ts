@@ -105,10 +105,22 @@ export const salesLineInputSchema = z
     description: z.string().trim().max(200).default(''),
     quantity: quantityText,
     unit: z.string().trim().max(20).nullish(),
-    rate: moneyText,
+    /** 15 REQ-AN-13: omitted, the server writes the rate the price lists resolve; given, it is the salesperson's own. */
+    rate: moneyText.optional(),
+    /** REQ-AN-16: required when the rate is below what resolved. */
+    rateOverrideReason: z.string().trim().min(3).max(500).nullish(),
     discountPct: percentText.default('0'),
-    /** Shown for information (REQ-W-01); defaults from the item's GST rate. */
-    taxPct: percentText.default('0'),
+    /**
+     * Shown for information (REQ-W-01). Omitted, the item's GST rate fills it
+     * in; given, it stands -- including when it is given as zero.
+     *
+     * No default, deliberately. It used to default to '0', which made zero
+     * indistinguishable from "not supplied", and `resolveDocumentLines` read
+     * that as permission to overwrite it with the item's rate. A line
+     * deliberately zero-rated -- an exempt supply, a zero-rated export, a
+     * sample -- silently became an 18% line.
+     */
+    taxPct: percentText.optional(),
     /** GST's HSN (goods) or SAC (services) code, printed per line and summarised per code. */
     hsnCode: z.string().trim().max(12).nullish(),
   })
@@ -133,6 +145,20 @@ export interface SalesLineView {
   /** amount × tax, exact. */
   readonly taxAmount: string;
   readonly hsnCode: string | null;
+  /** 15 REQ-AN-15: what resolved when the line was written -- values, not a pointer that can move. */
+  readonly priceListId: string | null;
+  readonly priceListVersion: number | null;
+  readonly resolvedRate: string | null;
+  readonly appliedDiscountPct: string | null;
+  readonly rateOverrideReason: string | null;
+  /**
+   * 15 REQ-AK-09 / D-51: a replacement line the company decided to give
+   * away. It has no invoice to wait for, and no floor to sit above. Set only
+   * by the return that raised the order — there is no field for it on the
+   * line editor, because a salesperson marking a line free of charge would
+   * be a way around both rules.
+   */
+  readonly freeOfCharge: boolean;
   /** REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate. */
   readonly pickedQty: string;
   readonly packedQty: string;
@@ -451,6 +477,9 @@ export interface CreditPosition {
   /** Confirmed, undispatched Vyuha orders not yet in Tally as invoices — committed money, the way stock is committed. */
   readonly openOrders: string;
   readonly headroom: string | null;
+  /** 15 REQ-AJ-10 / D-54: promises this party did not keep. A flag beside the limit, never a second way to be blocked. */
+  readonly brokenPromises: number;
+  readonly brokenPromiseAmount: string;
 }
 
 export const convertEstimateSchema = z.object({

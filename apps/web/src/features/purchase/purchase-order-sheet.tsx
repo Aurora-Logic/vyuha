@@ -5,9 +5,9 @@ import { Link } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,13 +20,11 @@ import { toast } from '@/components/ui/toast';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
-import { DocumentLinesEditor, type StockItemOption } from '@/features/sales/document-lines-editor';
-import { formatMoney } from '@/features/sales/money';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { DocumentLinesEditor } from '@/features/sales/document-lines-editor';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, PO_FULFILMENT_LABELS, PURCHASE_ORDER_STATUS_LABELS } from '@vyuha/shared';
@@ -89,19 +87,6 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
   const isNew = initial.id === undefined;
   const isDraft = draft.status === 'DRAFT';
   const editable = isDraft && canCreate;
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters && editable });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeMasters && editable });
-
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
-  const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    label: i.name,
-    hint: [i.unit, i.costPrice === null || i.costPrice === undefined ? null : `@ ${i.costPrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    // The editor prefills the rate from this: the cost price is the buying figure.
-    salePrice: i.costPrice ?? null,
-    gstRate: i.gstRate,
-  }));
   const partyMissing = draft.partyId === null;
   const dirty = draftFingerprint(draft) !== draftFingerprint(initial);
   const busy = save.isPending || act.isPending || shortClose.isPending;
@@ -159,8 +144,8 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex flex-wrap items-center gap-2">
           {isNew ? 'New purchase order' : `Purchase order ${initial.number ?? ''}`}
-          {isNew ? null : <Badge variant="outline">{PURCHASE_ORDER_STATUS_LABELS[draft.status]}</Badge>}
-          {record !== null && record.status === 'CONFIRMED' ? <Badge variant={record.fulfilment === 'received' ? 'default' : 'outline'}>{PO_FULFILMENT_LABELS[record.fulfilment]}</Badge> : null}
+          {isNew ? null : <StatusBadge state={draft.status} label={PURCHASE_ORDER_STATUS_LABELS[draft.status]} />}
+          {record !== null && record.status === 'CONFIRMED' ? <StatusBadge state={record.fulfilment} label={PO_FULFILMENT_LABELS[record.fulfilment]} /> : null}
           {record === null ? null : <SyncStateBadge record={record} />}
         </SheetTitle>
         <SheetDescription>
@@ -241,19 +226,16 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
             <Field>
               <FieldLabel htmlFor="po-vendor">Vendor</FieldLabel>
               {editable ? (
-                <RecordPicker
+                <PartyPicker
                   id="po-vendor"
                   label="Vendor"
                   placeholder="Choose the party"
-                  searchPlaceholder="Search parties"
-                  emptyMessage="No party matches. A vendor must be a party in Tally first."
                   icon={<BooksIcon className="text-muted-foreground" />}
-                  options={partyOptions}
-                  loading={parties.isPending}
+                  enabled={canSeeMasters && editable}
                   disabled={!canSeeMasters}
-                  value={partyOptions.find((o) => o.id === draft.partyId) ?? (draft.partyId === null ? null : { id: draft.partyId, label: draft.vendorName })}
+                  partyId={draft.partyId}
                   onValueChange={(next) => {
-                    setDraft((current) => ({ ...current, partyId: next?.id ?? null, vendorName: next?.label ?? current.vendorName }));
+                    setDraft((current) => ({ ...current, partyId: next?.id ?? null, vendorName: next?.name ?? current.vendorName }));
                   }}
                 />
               ) : (
@@ -338,8 +320,6 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
                 setDraft((current) => ({ ...current, lines: next }));
               }}
               editable={editable}
-              itemOptions={itemOptions}
-              itemsLoading={items.isPending}
               canPickItems={canSeeMasters}
               partyId={draft.partyId}
               companyId={null}

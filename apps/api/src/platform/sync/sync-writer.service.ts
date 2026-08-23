@@ -16,6 +16,7 @@ import { AppError } from '../common/errors.js';
 import { isUniqueViolation } from '../db/pg-error.js';
 import { PushOutcomeRegistry, type PushOutcome } from './push-outcome.registry.js';
 import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
+import { JobRunner } from '../jobs/job-runner.service.js';
 import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 
 /**
@@ -65,6 +66,7 @@ export class SyncWriterService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly pushOutcomes: PushOutcomeRegistry,
+    private readonly jobs: JobRunner,
   ) {}
 
   async ingest(agent: AgentPrincipal, input: AgentResultsInput): Promise<AgentResultsAck> {
@@ -197,6 +199,23 @@ export class SyncWriterService {
       rows: written.written,
       final: input.final,
     });
+
+    // 15 REQ-AO-13: the masters have changed; the duplicate detector reads
+    // them once the pull is whole. One job per organisation and entity type,
+    // so a burst of final chunks is one detection. A refusal to enqueue must
+    // not fail the ack -- the agent would resend a chunk already committed.
+    if (input.final && (input.entityType === 'party' || input.entityType === 'stock_item')) {
+      try {
+        // The id dedupes a burst of final chunks, not every pull for ever:
+        // BullMQ remembers a completed job id, so a constant one would run the
+        // detector once and silently drop every later pull. The minute is the
+        // window a burst lives in.
+        const minute = new Date().toISOString().slice(0, 16).replace(/[:T-]/gu, '');
+        await this.jobs.enqueue('detect-duplicates', { orgId: agent.orgId, entityType: input.entityType, requestedAt: new Date().toISOString() }, { jobId: `duplicates-${agent.orgId}-${input.entityType}-${minute}` });
+      } catch (error) {
+        this.logger.error({ msg: 'Duplicate detection could not be enqueued after a pull', orgId: agent.orgId, entityType: input.entityType, reason: error instanceof Error ? error.message : String(error) });
+      }
+    }
 
     return {
       jobId: input.jobId,

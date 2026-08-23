@@ -152,7 +152,7 @@ describe('the job monitor', () => {
    * Observed live with `waiting: 631` on that same queue.
    */
   it('reports nothing consumed here when this process runs no workers', async () => {
-    const summary = await monitor.summary();
+    const summary = await monitor.summary(ORG_ID);
 
     // The premise: handlers *are* registered, which is why the old derivation
     // looked plausible. Without this the test could pass for the wrong reason.
@@ -171,7 +171,7 @@ describe('the job monitor', () => {
     runner.startWorkers();
 
     try {
-      const summary: JobMonitorSummary = await monitor.summary();
+      const summary: JobMonitorSummary = await monitor.summary(ORG_ID);
       const consumed = summary.queues
         .filter((queue) => queue.consumedHere)
         .map((queue) => queue.name);

@@ -6,13 +6,14 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -22,14 +23,16 @@ import { useDesignDraft } from '@/features/documents/use-design-draft';
 import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { ItemPicker } from '@/features/masters/item-picker';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { useParty } from '@/features/masters/use-parties';
+import { type StockItem } from '@/features/masters/use-stock-items';
+import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { ItemHistoryAffordance } from './item-history-popover';
-import { formatMoney } from './money';
 import { emptyEstimateDraft, estimateToDraft, newLine, previewLine, type Estimate, type EstimateDraft, type LineDraft } from './types';
 import { useConvertEstimate, useDeleteEstimate, useEstimate, useSaveEstimate, useSetEstimateStatus } from './use-estimates';
 
@@ -131,27 +134,18 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
-  const parties = useParties({ page: 1 }, { enabled: canSeeParties });
   const companies = useCompanyOptions({ enabled: canSeeCompanies });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeParties });
 
   const isNew = record === null;
   const editable = canCreate && draft.status === 'DRAFT';
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
-  const itemOptions = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    label: i.name,
-    hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    salePrice: i.salePrice ?? null,
-    gstRate: i.gstRate,
-  }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
-  const party = (parties.data?.data ?? []).find((p) => p.id === draft.partyId) ?? null;
-  const presetName = pick(partyOptions, draft.partyId)?.label ?? pick(companyOptions, draft.companyId)?.label ?? null;
+  // Resolved by id, not from a page-one list, so a party chosen past the first
+  // page still fills the paper's buyer block and its "Addressed to" name.
+  const party = useParty(draft.partyId).data ?? null;
+  const presetName = party?.name ?? pick(companyOptions, draft.companyId)?.label ?? null;
   const customerName = draft.customerName.trim() === '' && presetName !== null ? presetName : draft.customerName;
   const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
   const customerMissing = draft.partyId === null && draft.companyId === null && customerName.trim() === '';
@@ -211,13 +205,16 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   function updateLine(key: string, patch: Partial<LineDraft>) {
     setDraft((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
   }
-  function chooseItem(key: string, option: PickerOption | null) {
-    const item = itemOptions.find((i) => i.id === option?.id);
+  function chooseItem(key: string, item: StockItem | null) {
     updateLine(key, {
       stockItemId: item?.id ?? null,
-      description: item?.label ?? '',
+      description: item?.name ?? '',
       unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
+      // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
+      // from the price lists at the document's date, and falls back to this very
+      // Tally rate when no list names the item -- so prefilling it here only
+      // hid the list. The picker's hint still shows what Tally holds.
+      rate: '',
       taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
     });
   }
@@ -226,21 +223,18 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         customer: (
           <div className="flex flex-col gap-1">
             <div className="grid gap-1 sm:grid-cols-2">
-              <RecordPicker
+              <PartyPicker
                 id="estimate-party"
                 label="Tally party"
                 placeholder="Tally party"
-                searchPlaceholder="Search parties"
-                emptyMessage="No party matches. A prospect is a CRM company until it buys."
                 icon={<BooksIcon className="text-muted-foreground" />}
-                options={partyOptions}
-                loading={parties.isPending}
+                enabled={canSeeParties}
                 disabled={!canSeeParties}
                 clearable
                 clearLabel="No party"
-                value={pick(partyOptions, draft.partyId)}
+                partyId={draft.partyId}
                 onValueChange={(next) => {
-                  setDraft((current) => ({ ...current, partyId: next?.id ?? null, companyId: next === null ? current.companyId : null, customerName: next?.label ?? current.customerName }));
+                  setDraft((current) => ({ ...current, partyId: next?.id ?? null, companyId: next === null ? current.companyId : null, customerName: next?.name ?? current.customerName }));
                 }}
               />
               <RecordPicker
@@ -279,17 +273,15 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
           return canSeeParties ? (
-            <RecordPicker
+            <ItemPicker
               id={`estimate-line-item-${line.key}`}
               label="Stock item"
               placeholder="Stock item, or type below"
               searchPlaceholder="Search stock items"
               emptyMessage="No item matches. Leave it and type a description."
-              options={itemOptions}
-              loading={items.isPending}
               clearable
               clearLabel="No stock item"
-              value={itemOptions.find((o) => o.id === draftLine?.stockItemId) ?? null}
+              value={draftLine?.stockItemId ? { id: draftLine.stockItemId, label: draftLine.description } : null}
               onValueChange={(next) => {
                 chooseItem(line.key, next);
               }}
@@ -297,6 +289,20 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           ) : null;
         },
         itemHistory: (line) => <ItemHistoryAffordance stockItemId={line.stockItemId} partyId={draft.partyId} companyId={draft.companyId} />,
+        rateNote: (line) => (
+          <ResolvedRateHint
+            partyId={draft.partyId}
+            stockItemId={line.stockItemId}
+            quantity={line.quantity}
+            date={draft.date}
+            rate={line.rate}
+            reason={draft.lines.find((l) => l.key === line.key)?.rateOverrideReason ?? ''}
+            editable={editable}
+            lineNo={model.lines.findIndex((l) => l.key === line.key) + 1}
+            onUseRate={(next) => { updateLine(line.key, { rate: next }); }}
+            onReasonChange={(next) => { updateLine(line.key, { rateOverrideReason: next }); }}
+          />
+        ),
         updateLine: (key, patch) => {
           updateLine(key, patch);
         },
@@ -353,7 +359,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         backTo="/sales/estimates"
         backLabel="Estimates"
         title={isNew ? 'New estimate' : `Estimate ${record.number}`}
-        badges={<Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
+        badges={<StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />}
         dirty={dirty}
         failure={failure ? copy : null}
         hint={customerMissing && editable ? 'Choose a Tally party or a CRM company, or type who it is addressed to.' : null}

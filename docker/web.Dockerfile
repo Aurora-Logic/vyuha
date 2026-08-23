@@ -22,6 +22,14 @@ COPY apps/web ./apps/web
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
+# What is running. Defaulted rather than required so a local `docker build`
+# still works; the release passes the real values (see docs/RELEASE.md) and
+# an unstamped build honestly labels itself a development one.
+ARG GIT_COMMIT=dev
+ARG BUILT_AT=""
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILT_AT=${BUILT_AT}
+
 RUN pnpm --filter @vyuha/shared build && pnpm --filter @vyuha/web build
 
 FROM caddy:2-alpine

@@ -4,26 +4,29 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  ATTENDANCE_SETTINGS,
-  DEFAULT_ATTENDANCE_POLICY,
-  DEFAULT_PHOTO_POLICY,
-  PHOTO_SETTINGS,
-  SECURITY_SETTINGS,
-  DEFAULT_SECURITY_POLICY,
-  securityPolicySchema,
   APPEARANCE_SETTINGS,
+  ATTENDANCE_SETTINGS,
   DEFAULT_APPEARANCE_POLICY,
-  appearancePolicySchema,
-  LOCALE_SETTINGS,
+  DEFAULT_ATTENDANCE_POLICY,
+  DEFAULT_DUPLICATES_POLICY_ROW,
   DEFAULT_LOCALE_POLICY,
-  localePolicySchema,
-  RETENTION_SETTINGS,
+  DEFAULT_PHOTO_POLICY,
   DEFAULT_RETENTION_POLICY,
-  retentionPolicySchema,
+  DEFAULT_SECURITY_POLICY,
+  DUPLICATES_SETTINGS,
+  LOCALE_SETTINGS,
+  PHOTO_SETTINGS,
+  RETENTION_SETTINGS,
+  RETURNS_SETTINGS,
+  SECURITY_SETTINGS,
   WRITABLE_SETTING_KEYS,
+  appearancePolicySchema,
   attendancePolicySchema,
+  localePolicySchema,
   photoPolicySchema,
   resolveGroup,
+  retentionPolicySchema,
+  securityPolicySchema,
   type SettingDescriptor,
 } from './settings.catalogue.js';
 
@@ -66,6 +69,7 @@ describe('the catalogue and its schemas describe the same fields', () => {
     expect(Object.keys(LOCALE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_LOCALE_POLICY).sort());
     expect(localePolicySchema.safeParse(DEFAULT_LOCALE_POLICY).success).toBe(true);
     expect(Object.keys(RETENTION_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_RETENTION_POLICY).sort());
+    expect(Object.keys(DUPLICATES_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_DUPLICATES_POLICY_ROW).sort());
     expect(retentionPolicySchema.safeParse(DEFAULT_RETENTION_POLICY).success).toBe(true);
   });
 });
@@ -89,7 +93,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS), ...Object.values(RETURNS_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);

@@ -418,3 +418,88 @@ Recommended default: ship as is; add the last-step column in the next auth incre
 Not built, on purpose. `audit_logs` carries the `vyuha_forbid_mutation` trigger: the database refuses UPDATE and DELETE on the trail, which is the product's tamper-evidence guarantee (a purge attempt in the test suite was refused by it). A retention policy that deleted trail entries would need that guarantee loosened -- a SECURITY DEFINER path the trigger lets through -- and that is a decision about what the trail promises, for the owner and counsel, not a setting.
 
 Recommended default: keep the trail append-only; if storage ever matters, add "archive older than N months to cold storage and keep a hash chain" rather than deletion. Export retention (the download tray) is a setting and is built.
+
+## REQ-AJ-02 — bill allocations are not yet pulled from Tally (22 Aug 2026)
+
+`bill_allocations` (migration 0051) is the projection the ageing, statement and payment-behaviour reports read, and the one a promise-to-pay's kept / partially kept / broken state must be derived from ("receipts pulled from Tally against the named bills"). Today only the demo seed fills it: `SyncWriterService` has no allocation writer and the agent results contract carries no allocation rows. Until the agent sends them, a promise in production can never be seen as kept.
+
+**Recommended default:** extend the agent results contract with an entity type `bill_allocation` (voucher reference, party, bill name, ref type new / against / advance / on_account, bill date, due date, signed amount) written by `SyncWriterService` beside the voucher; the agent is outbound-only, so this is a change on the agent as well. Area AJ is built against the projection as it stands, so it lights up the day the rows arrive.
+
+## The per-IP login rate limit does not refuse (22 Aug 2026, found merging work-order-aj-ao into phase-6a)
+
+**Not mine, and not caused by the merge** — reproduced on plain `phase-6a`
+with the merge absent, in a worktree of its own, with the file run alone so
+it was not contention.
+
+`login-rate-limit.test.ts` fails nine ways. The budget is twenty failures
+per address per fifteen minutes; the twenty-first attempt should throw
+`RATE_LIMITED` and instead returns `no-error`, and the window that should
+hold twenty members holds nought. Both the Redis path and the Postgres
+fallback are therefore failing to record and failing to refuse.
+
+The likely cause, unconfirmed: `claimAttempt` opens with
+
+    if (this.redis.status !== 'ready') return this.claimViaDb(...)
+
+and an ioredis client is `connecting`/`wait` until it has connected. So a
+freshly built client — which is what the test builds, and what the API has
+for the first moments after boot and after any reconnect — takes the
+Postgres path every time. If that path is the broken one, the limit is off
+in exactly the window an attacker would find it off.
+
+It arrived with PR #5's "database fallback for rate limits". The
+per-account lockout (five attempts, in Postgres, with an email notice) is
+unaffected and still stands, which is what keeps this a serious defect
+rather than an emergency.
+
+Also red on `phase-6a` from the same PR, 34 tests across 7 files:
+`seed.test.ts` (Employee now holds `regularization.raise`, which the seed's
+own expectation was never updated for), `punch`, `regularization`,
+`auth.endpoints`, `password-reset-rate-limit` and `fallback-job-runner`.
+
+**Recommended:** fix the limiter before anything ships, and treat the seed
+expectation as a one-line update. Not touched here because it is another
+developer's in-flight feature and a security control is the wrong place for
+a guess.
+
+## Corrections came back in the merge, against a decision in writing (23 Aug 2026) — CLOSED 23 Aug 2026
+
+**Owner's answer: the 21 August decision stands.** Both keys are out of the
+catalogue again, Operations no longer holds the approve key, and the slice runs
+on the keys `approval-keys.ts` had named for it all along — `punch.self` to
+raise, `attendance.edit` to decide — so the feature itself was not thrown away.
+Commit `e6caaf3`. The record of the disagreement is kept below.
+
+`docs/05-decisions.md` line 84 and `PENDING.md` row A-01 record that
+corrections and on-duty requests were removed as employee-raised features on
+21 August, with `regularization.raise` and `regularization.approve` deleted
+from the catalogue. Open requests stay decidable in Approvals by whoever may
+edit attendance, which is exactly what `packages/shared/src/approval-keys.ts`
+still declares:
+
+    regularization: { act: [PERMISSIONS.ATTENDANCE_EDIT], ... }
+
+On 22 August, `46cba6d` ("fix(merge): restore regularization permissions
+dropped by phase-6a") read that deletion as a merge accident and put both
+keys back into `permissions.ts`, and `3d6ec5d` re-added the feature itself.
+
+The two halves now disagree. Operations holds `regularization.approve` but
+the approval catalogue asks for `attendance.edit`, so **16 tests across
+`regularization.endpoints.test.ts` and `punch.endpoints.test.ts` fail** with
+"You do not hold the permission that decides this kind of request."
+
+Left alone deliberately: reverting would destroy a colleague's in-flight
+feature, and keeping it contradicts a decision the repository states in two
+places. This is a product call, not a merge repair.
+
+**Recommended default — the 21 August decision stands.** Delete the two keys
+from `permissions.ts` again, drop `REGULARIZATION_APPROVE` from the
+Operations set, and have an `attendance.edit` holder decide in those tests.
+If the feature is wanted back instead, `approval-keys.ts` gets
+`REGULARIZATION_APPROVE` in `act` -- and then A-01 and decision 84 need
+rewriting, because the repository currently asserts both things at once.
+
+One consequence to note either way: commit `109421a` corrected two role
+expectations to include `regularization.raise`, because that is what the
+code returns today. If the key is deleted again, those two expectations go
+back to three keys.

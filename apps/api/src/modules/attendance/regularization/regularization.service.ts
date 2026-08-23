@@ -96,13 +96,19 @@ import {
  * identical code and cannot produce different adjustments.
  */
 
-/** Who may see whose requests. The raise key is also the self key. */
+/**
+ * Who may see whose requests. The self key is `punch.self`, which every
+ * employee holds, and the team key is `attendance.edit` -- the two the
+ * approval catalogue names for this subject (approval-keys.ts), now that the
+ * regularization keys are gone from the permission catalogue (owner, 21 Aug
+ * 2026; PENDING A-01).
+ */
 export const REGULARIZATION_SCOPE_GRANTS: ScopeGrants = {
-  self: PERMISSIONS.REGULARIZATION_RAISE,
-  team: PERMISSIONS.REGULARIZATION_APPROVE,
+  self: PERMISSIONS.PUNCH_SELF,
+  team: PERMISSIONS.ATTENDANCE_EDIT,
 };
 
-const APPROVER_KEYS = [PERMISSIONS.REGULARIZATION_APPROVE] as const;
+const APPROVER_KEYS = [PERMISSIONS.ATTENDANCE_EDIT] as const;
 
 /**
  * REQ-I-01's polymorphic subjects, for the two kinds this slice owns.

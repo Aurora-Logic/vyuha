@@ -12,7 +12,7 @@ import { InjectDatabase, type Database, type Transaction } from '../db/db.provid
 /**
  * Postgres fallback for the Redis sorted-set rate limiters
  * (`LoginRateLimiter`, `PasswordResetRateLimiter`), used when
- * `redis.status !== 'ready'` or a Redis command itself throws.
+ * `redis.status === 'end'` or a Redis command itself throws.
  *
  * Replicates the Lua scripts' prune-then-check-then-record shape one row per
  * attempt (not a single counter+window-start row, which only approximates a

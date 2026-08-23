@@ -9,6 +9,7 @@ import {
   FileCsvIcon,
   FileXlsIcon,
   PrinterIcon,
+  SquareSplitVerticalIcon,
   TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
@@ -729,7 +730,13 @@ export function ReportsPage() {
 
   // REQ-L-01, the same formatting the exported file uses, so the caption bar on
   // screen and the header block in the download agree about what a date is.
-  const captions = describeFilters(exportFilters, {}, formatDate);
+  // The party is named, not identified: the caption bar and the exported
+  // file both said "Party 0192...-8f3a" when they said anything at all.
+  const filterNames =
+    filters.partyId === null
+      ? {}
+      : { [filters.partyId]: partyOptions.find((option) => option.id === filters.partyId)?.label ?? filters.partyId };
+  const captions = describeFilters(exportFilters, filterNames, formatDate);
 
   if (browsing) return <ReportCatalogue reports={catalogue.data ?? []} loading={catalogue.isPending} />;
 
@@ -754,6 +761,7 @@ export function ReportsPage() {
     <ColumnChooser
       columns={definition?.columns ?? []}
       visible={visibleColumns}
+      defaults={defaultVisibleColumns(reportKey)}
       open={chooserOpen}
       onOpenChange={setChooserOpen}
       onVisibleChange={(next) => {
@@ -884,6 +892,16 @@ export function ReportsPage() {
         {/* Toolbar (PRD §6.2). On a phone the filters live in a bottom sheet
             (REQ-AD-15, thumb-reach): one Filters button instead of a wall of
             full-width controls before any data. */}
+        {/*
+          Mounted, not merely hidden: `md:hidden` alone left both this row and
+          the desktop bar in the document, so the two ColumnChoosers below
+          shared one `open` state and both opened at once — and the hidden
+          one, having no box to anchor to, put its popover in the top-left
+          corner of the window, over the sidebar. Two copies of the same
+          controls also meant two elements with the same id, so a label could
+          toggle the checkbox nobody could see. One row exists at a time.
+        */}
+        {isMobile ? (
         <div className="md:hidden">
           <div className="flex items-center gap-2">
             <Button
@@ -916,7 +934,7 @@ export function ReportsPage() {
                   <ChartBarIcon />
                 </ToggleGroupItem>
                 <ToggleGroupItem value="both" aria-label="Both views">
-                  Both
+                  <SquareSplitVerticalIcon />
                 </ToggleGroupItem>
               </ToggleGroup>
             ) : null}
@@ -969,8 +987,7 @@ export function ReportsPage() {
                   onChange={setFilters}
                   departments={departments.data ?? []}
                   locations={locations.data ?? []}
-                  parties={partyOptions}
-                  partiesLoading={parties.isPending}
+                  canReadParties={canReadParties}
                   periodOpen={periodOpen}
                   onPeriodOpenChange={setPeriodOpen}
                   onClear={clearFilters}
@@ -1039,11 +1056,13 @@ export function ReportsPage() {
             </SheetContent>
           </Sheet>
         </div>
+        ) : null}
 
         {/* One control bar on a desk (PRD §6.2): the period and the report's
             own filters on the left; what shapes the reading -- granularity,
             comparison, saved views, columns and the table/chart choice -- on
             the right. It used to be three rows before the first figure. */}
+        {isMobile ? null : (
         <div className="hidden flex-col gap-2 md:flex">
           <div className="flex flex-wrap items-center gap-2">
             <ReportFilterBar
@@ -1053,8 +1072,7 @@ export function ReportsPage() {
               onChange={setFilters}
               departments={departments.data ?? []}
               locations={locations.data ?? []}
-              parties={partyOptions}
-              partiesLoading={parties.isPending}
+              canReadParties={canReadParties}
               periodOpen={periodOpen}
               onPeriodOpenChange={setPeriodOpen}
               onClear={clearFilters}
@@ -1131,6 +1149,7 @@ export function ReportsPage() {
                     Chart
                   </ToggleGroupItem>
                   <ToggleGroupItem value="both">
+                    <SquareSplitVerticalIcon data-icon="inline-start" />
                     Both
                   </ToggleGroupItem>
                 </ToggleGroup>
@@ -1155,6 +1174,7 @@ export function ReportsPage() {
             </p>
           ) : null}
         </div>
+        )}
 
         {/* What this report is showing, in words, so a shared link explains
             itself and matches the block at the top of the exported file. */}

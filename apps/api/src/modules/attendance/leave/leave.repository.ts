@@ -878,8 +878,8 @@ export class LeaveRepository {
       // an escalation decided by a job has neither and reads as null.
       decidedByName: sql<string | null>`(
         SELECT ${employeeNameSql(sql`e.first_name`, sql`e.last_name`)}
-          FROM users u JOIN employees e ON e.id = u.employee_id
-         WHERE u.id = ${leaveRequests.decidedBy} AND e.deleted_at IS NULL
+          FROM users u JOIN employees e ON e.id = u.employee_id AND e.org_id = ${leaveRequests.orgId}
+         WHERE u.id = ${leaveRequests.decidedBy} AND u.org_id = ${leaveRequests.orgId} AND e.deleted_at IS NULL
       )`,
       decisionReason: leaveRequests.decisionReason,
       cancelledAt: leaveRequests.cancelledAt,

@@ -891,3 +891,377 @@ describe('the accountant’s reminder (12 REQ-AA-15)', () => {
     }
   });
 });
+
+describe('the same item on two lines (audit 4)', () => {
+  /**
+   * An order can carry one item twice -- the same goods at two rates, or for
+   * two delivery dates. The in-flight preview used to total the invoice's
+   * lines by item and hand the whole of it to the first order line that
+   * matched, so line one read as invoiced for both and line two as untouched,
+   * which is not what acceptance goes on to write.
+   */
+  it('spreads what is in flight across the lines the way acceptance will', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: {
+        partyId,
+        lines: [
+          { stockItemId: cableId, quantity: '6', rate: '4000' },
+          { stockItemId: cableId, quantity: '4', rate: '3800' },
+        ],
+      },
+    });
+    expect(created.status).toBe(201);
+    const orderId2 = created.body.id;
+    const [first, second] = created.body.lines;
+    await harness.post(`/sales/orders/${orderId2}/confirm`, { token: salesToken });
+    for (const step of ['picks', 'packs'] as const) {
+      const moved = await harness.post(`/sales/orders/${orderId2}/${step}`, {
+        token: salesToken,
+        body: { lines: [{ lineId: first?.id ?? '', quantity: '6' }, { lineId: second?.id ?? '', quantity: '4' }] },
+      });
+      expect(moved.status).toBe(201);
+    }
+
+    const invoice = await harness.post<SalesDocumentView>(`/sales/orders/${orderId2}/invoices`, { token: salesToken, body: {} });
+    expect(invoice.status).toBe(201);
+    expect(invoice.body.lines.map((l) => l.quantity)).toEqual(['6.000', '4.000']);
+    const confirmed = await harness.post<SalesDocumentView>(`/sales/invoices/${invoice.body.id}/confirm`, { token: salesToken });
+    expect(confirmed.status).toBe(200);
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderId2}`, { token: salesToken });
+    // Six against the line that holds six, four against the line that holds
+    // four. The old preview said ten and nought.
+    expect(order.body.lines.map((l) => l.invoicingQty)).toEqual(['6.000', '4.000']);
+    // And no line is shown as spoken for beyond what it has packed.
+    expect(order.body.lines.every((l) => Number(l.invoicingQty) <= Number(l.packedQty))).toBe(true);
+  });
+});
+
+describe('altering an order that is already being fulfilled (audit 19)', () => {
+  /**
+   * An alter replaces the lines, which deletes them. Once picking has begun
+   * those rows are referenced by pick_records under a RESTRICT foreign key,
+   * so the delete failed inside the database and the caller was handed a
+   * bare 500 with nothing to act on.
+   */
+  it('refuses with what is in the way instead of dying in the database', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '5', rate: '4000' }] },
+    });
+    const orderId3 = created.body.id;
+    const lineId3 = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderId3}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderId3}/picks`, { token: salesToken, body: { lines: [{ lineId: lineId3, quantity: '2' }] } });
+    // The alter path is only open to an order Tally has accepted.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-alter-picked', remote_voucher_number = '901' WHERE id = ${orderId3}
+    `);
+
+    const refused = await harness.post<ErrorBody>(`/sales/orders/${orderId3}/alter`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, quantity: '9', rate: '4000' }] },
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('being fulfilled');
+    expect(refused.body.error.message).toContain('short-close');
+
+    // And it changed nothing: the line, its quantity and its picked quantity all stand.
+    const after = await harness.get<SalesDocumentView>(`/sales/orders/${orderId3}`, { token: salesToken });
+    expect(after.body.lines).toHaveLength(1);
+    expect(after.body.lines[0]?.id).toBe(lineId3);
+    expect(after.body.lines[0]?.quantity).toBe('5.000');
+    expect(after.body.lines[0]?.pickedQty).toBe('2.000');
+  });
+
+  it('still alters an order nothing has moved on', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '5', rate: '4000' }] },
+    });
+    const orderId4 = created.body.id;
+    await harness.post(`/sales/orders/${orderId4}/confirm`, { token: salesToken });
+    // Acceptance closes the push job as well as marking the document: an
+    // alter cannot queue while one is still open against the same document.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-alter-clean', remote_voucher_number = '902' WHERE id = ${orderId4}
+    `);
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE' WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId4}`}
+    `);
+
+    const altered = await harness.post<SalesDocumentView>(`/sales/orders/${orderId4}/alter`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, quantity: '9', rate: '4000' }] },
+    });
+    expect(altered.status).toBe(200);
+    expect(altered.body.lines[0]?.quantity).toBe('9.000');
+  });
+});
+
+describe('two drafts against one packed balance (audit 20)', () => {
+  /**
+   * A draft has not happened, so it does not appear in any other draft's
+   * in-flight figure. Two drafts could be raised from the same packed
+   * balance, and confirming looked at nothing: both queued a Sales voucher
+   * and the customer was billed twice for one dispatch.
+   */
+  it('lets the second one be raised, and refuses to confirm it', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '4', rate: '4000' }] },
+    });
+    const orderId5 = created.body.id;
+    const lineId5 = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderId5}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderId5}/picks`, { token: salesToken, body: { lines: [{ lineId: lineId5, quantity: '4' }] } });
+    await harness.post(`/sales/orders/${orderId5}/packs`, { token: salesToken, body: { lines: [{ lineId: lineId5, quantity: '4' }] } });
+
+    const first = await harness.post<SalesDocumentView>(`/sales/orders/${orderId5}/invoices`, { token: salesToken, body: {} });
+    const second = await harness.post<SalesDocumentView>(`/sales/orders/${orderId5}/invoices`, { token: salesToken, body: {} });
+    // Both drafts exist: neither has happened, so neither hides the balance
+    // from the other. That much is not the defect.
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.lines[0]?.quantity).toBe('4.000');
+    expect(second.body.lines[0]?.quantity).toBe('4.000');
+
+    const confirmedFirst = await harness.post<SalesDocumentView>(`/sales/invoices/${first.body.id}/confirm`, { token: salesToken });
+    expect(confirmedFirst.status).toBe(200);
+
+    const refused = await harness.post<ErrorBody>(`/sales/invoices/${second.body.id}/confirm`, { token: salesToken });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('another invoice has taken it');
+
+    // And it is still a draft with no voucher queued behind it.
+    const stillDraft = await harness.get<SalesDocumentView>(`/sales/invoices/${second.body.id}`, { token: salesToken });
+    expect(stillDraft.body.status).toBe('DRAFT');
+    expect(stillDraft.body.syncState).not.toBe('QUEUED');
+  });
+});
+
+describe('an order’s invoices, listed (audit 22)', () => {
+  /**
+   * The source filter was applied to the page after it came back, so asking
+   * for one order's invoices returned whichever of the first pageful
+   * belonged to it, above a total that counted only those.
+   */
+  it('filters and counts across the whole set rather than the page', async () => {
+    const mine = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '3', rate: '4000' }] },
+    });
+    const orderId6 = mine.body.id;
+    const lineId6 = mine.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderId6}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderId6}/picks`, { token: salesToken, body: { lines: [{ lineId: lineId6, quantity: '3' }] } });
+    await harness.post(`/sales/orders/${orderId6}/packs`, { token: salesToken, body: { lines: [{ lineId: lineId6, quantity: '3' }] } });
+    // Three invoices against this order, one unit each.
+    for (const _ of [1, 2, 3]) {
+      const raised = await harness.post<SalesDocumentView>(`/sales/orders/${orderId6}/invoices`, {
+        token: salesToken,
+        body: { lines: [{ lineId: lineId6, quantity: '1' }] },
+      });
+      expect(raised.status).toBe(201);
+    }
+
+    const whole = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=1&pageSize=50`, { token: salesToken });
+    expect(whole.body.meta.total).toBe(3);
+    expect(whole.body.data).toHaveLength(3);
+    expect(whole.body.data.every((d) => d.sourceDocumentId === orderId6)).toBe(true);
+
+    // One a page: the total is still three, and page two is reachable.
+    const firstPage = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=1&pageSize=1`, { token: salesToken });
+    expect(firstPage.body.data).toHaveLength(1);
+    expect(firstPage.body.meta.total).toBe(3);
+    const thirdPage = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderId6}&page=3&pageSize=1`, { token: salesToken });
+    expect(thirdPage.body.data).toHaveLength(1);
+    expect(thirdPage.body.data[0]?.sourceDocumentId).toBe(orderId6);
+  });
+});
+
+describe('pushing again after a rejected alter (audit 23)', () => {
+  /**
+   * A rejected alter leaves the document FAILED with its Tally GUID intact.
+   * Push was then reachable, and it queued a job carrying no GUID -- so the
+   * agent would have created a second voucher in Tally beside the one it was
+   * asked to change.
+   *
+   * The queued payload is read from the job row rather than claimed, because
+   * claiming consumes whatever else this file has left in the queue.
+   */
+  const queuedGuid = async (documentId: string): Promise<string | null | undefined> => {
+    const row = await harness.db.execute<{ guid: string | null }>(sql`
+      SELECT payload->>'remoteGuid' AS guid FROM sync_jobs
+       WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${documentId}`}
+       ORDER BY created_at DESC, id DESC LIMIT 1
+    `);
+    return row.rows[0]?.guid;
+  };
+
+  it('carries the Tally GUID the document already has', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '2', rate: '4000' }] },
+    });
+    const orderId7 = created.body.id;
+    await harness.post(`/sales/orders/${orderId7}/confirm`, { token: salesToken });
+    // Never pushed: no GUID to name.
+    expect(await queuedGuid(orderId7)).toBeNull();
+
+    // Tally accepts it: the document learns its GUID and the job is done, so
+    // nothing is open against this document any more.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = 'guid-order-alter-1', remote_voucher_number = '555' WHERE id = ${orderId7}
+    `);
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE' WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId7}`}
+    `);
+
+    const altered = await harness.post<ErrorBody>(`/sales/orders/${orderId7}/alter`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, quantity: '3', rate: '4000' }] },
+    });
+    expect(altered.status, altered.text).toBe(200);
+    expect(await queuedGuid(orderId7)).toBe('guid-order-alter-1');
+
+    // Tally rejects the alter: FAILED, the GUID stays, and the job closes.
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET sync_state = 'FAILED', last_error = 'Tally said no' WHERE id = ${orderId7}
+    `);
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'FAILED' WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId7}`} AND state = 'QUEUED'
+    `);
+    const failed = await harness.get<SalesDocumentView>(`/sales/orders/${orderId7}`, { token: salesToken });
+    expect(failed.body.remoteGuid).toBe('guid-order-alter-1');
+
+    // Push again. The job must name the voucher Tally already holds, or the
+    // agent creates a second one beside it.
+    const pushed = await harness.post<SalesDocumentView>(`/sales/orders/${orderId7}/push`, { token: adminToken });
+    expect(pushed.status).toBe(200);
+    expect(await queuedGuid(orderId7)).toBe('guid-order-alter-1');
+  });
+});
+
+describe('an agent error on a push (audit 24)', () => {
+  /**
+   * The error path marked the sync job FAILED and told the document nothing,
+   * so an order sat at QUEUED for ever: the screen said it was with the
+   * agent, and Push refused because it was already queued. There was no way
+   * forward from either.
+   */
+  it('leaves the order able to move rather than queued for ever', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000' }] },
+    });
+    const orderId8 = created.body.id;
+    await harness.post(`/sales/orders/${orderId8}/confirm`, { token: salesToken });
+    const queued = await harness.get<SalesDocumentView>(`/sales/orders/${orderId8}`, { token: salesToken });
+    expect(queued.body.syncState).toBe('QUEUED');
+
+    // Claimed directly rather than through the queue, which by this point in
+    // the file holds other documents' jobs; the error path only cares that
+    // the row is CLAIMED by this agent.
+    const job = await harness.db.execute<{ id: string }>(sql`
+      UPDATE sync_jobs SET state = 'CLAIMED', claimed_by = ${AGENT}, claimed_at = now()
+       WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${orderId8}`} AND state = 'QUEUED'
+       RETURNING id
+    `);
+    expect(job.rows).toHaveLength(1);
+    const reported = await harness.post('/sync/agent/errors', {
+      token: agentToken,
+      body: { agentInstanceId: AGENT, jobId: job.rows[0]?.id, errorText: 'Tally was closed' },
+    });
+    expect(reported.status).toBe(200);
+
+    const after = await harness.get<SalesDocumentView>(`/sales/orders/${orderId8}`, { token: salesToken });
+    expect(after.body.syncState).toBe('FAILED');
+    expect(after.body.lastError).toContain('Tally was closed');
+
+    // And the way forward is open: Push is accepted rather than refused as
+    // already queued.
+    const again = await harness.post<SalesDocumentView>(`/sales/orders/${orderId8}/push`, { token: adminToken });
+    expect(again.status).toBe(200);
+    expect(again.body.syncState).toBe('QUEUED');
+  });
+});
+
+describe('an organisation with two Tally companies (audit 25)', () => {
+  /**
+   * One connection per company. The push queue used to take the oldest
+   * connection whatever the document was for, so a document raised against
+   * one company queued on another, and the agent bound to that company would
+   * have written the voucher into the wrong books.
+   *
+   * The second connection is backdated so that "oldest" and "the party's"
+   * name different rows -- otherwise both rules agree and the test proves
+   * nothing.
+   */
+  it('queues the push on the connection the party belongs to', async () => {
+    const other = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO integration_connections (org_id, system, name, company_guid, agent_token_hash, created_at)
+      VALUES (${ORG_ID}, 'TALLY', 'Older Company', 'guid-older-company', 'hash-older-company', now() - interval '10 years')
+      RETURNING id
+    `);
+    const olderConnection = other.rows[0]?.id ?? '';
+    expect(olderConnection).not.toBe(connectionId);
+
+    // This order's party belongs to the fixture's company, not the older one.
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100' }] },
+    });
+    expect(created.status).toBe(201);
+    await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+
+    const job = await harness.db.execute<{ connection_id: string }>(sql`
+      SELECT connection_id FROM sync_jobs
+       WHERE org_id = ${ORG_ID} AND entity_type = ${`voucher_push:${created.body.id}`}
+       ORDER BY created_at DESC LIMIT 1
+    `);
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0]?.connection_id).toBe(connectionId);
+    // The oldest connection is the wrong company for this party.
+    expect(job.rows[0]?.connection_id).not.toBe(olderConnection);
+
+    await harness.db.execute(sql`DELETE FROM integration_connections WHERE id = ${olderConnection}`);
+  });
+});
+
+describe('a line deliberately zero-rated (audit 14)', () => {
+  /**
+   * The tax percentage defaulted to '0' in the schema, so zero and "not
+   * supplied" were the same value, and the resolver read that as permission
+   * to overwrite it with the item's GST rate. A line zero-rated on purpose --
+   * an exempt supply, a zero-rated export, a sample -- silently became an 18%
+   * line, and the customer was charged tax the salesperson had said not to
+   * charge. Omitted now means the item's rate; given means given.
+   */
+  it('keeps a zero somebody typed, and fills in one nobody did', async () => {
+    const zeroRated = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100', taxPct: '0' }] },
+    });
+    expect(zeroRated.status).toBe(201);
+    expect(zeroRated.body.lines[0]?.taxPct).toBe('0.00');
+    expect(zeroRated.body.lines[0]?.taxAmount).toBe('0.00');
+    expect(zeroRated.body.grandTotal).toBe('100.00');
+
+    // The item carries 18%, and a line that says nothing takes it.
+    const unstated = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100' }] },
+    });
+    expect(unstated.body.lines[0]?.taxPct).toBe('18.00');
+    expect(unstated.body.grandTotal).toBe('118.00');
+
+    // And a rate somebody typed that is neither stands as typed.
+    const explicit = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100', taxPct: '5' }] },
+    });
+    expect(explicit.body.lines[0]?.taxPct).toBe('5.00');
+  });
+});

@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { PERMISSIONS } from '@vyuha/shared';
 
+import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import { JobMonitorService, type JobMonitorSummary } from './job-monitor.service.js';
 
@@ -21,7 +22,7 @@ export class JobsController {
 
   @Get()
   @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
-  summary(): Promise<JobMonitorSummary> {
-    return this.monitor.summary();
+  summary(@CurrentUser() principal: Principal): Promise<JobMonitorSummary> {
+    return this.monitor.summary(principal.orgId);
   }
 }

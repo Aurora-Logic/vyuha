@@ -1,5 +1,5 @@
 import { heatGridOf, heatmapStep, type HeatGrid } from '@/components/shared/heat-grid';
-import { currencySymbol, formatCount } from '@/lib/format';
+import { formatCount, formatMoney } from '@/lib/format';
 import type { ReportCellValue, ReportColumnSpec, ReportDefinition, ReportKey } from '@vyuha/shared';
 
 /**
@@ -35,11 +35,6 @@ function num(value: ReportCellValue | undefined): number {
 
 function text(value: ReportCellValue | undefined): string {
   return typeof value === 'string' ? value : '';
-}
-
-/** A headline figure, grouped the way the workspace writes numbers (lib/format). */
-export function inr(value: number): string {
-  return formatCount(value);
 }
 
 // ---------------------------------------------------------------- sales analysis
@@ -94,9 +89,9 @@ export function movementSeries(rows: readonly ChartRow[]): { points: MovementPoi
   const net = last.inward - last.outward;
   const insight =
     net > 0
-      ? `${last.month}: stock built up by ${inr(net)} units — more came in than went out.`
+      ? `${last.month}: stock built up by ${formatCount(net)} units — more came in than went out.`
       : net < 0
-        ? `${last.month}: stock drained by ${inr(-net)} units — sales outran purchases.`
+        ? `${last.month}: stock drained by ${formatCount(-net)} units — sales outran purchases.`
         : `${last.month}: inward and outward balanced exactly.`;
   return { points, insight };
 }
@@ -188,7 +183,7 @@ export function lapseSeries(rows: readonly ChartRow[]): { points: LapsePoint[]; 
   const lapsed = points.filter((p) => p.state === 'LAPSED').length;
   return {
     points,
-    insight: `${currencySymbol()}${inr(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
+    insight: `${formatMoney(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
   };
 }
 
@@ -276,12 +271,20 @@ export function primaryNumericColumn(definition: Pick<ReportDefinition, 'columns
 
 // ---------------------------------------------------------------- chart forms
 
-export type GenericChartForm = 'hbar' | 'line' | 'donut' | 'scatter' | 'heatmap' | 'radials';
+export type GenericChartForm = 'hbar' | 'line' | 'donut' | 'scatter' | 'heatmap' | 'radials' | 'pareto';
 
 export interface ChartFormSpec {
   readonly form: GenericChartForm;
   readonly category: string;
   readonly series: readonly string[];
+  /**
+   * What a Pareto's rows are, plural and lower case, and what is being
+   * concentrated — "customers" and "revenue". They live on the spec because
+   * the sentence belongs beside the form that needs it, and a chart cannot
+   * write "9 of 214 rows make up half the total" and be worth reading.
+   */
+  readonly noun?: string;
+  readonly measure?: string;
 }
 
 /**
@@ -297,7 +300,17 @@ export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = 
   'customer-statement': { form: 'line', category: 'date', series: ['balance'] },
   'voucher-reconciliation': { form: 'line', category: 'month', series: ['total'] },
   'headcount': { form: 'line', category: 'month', series: ['closing'] },
-  'customer-concentration': { form: 'hbar', category: 'partyName', series: ['revenue'] },
+  // Owner, 22 Aug 2026. A Pareto is bars plus a running curve, which is
+  // classically drawn on two y-axes — value on the left, per cent on the
+  // right. This product does not draw two axes (dataviz: it is the single
+  // most common chart mistake), so both series are put in per cent and share
+  // one 0–100 axis. Nothing is lost: the money is in the table and the
+  // tooltip, and the question a Pareto answers is a question about shares.
+  'customer-concentration': { form: 'pareto', category: 'partyName', series: ['sharePct', 'cumulativePct'], noun: 'customers', measure: 'revenue' },
+  'item-revenue-concentration': { form: 'pareto', category: 'name', series: ['sharePct', 'cumulativePct'], noun: 'items', measure: 'revenue' },
+  'item-quantity-concentration': { form: 'pareto', category: 'name', series: ['sharePct', 'cumulativePct'], noun: 'items', measure: 'volume' },
+  'vendor-spend-concentration': { form: 'pareto', category: 'name', series: ['sharePct', 'cumulativePct'], noun: 'vendors', measure: 'spend' },
+  'receivables-concentration': { form: 'pareto', category: 'name', series: ['sharePct', 'cumulativePct'], noun: 'customers', measure: 'money owed' },
   'order-pipeline': { form: 'hbar', category: 'number', series: ['ageDays'] },
   'dispatch-performance': { form: 'hbar', category: 'number', series: ['leadDays'] },
   'order-fill-rate': { form: 'hbar', category: 'partyName', series: ['fillPct'] },
@@ -437,3 +450,55 @@ export function heatmapGrid(points: readonly FormPoint[], valueKey: string): Hea
 }
 
 export { heatmapStep };
+
+
+// ------------------------------------------------------------------ Pareto
+
+export interface ParetoPoint {
+  readonly category: string;
+  readonly sharePct: number;
+  readonly cumulativePct: number;
+}
+
+/**
+ * The curve, in the order the report already ranked it.
+ *
+ * The rows arrive sorted and carrying their own running total, so this does
+ * not re-derive either: a chart that recomputed the cumulative from a page of
+ * rows would disagree with the table the moment the reader paged, and the
+ * table is the one that is right.
+ */
+export function paretoSeries(rows: readonly ChartRow[], categoryKey: string): ParetoPoint[] {
+  return rows
+    .map((row) => ({
+      category: text(row.cells[categoryKey]),
+      sharePct: num(row.cells.sharePct),
+      cumulativePct: num(row.cells.cumulativePct),
+    }))
+    .filter((point) => point.category !== '');
+}
+
+/** How many rows it takes to reach a share of the whole, or null if the page never gets there. */
+export function countToReach(points: readonly ParetoPoint[], target: number): number | null {
+  const index = points.findIndex((point) => point.cumulativePct >= target);
+  return index === -1 ? null : index + 1;
+}
+
+/**
+ * The sentence the curve proves: how few of them make up half, and then most.
+ *
+ * `noun` is plural and lower case — "customers", "items", "vendors". Null
+ * when the page cannot support the claim: with three rows the answer is
+ * arithmetically true and practically meaningless, and a Pareto over a
+ * handful of rows is a bar chart wearing a curve.
+ */
+export function paretoInsight(points: readonly ParetoPoint[], noun: string, measure: string): string | null {
+  if (points.length < 4) return null;
+  const half = countToReach(points, 50);
+  const most = countToReach(points, 80);
+  if (half === null) return null;
+  const total = points.length;
+  const head = `${String(half)} of ${String(total)} ${noun} make up half the ${measure}`;
+  if (most === null || most === half) return `${head}.`;
+  return `${head}; ${String(most)} make up 80%.`;
+}

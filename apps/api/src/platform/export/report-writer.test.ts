@@ -183,3 +183,37 @@ describe('the writer factory', () => {
     expect(writerFor('CSV').supportsSheetFormatting).toBe(false);
   });
 });
+
+describe('money in the CSV', () => {
+  /**
+   * The other half of the xlsx rule.
+   *
+   * A symbol or a thousands comma would stop the column being a number to
+   * whatever opens the file, and a comma inside a field has to be quoted on
+   * top of that. The header names the unit; the cell is the figure.
+   */
+  it('writes the bare figure, with no symbol and no grouping', async () => {
+    const writer = new CsvReportWriter();
+    writer.begin(
+      {
+        orgName: 'G C Communication',
+        reportLabel: 'Ageing',
+        captions: [],
+        generatedAt: new Date('2026-08-13T09:30:00.000Z'),
+        timezone: IST,
+        dateFormat: 'dd-MM-yyyy',
+        rowCount: 1,
+      },
+      [
+        { key: 'partyName', header: 'Party', type: 'text' },
+        { key: 'outstanding', header: 'Outstanding', type: 'money' },
+      ],
+    );
+    writer.writeRow(['Nashik Switchgear Traders', '1587620.00']);
+    const body = (await writer.finish()).toString('utf8');
+
+    expect(body).toContain('1587620.00');
+    expect(body).not.toContain('₹');
+    expect(body).not.toContain('15,87,620');
+  });
+});

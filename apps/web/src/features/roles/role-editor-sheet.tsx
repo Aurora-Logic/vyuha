@@ -125,6 +125,24 @@ function RoleEditorBody({
     });
   }
 
+  /**
+   * A whole family at once, in one state update.
+   *
+   * Not a loop over `toggle`: each call is its own setState against the
+   * previous set, and React batches them, so forty-odd of those would each
+   * build a copy and the last would win. One pass, one copy.
+   */
+  function setGroup(keys: readonly PermissionKey[], grantAll: boolean) {
+    setSelected((current) => {
+      const copy = new Set(current);
+      for (const key of keys) {
+        if (grantAll) copy.add(key);
+        else copy.delete(key);
+      }
+      return copy;
+    });
+  }
+
   function submit(reason: string) {
     if (creating) {
       create.mutate(
@@ -262,9 +280,24 @@ function RoleEditorBody({
           <FieldDescription>One line saying who this role is for. Optional.</FieldDescription>
         </Field>
 
-        {PERMISSION_GROUPS.map((group) => (
+        {PERMISSION_GROUPS.map((group) => {
+          const grantedHere = group.permissions.filter((p) => selected.has(p.key)).length;
+          return (
           <div key={group.family} className="flex flex-col gap-2">
-            <SectionHeading title={group.label} />
+            <SectionHeading
+              title={group.label}
+              action={
+                <GroupToggle
+                  label={group.label}
+                  granted={grantedHere}
+                  total={group.permissions.length}
+                  disabled={!canManage}
+                  onChange={(grantAll) => {
+                    setGroup(group.permissions.map((p) => p.key), grantAll);
+                  }}
+                />
+              }
+            />
             <div className="flex flex-col gap-1">
               {group.permissions.map((permission) => (
                 <PermissionToggle
@@ -280,7 +313,8 @@ function RoleEditorBody({
               ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">
@@ -413,6 +447,61 @@ function describeChange(input: {
  * can, a checkbox is the control — and it is labelled by the key itself, so the
  * whole 44px row is the hit target rather than a 16px box.
  */
+/**
+ * Grant or revoke a whole family at once.
+ *
+ * Forty-seven permissions is forty-seven clicks to build an Admin-shaped role,
+ * and the families are how anybody thinks about it -- "this person does
+ * purchase" is one decision, not five. The per-permission rows stay, because
+ * the exceptions are the point of a custom role; this is the coarse move that
+ * makes the fine ones worth having.
+ *
+ * Three states, not two. A half-granted family must not render as unchecked --
+ * that would say "nobody here has anything", and one click would then quietly
+ * revoke the two they did have. Indeterminate says what is true, and clicking
+ * it grants the rest rather than clearing them, because filling in is the
+ * likelier intent and the reversible one.
+ */
+function GroupToggle({
+  label,
+  granted,
+  total,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  granted: number;
+  total: number;
+  disabled: boolean;
+  onChange: (grantAll: boolean) => void;
+}) {
+  const all = granted === total;
+  const none = granted === 0;
+  return (
+    <span className="flex items-center gap-2">
+      <span className="text-muted-foreground text-xs tabular-nums">
+        {granted} of {total}
+      </span>
+      <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+        <Checkbox
+          aria-label={`${all ? 'Revoke' : 'Grant'} every permission in ${label}`}
+          // Base UI carries the third state on its own prop rather than in
+          // `checked`; a half-granted family is checked=false plus
+          // indeterminate, which is what renders the dash.
+          checked={all}
+          indeterminate={!all && !none}
+          disabled={disabled}
+          onCheckedChange={() => {
+            // From anything but "all", fill in. Only a full family clears.
+            onChange(!all);
+          }}
+        />
+        All
+      </Label>
+    </span>
+  );
+}
+
 function PermissionToggle({
   permissionKey,
   description,

@@ -55,6 +55,10 @@ interface RecordTableProps<T> {
   /** Mobile card line two: two supporting fields. */
   mobileSupporting?: (row: T) => ReactNode;
   onRowActivate?: (row: T) => void;
+  /** 15 REQ-AO-06: a surface a row wears (a duplicate's destructive tint); merged after the table's own. */
+  rowClassName?: (row: T) => string | undefined;
+  /** A mark before the first cell, and before the card's title: an icon with its own name, never colour alone. */
+  rowLeading?: (row: T) => ReactNode;
   emptyState?: ReactNode;
   /** The current order and its setter; header clicks toggle a column, first ascending. */
   sort?: RecordSort | null;
@@ -83,6 +87,8 @@ export function RecordTable<T>({
   emptyState,
   sort,
   onSortChange,
+  rowClassName,
+  rowLeading,
 }: RecordTableProps<T>) {
   if (rows.length === 0 && emptyState) {
     return <div className="border">{emptyState}</div>;
@@ -143,7 +149,9 @@ export function RecordTable<T>({
             {rows.map((row) => (
               <TableRow
                 key={rowKey(row)}
-                className={cn(onRowActivate && 'cursor-pointer active:bg-muted')}
+                // The row's own surface after the hover tint, not before it: a
+                // duplicate stays marked while the pointer is on it.
+                className={cn(onRowActivate && 'cursor-pointer active:bg-muted', rowClassName?.(row))}
                 tabIndex={onRowActivate ? 0 : undefined}
                 onClick={onRowActivate ? () => { onRowActivate(row); } : undefined}
                 onKeyDown={
@@ -158,7 +166,7 @@ export function RecordTable<T>({
                     : undefined
                 }
               >
-                {columns.map((column) => (
+                {columns.map((column, columnIndex) => (
                   <TableCell
                     key={column.key}
                     className={cn(
@@ -167,7 +175,14 @@ export function RecordTable<T>({
                       column.className,
                     )}
                   >
-                    {column.cell(row)}
+                    {columnIndex === 0 && rowLeading ? (
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {rowLeading(row)}
+                        <span className="min-w-0">{column.cell(row)}</span>
+                      </span>
+                    ) : (
+                      column.cell(row)
+                    )}
                   </TableCell>
                 ))}
               </TableRow>
@@ -213,12 +228,18 @@ export function RecordTable<T>({
                     }
                   : undefined
               }
-              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer hover:bg-muted/50 active:bg-muted')}
+              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer hover:bg-muted/50 active:bg-muted', rowClassName?.(row))}
             >
               <ItemContent className="min-w-0 gap-0.5">
-                <ItemTitle className="truncate">{mobilePrimary(row)}</ItemTitle>
+                {/* w-full min-w-0 overrides ItemTitle's base w-fit, which would
+                    otherwise size to the text and push a long name past 360px
+                    (measured: an estimate customer name overflowed to 366). */}
+                <ItemTitle className="flex w-full min-w-0 items-center gap-1.5">
+                  {rowLeading?.(row)}
+                  <span className="min-w-0 truncate">{mobilePrimary(row)}</span>
+                </ItemTitle>
                 {mobileSupporting ? (
-                  <ItemDescription className="truncate text-xs">
+                  <ItemDescription className="w-full min-w-0 truncate text-xs">
                     {mobileSupporting(row)}
                   </ItemDescription>
                 ) : null}

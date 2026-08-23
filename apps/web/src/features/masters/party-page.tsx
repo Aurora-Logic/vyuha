@@ -6,11 +6,12 @@ import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
+import { PortalLinkPanel } from '@/features/portal/portal-link-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatMoneyShort } from '@/lib/format';
 import type { PartyAnalytics, PartyItemRow, PartyRole } from '@vyuha/shared';
 
 import { RankingChart, RateRadial, TrendChart } from './lifecycle-charts';
@@ -34,17 +35,13 @@ import { usePartyLifecycle } from './use-lifecycle';
  */
 const ROLE_LABELS: Record<PartyRole, string> = { customer: 'Customer', vendor: 'Vendor', both: 'Customer and vendor', none: 'Party' };
 
-function money(value: number): string {
-  return `${currencySymbol()}${formatAmount(value.toFixed(2))}`;
-}
-
 function qty(value: number, unit: string | null = null): string {
   const text = value.toLocaleString('en-IN', { maximumFractionDigits: 3 });
   return unit ? `${text} ${unit}` : text;
 }
 
 function rate(value: number | null): string {
-  return value === null ? EMPTY_VALUE : money(value);
+  return value === null ? EMPTY_VALUE : formatMoney(value);
 }
 
 function days(value: number): string {
@@ -54,7 +51,7 @@ function days(value: number): string {
 const BOUGHT_COLUMNS: RecordColumn<PartyItemRow>[] = [
   { key: 'name', header: 'Item', cell: (row) => <span className="font-medium">{row.name}</span> },
   { key: 'quantity', header: 'Quantity', cell: (row) => qty(row.quantity, row.unit), numeric: true },
-  { key: 'value', header: 'Value', cell: (row) => money(row.value), numeric: true },
+  { key: 'value', header: 'Value', cell: (row) => formatMoney(row.value), numeric: true },
   { key: 'documents', header: 'Orders', cell: (row) => String(row.documents), numeric: true },
   { key: 'lastRate', header: 'Last rate', cell: (row) => rate(row.lastRate), numeric: true },
   { key: 'lastAt', header: 'Last', cell: (row) => formatDate(row.lastAt), className: 'tabular-nums', secondary: true },
@@ -63,7 +60,7 @@ const BOUGHT_COLUMNS: RecordColumn<PartyItemRow>[] = [
 const SUPPLIED_COLUMNS: RecordColumn<PartyItemRow>[] = [
   { key: 'name', header: 'Item', cell: (row) => <span className="font-medium">{row.name}</span> },
   { key: 'quantity', header: 'Quantity', cell: (row) => qty(row.quantity, row.unit), numeric: true },
-  { key: 'value', header: 'Value', cell: (row) => money(row.value), numeric: true },
+  { key: 'value', header: 'Value', cell: (row) => formatMoney(row.value), numeric: true },
   { key: 'lastRate', header: 'Last rate', cell: (row) => rate(row.lastRate), numeric: true },
   {
     key: 'variance',
@@ -158,13 +155,15 @@ export function PartyPage() {
           <dd className="tabular-nums">{party.phone ?? EMPTY_VALUE}</dd>
           <dt className="text-muted-foreground">Credit</dt>
           <dd className="tabular-nums">
-            {party.creditLimit ? `${currencySymbol()}${formatAmount(party.creditLimit)}` : EMPTY_VALUE}
+            {party.creditLimit ? formatMoney(party.creditLimit) : EMPTY_VALUE}
             {party.creditDays !== null ? ` · ${String(party.creditDays)} days` : ''}
           </dd>
           <dt className="text-muted-foreground">Opening balance</dt>
-          <dd className="tabular-nums">{party.openingBalance ? `${currencySymbol()}${formatAmount(party.openingBalance)}` : EMPTY_VALUE}</dd>
+          <dd className="tabular-nums">{party.openingBalance ? formatMoney(party.openingBalance) : EMPTY_VALUE}</dd>
         </dl>
       </section>
+
+      <PortalLinkPanel partyId={party.id} partyName={party.name} />
 
       <LifecycleTimeline events={events} />
     </>
@@ -189,12 +188,12 @@ function PartyAnalyticsBody({ a, role, compareLabel, ready, onItem }: { a: Party
             <SectionHeading title="As a customer" note={periodNote} />
             <KpiGrid
               tiles={[
-                withDelta({ label: 'Revenue (Tally)', value: money(c.revenue.value), format: money }, c.revenue),
+                withDelta({ label: 'Revenue (Tally)', value: formatMoney(c.revenue.value), format: formatMoney }, c.revenue),
                 withDelta({ label: 'Invoices', value: String(c.invoices.value), format: String }, c.invoices),
-                withDelta({ label: 'Average invoice', value: money(c.averageInvoice.value), format: money }, c.averageInvoice),
-                withDelta({ label: 'Collected', value: money(c.collected.value), format: money }, c.collected),
+                withDelta({ label: 'Average invoice', value: formatMoney(c.averageInvoice.value), format: formatMoney }, c.averageInvoice),
+                withDelta({ label: 'Collected', value: formatMoney(c.collected.value), format: formatMoney }, c.collected),
                 withDelta({ label: 'Orders', value: String(c.orders.value), format: String }, c.orders),
-                withDelta({ label: 'Ordered value', value: money(c.orderedValue.value), format: money }, c.orderedValue),
+                withDelta({ label: 'Ordered value', value: formatMoney(c.orderedValue.value), format: formatMoney }, c.orderedValue),
                 withDelta({ label: 'Fulfilment', value: `${String(c.fulfilmentPct.value)}%`, format: (x) => `${String(x)} pts` }, c.fulfilmentPct),
                 withDelta({ label: 'Partial shipments', value: `${String(c.partialShipmentPct.value)}%`, format: (x) => `${String(x)} pts`, lowerIsBetter: true }, c.partialShipmentPct),
                 withDelta({ label: 'Dispatch lead time', value: c.leadTimeMedianDays.value > 0 ? days(c.leadTimeMedianDays.value) : EMPTY_VALUE, format: days, lowerIsBetter: true, note: 'median, order to first dispatch' }, c.leadTimeMedianDays),
@@ -215,7 +214,7 @@ function PartyAnalyticsBody({ a, role, compareLabel, ready, onItem }: { a: Party
           <KpiGrid
             tiles={[
               withDelta({ label: 'Purchase orders', value: String(v.purchaseOrders.value), format: String }, v.purchaseOrders),
-              withDelta({ label: 'Purchased value', value: money(v.purchasedValue.value), format: money }, v.purchasedValue),
+              withDelta({ label: 'Purchased value', value: formatMoney(v.purchasedValue.value), format: formatMoney }, v.purchasedValue),
               withDelta({ label: 'Ordered', value: qty(v.orderedQty.value), format: qty }, v.orderedQty),
               withDelta({ label: 'Received', value: qty(v.receivedQty.value), format: qty }, v.receivedQty),
               withDelta({ label: 'Receipts', value: String(v.receipts.value), format: String }, v.receipts),
@@ -263,7 +262,7 @@ function PartyAnalyticsBody({ a, role, compareLabel, ready, onItem }: { a: Party
                 rows={[...a.itemsBought]}
                 rowKey={(row) => row.id ?? row.name}
                 mobilePrimary={(row) => row.name}
-                mobileSupporting={(row) => `${qty(row.quantity, row.unit)} · ${money(row.value)} · last ${rate(row.lastRate)}`}
+                mobileSupporting={(row) => `${qty(row.quantity, row.unit)} · ${formatMoney(row.value)} · last ${rate(row.lastRate)}`}
                 onRowActivate={(row) => {
                   if (row.id !== null) onItem(row.id);
                 }}
@@ -282,7 +281,7 @@ function PartyAnalyticsBody({ a, role, compareLabel, ready, onItem }: { a: Party
                 rows={[...a.itemsSupplied]}
                 rowKey={(row) => row.id ?? row.name}
                 mobilePrimary={(row) => row.name}
-                mobileSupporting={(row) => `${qty(row.quantity, row.unit)} · ${money(row.value)} · last ${rate(row.lastRate)}${row.variancePct !== null && row.variancePct > 0 ? ` · +${String(row.variancePct)}% vs best` : ''}`}
+                mobileSupporting={(row) => `${qty(row.quantity, row.unit)} · ${formatMoney(row.value)} · last ${rate(row.lastRate)}${row.variancePct !== null && row.variancePct > 0 ? ` · +${String(row.variancePct)}% vs best` : ''}`}
                 onRowActivate={(row) => {
                   if (row.id !== null) onItem(row.id);
                 }}
@@ -308,7 +307,7 @@ function CustomerCharts({ a, compareLabel, ready, fulfilment }: { a: PartyAnalyt
     <>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {trendReadable(trend) ? (
-          <TrendChart title="Billed and collected, by month" note={compareLabel === null ? "From Tally's vouchers." : `From Tally's vouchers. Dashed: ${compareLabel.toLowerCase()}.`} points={trend} labels={{ a: 'Billed', b: 'Collected' }} compareLabel={compareLabel} format={money} ready={ready} />
+          <TrendChart title="Billed and collected, by month" note={compareLabel === null ? "From Tally's vouchers." : `From Tally's vouchers. Dashed: ${compareLabel.toLowerCase()}.`} points={trend} labels={{ a: 'Billed', b: 'Collected' }} compareLabel={compareLabel} format={formatMoney} axisFormat={formatMoneyShort} ready={ready} />
         ) : (
           <section className="flex flex-col gap-2">
             <SectionHeading title="Billed and collected, by month" note="Not enough months with movement in this period to read a trend." />
@@ -316,7 +315,7 @@ function CustomerCharts({ a, compareLabel, ready, fulfilment }: { a: PartyAnalyt
         )}
         <RateRadial title="Fulfilment" note="Dispatched as a share of ordered, in the period." pct={fulfilment.value} previousPct={fulfilment.previous} label="fulfilled" ready={ready} />
       </div>
-      {items.length > 0 ? <RankingChart title="What it buys" note="By order value in the period." points={items} valueLabel="Value" format={money} ready={ready} /> : null}
+      {items.length > 0 ? <RankingChart title="What it buys" note="By order value in the period." points={items} valueLabel="Value" format={formatMoney} ready={ready} /> : null}
     </>
   );
 }
@@ -333,7 +332,7 @@ function VendorCharts({ a, compareLabel, ready }: { a: PartyAnalytics; compareLa
           <SectionHeading title="Purchased and received, by month" note="Not enough months with movement in this period to read a trend." />
         </section>
       )}
-      {items.length > 0 ? <RankingChart title="What it supplies" note="By purchase value in the period." points={items} valueLabel="Value" format={money} ready={ready} /> : null}
+      {items.length > 0 ? <RankingChart title="What it supplies" note="By purchase value in the period." points={items} valueLabel="Value" format={formatMoney} ready={ready} /> : null}
     </div>
   );
 }

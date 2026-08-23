@@ -54,6 +54,26 @@ function orderBy(sort: string | undefined, fields: Record<string, string>, fallb
   return sql.raw(fallback);
 }
 
+
+/**
+ * The half of a Pareto that never changes: rank by value, take each row's
+ * share, run the total down the list, and name the band. Written once because
+ * five reports differing in their `totals` CTE should not differ in how they
+ * are read.
+ */
+const PARETO_SELECT = sql`
+  SELECT name AS id,
+         row_number() OVER (ORDER BY value DESC, name)::int AS rank,
+         name,
+         round(value, 2)::text AS value,
+         round(value * 100.0 / sum(value) OVER (), 1)::text AS "sharePct",
+         round(sum(value) OVER (ORDER BY value DESC, name) * 100.0 / sum(value) OVER (), 1)::text AS "cumulativePct",
+         CASE WHEN (sum(value) OVER (ORDER BY value DESC, name) - value) < sum(value) OVER () * 0.5 THEN 'Top 50%'
+              WHEN (sum(value) OVER (ORDER BY value DESC, name) - value) < sum(value) OVER () * 0.8 THEN 'Next 30%'
+              ELSE 'Tail' END AS band
+    FROM totals
+`;
+
 @Injectable()
 export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   readonly keys: readonly ReportKey[] = ANALYTICS_REPORT_KEYS;
@@ -68,7 +88,9 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   visibleDefinitions(principal: Principal): readonly ReportDefinition[] {
-    if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) return [];
+    if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) {
+      return hasPermission(principal, PERMISSIONS.DUPLICATES_VIEW) ? ANALYTICS_REPORTS.filter((report) => report.key === 'duplicate-clusters') : [];
+    }
     // D-46: the margin proxy has its own eyes.
     return hasPermission(principal, PERMISSIONS.REPORTS_MARGIN_VIEW)
       ? ANALYTICS_REPORTS
@@ -136,7 +158,24 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
       SELECT * FROM (${this.body(key, principal.orgId, usable)}) t ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
     `);
     const page: AnalyticsPage = { key, total, rows: rows.rows.map((row) => ({ ...row, asOf })) };
-    return page;
+    const summable = SUMMABLE[key];
+    if (summable === undefined) return page;
+    return { ...page, totals: await this.sumWholeReport(key, principal.orgId, usable, summable) };
+  }
+
+  /**
+   * A figure that is only true whole. A dashboard tile that adds up the two
+   * hundred rows it was given, under a caption naming every row there is,
+   * states a number belonging to nobody -- so the few columns a headline
+   * quotes are summed over the report itself.
+   */
+  private async sumWholeReport(key: ReportKey, orgId: string, filters: ReportFilters, fields: readonly string[]): Promise<Record<string, string>> {
+    const sums = fields.map((field) => sql`round(COALESCE(sum((t.${sql.identifier(field)})::numeric), 0), 2)::text AS ${sql.identifier(field)}`);
+    const row = await this.db.execute<Record<string, string>>(sql`
+      SELECT ${sql.join(sums, sql`, `)} FROM (${this.body(key, orgId, filters)}) t
+    `);
+    const first = row.rows[0];
+    return Object.fromEntries(fields.map((field) => [field, first?.[field] ?? '0']));
   }
 
   cells(page: ReportSourcePage, index: number, columns: readonly ReportColumnSpec[]): ReportCellValue[] {
@@ -183,6 +222,29 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
             LEFT JOIN (SELECT connection_id, max(last_pulled_at) AS at FROM vouchers WHERE org_id = ${orgId} GROUP BY connection_id) p ON p.connection_id = ic.id
            WHERE ic.org_id = ${orgId} AND ic.deleted_at IS NULL
              AND (p.at IS NULL OR p.at < now() - interval '24 hours')
+        `;
+      case 'duplicate-clusters':
+        // 15 REQ-AO-15: what the detector holds, by master and confidence band, with the receivables behind the party clusters.
+        return sql`
+          WITH clusters AS (
+            SELECT c.entity_type, c.state, c.member_count,
+                   CASE WHEN c.confidence >= 0.95 THEN '1 Certain (0.95 and above)' WHEN c.confidence >= 0.85 THEN '2 High (0.85 to 0.95)' ELSE '3 Likely (below 0.85)' END AS band,
+                   CASE WHEN c.entity_type = 'party' THEN
+                     coalesce((SELECT sum(b.amount) FROM bill_allocations b WHERE b.org_id = c.org_id AND b.ref_type IN ('new', 'against')
+                                 AND b.party_id IN (SELECT entity_id FROM duplicate_cluster_members m WHERE m.cluster_id = c.id)), 0)
+                   ELSE 0 END AS outstanding
+              FROM duplicate_clusters c
+             WHERE c.org_id = ${orgId} AND c.state IN ('open', 'sent_to_tally')
+          )
+          SELECT entity_type || ':' || band AS id,
+                 CASE entity_type WHEN 'party' THEN 'Party' ELSE 'Item' END AS kind,
+                 substr(band, 3) AS band,
+                 count(*)::int AS clusters,
+                 sum(member_count)::int AS records,
+                 count(*) FILTER (WHERE state = 'sent_to_tally')::int AS "sentToTally",
+                 sum(outstanding)::text AS outstanding
+            FROM clusters
+           GROUP BY entity_type, band
         `;
       case 'duplicate-masters':
         // Names that collapse to the same key once case, spaces and punctuation go.
@@ -358,11 +420,18 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
                             WHEN voucher_type IN ('Receipt', 'Credit Note') THEN -amount ELSE 0 END) AS exposure
               FROM vouchers WHERE org_id = ${orgId} AND NOT is_cancelled AND party_id IS NOT NULL GROUP BY party_id
           )
+          -- "Releases (90d)" is this party's releases. The count used to have
+          -- no correlation to the row at all, so every breaching party was
+          -- shown the whole organisation's total and the column read the same
+          -- number all the way down. The audit row names the order, so the
+          -- party is reached through it.
           SELECT p.id AS "partyId", p.name AS "partyName", p.credit_limit::text AS "creditLimit",
                  b.exposure::text AS exposure,
                  (b.exposure - p.credit_limit)::text AS "overBy",
                  COALESCE((SELECT count(*)::int FROM audit_logs a
+                    JOIN sales_documents d ON d.id = a.entity_id AND d.org_id = a.org_id
                     WHERE a.org_id = ${orgId} AND a.action = 'sales.order.credit_overridden'
+                      AND a.entity_type = 'sales_document' AND d.party_id = p.id
                       AND a.created_at >= now() - interval '90 days'), 0) AS "releases90d"
             FROM parties p JOIN balances b ON b.party_id = p.id
            WHERE p.org_id = ${orgId} AND lower(p.parent_group) = 'sundry debtors'
@@ -404,8 +473,84 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
           SELECT row_number() OVER (ORDER BY revenue DESC)::int AS rank,
                  party_id AS "partyId", party_name AS "partyName", revenue::text AS revenue,
                  round(revenue * 100.0 / sum(revenue) OVER (), 1)::text AS "sharePct",
-                 round(sum(revenue) OVER (ORDER BY revenue DESC) * 100.0 / sum(revenue) OVER (), 1)::text AS "cumulativePct"
+                 round(sum(revenue) OVER (ORDER BY revenue DESC) * 100.0 / sum(revenue) OVER (), 1)::text AS "cumulativePct",
+                 -- A row is in the half when everything ABOVE it came to less
+                 -- than half: the row that crosses the line belongs to the
+                 -- group it completes, not to the one after it.
+                 CASE WHEN (sum(revenue) OVER (ORDER BY revenue DESC) - revenue) < sum(revenue) OVER () * 0.5 THEN 'Top 50%'
+                      WHEN (sum(revenue) OVER (ORDER BY revenue DESC) - revenue) < sum(revenue) OVER () * 0.8 THEN 'Next 30%'
+                      ELSE 'Tail' END AS band
             FROM revenue
+        `;
+      /**
+       * Owner, 22 Aug 2026: Pareto, four ways. One shape each time -- rank the
+       * thing, take its share, run the total down the list, and say which
+       * third of the curve the row is in. The customer-revenue case is
+       * `customer-concentration` above; these are the ones it does not cover.
+       *
+       * Zero and negative totals are dropped before ranking. A customer whose
+       * credit notes exceeded their invoices is not a small contributor to
+       * revenue, and leaving them in makes every share above 100%.
+       */
+      case 'item-revenue-concentration':
+        return sql`
+          WITH totals AS (
+            SELECT vl.stock_item_name AS name,
+                   sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(vl.amount) ELSE abs(vl.amount) END) AS value
+              FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+             WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
+               AND vl.kind = 'inventory' AND vl.stock_item_name IS NOT NULL
+               ${this.periodClause(f, 'v.voucher_date')}
+               ${f.itemName === undefined ? sql`` : sql`AND vl.stock_item_name ILIKE ${`%${f.itemName}%`}`}
+             GROUP BY vl.stock_item_name
+            HAVING sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(vl.amount) ELSE abs(vl.amount) END) > 0
+          )
+          ${PARETO_SELECT}
+        `;
+      case 'item-quantity-concentration':
+        return sql`
+          WITH totals AS (
+            SELECT vl.stock_item_name AS name,
+                   sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -1 ELSE 1 END
+                       * abs(coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0))) AS value
+              FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+             WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
+               AND vl.kind = 'inventory' AND vl.stock_item_name IS NOT NULL
+               ${this.periodClause(f, 'v.voucher_date')}
+               ${f.itemName === undefined ? sql`` : sql`AND vl.stock_item_name ILIKE ${`%${f.itemName}%`}`}
+             GROUP BY vl.stock_item_name
+            HAVING sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -1 ELSE 1 END
+                       * abs(coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0))) > 0
+          )
+          ${PARETO_SELECT}
+        `;
+      case 'vendor-spend-concentration':
+        return sql`
+          WITH totals AS (
+            SELECT max(party_name) AS name,
+                   sum(CASE WHEN voucher_type = 'Debit Note' THEN -amount ELSE amount END) AS value
+              FROM vouchers
+             WHERE org_id = ${orgId} AND voucher_type IN ('Purchase', 'Debit Note') AND NOT is_cancelled AND party_id IS NOT NULL
+               ${this.periodClause(f, 'voucher_date')}
+             GROUP BY party_id
+            HAVING sum(CASE WHEN voucher_type = 'Debit Note' THEN -amount ELSE amount END) > 0
+          )
+          ${PARETO_SELECT}
+        `;
+      case 'receivables-concentration':
+        // No period: what is owed is owed now. Filtering it by a date range
+        // would answer a question nobody collecting money is asking.
+        return sql`
+          WITH totals AS (
+            SELECT max(party_name) AS name,
+                   sum(CASE WHEN voucher_type IN ('Receipt', 'Credit Note') THEN -amount ELSE amount END) AS value
+              FROM vouchers
+             WHERE org_id = ${orgId} AND voucher_type IN ('Sales', 'Receipt', 'Credit Note', 'Debit Note')
+               AND NOT is_cancelled AND party_id IS NOT NULL
+             GROUP BY party_id
+            HAVING sum(CASE WHEN voucher_type IN ('Receipt', 'Credit Note') THEN -amount ELSE amount END) > 0
+          )
+          ${PARETO_SELECT}
         `;
       case 'order-pipeline':
         // One row per confirmed order with quantity still to dispatch; the
@@ -452,6 +597,35 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
              AND d.deleted_at IS NULL AND l.deleted_at IS NULL
              ${this.periodClause(f, 'd.date')}
            GROUP BY d.party_id HAVING sum(l.quantity) > 0
+        `;
+      case 'order-fulfilment':
+        // D-48 / P-33: one row per confirmed order line, and the one word for
+        // where it has got to. The ladder is read downwards, so a line reads
+        // as the furthest step it has actually reached.
+        //
+        // The words are the document screens' own, not prettier ones: one
+        // state means one thing across the product, and `status-tone.ts`
+        // already gives each of these a colour and a glyph, so the report's
+        // badge matches the order page without a second table to keep in
+        // step.
+        return sql`
+          SELECT d.number, d.date::text AS date, d.customer_name AS "partyName", l.description AS item,
+                 l.quantity::text AS "orderedQty", l.picked_qty::text AS "pickedQty", l.packed_qty::text AS "packedQty",
+                 l.invoiced_qty::text AS "invoicedQty", l.dispatched_qty::text AS "dispatchedQty",
+                 GREATEST(l.quantity - l.dispatched_qty, 0)::text AS "balanceQty",
+                 CASE
+                   WHEN d.short_closed_at IS NOT NULL THEN 'short_closed'
+                   WHEN l.dispatched_qty >= l.quantity THEN 'closed'
+                   WHEN l.dispatched_qty > 0 THEN 'partially_dispatched'
+                   WHEN l.invoiced_qty > l.dispatched_qty THEN 'ready_to_dispatch'
+                   WHEN l.packed_qty > l.invoiced_qty THEN 'awaiting_invoice'
+                   WHEN l.picked_qty > 0 THEN 'picking'
+                   ELSE 'open' END AS state
+            FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id AND l.org_id = d.org_id
+           WHERE d.org_id = ${orgId} AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED'
+             AND d.deleted_at IS NULL AND l.deleted_at IS NULL
+             ${f.partyId === undefined ? sql`` : sql`AND d.party_id = ${f.partyId}`}
+             ${this.periodClause(f, 'd.date')}
         `;
       case 'new-vs-repeat':
         // A party's first-ever Sales voucher decides which month it was new in.
@@ -592,17 +766,30 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
        WHERE ${this.ledgerLines(orgId, f)} ${f.from === undefined ? sql`AND false` : sql`AND v.voucher_date < ${f.from}`}
     `);
     const openingValue = Number(opening.rows[0]?.value ?? 0);
-    const rows = await this.db.execute<{ id: string; date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; deemed: boolean }>(sql`
-      SELECT l.id, v.voucher_date AS date, v.voucher_type, v.voucher_number, v.party_name, l.amount::text AS amount, l.is_deemed_positive AS deemed
-        FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
-       WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
-       ORDER BY v.voucher_date ASC, v.created_at ASC
-       LIMIT ${limit} OFFSET ${offset === 0 ? 0 : offset - 1}
+    // The running balance is summed in the window over the whole period, not
+    // accumulated across the page: a balance restarted from opening on page 2
+    // is the balance of a statement that began at row 51, and every figure
+    // below the fold was wrong. The opening row occupies the first slot of
+    // page 1, so page 1 asks for one line fewer and later pages step back by
+    // one -- otherwise the last line of page 1 appears again at the top of
+    // page 2. Ordering is total (date, created_at, id) so that the window and
+    // the page agree on which row is which.
+    const rows = await this.db.execute<{ id: string; date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; deemed: boolean; movement: string }>(sql`
+      WITH extract_lines AS (
+        SELECT l.id, v.voucher_date AS date, v.created_at AS created_at, v.voucher_type, v.voucher_number, v.party_name,
+               l.amount::text AS amount, l.is_deemed_positive AS deemed,
+               sum(CASE WHEN l.is_deemed_positive THEN l.amount ELSE -l.amount END)
+                 OVER (ORDER BY v.voucher_date ASC, v.created_at ASC, l.id ASC
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)::text AS movement
+          FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+         WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
+      )
+      SELECT * FROM extract_lines
+       ORDER BY date ASC, created_at ASC, id ASC
+       LIMIT ${offset === 0 ? Math.max(limit - 1, 0) : limit} OFFSET ${offset === 0 ? 0 : offset - 1}
     `);
-    let balance = openingValue;
     const lines = rows.rows.map((r) => {
-      const amount = Number(r.amount);
-      balance += r.deemed ? amount : -amount;
+      const balance = openingValue + Number(r.movement);
       return {
         id: r.id,
         date: r.date,
@@ -658,6 +845,11 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   private requireHolder(principal: Principal, key?: ReportKey): void {
+    // 15 REQ-AO-15: the duplicates summary is the duplicates key's, or the receivables key's.
+    if (key === 'duplicate-clusters') {
+      if (!hasPermission(principal, PERMISSIONS.DUPLICATES_VIEW) && !hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) throw AppError.forbidden('This report needs duplicates.view.');
+      return;
+    }
     if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) {
       throw AppError.forbidden('This report needs receivables.view.');
     }
@@ -668,14 +860,25 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
 }
 
 /** Sortable fields per report, whitelisted into fragments. */
+/** The columns a headline quotes, which are therefore summed over the whole report. */
+const SUMMABLE: Partial<Record<ReportKey, readonly string[]>> = {
+  'dead-stock': ['valueLocked'],
+};
+
 const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
+  // A Pareto sorts by rank and nothing else; the running total is only true
+  // in that order.
+  'item-revenue-concentration': { rank: 'rank' },
+  'item-quantity-concentration': { rank: 'rank' },
+  'vendor-spend-concentration': { rank: 'rank' },
+  'receivables-concentration': { rank: 'rank' },
   'aov-trend': { month: 'month', aov: 'aov::numeric' },
   'partial-shipments': { partyName: '"partyName"', partialPct: '"partialPct"::numeric' },
   'vendor-lead-time': { partyName: '"partyName"', medianDays: '"medianDays"' },
   'stock-out-frequency': { item: 'item', month: 'month', shortages: 'shortages' },
   'margin-proxy': { item: 'item', revenue: 'revenue::numeric', margin: 'margin::numeric', marginPct: '"marginPct"::numeric' },
   'sales-heatmap': { partyName: '"partyName"', month: 'month', value: 'value::numeric' },
-  'customer-concentration': { partyName: '"partyName"', revenue: 'revenue::numeric' },
+  'customer-concentration': { rank: 'rank', partyName: '"partyName"', revenue: 'revenue::numeric' },
   'order-pipeline': { number: '"number"', customerName: '"customerName"', orderDate: '"orderDate"', ageDays: '"ageDays"', value: 'value::numeric' },
   'dispatch-performance': { customerName: '"customerName"', dispatchedOn: '"dispatchedOn"', leadDays: '"leadDays"' },
   'order-fill-rate': { partyName: '"partyName"', fillPct: '"fillPct"::numeric' },
@@ -685,6 +888,7 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
   'negative-stock': { item: '"item"', closingQty: '"closingQty"::numeric' },
   'stale-projections': { hoursStale: '"hoursStale"' },
   'duplicate-masters': { nameA: '"nameA"' },
+  'duplicate-clusters': { band: 'band', clusters: 'clusters', outstanding: '"outstanding"::numeric' },
   'customer-item-matrix': { partyName: '"partyName"', item: '"item"', value: '"value"::numeric', lastDate: '"lastDate"' },
   'purchase-rhythm': { partyName: '"partyName"', sales12m: '"sales12m"', daysSince: '"daysSince"' },
   'price-variance': { item: '"item"', spreadPct: '"spreadPct"::numeric' },
@@ -694,10 +898,15 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
   'vendor-item-history': { vendorName: '"vendorName"', item: '"item"', lastDate: '"lastDate"' },
   'vendor-price-comparison': { item: '"item"', spreadPct: '"spreadPct"::numeric' },
   'credit-breaches': { partyName: '"partyName"', exposure: '"exposure"::numeric', overBy: '"overBy"::numeric' },
+  'order-fulfilment': { number: 'number', date: 'date', partyName: '"partyName"', item: 'item', balanceQty: '"balanceQty"::numeric', state: 'state' },
   'stock-ageing': { item: '"item"', valueLocked: '"valueLocked"::numeric' },
 };
 
 const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
+  'item-revenue-concentration': 'rank ASC',
+  'item-quantity-concentration': 'rank ASC',
+  'vendor-spend-concentration': 'rank ASC',
+  'receivables-concentration': 'rank ASC',
   'aov-trend': 'month ASC',
   'partial-shipments': '"partialPct"::numeric DESC, "partyName" ASC',
   'vendor-lead-time': '"medianDays" DESC NULLS LAST, "partyName" ASC',
@@ -714,6 +923,7 @@ const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
   'negative-stock': '"closingQty"::numeric ASC',
   'stale-projections': '"hoursStale" DESC NULLS FIRST',
   'duplicate-masters': '"kind" ASC, "nameA" ASC',
+  'duplicate-clusters': '"outstanding"::numeric DESC, kind ASC, band ASC',
   'customer-item-matrix': '"value"::numeric DESC',
   'purchase-rhythm': '"daysSince" DESC',
   'price-variance': '"spreadPct"::numeric DESC',
@@ -723,5 +933,6 @@ const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
   'vendor-item-history': '"lastDate" DESC',
   'vendor-price-comparison': '"spreadPct"::numeric DESC',
   'credit-breaches': '"overBy"::numeric DESC',
+  'order-fulfilment': 'date DESC, number DESC, item ASC',
   'stock-ageing': '"valueLocked"::numeric DESC NULLS LAST',
 };

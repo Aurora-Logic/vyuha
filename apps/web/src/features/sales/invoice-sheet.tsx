@@ -3,8 +3,8 @@ import { CheckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@ph
 import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -98,7 +98,7 @@ function InvoiceSheetBody({ invoice, onClose }: { invoice: Estimate; onClose: ()
           {/* P8-1: the customer's number is Tally's; ours is the internal reference until Tally has answered. */}
           {invoice.syncState === 'PUSHED' && invoice.remoteVoucherNumber ? `Invoice #${invoice.remoteVoucherNumber}` : `Invoice ${invoice.number}`}
           {invoice.syncState === 'PUSHED' && invoice.remoteVoucherNumber ? <span className="text-muted-foreground text-sm font-normal">{invoice.number}</span> : null}
-          <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[invoice.status]}</Badge>
+          <StatusBadge state={invoice.status} label={SALES_DOCUMENT_STATUS_LABELS[invoice.status]} />
           <SyncStateBadge record={invoice} />
         </SheetTitle>
         <SheetDescription>
@@ -158,8 +158,6 @@ function InvoiceSheetBody({ invoice, onClose }: { invoice: Estimate; onClose: ()
             lines={lines}
             onLinesChange={() => undefined}
             editable={false}
-            itemOptions={[]}
-            itemsLoading={false}
             canPickItems={false}
             partyId={invoice.partyId}
             companyId={invoice.companyId}

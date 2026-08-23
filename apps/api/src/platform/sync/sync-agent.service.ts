@@ -9,12 +9,14 @@ import {
   type AgentHeartbeatAck,
   type AgentHeartbeatInput,
   type ClaimedSyncJob,
+  type VoucherPushPayload,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { PushOutcomeRegistry } from './push-outcome.registry.js';
 import { integrationConnections } from '../db/schema/index.js';
 import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 
@@ -43,6 +45,7 @@ export class SyncAgentService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
+    private readonly pushOutcomes: PushOutcomeRegistry,
   ) {}
 
   async heartbeat(agent: AgentPrincipal, input: AgentHeartbeatInput): Promise<AgentHeartbeatAck> {
@@ -250,16 +253,31 @@ export class SyncAgentService {
 
       let jobFailed = false;
       if (input.jobId !== undefined) {
-        const failed = await tx.execute<{ id: string }>(sql`
+        const failed = await tx.execute<{ id: string; entity_type: string; payload: VoucherPushPayload | null }>(sql`
           UPDATE sync_jobs
              SET state = 'FAILED', updated_at = now()
            WHERE id = ${input.jobId}
              AND connection_id = ${agent.connectionId}
              AND state = 'CLAIMED'
              AND claimed_by = ${input.agentInstanceId}
-           RETURNING id
+           RETURNING id, entity_type, payload
         `);
         jobFailed = failed.rows.length > 0;
+        // A failed push has to reach the document it was for. Only the job
+        // used to be marked, so the order stayed QUEUED for ever: the screen
+        // said it was with the agent, Push refused because it was already
+        // queued, and there was no way forward from either. The document
+        // hears the same 'rejected' it hears down the results path.
+        const row = failed.rows[0];
+        if (row?.payload != null && row.entity_type.startsWith('voucher_push:')) {
+          const handler = this.pushOutcomes.find(row.payload.kind);
+          await handler?.onOutcome(tx, agent.orgId, row.payload, {
+            outcome: 'rejected',
+            remoteGuid: null,
+            remoteVoucherNumber: null,
+            errorText: input.errorText,
+          });
+        }
       }
 
       const exception = await tx.execute<{ id: string }>(sql`

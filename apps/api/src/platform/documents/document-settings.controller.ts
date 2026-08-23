@@ -63,6 +63,10 @@ export class DocumentSettingsController {
   @Get('logos/:fileId/url')
   @Authenticated()
   logoUrl(@CurrentUser() principal: Principal, @Param('fileId', ParseUUIDPipe) fileId: string): Promise<SignedFileUrl> {
-    return this.files.signedUrlFor(principal, fileId);
+    // Logos only. This route is `@Authenticated()` because every reader of a
+    // document sees its letterhead, and passing a bare file id to the general
+    // signer let that breadth reach any file the purpose table happened to
+    // allow -- a punch photograph, to anyone holding `attendance.view.team`.
+    return this.files.signedUrlForPurpose(principal, fileId, 'ORG_LOGO');
   }
 }

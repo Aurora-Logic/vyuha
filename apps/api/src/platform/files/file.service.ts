@@ -143,10 +143,23 @@ export interface PurgeResult {
   readonly purged: number;
   /** Rows whose object had already gone; the row is still closed out. */
   readonly alreadyAbsent: number;
+  /** Still due when the run stopped: nought means the backlog was cleared. */
+  readonly remaining: number;
 }
 
-/** One batch per run keeps a backlog from holding a transaction open for hours. */
+/** One batch keeps a backlog from holding a transaction open for hours. */
 const PURGE_BATCH_SIZE = 500;
+
+/**
+ * The most one run will purge before stopping and saying what is left.
+ *
+ * The run used to be a single batch. REQ-L-03 promises photographs are gone
+ * after the retention window, and the job runs weekly -- so an organisation
+ * expiring more than five hundred files a week never caught up, the backlog
+ * grew for ever, and nothing said so. It drains now, in batches, and reports
+ * what it could not reach rather than stopping quietly.
+ */
+const PURGE_RUN_LIMIT = 50_000;
 
 @Injectable()
 export class FileService {
@@ -449,6 +462,59 @@ export class FileService {
     return { url, expiresInSeconds: ttlSeconds };
   }
 
+  /**
+   * A signed link for a file the caller names, restricted to one purpose.
+   *
+   * `mayReadFile` is a breadth check by purpose and says so in as many words:
+   * row-level scope is the caller's job. Every other caller does that work --
+   * the punch service loads the punch through the principal's scope and 404s
+   * one outside it before signing. A route that takes a bare file id and signs
+   * whatever comes back skips it, so a manager holding
+   * `attendance.view.team` could read any punch photograph in the
+   * organisation given its id, not merely their own team's.
+   *
+   * Naming the purpose is what makes that impossible for routes that serve
+   * one kind of file: the logo route signs logos, and a punch photo id
+   * offered to it is simply not found.
+   */
+  async signedUrlForPurpose(principal: Principal, fileId: string, purpose: FilePurpose): Promise<SignedFileUrl> {
+    const repository = new ScopedRepository(this.db, files, orgContextOf(principal));
+    const file = await repository.findById(fileId);
+    if (file === null || file.purpose !== purpose) throw AppError.notFound('File', fileId);
+    return this.signedUrlFor(principal, fileId);
+  }
+
+  /**
+   * 15 REQ-AL-08: a short-lived link for a reader who has no principal.
+   *
+   * The customer portal has no user and no permissions, so `signedUrlFor`'s
+   * check cannot apply. Two things stand in its place, and both are here
+   * rather than at the call site so that a second caller cannot forget them:
+   * the file must belong to the named organisation, and its purpose must be
+   * a dispatch photograph. The *ownership* check — that this file hangs off
+   * a dispatch of the reader's own party — belongs to `PortalRepository`,
+   * which is the only thing that knows which party is reading; this method
+   * refuses to be the place that decides it, and the caller passes a file id
+   * it has already proved.
+   *
+   * The link is the standard short expiry. A durable object-storage URL is
+   * never handed out, which is the whole of REQ-AL-08.
+   */
+  async signedUrlForPortal(orgId: string, fileId: string): Promise<SignedFileUrl> {
+    const rows = await this.db.execute<{ storage_key: string; purpose: FilePurpose; expires_at: Date | string | null; purged_at: Date | string | null }>(
+      sql`SELECT storage_key, purpose, expires_at, purged_at FROM files WHERE id = ${fileId} AND org_id = ${orgId} AND deleted_at IS NULL`,
+    );
+    const file = rows.rows[0];
+    if (file === undefined || file.purged_at !== null) throw AppError.notFound('File', fileId);
+    if (file.purpose !== 'DISPATCH_PHOTO') throw AppError.notFound('File', fileId);
+    if (file.expires_at !== null && new Date(file.expires_at).getTime() <= Date.now()) throw AppError.notFound('File', fileId);
+
+    const ttlSeconds = env.S3_SIGNED_URL_TTL_SECONDS;
+    const url = await this.objects.signedUrl(BUCKET_BY_PURPOSE[file.purpose], file.storage_key, ttlSeconds);
+    this.logger.log({ msg: 'Signed URL issued to a portal reader', fileId, purpose: file.purpose, orgId, ttlSeconds });
+    return { url, expiresInSeconds: ttlSeconds };
+  }
+
   // ------------------------------------------------------------- retention
 
   /**
@@ -463,6 +529,35 @@ export class FileService {
    * not reach still selectable, which is exactly what re-running should fix.
    */
   async purgeExpiredFiles(now: Date = new Date()): Promise<PurgeResult> {
+    let scanned = 0;
+    let purged = 0;
+    let alreadyAbsent = 0;
+    for (;;) {
+      const batch = await this.purgeBatch(now);
+      scanned += batch.scanned;
+      purged += batch.purged;
+      alreadyAbsent += batch.alreadyAbsent;
+      // A batch that purged nothing cannot be improved by running it again:
+      // every row it saw either failed against the object store or was taken
+      // by another run, and both stay selectable for next time.
+      if (batch.purged === 0 || batch.scanned < PURGE_BATCH_SIZE || purged >= PURGE_RUN_LIMIT) break;
+    }
+    const remaining = await this.countDue(now);
+    if (purged > 0 || remaining > 0) {
+      this.logger.log({ msg: 'Expired files purged', scanned, purged, alreadyAbsent, remaining });
+    }
+    return { scanned, purged, alreadyAbsent, remaining };
+  }
+
+  /** Files past their retention window that no run has closed out yet. */
+  private async countDue(now: Date): Promise<number> {
+    const rows = await this.db.execute<{ count: number }>(
+      sql`SELECT count(*)::int AS count FROM files WHERE expires_at IS NOT NULL AND expires_at <= ${now} AND purged_at IS NULL`,
+    );
+    return rows.rows[0]?.count ?? 0;
+  }
+
+  private async purgeBatch(now: Date): Promise<PurgeResult> {
     const due = await this.db
       .select({
         id: files.id,
@@ -524,11 +619,7 @@ export class FileService {
       });
     }
 
-    if (purged > 0) {
-      this.logger.log({ msg: 'Expired files purged', scanned: due.length, purged, alreadyAbsent });
-    }
-
-    return { scanned: due.length, purged, alreadyAbsent };
+    return { scanned: due.length, purged, alreadyAbsent, remaining: 0 };
   }
 
   /**

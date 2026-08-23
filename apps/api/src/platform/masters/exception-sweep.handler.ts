@@ -53,6 +53,13 @@ export class ExceptionSweepHandler implements JobHandler<'sweep-exception-report
     const pruned = await this.db.execute(
       sql`DELETE FROM report_usage WHERE opened_at < now() - interval '12 months'`,
     );
+    // Notification idempotency keys, kept far longer than any window in which
+    // a second notice would still read as a repeat. They are claimed durably
+    // (notification.schema.ts) rather than left to the job queue's completed
+    // set, which evicts by count.
+    await this.db.execute(
+      sql`DELETE FROM notification_idempotency WHERE created_at < now() - interval '12 months'`,
+    );
     return { organisations: orgs.rows.length, notified, usageRowsPruned: pruned.rowCount ?? 0 };
   }
 }

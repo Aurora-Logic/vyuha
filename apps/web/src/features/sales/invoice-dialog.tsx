@@ -16,9 +16,9 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
+import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 
-import { formatMoney } from './money';
 import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
 import { lineBalances, trimZeros, type Estimate, type SalesLine } from './types';
 import { useCreateInvoice } from './use-invoices';

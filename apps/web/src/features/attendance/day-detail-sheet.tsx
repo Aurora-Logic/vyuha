@@ -80,7 +80,7 @@ export function DayDetailSheet({
   // The sheet serves both My Attendance and the muster, so the row is decided
   // by the viewer's keys rather than by which screen opened it.
   const canSeeOvertime = useCanViewOvertime();
-  const canRaise = usePermission(PERMISSIONS.REGULARIZATION_RAISE);
+  const canRaise = usePermission(PERMISSIONS.PUNCH_SELF);
   const kind = day === null ? null : suggestedKind(day);
 
   // REQ-M-02. A derived day is the one record in this product that a person

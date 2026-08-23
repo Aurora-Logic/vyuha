@@ -211,7 +211,7 @@ export function RegularizationForm({
               if (next !== null) setKind(next as RegularizationKind);
             }}
           >
-            <SelectTrigger id="reg-kind" className="pointer-coarse:h-11 w-full">
+            <SelectTrigger id="reg-kind" className="w-full">
               <SelectValue>
                 {(value: string | null) =>
                   value === null
@@ -323,7 +323,7 @@ export function RegularizationForm({
 
         <Field className="sm:col-span-2 md:col-span-3" data-disabled>
           <FieldLabel htmlFor="reg-attachment">Attachment</FieldLabel>
-          <Input id="reg-attachment" type="file" disabled className="pointer-coarse:h-11" />
+          <Input id="reg-attachment" type="file" disabled />
           <FieldDescription>
             Optional under REQ-F-01, and not available yet: there is no file upload endpoint on the
             server, so an attachment chosen here could not be sent. The rest submits without one.

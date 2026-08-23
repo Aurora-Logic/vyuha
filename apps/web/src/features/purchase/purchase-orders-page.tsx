@@ -8,15 +8,14 @@ import { RecordTable, type RecordColumn } from '@/components/shared/record-table
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatMoney } from '@/features/sales/money';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import {
@@ -51,11 +50,11 @@ const COLUMNS: RecordColumn<PurchaseOrderSummary>[] = [
   ) },
   { key: 'vendor', header: 'Vendor', cell: (row) => row.vendorName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
-  { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{PURCHASE_ORDER_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'status', header: 'Status', cell: (row) => <StatusBadge state={row.status} label={PURCHASE_ORDER_STATUS_LABELS[row.status]} /> },
   {
     key: 'fulfilment',
     header: 'Received',
-    cell: (row) => (row.status === 'CONFIRMED' ? <Badge variant={row.fulfilment === 'received' ? 'default' : 'outline'}>{PO_FULFILMENT_LABELS[row.fulfilment]}</Badge> : <span className="text-muted-foreground">{EMPTY_VALUE}</span>),
+    cell: (row) => (row.status === 'CONFIRMED' ? <StatusBadge state={row.fulfilment} label={PO_FULFILMENT_LABELS[row.fulfilment]} /> : <span className="text-muted-foreground">{EMPTY_VALUE}</span>),
   },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },

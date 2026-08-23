@@ -173,23 +173,47 @@ export function MobileBottomNav() {
             {visibleModules.length > 1 ? (
               <div className="mb-4 flex flex-col gap-2">
                 <p className="text-muted-foreground text-xs font-medium">Modules</p>
-                <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-                  {visibleModules.map((m) => (
-                    <Button
-                      key={m.id}
-                      variant={m.id === module.id ? 'default' : 'ghost'}
-                      size="sm"
-                      className="shrink-0"
-                      aria-current={m.id === module.id ? 'true' : undefined}
-                      onClick={() => {
-                        setMoreOpen(false);
-                        if (m.id !== module.id) void navigate(m.home);
-                      }}
-                    >
-                      <m.icon data-icon="inline-start" />
-                      {m.label}
-                    </Button>
-                  ))}
+                {/*
+                  One line, scrolling sideways. Never two rows: a second row
+                  moves everything under it down the sheet, and the owner
+                  asked for the row to stay a row.
+
+                  The fade on the right edge is what makes that honest. The
+                  original complaint was that Attendance sat off-screen with
+                  nothing to say so -- the scrollbar was hidden and the row
+                  ended in clean whitespace, which reads as "that is all of
+                  them". A soft edge reads as "there is more", which is the
+                  only affordance a sideways scroll gets on a phone.
+
+                  It is drawn only while the row actually overflows: an
+                  organisation with three modules gets a plain row rather than
+                  a gradient promising something that is not there.
+                */}
+                <div className="relative">
+                  <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+                    {visibleModules.map((m) => (
+                      <Button
+                        key={m.id}
+                        variant={m.id === module.id ? 'default' : 'ghost'}
+                        size="sm"
+                        className="shrink-0"
+                        aria-current={m.id === module.id ? 'true' : undefined}
+                        onClick={() => {
+                          setMoreOpen(false);
+                          if (m.id !== module.id) void navigate(m.home);
+                        }}
+                      >
+                        <m.icon data-icon="inline-start" />
+                        {m.label}
+                      </Button>
+                    ))}
+                  </div>
+                  {visibleModules.length > 4 ? (
+                    <span
+                      aria-hidden
+                      className="from-background pointer-events-none absolute inset-y-0 -right-4 w-8 bg-gradient-to-l to-transparent"
+                    />
+                  ) : null}
                 </div>
               </div>
             ) : null}

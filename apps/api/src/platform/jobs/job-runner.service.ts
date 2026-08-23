@@ -58,6 +58,11 @@ export interface EnqueueOptions {
   readonly backoff?: JobsOptions['backoff'];
 }
 
+/** Whether this payload carries the field the scheduled handlers read as their clock. */
+function hasRequestedAt(payload: unknown): payload is { requestedAt: string } {
+  return typeof payload === 'object' && payload !== null && typeof (payload as { requestedAt?: unknown }).requestedAt === 'string';
+}
+
 @Injectable()
 export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(JobRunner.name);
@@ -342,7 +347,24 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     // The payload was validated by the type system at the enqueue site and has
     // round-tripped through JSON since. The handler treats it as its declared
     // shape, which is the same contract every BullMQ consumer has.
-    const payload = job.data as JobPayloads[JobName];
+    let payload = job.data as JobPayloads[JobName];
+
+    /*
+     * A scheduled job's `data` is a template BullMQ stores once, when the
+     * scheduler is registered, and replays unchanged on every iteration
+     * (`upsertJobScheduler` below writes it into the scheduler hash). So a
+     * `requestedAt` put there is the moment this *process booted*, not the
+     * moment the job ran -- and three of the leave handlers read it as
+     * "today". On a server that stays up a month, monthly accrual would run
+     * every night believing it was still deploy day.
+     *
+     * `job.timestamp` is when this occurrence was actually created, which is
+     * what every one of those handlers means. Repeated jobs are the only ones
+     * that can carry a stale template, so this only ever corrects them.
+     */
+    if (typeof job.repeatJobKey === 'string' && job.repeatJobKey !== '' && hasRequestedAt(payload)) {
+      payload = { ...payload, requestedAt: new Date(job.timestamp).toISOString() };
+    }
 
     const result = await handler.run(payload, {
       jobId: job.id ?? 'unknown',

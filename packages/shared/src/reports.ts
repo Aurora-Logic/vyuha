@@ -56,6 +56,19 @@ export const REPORT_KEYS = [
   'negative-stock',
   'stale-projections',
   'duplicate-masters',
+  'duplicate-clusters',
+  // 15 Area AJ: the two reports collections exists for.
+  'promised-vs-collected',
+  'broken-promises',
+  // Owner, 22 Aug 2026: Pareto — how few of them make up half of it.
+  'item-revenue-concentration',
+  'item-quantity-concentration',
+  'vendor-spend-concentration',
+  'receivables-concentration',
+  // 15 REQ-AK-10: what comes back, by item, by customer, and by reason.
+  'return-rate-by-item',
+  'return-rate-by-customer',
+  'returns-by-reason',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -71,6 +84,7 @@ export const REPORT_KEYS = [
   'order-pipeline',
   'dispatch-performance',
   'order-fill-rate',
+  'order-fulfilment',
   'new-vs-repeat',
   'requirement-ageing',
   // Owner, 22 Aug 2026: the second analytics set, each named by the decision it changes.
@@ -92,11 +106,19 @@ export type ReportKey = (typeof REPORT_KEYS)[number];
 export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'ageing', 'payment-analysis', 'sales-analysis', 'low-stock', 'day-book', 'customer-lapse'] as const satisfies readonly ReportKey[];
 /** 14 Tier 1 (D-46), served by the analytics source; the same receivables gate as the Tally set. */
 export const ANALYTICS_REPORT_KEYS = [
+  // Owner, 22 Aug 2026: the Pareto family — how few make up half. The
+  // customer-revenue case is `customer-concentration`, which already existed
+  // and gained the band rather than being duplicated.
+  'item-revenue-concentration',
+  'item-quantity-concentration',
+  'vendor-spend-concentration',
+  'receivables-concentration',
   'ledger-extract',
   'stock-summary',
   'negative-stock',
   'stale-projections',
   'duplicate-masters',
+  'duplicate-clusters',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -111,6 +133,7 @@ export const ANALYTICS_REPORT_KEYS = [
   'order-pipeline',
   'dispatch-performance',
   'order-fill-rate',
+  'order-fulfilment',
   'new-vs-repeat',
   'requirement-ageing',
   'aov-trend',
@@ -134,6 +157,12 @@ export const ATTENDANCE_ANALYTICS_REPORT_KEYS = [
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
 
+/** 15 REQ-AJ-08/09: promised against collected, and the promises nothing came against. */
+export const COLLECTIONS_REPORT_KEYS = ['promised-vs-collected', 'broken-promises'] as const satisfies readonly ReportKey[];
+
+/** 15 REQ-AK-10: the return rate, read three ways. Feeds REQ-AG-21. */
+export const RETURNS_REPORT_KEYS = ['return-rate-by-item', 'return-rate-by-customer', 'returns-by-reason'] as const satisfies readonly ReportKey[];
+
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
 }
@@ -153,6 +182,8 @@ export const REPORT_COLUMN_TYPES = [
   'instant',
   'duration',
   'number',
+  /** A money amount, shown grouped with the workspace's currency symbol (₹15,87,620.00); exported as the raw number. */
+  'money',
   'status',
   'flags',
 ] as const;
@@ -512,7 +543,7 @@ const VOUCHER_RECONCILIATION_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherType', header: 'Voucher type', type: 'text', sortField: 'voucherType', width: 18 },
   { key: 'count', header: 'Vouchers', type: 'number', width: 10 },
   { key: 'cancelled', header: 'Cancelled', type: 'number', secondary: true, width: 10 },
-  { key: 'total', header: 'Total value', type: 'text', width: 16 },
+  { key: 'total', header: 'Total value', type: 'money', width: 16 },
   { key: 'lastPulledAt', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -543,10 +574,10 @@ const CUSTOMER_STATEMENT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherType', header: 'Type', type: 'text', width: 14 },
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 16 },
   { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 30 },
-  { key: 'debit', header: 'Debit', type: 'text', width: 14 },
-  { key: 'credit', header: 'Credit', type: 'text', width: 14 },
+  { key: 'debit', header: 'Debit', type: 'money', width: 14 },
+  { key: 'credit', header: 'Credit', type: 'money', width: 14 },
   { key: 'unclassified', header: 'Unclassified', type: 'text', secondary: true, width: 14 },
-  { key: 'balance', header: 'Balance', type: 'text', width: 16 },
+  { key: 'balance', header: 'Balance', type: 'money', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -570,7 +601,7 @@ const AGEING_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'dueDate', header: 'Due', type: 'date', secondary: true, width: 12 },
   { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
   { key: 'bucket', header: 'Bucket', type: 'status', width: 12 },
-  { key: 'outstanding', header: 'Outstanding', type: 'text', sortField: 'outstanding', width: 14 },
+  { key: 'outstanding', header: 'Outstanding', type: 'money', sortField: 'outstanding', width: 14 },
   { key: 'overdue', header: 'Overdue', type: 'status', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -601,10 +632,10 @@ const PAYMENT_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
 
 const CREDIT_CYCLE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
-  { key: 'creditLimit', header: 'Credit limit', type: 'text', width: 14 },
+  { key: 'creditLimit', header: 'Credit limit', type: 'money', width: 14 },
   { key: 'creditDays', header: 'Credit days', type: 'number', width: 10 },
-  { key: 'exposure', header: 'Exposure', type: 'text', sortField: 'exposure', width: 14 },
-  { key: 'headroom', header: 'Headroom', type: 'text', width: 14 },
+  { key: 'exposure', header: 'Exposure', type: 'money', sortField: 'exposure', width: 14 },
+  { key: 'headroom', header: 'Headroom', type: 'money', width: 14 },
   { key: 'overLimit', header: 'Over limit', type: 'status', width: 10 },
   { key: 'lastInvoiceDate', header: 'Last invoice', type: 'date', secondary: true, width: 12 },
   { key: 'lastReceiptDate', header: 'Last receipt', type: 'date', secondary: true, width: 12 },
@@ -622,7 +653,7 @@ const SALES_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'label', header: 'Group', type: 'text', sortField: 'label', width: 28 },
   { key: 'vouchers', header: 'Invoices', type: 'number', width: 10 },
   { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 12 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 16 },
   { key: 'share', header: 'Share', type: 'text', secondary: true, width: 8 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -636,7 +667,7 @@ const PENDING_DISPATCH_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', width: 26 },
   { key: 'ordered', header: 'Ordered', type: 'text', width: 10 },
   { key: 'packed', header: 'Packed', type: 'text', secondary: true, width: 10 },
-  { key: 'invoiced', header: 'Invoiced', type: 'text', secondary: true, width: 10 },
+  { key: 'invoiced', header: 'Invoiced', type: 'money', secondary: true, width: 10 },
   { key: 'dispatched', header: 'Dispatched', type: 'text', width: 10 },
   { key: 'balance', header: 'Balance', type: 'text', width: 10 },
   { key: 'fulfilment', header: 'Stage', type: 'status', width: 16 },
@@ -645,12 +676,12 @@ const PENDING_DISPATCH_COLUMNS: readonly ReportColumnSpec[] = [
 /** 13 REQ-AC-06: at or below reorder level, with committed, available, open PO and the shortfall. */
 const LOW_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
-  { key: 'closing', header: 'Closing (Tally)', type: 'text', width: 12 },
+  { key: 'closing', header: 'Closing (Tally)', type: 'money', width: 12 },
   { key: 'committed', header: 'Committed', type: 'text', width: 12 },
   { key: 'available', header: 'Available', type: 'text', sortField: 'available', width: 12 },
   { key: 'reorderLevel', header: 'Reorder level', type: 'text', width: 12 },
   { key: 'openPo', header: 'On order', type: 'text', width: 12 },
-  { key: 'shortfall', header: 'Shortfall', type: 'text', sortField: 'shortfall', width: 12 },
+  { key: 'shortfall', header: 'Shortfall', type: 'money', sortField: 'shortfall', width: 12 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -664,7 +695,7 @@ const DAY_BOOK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherType', header: 'Type', type: 'text', sortField: 'voucherType', width: 16 },
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
-  { key: 'amount', header: 'Amount', type: 'text', sortField: 'amount', width: 16 },
+  { key: 'amount', header: 'Amount', type: 'money', sortField: 'amount', width: 16 },
   { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 36 },
   { key: 'cancelled', header: 'State', type: 'status', secondary: true, width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -685,7 +716,7 @@ const CUSTOMER_LAPSE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'medianGapDays', header: 'Usual gap', type: 'number', width: 10 },
   { key: 'expectedBy', header: 'Expected by', type: 'date', secondary: true, width: 12 },
   { key: 'sales12m', header: 'Sales (12m)', type: 'number', secondary: true, width: 10 },
-  { key: 'revenue12m', header: 'Revenue (12m)', type: 'text', sortField: 'revenue12m', width: 16 },
+  { key: 'revenue12m', header: 'Revenue (12m)', type: 'money', sortField: 'revenue12m', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -695,9 +726,9 @@ const LEDGER_EXTRACT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherType', header: 'Type', type: 'text', width: 14 },
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
   { key: 'partyName', header: 'Party', type: 'text', secondary: true, width: 24 },
-  { key: 'debit', header: 'Debit', type: 'text', width: 14 },
-  { key: 'credit', header: 'Credit', type: 'text', width: 14 },
-  { key: 'balance', header: 'Balance', type: 'text', width: 16 },
+  { key: 'debit', header: 'Debit', type: 'money', width: 14 },
+  { key: 'credit', header: 'Credit', type: 'money', width: 14 },
+  { key: 'balance', header: 'Balance', type: 'money', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -709,8 +740,8 @@ const STOCK_SUMMARY_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'closingQty', header: 'Closing', type: 'text', sortField: 'closingQty', width: 12 },
   { key: 'committedQty', header: 'Committed', type: 'text', width: 12 },
   { key: 'availableQty', header: 'Available', type: 'text', width: 12 },
-  { key: 'costRate', header: 'Cost rate', type: 'text', secondary: true, width: 12 },
-  { key: 'value', header: 'Value at cost', type: 'text', sortField: 'value', width: 16 },
+  { key: 'costRate', header: 'Cost rate', type: 'money', secondary: true, width: 12 },
+  { key: 'value', header: 'Value at cost', type: 'money', sortField: 'value', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -732,6 +763,91 @@ const STALE_PROJECTIONS_COLUMNS: readonly ReportColumnSpec[] = [
 ];
 
 /** 14 REQ-AH-12: near-matching master names. Vyuha flags; the accountant merges in Tally. */
+/** 15 REQ-AO-15: open clusters by entity type and confidence band, and the outstanding behind the party ones. */
+const PROMISED_VS_COLLECTED_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'collectorName', header: 'Collector', type: 'text', sortField: 'collectorName', width: 20 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'promises', header: 'Promises', type: 'number', width: 10 },
+  { key: 'promised', header: 'Promised', type: 'number', sortField: 'promised', width: 14 },
+  { key: 'received', header: 'Received', type: 'money', width: 14 },
+  { key: 'keptPct', header: 'Kept %', type: 'number', width: 10 },
+  { key: 'kept', header: 'Kept', type: 'number', width: 8, secondary: true },
+  { key: 'partlyKept', header: 'Partly', type: 'number', width: 8, secondary: true },
+  { key: 'broken', header: 'Broken', type: 'number', width: 8 },
+  { key: 'open', header: 'Open', type: 'number', width: 8, secondary: true },
+];
+
+const BROKEN_PROMISES_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'promisedDate', header: 'Promised for', type: 'date', width: 14 },
+  { key: 'daysLate', header: 'Days late', type: 'number', sortField: 'daysLate', width: 10 },
+  { key: 'amount', header: 'Promised', type: 'money', width: 14 },
+  { key: 'received', header: 'Received', type: 'money', width: 14 },
+  { key: 'shortfall', header: 'Shortfall', type: 'number', sortField: 'shortfall', width: 14 },
+  { key: 'collectorName', header: 'Collector', type: 'text', width: 20, secondary: true },
+  { key: 'takenByName', header: 'Taken by', type: 'text', width: 20, secondary: true },
+  { key: 'bills', header: 'Against bills', type: 'text', width: 24, secondary: true },
+];
+
+/**
+ * Every Pareto reads the same way, so they share one shape: the rank, the
+ * thing, what it is worth, its own share, and the running total that answers
+ * "how far down the list is half of it".
+ */
+const PARETO_COLUMNS: readonly ReportColumnSpec[] = [
+  // Rank is the only sortable field, and deliberately: the running column is
+  // only true in rank order, so offering "sort by name" would offer a table
+  // whose cumulative per cent wanders up and down the page.
+  { key: 'rank', header: 'Rank', type: 'number', sortField: 'rank', width: 6 },
+  { key: 'name', header: 'Name', type: 'text', width: 34 },
+  { key: 'value', header: 'Value', type: 'text', width: 16 },
+  { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
+  { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 12 },
+  { key: 'band', header: 'Band', type: 'status', width: 14 },
+];
+
+const RETURN_RATE_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'itemName', header: 'Item', type: 'text', sortField: 'itemName', width: 30 },
+  { key: 'returnedQty', header: 'Returned', type: 'number', sortField: 'returnedQty', width: 12 },
+  { key: 'soldQty', header: 'Sold', type: 'number', width: 12 },
+  { key: 'ratePct', header: 'Return rate %', type: 'number', sortField: 'ratePct', width: 14 },
+  { key: 'returns', header: 'Receipts', type: 'number', width: 10 },
+  { key: 'scrappedQty', header: 'Scrapped', type: 'number', width: 12, secondary: true },
+  { key: 'topReason', header: 'Commonest reason', type: 'text', width: 24 },
+  { key: 'lastReturnedOn', header: 'Last returned', type: 'date', width: 14, secondary: true },
+];
+
+const RETURN_RATE_CUSTOMER_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 30 },
+  { key: 'returnedQty', header: 'Returned', type: 'number', sortField: 'returnedQty', width: 12 },
+  { key: 'soldQty', header: 'Sold', type: 'number', width: 12 },
+  { key: 'ratePct', header: 'Return rate %', type: 'number', sortField: 'ratePct', width: 14 },
+  { key: 'returns', header: 'Receipts', type: 'number', width: 10 },
+  { key: 'awaitingCredit', header: 'Awaiting credit note', type: 'number', width: 18 },
+  { key: 'topReason', header: 'Commonest reason', type: 'text', width: 24 },
+  { key: 'lastReturnedOn', header: 'Last returned', type: 'date', width: 14, secondary: true },
+];
+
+const RETURNS_BY_REASON_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'reason', header: 'Reason', type: 'text', sortField: 'reason', width: 26 },
+  { key: 'lines', header: 'Lines', type: 'number', sortField: 'lines', width: 10 },
+  { key: 'returns', header: 'Receipts', type: 'number', width: 10 },
+  { key: 'quantity', header: 'Quantity', type: 'number', sortField: 'quantity', width: 12 },
+  { key: 'sharePct', header: 'Share of lines %', type: 'number', width: 16 },
+  { key: 'scrapLines', header: 'Scrapped lines', type: 'number', width: 14 },
+  { key: 'damagedLines', header: 'Arrived damaged', type: 'number', width: 16, secondary: true },
+  { key: 'topItem', header: 'Commonest item', type: 'text', width: 26, secondary: true },
+];
+
+const DUPLICATE_CLUSTERS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'kind', header: 'Master', type: 'text', width: 12 },
+  { key: 'band', header: 'Confidence', type: 'text', sortField: 'band', width: 16 },
+  { key: 'clusters', header: 'Open clusters', type: 'number', sortField: 'clusters', width: 12 },
+  { key: 'records', header: 'Records', type: 'number', width: 10 },
+  { key: 'sentToTally', header: 'Sent to Tally', type: 'number', width: 12, secondary: true },
+  { key: 'outstanding', header: 'Outstanding behind them', type: 'money', sortField: 'outstanding', width: 18 },
+];
+
 const DUPLICATE_MASTERS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'kind', header: 'Master', type: 'text', width: 10 },
   { key: 'nameA', header: 'Name', type: 'text', sortField: 'nameA', width: 30 },
@@ -745,7 +861,7 @@ const CUSTOMER_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
   { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
   { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 14 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 14 },
   { key: 'lastDate', header: 'Last sale', type: 'date', sortField: 'lastDate', width: 12 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -766,11 +882,11 @@ const PURCHASE_RHYTHM_COLUMNS: readonly ReportColumnSpec[] = [
 const PRICE_VARIANCE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
   { key: 'buyers', header: 'Buyers', type: 'number', width: 8 },
-  { key: 'minRate', header: 'Lowest', type: 'text', width: 12 },
+  { key: 'minRate', header: 'Lowest', type: 'money', width: 12 },
   { key: 'minParty', header: 'Who pays least', type: 'text', secondary: true, width: 22 },
-  { key: 'maxRate', header: 'Highest', type: 'text', width: 12 },
+  { key: 'maxRate', header: 'Highest', type: 'money', width: 12 },
   { key: 'maxParty', header: 'Who pays most', type: 'text', secondary: true, width: 22 },
-  { key: 'avgRate', header: 'Average', type: 'text', secondary: true, width: 12 },
+  { key: 'avgRate', header: 'Average', type: 'money', secondary: true, width: 12 },
   { key: 'spreadPct', header: 'Spread', type: 'text', sortField: 'spreadPct', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -792,7 +908,7 @@ const DEAD_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'lastSaleDate', header: 'Last sale', type: 'date', sortField: 'lastSaleDate', width: 12 },
   { key: 'daysIdle', header: 'Days idle', type: 'number', sortField: 'daysIdle', width: 10 },
   { key: 'closingQty', header: 'Closing', type: 'text', width: 12 },
-  { key: 'valueLocked', header: 'Value locked', type: 'text', sortField: 'valueLocked', width: 16 },
+  { key: 'valueLocked', header: 'Value locked', type: 'money', sortField: 'valueLocked', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -812,8 +928,8 @@ const VENDOR_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
   { key: 'purchases', header: 'Purchases', type: 'number', width: 10 },
   { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 12 },
-  { key: 'lastRate', header: 'Last rate', type: 'text', width: 12 },
-  { key: 'avgRate', header: 'Avg rate', type: 'text', secondary: true, width: 12 },
+  { key: 'lastRate', header: 'Last rate', type: 'money', width: 12 },
+  { key: 'avgRate', header: 'Avg rate', type: 'money', secondary: true, width: 12 },
   { key: 'lastDate', header: 'Last bought', type: 'date', sortField: 'lastDate', width: 12 },
   { key: 'rateTrend', header: 'Rate', type: 'status', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -823,9 +939,9 @@ const VENDOR_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
 const VENDOR_PRICE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
   { key: 'vendors', header: 'Vendors', type: 'number', width: 8 },
-  { key: 'bestRate', header: 'Best last rate', type: 'text', width: 14 },
+  { key: 'bestRate', header: 'Best last rate', type: 'money', width: 14 },
   { key: 'bestVendor', header: 'From', type: 'text', width: 22 },
-  { key: 'worstRate', header: 'Highest last rate', type: 'text', secondary: true, width: 14 },
+  { key: 'worstRate', header: 'Highest last rate', type: 'money', secondary: true, width: 14 },
   { key: 'worstVendor', header: 'From', type: 'text', secondary: true, width: 22 },
   { key: 'spreadPct', header: 'Spread', type: 'text', sortField: 'spreadPct', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -834,8 +950,8 @@ const VENDOR_PRICE_COLUMNS: readonly ReportColumnSpec[] = [
 /** 14 REQ-AH-04: over the limit now, and how it was released before. */
 const CREDIT_BREACHES_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
-  { key: 'creditLimit', header: 'Limit', type: 'text', width: 14 },
-  { key: 'exposure', header: 'Exposure', type: 'text', sortField: 'exposure', width: 14 },
+  { key: 'creditLimit', header: 'Limit', type: 'money', width: 14 },
+  { key: 'exposure', header: 'Exposure', type: 'money', sortField: 'exposure', width: 14 },
   { key: 'overBy', header: 'Over by', type: 'text', sortField: 'overBy', width: 14 },
   { key: 'releases90d', header: 'Releases (90d)', type: 'number', secondary: true, width: 12 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -849,7 +965,7 @@ const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'bucket31', header: '31–60d', type: 'text', width: 10 },
   { key: 'bucket61', header: '61–90d', type: 'text', width: 10 },
   { key: 'bucket90', header: '90d+', type: 'text', width: 10 },
-  { key: 'valueLocked', header: 'Value at cost', type: 'text', sortField: 'valueLocked', width: 16 },
+  { key: 'valueLocked', header: 'Value at cost', type: 'money', sortField: 'valueLocked', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -857,9 +973,12 @@ const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
 const CONCENTRATION_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'rank', header: 'Rank', type: 'number', width: 6 },
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
-  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
+  { key: 'revenue', header: 'Revenue', type: 'money', sortField: 'revenue', width: 16 },
   { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
   { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 10 },
+  // Which third of the curve this row is in, computed where the running total
+  // is rather than in the reader's head.
+  { key: 'band', header: 'Band', type: 'status', width: 14 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -871,7 +990,7 @@ const ORDER_PIPELINE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'orderDate', header: 'Ordered', type: 'date', sortField: 'orderDate', width: 12 },
   { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
   { key: 'balanceQty', header: 'Balance qty', type: 'text', width: 12 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', secondary: true, width: 14 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', secondary: true, width: 14 },
 ];
 
 /** Promise-keeping: how long each dispatch took from the order. */
@@ -896,12 +1015,35 @@ const ORDER_FILL_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+/**
+ * D-48 / P-33: one row per order line, and where that line has got to.
+ *
+ * `order-fill-rate` answers the same question one level up -- which customer
+ * is being short-supplied -- and the screens carry the per-line state. What
+ * neither of them does is leave the building: this is the grain somebody
+ * takes into a meeting about one order.
+ */
+const ORDER_FULFILMENT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'number', header: 'Order', type: 'text', sortField: 'number', width: 12 },
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 24 },
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'orderedQty', header: 'Ordered', type: 'text', width: 10 },
+  { key: 'pickedQty', header: 'Picked', type: 'text', width: 10 },
+  { key: 'packedQty', header: 'Packed', type: 'text', width: 10 },
+  { key: 'invoicedQty', header: 'Invoiced', type: 'text', width: 10 },
+  { key: 'dispatchedQty', header: 'Dispatched', type: 'text', width: 10 },
+  { key: 'balanceQty', header: 'Still to go', type: 'text', sortField: 'balanceQty', width: 10 },
+  { key: 'state', header: 'Where it sits', type: 'text', sortField: 'state', width: 18 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 /** Is growth coming from new names or the same ones. */
 const NEW_REPEAT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
   { key: 'newParties', header: 'First-time buyers', type: 'number', width: 12 },
-  { key: 'newRevenue', header: 'New revenue', type: 'text', width: 14 },
-  { key: 'repeatRevenue', header: 'Repeat revenue', type: 'text', width: 14 },
+  { key: 'newRevenue', header: 'New revenue', type: 'money', width: 14 },
+  { key: 'repeatRevenue', header: 'Repeat revenue', type: 'money', width: 14 },
   { key: 'newSharePct', header: 'New share', type: 'text', secondary: true, width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -954,8 +1096,8 @@ const ON_TIME_RATE_COLUMNS: readonly ReportColumnSpec[] = [
 const AOV_TREND_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
   { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
-  { key: 'revenue', header: 'Revenue', type: 'text', width: 16 },
-  { key: 'aov', header: 'Average order value', type: 'text', sortField: 'aov', width: 16 },
+  { key: 'revenue', header: 'Revenue', type: 'money', width: 16 },
+  { key: 'aov', header: 'Average order value', type: 'money', sortField: 'aov', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -984,9 +1126,9 @@ const STOCK_OUT_COLUMNS: readonly ReportColumnSpec[] = [
 const MARGIN_PROXY_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
   { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
-  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
-  { key: 'cost', header: 'Cost (held)', type: 'text', width: 16 },
-  { key: 'margin', header: 'Margin proxy', type: 'text', sortField: 'margin', width: 16 },
+  { key: 'revenue', header: 'Revenue', type: 'money', sortField: 'revenue', width: 16 },
+  { key: 'cost', header: 'Cost (held)', type: 'money', width: 16 },
+  { key: 'margin', header: 'Margin proxy', type: 'money', sortField: 'margin', width: 16 },
   { key: 'marginPct', header: 'Margin %', type: 'text', sortField: 'marginPct', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -994,7 +1136,7 @@ const MARGIN_PROXY_COLUMNS: readonly ReportColumnSpec[] = [
 const SALES_HEATMAP_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 16 },
 ];
 
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
@@ -1265,6 +1407,96 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-hoursStale',
     filters: [],
   },
+  'promised-vs-collected': {
+    key: 'promised-vs-collected',
+    category: 'Receivables',
+    label: 'Promised against collected',
+    description: 'Every promise to pay in the period beside what actually arrived against the named bills. A promise is never marked kept by hand: the receipts Tally sends decide it.',
+    columns: PROMISED_VS_COLLECTED_COLUMNS,
+    defaultSort: '-promised',
+    filters: ['period', 'partyId', 'employeeId'],
+  },
+  'broken-promises': {
+    key: 'broken-promises',
+    category: 'Exceptions',
+    label: 'Broken promises',
+    description: 'Promises past their date with nothing, or not enough, received against the bills they named. Ranked by what is short. A broken promise flags the credit check; it never blocks an order.',
+    columns: BROKEN_PROMISES_COLUMNS,
+    defaultSort: '-shortfall',
+    filters: ['period', 'partyId', 'employeeId'],
+  },
+  'item-revenue-concentration': {
+    key: 'item-revenue-concentration',
+    category: 'Inventory',
+    label: 'Item revenue concentration (Pareto)',
+    description: 'Which items earn the money. The tail is the catalogue you are carrying stock for and being paid little to hold; the head is what must never be out of stock.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: ['period', 'itemName'],
+  },
+  'item-quantity-concentration': {
+    key: 'item-quantity-concentration',
+    category: 'Inventory',
+    label: 'Item volume concentration (Pareto)',
+    description: 'Which items move, by quantity rather than value — the pickers\' list, not the accountant\'s. An item high here and low on the revenue Pareto is cheap and busy: it belongs near the packing bench.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: ['period', 'itemName'],
+  },
+  'vendor-spend-concentration': {
+    key: 'vendor-spend-concentration',
+    category: 'Vendors',
+    label: 'Vendor spend concentration (Pareto)',
+    description: 'Where the purchase money goes. Read as exposure rather than as performance: a vendor holding half the spend is half the supply chain, and the running column says how few of them that is.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: ['period'],
+  },
+  'receivables-concentration': {
+    key: 'receivables-concentration',
+    category: 'Receivables',
+    label: 'Receivables concentration (Pareto)',
+    description: 'Who is holding the money. The head of this list is where a day of collection effort is worth most; it is deliberately not the same list as revenue concentration, and the difference between the two is worth a look.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: [],
+  },
+  'return-rate-by-item': {
+    key: 'return-rate-by-item',
+    category: 'Inventory',
+    label: 'Return rate by item',
+    description: 'What came back against what went out, item by item, with the commonest reason beside it. The sold figure is what Tally billed in the period, so an item sold outside Vyuha still counts.',
+    columns: RETURN_RATE_ITEM_COLUMNS,
+    defaultSort: '-returnedQty',
+    filters: ['period', 'itemName'],
+  },
+  'return-rate-by-customer': {
+    key: 'return-rate-by-customer',
+    category: 'Customers',
+    label: 'Return rate by customer',
+    description: 'Which customers send goods back, how much, and how much of it is still waiting on a credit note from Tally.',
+    columns: RETURN_RATE_CUSTOMER_COLUMNS,
+    defaultSort: '-returnedQty',
+    filters: ['period', 'partyId'],
+  },
+  'returns-by-reason': {
+    key: 'returns-by-reason',
+    category: 'Exceptions',
+    label: 'Returns by reason',
+    description: 'Why goods come back, ranked. Damage in transit is a packing or carrier problem; wrong item is a picking one; quality rejection is neither.',
+    columns: RETURNS_BY_REASON_COLUMNS,
+    defaultSort: '-lines',
+    filters: ['period', 'partyId', 'itemName'],
+  },
+  'duplicate-clusters': {
+    key: 'duplicate-clusters',
+    category: 'Exceptions',
+    label: 'Duplicate clusters',
+    description: 'Likely duplicate parties and items the detector found after the last pull, by confidence band, with the receivables sitting behind the party clusters. Vyuha flags; the merge happens in Tally.',
+    columns: DUPLICATE_CLUSTERS_COLUMNS,
+    defaultSort: 'outstanding',
+    filters: [],
+  },
   'duplicate-masters': {
     key: 'duplicate-masters',
     category: 'Exceptions',
@@ -1390,6 +1622,15 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     columns: ORDER_FILL_COLUMNS,
     defaultSort: 'fillPct',
     filters: ['period'],
+  },
+  'order-fulfilment': {
+    key: 'order-fulfilment',
+    category: 'Customers',
+    label: 'Order fulfilment by line',
+    description: 'Every confirmed order line and where it has got to — ordered, picked, packed, invoiced, dispatched, and what is still to go.',
+    columns: ORDER_FULFILMENT_COLUMNS,
+    defaultSort: '-date',
+    filters: ['period', 'partyId'],
   },
   'new-vs-repeat': {
     key: 'new-vs-repeat',
@@ -1521,6 +1762,8 @@ export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filte
   (key) =>
     !(TALLY_REPORT_KEYS as readonly string[]).includes(key) &&
     !(SALES_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(COLLECTIONS_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(RETURNS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ATTENDANCE_ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
@@ -1530,6 +1773,10 @@ export const ATTENDANCE_ANALYTICS_REPORTS: readonly ReportDefinition[] = ATTENDA
 );
 
 export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
+export const COLLECTIONS_REPORTS: readonly ReportDefinition[] = COLLECTIONS_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
+export const RETURNS_REPORTS: readonly ReportDefinition[] = RETURNS_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
 /** The Tally module's reports (Phase 6c onward). */
 export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
@@ -1541,7 +1788,7 @@ export const ANALYTICS_REPORTS: readonly ReportDefinition[] = ANALYTICS_REPORT_K
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...ANALYTICS_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...COLLECTIONS_REPORTS, ...RETURNS_REPORTS, ...ANALYTICS_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -1713,6 +1960,26 @@ export function describeFilters(
   }
   if (filters.locationId !== undefined) {
     captions.push({ label: 'Location', value: named(filters.locationId) });
+  }
+  // The Tally-side filters. A customer statement cannot be requested without
+  // a party and a ledger extract cannot be requested without a ledger, so a
+  // file of either used to print "Filters: none" and then several hundred
+  // rows that named nobody -- a statement with no name on it is not evidence
+  // of anything.
+  if (filters.partyId !== undefined) {
+    captions.push({ label: 'Party', value: named(filters.partyId) });
+  }
+  if (filters.ledgerName !== undefined) {
+    captions.push({ label: 'Ledger', value: filters.ledgerName });
+  }
+  if (filters.itemName !== undefined) {
+    captions.push({ label: 'Item', value: filters.itemName });
+  }
+  if (filters.voucherType !== undefined) {
+    captions.push({ label: 'Voucher type', value: filters.voucherType });
+  }
+  if (filters.groupBy !== undefined) {
+    captions.push({ label: 'Grouped by', value: SALES_ANALYSIS_DIMENSION_LABELS[filters.groupBy] });
   }
   if (filters.status !== undefined) captions.push({ label: 'Status', value: filters.status });
   if (filters.flags !== undefined && filters.flags.length > 0) {
@@ -2696,6 +2963,178 @@ export function salesAnalysisCell(row: SalesAnalysisSource, key: string): Report
       return row.asOf;
     default:
       return null;
+  }
+}
+
+export interface PromisedVsCollectedSource {
+  readonly id: string;
+  readonly collectorId: string | null;
+  readonly collectorName: string | null;
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly promises: number;
+  readonly promised: string;
+  readonly received: string;
+  readonly keptPct: number;
+  readonly kept: number;
+  readonly partlyKept: number;
+  readonly broken: number;
+  readonly open: number;
+}
+
+export function promisedVsCollectedCell(row: PromisedVsCollectedSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'collectorName': return row.collectorName ?? 'Unassigned';
+    case 'partyName': return row.partyName;
+    case 'promises': return row.promises;
+    case 'promised': return row.promised;
+    case 'received': return row.received;
+    case 'keptPct': return row.keptPct;
+    case 'kept': return row.kept;
+    case 'partlyKept': return row.partlyKept;
+    case 'broken': return row.broken;
+    case 'open': return row.open;
+    default: return null;
+  }
+}
+
+export interface BrokenPromiseSource {
+  readonly id: string;
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly collectorName: string | null;
+  readonly amount: string;
+  readonly received: string;
+  readonly shortfall: string;
+  readonly promisedDate: string;
+  readonly daysLate: number;
+  readonly takenByName: string | null;
+  readonly bills: string | null;
+}
+
+export function brokenPromiseCell(row: BrokenPromiseSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName': return row.partyName;
+    case 'promisedDate': return row.promisedDate;
+    case 'daysLate': return row.daysLate;
+    case 'amount': return row.amount;
+    case 'received': return row.received;
+    case 'shortfall': return row.shortfall;
+    case 'collectorName': return row.collectorName ?? 'Unassigned';
+    case 'takenByName': return row.takenByName;
+    case 'bills': return row.bills;
+    default: return null;
+  }
+}
+
+/**
+ * One row of any Pareto. `band` is computed where the running total is, not
+ * in the reader's head: a row is in the half when everything above it came
+ * to less than half.
+ */
+export interface ParetoSource {
+  readonly id: string;
+  readonly rank: number;
+  readonly name: string;
+  readonly value: string;
+  readonly sharePct: number;
+  readonly cumulativePct: number;
+  readonly band: string;
+}
+
+export function paretoCell(row: ParetoSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'rank': return row.rank;
+    case 'name': return row.name;
+    case 'value': return row.value;
+    case 'sharePct': return row.sharePct;
+    case 'cumulativePct': return row.cumulativePct;
+    case 'band': return row.band;
+    default: return null;
+  }
+}
+
+/** The three groups every Pareto sorts its rows into. */
+export const PARETO_BANDS = ['Top 50%', 'Next 30%', 'Tail'] as const;
+export type ParetoBand = (typeof PARETO_BANDS)[number];
+
+/** 15 REQ-AK-10: one row per item, per customer, per reason. */
+export interface ReturnRateItemSource {
+  readonly id: string;
+  readonly itemName: string;
+  readonly returnedQty: string;
+  readonly soldQty: string;
+  readonly ratePct: number | null;
+  readonly returns: number;
+  readonly scrappedQty: string;
+  readonly topReason: string;
+  readonly lastReturnedOn: string;
+}
+
+export function returnRateItemCell(row: ReturnRateItemSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'itemName': return row.itemName;
+    case 'returnedQty': return row.returnedQty;
+    case 'soldQty': return row.soldQty;
+    case 'ratePct': return row.ratePct;
+    case 'returns': return row.returns;
+    case 'scrappedQty': return row.scrappedQty;
+    case 'topReason': return row.topReason;
+    case 'lastReturnedOn': return row.lastReturnedOn;
+    default: return null;
+  }
+}
+
+export interface ReturnRateCustomerSource {
+  readonly id: string;
+  readonly partyId: string | null;
+  readonly partyName: string;
+  readonly returnedQty: string;
+  readonly soldQty: string;
+  readonly ratePct: number | null;
+  readonly returns: number;
+  readonly awaitingCredit: number;
+  readonly topReason: string;
+  readonly lastReturnedOn: string;
+}
+
+export function returnRateCustomerCell(row: ReturnRateCustomerSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName': return row.partyName;
+    case 'returnedQty': return row.returnedQty;
+    case 'soldQty': return row.soldQty;
+    case 'ratePct': return row.ratePct;
+    case 'returns': return row.returns;
+    case 'awaitingCredit': return row.awaitingCredit;
+    case 'topReason': return row.topReason;
+    case 'lastReturnedOn': return row.lastReturnedOn;
+    default: return null;
+  }
+}
+
+export interface ReturnsByReasonSource {
+  readonly id: string;
+  readonly reason: string;
+  readonly lines: number;
+  readonly returns: number;
+  readonly quantity: string;
+  readonly sharePct: number;
+  readonly scrapLines: number;
+  readonly damagedLines: number;
+  readonly topItem: string;
+}
+
+export function returnsByReasonCell(row: ReturnsByReasonSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'reason': return row.reason;
+    case 'lines': return row.lines;
+    case 'returns': return row.returns;
+    case 'quantity': return row.quantity;
+    case 'sharePct': return row.sharePct;
+    case 'scrapLines': return row.scrapLines;
+    case 'damagedLines': return row.damagedLines;
+    case 'topItem': return row.topItem;
+    default: return null;
   }
 }
 

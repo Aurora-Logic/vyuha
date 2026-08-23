@@ -271,6 +271,8 @@ Anything beyond that is payroll wearing a different hat.
 
 ## Decisions to record in `docs/11` before starting
 
+> **Recorded 22 Aug 2026 as D-49…D-56.** The numbers below collided with decisions docs/11 already held (D-40 credit enforcement … D-47 dispatch slip); the mapping is D-40→D-49, D-41→D-50, D-42→D-51, D-43→D-52, D-44→D-53, D-45→D-54, D-46→D-55, D-47→D-56. Where this file says "D-43" for expense claims, read D-52.
+
 | # | Question | Blocks | Default in force |
 |---|---|---|---|
 | D-40 | Tally price lists are pulled today. Do they still matter, or does the Vyuha list replace them entirely? | AN-13 | **Replace.** Vyuha's chain resolves; Tally's pulled lists are ignored and eventually stop being pulled. Two pricing sources is the same mistake as two ledgers. |

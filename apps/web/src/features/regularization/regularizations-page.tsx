@@ -110,7 +110,7 @@ function LoadFailure({
   subject: string;
   onRetry: () => void;
 }) {
-  const copy = apiErrorCopy(error, { subject, permission: 'regularization.raise' });
+  const copy = apiErrorCopy(error, { subject, permission: 'punch.self' });
   return (
     <Alert variant="destructive">
       <WarningCircleIcon />
@@ -224,7 +224,7 @@ const ON_DUTY_COLUMNS: RecordColumn<OnDutyRequest>[] = [
 
 export function RegularizationsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const canRaise = usePermission(PERMISSIONS.REGULARIZATION_RAISE);
+  const canRaise = usePermission(PERMISSIONS.PUNCH_SELF);
   // The permission set arrives from `/me` through an effect, so the first
   // render after the session gate opens still has an empty set. Waiting for
   // the store to leave `loading` costs one skeleton frame and sends one

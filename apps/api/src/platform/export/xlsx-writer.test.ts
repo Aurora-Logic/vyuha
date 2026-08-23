@@ -25,14 +25,15 @@ const columns: readonly ReportColumnSpec[] = [
   { key: 'employeeName', header: 'Employee', type: 'text', width: 28 },
   { key: 'workedMinutes', header: 'Worked', type: 'duration', width: 10 },
   { key: 'lateMinutes', header: 'Late minutes', type: 'number', width: 14 },
+  { key: 'outstanding', header: 'Outstanding', type: 'money', width: 14 },
   { key: 'flags', header: 'Flags', type: 'flags' },
 ];
 
 /** Builds a one-sheet workbook and hands back the parsed result. */
 async function build(
   rows: readonly (readonly unknown[])[] = [
-    ['2026-08-01', 'Asha Menon', 492, 15, ['late']],
-    ['2026-08-02', "O'Brien, Sean", 0, 0, []],
+    ['2026-08-01', 'Asha Menon', 492, 15, '1587620.00', ['late']],
+    ['2026-08-02', "O'Brien, Sean", 0, 0, '0.00', []],
   ],
 ): Promise<{ book: ExcelJS.Workbook; sheet: ExcelJS.Worksheet }> {
   const writer = new XlsxReportWriter();
@@ -155,7 +156,7 @@ describe('the Excel workbook an export produces (REQ-J-03)', () => {
     // worth asserting: a column with no hint still has to be readable.
     const { sheet } = await build();
     const widths = columns.map((_, index) => sheet.getColumn(index + 1).width);
-    expect(widths).toEqual([12, 28, 10, 14, 16]);
+    expect(widths).toEqual([12, 28, 10, 14, 14, 16]);
   });
 
   it('writes the rows below the header, formatted by column type', async () => {
@@ -165,7 +166,7 @@ describe('the Excel workbook an export produces (REQ-J-03)', () => {
     expect(first.getCell(2).text).toBe('Asha Menon');
     // 492 minutes as HH:mm, the same as the CSV writer produces.
     expect(first.getCell(3).text).toBe('08:12');
-    expect(first.getCell(5).text).toBe('late');
+    expect(first.getCell(6).text).toBe('late');
   });
 
   it('writes a numeric column as a number, so a reader can sum it', async () => {
@@ -224,5 +225,31 @@ describe('the Excel workbook an export produces (REQ-J-03)', () => {
     // header block still has to state the filters that produced nothing.
     const { sheet } = await build([]);
     expect(sheet.getRow(headerRowNumber(sheet) + 1).getCell(1).text).toBe('');
+  });
+
+  /**
+   * The whole reason a finance team opens the sheet.
+   *
+   * Money arrives from the projection as a decimal string, and a string cell
+   * is not summable -- select the column and Excel offers no total. It is
+   * written as a number with a currency format instead, so the figure reads
+   * as money and still adds up. The symbol is deliberately absent from the
+   * format: the export knows the organisation's timezone and date format but
+   * not its currency, and a wrong symbol on every cell is worse than none.
+   */
+  it('writes a money column as a number a SUM can reach, not as text', async () => {
+    const { sheet } = await build();
+    const header = headerRowNumber(sheet);
+    const cell = sheet.getRow(header + 1).getCell(5);
+
+    expect(typeof cell.value).toBe('number');
+    expect(cell.value).toBe(1587620);
+    expect(cell.numFmt).toBe('#,##0.00');
+  });
+
+  it('leaves a zero amount as a zero rather than an empty cell', async () => {
+    const { sheet } = await build();
+    const header = headerRowNumber(sheet);
+    expect(sheet.getRow(header + 2).getCell(5).value).toBe(0);
   });
 });

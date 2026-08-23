@@ -28,10 +28,36 @@ const line = (over: Partial<SalesLine>): SalesLine => ({
   dispatchedQty: '0.000',
   invoicingQty: '0.000',
   hsnCode: null,
+  priceListId: null,
+  priceListVersion: null,
+  resolvedRate: null,
+  appliedDiscountPct: null,
+  rateOverrideReason: null,
+  freeOfCharge: false,
   ...over,
 });
 
 describe('lineBalances', () => {
+  it('a free replacement waits for no invoice: what is packed may leave', () => {
+    // 15 REQ-AK-09 / D-51. The web schema dropped the mark entirely, so this
+    // read as undefined, the line was gated on invoicedQty like any other,
+    // and a replacement given away could never be dispatched from a screen.
+    const free = lineBalances(line({ quantity: '5.000', pickedQty: '5.000', packedQty: '5.000', invoicedQty: '0.000', freeOfCharge: true }));
+    expect(free.toDispatch).toBe(5);
+    const paid = lineBalances(line({ quantity: '5.000', pickedQty: '5.000', packedQty: '5.000', invoicedQty: '0.000' }));
+    expect(paid.toDispatch).toBe(0);
+  });
+
+  it('a free line still cannot send more than was packed', () => {
+    const b = lineBalances(line({ quantity: '5.000', pickedQty: '5.000', packedQty: '3.000', dispatchedQty: '3.000', freeOfCharge: true }));
+    expect(b.toDispatch).toBe(0);
+  });
+
+  it('parses a line that predates the mark as not free', () => {
+    const parsed = salesLineSchema.parse({ ...line({}), freeOfCharge: undefined });
+    expect(parsed.freeOfCharge).toBe(false);
+  });
+
   it('moves quantity from one stage to the next (12 §7: 100 ordered, 60 packed/invoiced/dispatched leaves 40 to pack)', () => {
     const b = lineBalances(line({ quantity: '100.000', pickedQty: '100.000', packedQty: '60.000', invoicedQty: '60.000', dispatchedQty: '60.000' }));
     expect(b).toEqual({ toPick: 0, toPack: 40, toInvoice: 0, invoicing: 0, toDispatch: 0 });

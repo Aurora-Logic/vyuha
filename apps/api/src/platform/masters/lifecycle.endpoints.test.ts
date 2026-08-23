@@ -123,6 +123,37 @@ describe('GET /masters/parties/:id/lifecycle', () => {
     expect(res.body.figures.purchaseOrders).toBe(0);
     expect(res.body.events.some((event) => event.kind === 'order' && event.href === `/sales/orders/${orderId}`)).toBe(true);
   });
+
+  it('counts nothing a cancelled document did', async () => {
+    const before = await harness.get<PartyLifecycle>(`/masters/parties/${partyId}/lifecycle`, { token: adminToken });
+
+    // A second order, confirmed and then cancelled, and an invoice cancelled
+    // after it was raised. Neither happened.
+    const cancelled = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: adminToken,
+      body: { partyId, lines: [{ stockItemId: itemId, quantity: '9', rate: '5000' }] },
+    });
+    expect(cancelled.status).toBe(201);
+    await harness.db.execute(sql`
+      UPDATE sales_documents SET status = 'CANCELLED', date = CURRENT_DATE WHERE id = ${cancelled.body.id}
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sales_documents (org_id, doc_type, number, status, date, party_id, customer_name, grand_total)
+      VALUES (${ORG_ID}, 'INVOICE', 'INV-CANCELLED-1', 'CANCELLED', CURRENT_DATE, ${partyId}, 'Asha Traders', '45000.00'),
+             (${ORG_ID}, 'INVOICE', 'INV-DRAFT-1', 'DRAFT', CURRENT_DATE, ${partyId}, 'Asha Traders', '31000.00')
+    `);
+
+    const after = await harness.get<PartyLifecycle>(`/masters/parties/${partyId}/lifecycle`, { token: adminToken });
+    expect(after.body.figures.orders).toBe(before.body.figures.orders);
+    // A cancelled order with nothing dispatched used to read as still open.
+    expect(after.body.figures.openOrders).toBe(before.body.figures.openOrders);
+    expect(after.body.figures.invoices).toBe(before.body.figures.invoices);
+    expect(after.body.figures.orderedValue).toBe(before.body.figures.orderedValue);
+    expect(after.body.figures.invoicedValue).toBe(before.body.figures.invoicedValue);
+    // The last-order date carried no status condition at all, so a document
+    // dated today that never happened made a quiet customer look current.
+    expect(after.body.figures.lastOrderAt).toBe(before.body.figures.lastOrderAt);
+  });
 });
 
 const PERIOD = 'from=2026-04-01&to=2027-03-31';

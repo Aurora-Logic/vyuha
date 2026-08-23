@@ -103,6 +103,13 @@ export const APPROVAL_SUBJECT_KEYS: Partial<
     raise: [PERMISSIONS.SALES_DOCUMENT_CREATE],
     scope: { all: [PERMISSIONS.SALES_DISCOUNT_APPROVE] },
   },
+  // 15 REQ-AN-09/10/11: a price list activates only by pricing.approve, its own key, never an attendance or sales one.
+  price_list: {
+    act: [PERMISSIONS.PRICING_APPROVE],
+    override: [PERMISSIONS.PRICING_APPROVE],
+    raise: [PERMISSIONS.PRICING_MANAGE],
+    scope: { all: [PERMISSIONS.PRICING_APPROVE] },
+  },
 };
 
 /**

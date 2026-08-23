@@ -42,8 +42,11 @@ interface KanbanBoardProps<T> {
   itemLabel: (item: T) => string;
   renderItem: (item: T) => ReactNode;
   onOpen: (item: T) => void;
-  onMove: (item: T, laneId: string) => void;
-  moving: boolean;
+  /** Omitted on a read-only board, where a lane is a fact about the item, not a place to drop it. */
+  onMove?: (item: T, laneId: string) => void;
+  moving?: boolean;
+  /** A board whose lanes are derived (an order's fulfilment stage): cards open, but do not drag. */
+  readOnly?: boolean;
   ariaLabel: string;
   /** Where the list rendering lives, for the "and N more" line. */
   overflowHint?: string;
@@ -57,7 +60,8 @@ export function KanbanBoard<T>({
   renderItem,
   onOpen,
   onMove,
-  moving,
+  moving = false,
+  readOnly = false,
   ariaLabel,
   overflowHint = 'see the list',
 }: KanbanBoardProps<T>) {
@@ -88,7 +92,7 @@ export function KanbanBoard<T>({
             }}
             onDrop={(event) => {
               event.preventDefault();
-              if (dragging !== null && itemLaneId(dragging) !== lane.id && !moving) onMove(dragging, lane.id);
+              if (dragging !== null && itemLaneId(dragging) !== lane.id && !moving) onMove?.(dragging, lane.id);
               setDragging(null);
               setOver(null);
             }}
@@ -104,7 +108,7 @@ export function KanbanBoard<T>({
               {lane.items.map((item) => (
                 <div
                   key={itemKey(item)}
-                  draggable
+                  draggable={!readOnly}
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = 'move';
                     event.dataTransfer.setData('text/plain', itemKey(item));

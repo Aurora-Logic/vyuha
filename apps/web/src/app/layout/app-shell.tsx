@@ -13,12 +13,13 @@ import {
   SunIcon,
   UserCircleIcon,
 } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { BreadcrumbTrail } from '@/components/shared/breadcrumb-trail';
 import { HeaderTooltip } from '@/components/shared/header-tooltip';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useTheme } from '@/components/theme-provider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { AppearanceEffect } from '@/components/shared/appearance-effect';
@@ -664,7 +665,12 @@ export function AppShell() {
                 leave by. Keyed on the path: walking to another screen clears
                 the error, which is what anyone would expect that to do. */}
             <ErrorBoundary resetKey={location.pathname}>
-              <Outlet />
+              {/* P-23: each route is its own chunk; the shell stays put while
+                  the page's code arrives. The fallback is the page's shape,
+                  never a spinner (emil: a spinner seen all day reads as slow). */}
+              <Suspense fallback={<RouteFallback />}>
+                <Outlet />
+              </Suspense>
             </ErrorBoundary>
           </div>
         </ShortcutLayer>
@@ -724,4 +730,15 @@ function AccessWindowWarning() {
     };
   }, [closesInMinutes, exempt]);
   return null;
+}
+
+/** The between-routes state: the page's own shape, not a spinner (emil: perceived speed). */
+function RouteFallback() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading" className="flex flex-col gap-3">
+      <Skeleton className="h-7 w-56" />
+      <Skeleton className="h-4 w-full max-w-md" />
+      <Skeleton className="mt-2 h-64 w-full" />
+    </div>
+  );
 }

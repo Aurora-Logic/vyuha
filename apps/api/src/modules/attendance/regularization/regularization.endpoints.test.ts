@@ -1,4 +1,6 @@
 import {
+  PERMISSIONS,
+  ROLE_PERMISSION_MATRIX,
   SYSTEM_ROLES,
   uuidv7,
   type ApprovalRequestDetail,
@@ -186,7 +188,16 @@ beforeAll(async () => {
 
   const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
   const hrRoleId = await harness.createSystemRole(SYSTEM_ROLES.HR);
-  const managerRoleId = await harness.createSystemRole(SYSTEM_ROLES.OPERATIONS);
+  // A correction is decided by whoever may edit attendance -- which is what
+  // approval-keys.ts has always declared for this subject, and what the
+  // catalogue now says outright since `regularization.approve` was removed
+  // (owner, 21 Aug 2026; PENDING A-01). The reporting manager here therefore
+  // holds the Operations set plus `attendance.edit`, rather than a key that no
+  // longer exists.
+  const managerRoleId = await harness.createRole('Regularization Manager', [
+    ...ROLE_PERMISSION_MATRIX.Operations,
+    PERMISSIONS.ATTENDANCE_EDIT,
+  ]);
   // Authenticated and holding no regularization key at all, so a 403 is about
   // the missing permission rather than about having no credentials.
   const strangerRoleId = await harness.createRole('Regularization Stranger', [

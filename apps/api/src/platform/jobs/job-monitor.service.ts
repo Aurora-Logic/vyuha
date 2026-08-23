@@ -43,6 +43,12 @@ export interface JobMonitorSummary {
   readonly registeredJobs: readonly string[];
   readonly queues: readonly QueueSummary[];
   readonly recentFailures: readonly JobFailure[];
+  /**
+   * Failures this reader is not entitled to see, counted rather than hidden.
+   * A number with no detail tells an administrator the deployment is unwell
+   * without telling them whose data broke it.
+   */
+  readonly withheldFailures: number;
   /** Only set in fallback mode: counts from `fallback_jobs`, grouped by state. */
   readonly fallbackCounts?: Readonly<Record<string, number>>;
 }
@@ -57,7 +63,7 @@ export class JobMonitorService {
     private readonly fallback: FallbackJobRunner,
   ) {}
 
-  async summary(): Promise<JobMonitorSummary> {
+  async summary(orgId: string): Promise<JobMonitorSummary> {
     if (this.fallback.isActive()) {
       // BullMQ's own calls below require `maxRetriesPerRequest: null` and
       // never settle against a dead Redis (queue.registry.ts's own measured
@@ -69,6 +75,7 @@ export class JobMonitorService {
         registeredJobs: [...this.registry.registeredJobNames()].sort(),
         queues: [],
         recentFailures: [],
+        withheldFailures: 0,
         fallbackCounts: await this.fallback.countsByState(),
       };
     }
@@ -79,7 +86,7 @@ export class JobMonitorService {
     const consumed = this.runner.consumedQueues();
 
     const queues: QueueSummary[] = [];
-    const failures: JobFailure[] = [];
+    const failures: AttributedFailure[] = [];
 
     for (const name of ALL_QUEUES) {
       const queue = this.runner.queueFor(name);
@@ -97,18 +104,37 @@ export class JobMonitorService {
     // Newest first across all queues, so the page opens on what just broke.
     failures.sort((a, b) => (b.failedAt ?? '').localeCompare(a.failedAt ?? ''));
 
+    /*
+     * One BullMQ deployment holds one set of queues for every organisation on
+     * it, and a failure reason is 500 characters of whatever the driver said
+     * -- a file key, an address, the value that violated a constraint. Four of
+     * the job types carry the organisation they were enqueued for; those are
+     * shown only to that organisation. The rest are the deployment's own
+     * maintenance, belong to no organisation, and stay visible, because an
+     * administrator who cannot see that the sweeps are failing cannot act.
+     */
+    const mine = failures.filter((f) => f.orgId === null || f.orgId === orgId);
+    const withheld = failures.length - mine.length;
+
     return {
       mode: 'bullmq',
       workerEnabled: env.JOBS_WORKER_ENABLED,
       registeredJobs: [...this.registry.registeredJobNames()].sort(),
       queues,
-      recentFailures: failures.slice(0, FAILURES_PER_QUEUE),
+      recentFailures: mine.slice(0, FAILURES_PER_QUEUE).map(({ orgId: _orgId, ...rest }) => rest),
+      withheldFailures: withheld,
     };
   }
 }
 
-function describeFailure(queue: QueueName, job: Job): JobFailure {
+/** The reply shape plus the organisation used to decide who may see it. */
+type AttributedFailure = JobFailure & { readonly orgId: string | null };
+
+function describeFailure(queue: QueueName, job: Job): AttributedFailure {
+  const data: unknown = job.data;
+  const orgId = typeof data === 'object' && data !== null && typeof (data as { orgId?: unknown }).orgId === 'string' ? (data as { orgId: string }).orgId : null;
   return {
+    orgId,
     queue,
     jobId: job.id ?? 'unknown',
     jobName: job.name,

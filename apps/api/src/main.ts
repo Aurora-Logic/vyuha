@@ -2,7 +2,6 @@ import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { Express } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -49,7 +48,7 @@ async function bootstrap(): Promise<void> {
   // way past it by writing the header itself. 0 -- the dev default -- leaves
   // Express untouched, so the no-proxy topology behaves exactly as before.
   if (env.TRUST_PROXY_HOPS > 0) {
-    const express = app.getHttpAdapter().getInstance() as Express;
+    const express = app.getHttpAdapter().getInstance();
     express.set('trust proxy', env.TRUST_PROXY_HOPS);
   }
 

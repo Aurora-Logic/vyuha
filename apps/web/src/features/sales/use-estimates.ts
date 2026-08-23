@@ -77,7 +77,9 @@ function toLineInputs(draft: EstimateDraft): SalesLineInput[] {
       description: line.description.trim(),
       quantity: line.quantity.trim() === '' ? '1' : line.quantity.trim(),
       unit: blank(line.unit),
-      rate: line.rate.trim() === '' ? '0' : line.rate.trim().replace(/,/gu, ''),
+      // 15 REQ-AN-13: a blank rate is the price lists' to resolve; a typed one stands.
+      ...(line.rate.trim() === '' ? {} : { rate: line.rate.trim().replace(/,/gu, '') }),
+      rateOverrideReason: blank(line.rateOverrideReason),
       discountPct: line.discountPct.trim() === '' ? '0' : line.discountPct.trim(),
       taxPct: line.taxPct.trim() === '' ? '0' : line.taxPct.trim(),
       hsnCode: blank(line.hsnCode),
@@ -150,6 +152,8 @@ export function useDeleteEstimate(): UseMutationResult<void, Error, string> {
 
 export interface SalesOrderFilters {
   page: number;
+  /** The list screen's page is 25; the fulfilment board asks for more at once. */
+  pageSize?: number;
   q?: string;
   status?: SalesOrderStatus;
   syncState?: 'NOT_PUSHED' | 'QUEUED' | 'PUSHED' | 'FAILED';
@@ -158,7 +162,7 @@ export interface SalesOrderFilters {
 }
 
 export function useSalesOrders(filters: SalesOrderFilters, options: { enabled?: boolean } = {}): UseQueryResult<EstimatesResponse, Error> {
-  const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.status) params.set('status', filters.status);
   if (filters.syncState) params.set('syncState', filters.syncState);

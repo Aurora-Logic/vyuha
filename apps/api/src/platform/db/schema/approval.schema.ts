@@ -23,6 +23,8 @@ export const approvalTypeEnum = pgEnum('approval_type', [
   'DEVICE_REBIND',
   'PURCHASE_ORDER',
   'SALES_DISCOUNT',
+  // 15 REQ-AN-09: a price list awaiting pricing.approve.
+  'PRICE_LIST',
 ]);
 
 export const approvalStatusEnum = pgEnum('approval_status', [

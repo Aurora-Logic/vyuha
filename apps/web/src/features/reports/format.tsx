@@ -1,7 +1,7 @@
 import { format, parseISO } from 'date-fns';
 
 import { Badge } from '@/components/ui/badge';
-import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, humaniseEnum } from '@/lib/format';
 import type { ReportCellValue, ReportColumnType } from '@vyuha/shared';
 
 /**
@@ -41,7 +41,7 @@ function formatInstant(value: string, withSeconds: boolean): string {
 }
 
 export function isNumericColumn(type: ReportColumnType): boolean {
-  return type === 'duration' || type === 'number' || type === 'time' || type === 'instant';
+  return type === 'duration' || type === 'number' || type === 'time' || type === 'instant' || type === 'money';
 }
 
 export function renderCell(value: ReportCellValue, type: ReportColumnType): React.ReactNode {
@@ -84,6 +84,11 @@ export function renderCell(value: ReportCellValue, type: ReportColumnType): Reac
       return <Badge variant="secondary">{humaniseEnum(text)}</Badge>;
     case 'code':
       return <span className="tabular-nums">{text}</span>;
+    case 'money':
+      // The held amount, grouped Indian-style with the symbol -- 15,87,620.00
+      // reads as money, 1587620.00 reads as a typo. The export keeps the raw
+      // number so a spreadsheet can sum it.
+      return <span className="tabular-nums">{formatMoney(text)}</span>;
     default:
       return text;
   }

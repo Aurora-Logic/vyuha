@@ -4,15 +4,16 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
+import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -21,8 +22,11 @@ import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '
 import { useDesignDraft } from '@/features/documents/use-design-draft';
 import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { ItemPicker } from '@/features/masters/item-picker';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { useParty } from '@/features/masters/use-parties';
+import { type StockItem } from '@/features/masters/use-stock-items';
+import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS } from '@vyuha/shared';
@@ -31,7 +35,6 @@ import { DispatchDialog } from './dispatch-dialog';
 import { FulfilmentBadge } from './fulfilment-badge';
 import { InvoiceDialog } from './invoice-dialog';
 import { ItemHistoryAffordance } from './item-history-popover';
-import { formatMoney } from './money';
 import { PickPackDialog } from './pick-pack-dialog';
 import { creditBlockOf } from './credit-block';
 import { FulfilmentSections, SyncStateBadge } from './sales-order-sheet';
@@ -136,9 +139,6 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canOverrideCredit = usePermission(PERMISSIONS.SALES_CREDIT_OVERRIDE);
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeMasters });
-
   const isNew = record === null;
   const isDraft = draft.status === 'DRAFT';
   const editable = canCreate && (isDraft || altering);
@@ -161,17 +161,11 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
   const packs = usePackRecords(confirmed ? record.id : null);
   const dispatches = useDispatches({ page: 1, pageSize: 50, ...(confirmed ? { documentId: record.id } : {}) }, { enabled: confirmed });
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
-  const itemOptions = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    label: i.name,
-    hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    salePrice: i.salePrice ?? null,
-    gstRate: i.gstRate,
-  }));
-  const party = (parties.data?.data ?? []).find((p) => p.id === draft.partyId) ?? null;
-  const customerName = draft.customerName.trim() === '' ? (partyOptions.find((o) => o.id === draft.partyId)?.label ?? '') : draft.customerName;
+  // Resolved by id, not from a page-one list: the picker can now choose a party
+  // past the first page, and the paper's buyer block (address, GSTIN, place of
+  // supply) must resolve for it too.
+  const party = useParty(draft.partyId).data ?? null;
+  const customerName = draft.customerName.trim() === '' ? (party?.name ?? '') : draft.customerName;
 
   const serverLines = record !== null && !dirty ? record.lines : null;
   const paperLines: PaperLine[] = draft.lines.map((line, index) => {
@@ -225,13 +219,16 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
   function updateLine(key: string, patch: Partial<LineDraft>) {
     setDraft((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
   }
-  function chooseItem(key: string, option: PickerOption | null) {
-    const item = itemOptions.find((i) => i.id === option?.id);
+  function chooseItem(key: string, item: StockItem | null) {
     updateLine(key, {
       stockItemId: item?.id ?? null,
-      description: item?.label ?? '',
+      description: item?.name ?? '',
       unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
+      // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
+      // from the price lists at the document's date, and falls back to this very
+      // Tally rate when no list names the item -- so prefilling it here only
+      // hid the list. The picker's hint still shows what Tally holds.
+      rate: '',
       taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
     });
   }
@@ -239,19 +236,16 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
     ? {
         customer: (
           <div className="flex flex-col gap-1">
-            <RecordPicker
+            <PartyPicker
               id="order-party"
               label="Tally party"
               placeholder="Choose the party"
-              searchPlaceholder="Search parties"
-              emptyMessage="No party matches. A prospect must become a party in Tally first."
               icon={<BooksIcon className="text-muted-foreground" />}
-              options={partyOptions}
-              loading={parties.isPending}
+              enabled={canSeeMasters}
               disabled={!canSeeMasters}
-              value={partyOptions.find((o) => o.id === draft.partyId) ?? null}
+              partyId={draft.partyId}
               onValueChange={(next) => {
-                setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.label ?? current.customerName }));
+                setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.name ?? current.customerName }));
               }}
             />
             <PaperField label="Addressed to" value={customerName} placeholder="Addressed to" className="font-bold" onChange={(value) => { setDraft((current) => ({ ...current, customerName: value })); }} />
@@ -268,17 +262,15 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
           return canSeeMasters ? (
-            <RecordPicker
+            <ItemPicker
               id={`order-line-item-${line.key}`}
               label="Stock item"
               placeholder="Stock item, or type below"
               searchPlaceholder="Search stock items"
               emptyMessage="No item matches. Leave it and type a description."
-              options={itemOptions}
-              loading={items.isPending}
               clearable
               clearLabel="No stock item"
-              value={itemOptions.find((o) => o.id === draftLine?.stockItemId) ?? null}
+              value={draftLine?.stockItemId ? { id: draftLine.stockItemId, label: draftLine.description } : null}
               onValueChange={(next) => {
                 chooseItem(line.key, next);
               }}
@@ -286,6 +278,20 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
           ) : null;
         },
         itemHistory: (line) => <ItemHistoryAffordance stockItemId={line.stockItemId} partyId={draft.partyId} companyId={draft.companyId} />,
+        rateNote: (line) => (
+          <ResolvedRateHint
+            partyId={draft.partyId}
+            stockItemId={line.stockItemId}
+            quantity={line.quantity}
+            date={draft.date}
+            rate={line.rate}
+            reason={draft.lines.find((l) => l.key === line.key)?.rateOverrideReason ?? ''}
+            editable={editable}
+            lineNo={model.lines.findIndex((l) => l.key === line.key) + 1}
+            onUseRate={(next) => { updateLine(line.key, { rate: next }); }}
+            onReasonChange={(next) => { updateLine(line.key, { rateOverrideReason: next }); }}
+          />
+        ),
         updateLine: (key, patch) => {
           updateLine(key, patch);
         },
@@ -383,7 +389,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         title={isNew ? 'New sales order' : `Sales order ${record.number}`}
         badges={
           <>
-            <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>
+            <StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />
             {record === null ? null : <SyncStateBadge record={record} />}
             {record?.fulfilment && confirmed ? <FulfilmentBadge state={record.fulfilment} /> : null}
           </>
@@ -399,6 +405,8 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         extras={
           record !== null ? (
             <div className="flex flex-col gap-4">
+              {/* 15 REQ-AJ-10 / D-54: the promise flag sits with the limit and never blocks. */}
+              <BrokenPromiseNote partyId={record.partyId} />
               {creditBlock !== null ? (
                 <Alert variant="destructive">
                   <WarningCircleIcon />

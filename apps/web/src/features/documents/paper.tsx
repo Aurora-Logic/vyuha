@@ -5,9 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { formatMoney } from '@/features/sales/money';
 import { trimZeros as trimQty } from '@/features/sales/types';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   PRINTED_DOCUMENT_TITLES,
@@ -22,6 +21,7 @@ import {
   type ShipTo,
 } from '@vyuha/shared';
 
+import { hsnHalves, hsnSummary, taxHalves } from './paper-hsn';
 import { DETAIL_LABELS, DETAIL_ORDER, E_INVOICE_KEYS, useEnterMoves } from './paper-support';
 import { moneyToIndianWords } from './words';
 
@@ -130,6 +130,8 @@ export interface PaperEditing {
   readonly itemPicker: (line: PaperLine) => ReactNode;
   /** The i beside a line: what this customer was charged for the item before (REQ-W-02). */
   readonly itemHistory?: (line: PaperLine) => ReactNode;
+  /** 15 REQ-AN-17: under the line, what the price lists resolved and why -- and the reason box when the rate goes below it. */
+  readonly rateNote?: (line: PaperLine) => ReactNode;
   readonly updateLine: (key: string, patch: Partial<Pick<PaperLine, 'description' | 'hsnCode' | 'quantity' | 'unit' | 'rate' | 'discountPct' | 'taxPct'>>) => void;
   readonly addLine: () => void;
   readonly removeLine: (key: string) => void;
@@ -187,26 +189,19 @@ function splitOf(profile: DocumentProfile, buyerStateCode: string): TaxSplit {
   return { kind: seller === buyer ? 'intra' : 'inter' };
 }
 
-function half(value: string): string {
-  return (Math.round((Number(value) / 2) * 100) / 100).toFixed(2);
+/**
+ * One side of a CGST/SGST pair. Always taken from `taxHalves`, so the two
+ * printed figures add up to the tax they came from -- halving and rounding
+ * each independently printed an odd paisa twice.
+ */
+function cgstOf(value: string): string {
+  return taxHalves(Number(value)).cgst.toFixed(2);
 }
 
-interface HsnRow {
-  readonly hsn: string;
-  readonly taxable: number;
-  readonly ratePct: number;
-  readonly tax: number;
+function sgstOf(value: string): string {
+  return taxHalves(Number(value)).sgst.toFixed(2);
 }
 
-function hsnSummary(lines: readonly PaperLine[]): HsnRow[] {
-  const byKey = new Map<string, HsnRow>();
-  for (const line of lines) {
-    const key = `${line.hsnCode}|${line.taxPct}`;
-    const current = byKey.get(key) ?? { hsn: line.hsnCode, taxable: 0, ratePct: Number(line.taxPct), tax: 0 };
-    byKey.set(key, { ...current, taxable: current.taxable + Number(line.amount ?? 0), tax: current.tax + Number(line.taxAmount ?? 0) });
-  }
-  return [...byKey.values()];
-}
 
 /**
  * The quantity total Tally prints under the column: only when every counted
@@ -254,6 +249,13 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
   // A blank line (no description, nothing priced) is a row waiting to be typed, not a quantity.
   const { totalQty, unit } = quantityTotal(model.lines);
   const summary = design.showHsn ? hsnSummary(model.lines) : [];
+  // The summary's own rows, not the document's gross subtotal: a line's
+  // `amount` is net of its discount while `totals.subtotal` is gross, so
+  // printing the latter made the Total disagree with the column above it on
+  // any document carrying a discount.
+  const taxableTotal = summary.reduce((sum, row) => sum + row.taxable, 0);
+  // The CGST and SGST columns, and the totals that must add up to them.
+  const halves = hsnHalves(summary);
   const details = model.details;
   const detailBox = (label: string, key: keyof DocumentDetails, placeholder = '') => (
     <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
@@ -429,6 +431,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
                       {editing.itemHistory?.(line)}
                     </div>
                     <PaperField dataCell={`description-${String(index)}`} label={`Line ${String(index + 1)} description`} value={line.description} placeholder="Description of goods" onChange={(v) => { editing.updateLine(line.key, { description: v }); }} onKeyDown={enter(index, 'description')} className="font-bold" />
+                    {editing.rateNote?.(line)}
                   </div>
                 ) : (
                   <span className="font-bold">{line.description}</span>
@@ -481,14 +484,23 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
           {showTax && Number(model.totals.taxTotal) > 0 ? (
             split.kind === 'intra' ? (
               <>
-                <TaxRow label="CGST" value={half(model.totals.taxTotal)} colCount={colCount} editable={editable} />
-                <TaxRow label="SGST" value={half(model.totals.taxTotal)} colCount={colCount} editable={editable} />
+                <TaxRow label="CGST" value={cgstOf(model.totals.taxTotal)} colCount={colCount} editable={editable} />
+                <TaxRow label="SGST" value={sgstOf(model.totals.taxTotal)} colCount={colCount} editable={editable} />
               </>
             ) : (
               <TaxRow label={split.kind === 'inter' ? 'IGST' : 'GST'} value={model.totals.taxTotal} colCount={colCount} editable={editable} />
             )
           ) : null}
-          {showDiscount && Number(model.totals.discountTotal) > 0 ? <TaxRow label="Less: Discount" value={`-${model.totals.discountTotal}`} colCount={colCount} editable={editable} muted /> : null}
+          {/*
+              No "Less: Discount" row here. Every line's Amount is already net
+              of its own discount (the server writes `amount` as
+              qty x rate x (1 - disc/100)), and each line shows its Disc. %
+              beside it, so deducting the total a second time made the column
+              stop adding up: the reader summed the amounts, subtracted the
+              discount again, and landed short of the Total the server had
+              computed correctly. The discount is visible per line, which is
+              where it applies.
+          */}
           <TableRow className="hover:bg-transparent">
             <TableCell className={cn(BOX, 'py-1')} />
             <TableCell className={cn(BOX, 'py-1 text-right font-medium')}>Total</TableCell>
@@ -497,7 +509,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             {money ? <TableCell className={cn(BOX, 'py-1')} /> : null}
             {design.showUnit ? <TableCell className={cn(BOX, 'py-1')} /> : null}
             {showDiscount ? <TableCell className={cn(BOX, 'py-1')} /> : null}
-            {money ? <TableCell className={cn(BOX, 'py-1 text-right text-[1.15em] font-bold tabular-nums')}>₹ {formatMoney(model.totals.grandTotal)}</TableCell> : null}
+            {money ? <TableCell className={cn(BOX, 'py-1 text-right text-[1.15em] font-bold tabular-nums')}>{formatMoney(model.totals.grandTotal)}</TableCell> : null}
             {editable ? <TableCell className="print-hidden border-0" /> : null}
           </TableRow>
         </TableBody>
@@ -543,16 +555,16 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             </TableRow>
           </TableHeader>
           <TableBody>
-            {summary.map((row) => (
+            {summary.map((row, index) => (
               <TableRow key={`${row.hsn}-${String(row.ratePct)}`} className="hover:bg-transparent">
                 <TableCell className={cn(BOX, 'py-0.5')}>{row.hsn}</TableCell>
                 <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney(row.taxable.toFixed(2))}</TableCell>
                 {split.kind === 'intra' ? (
                   <>
                     <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.cgst ?? 0).toFixed(2))}</TableCell>
                     <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                    <TableCell className={cn(BOX, 'py-0.5 text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.sgst ?? 0).toFixed(2))}</TableCell>
                   </>
                 ) : (
                   <>
@@ -565,13 +577,13 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             ))}
             <TableRow className="hover:bg-transparent">
               <TableCell className={cn(BOX, 'py-0.5 text-right font-bold')}>Total</TableCell>
-              <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(model.totals.subtotal)}</TableCell>
+              <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(taxableTotal.toFixed(2))}</TableCell>
               {split.kind === 'intra' ? (
                 <>
                   <TableCell className={cn(BOX, 'py-0.5')} />
-                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(halves.cgstTotal.toFixed(2))}</TableCell>
                   <TableCell className={cn(BOX, 'py-0.5')} />
-                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                  <TableCell className={cn(BOX, 'py-0.5 text-right font-bold tabular-nums')}>{formatMoney(halves.sgstTotal.toFixed(2))}</TableCell>
                 </>
               ) : (
                 <>
@@ -800,6 +812,13 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
   const showEInvoice = design.showEInvoice && (editable || (details.irn ?? '') !== '');
   const { totalQty, unit } = quantityTotal(model.lines);
   const summary = design.showHsn ? hsnSummary(model.lines) : [];
+  // The summary's own rows, not the document's gross subtotal: a line's
+  // `amount` is net of its discount while `totals.subtotal` is gross, so
+  // printing the latter made the Total disagree with the column above it on
+  // any document carrying a discount.
+  const taxableTotal = summary.reduce((sum, row) => sum + row.taxable, 0);
+  // The CGST and SGST columns, and the totals that must add up to them.
+  const halves = hsnHalves(summary);
   const taxed = money && Number(model.totals.taxTotal) > 0;
 
   const logo = logoUrl !== null && design.logoPlacement !== 'none' ? <img src={logoUrl} alt="" className="max-h-16 max-w-[48mm] object-contain" /> : null;
@@ -936,6 +955,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                           {editing.itemHistory?.(line)}
                         </div>
                         <PaperField dataCell={`description-${String(index)}`} label={`Line ${String(index + 1)} description`} value={line.description} placeholder="Description" onChange={(value) => { editing.updateLine(line.key, { description: value }); }} onKeyDown={enter(index, 'description')} />
+                    {editing.rateNote?.(line)}
                       </div>
                     ) : (
                       line.description
@@ -1029,8 +1049,8 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               {showTax ? (
                 split.kind === 'intra' ? (
                   <>
-                    <Row label="CGST" value={half(model.totals.taxTotal)} />
-                    <Row label="SGST" value={half(model.totals.taxTotal)} />
+                    <Row label="CGST" value={cgstOf(model.totals.taxTotal)} />
+                    <Row label="SGST" value={sgstOf(model.totals.taxTotal)} />
                   </>
                 ) : (
                   <Row label={split.kind === 'inter' ? 'IGST' : 'Tax'} value={model.totals.taxTotal} />
@@ -1038,7 +1058,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               ) : null}
               <div className={cn('flex items-baseline justify-between gap-4', t.grandTotal)}>
                 <span>Total</span>
-                <span className="tabular-nums">₹ {formatMoney(model.totals.grandTotal)}</span>
+                <span className="tabular-nums">{formatMoney(model.totals.grandTotal)}</span>
               </div>
               <div className="text-right text-[0.8em] text-neutral-500 italic">E. &amp; O.E</div>
               {model.totals.preview && editable ? <div className="print-hidden text-[0.8em] text-neutral-500">Preview — the server prices it on save.</div> : null}
@@ -1069,16 +1089,16 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.map((row) => (
+                {summary.map((row, index) => (
                   <TableRow key={`${row.hsn}-${String(row.ratePct)}`} className="hover:bg-transparent">
                     <TableCell className={t.summaryCell}>{row.hsn}</TableCell>
                     <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(row.taxable.toFixed(2))}</TableCell>
                     {split.kind === 'intra' ? (
                       <>
                         <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.cgst ?? 0).toFixed(2))}</TableCell>
                         <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
-                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney((halves.perRow[index]?.sgst ?? 0).toFixed(2))}</TableCell>
                       </>
                     ) : (
                       <>
@@ -1091,13 +1111,13 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                 ))}
                 <TableRow className="hover:bg-transparent">
                   <TableCell className={cn(t.summaryCell, 'font-medium')}>Total</TableCell>
-                  <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(model.totals.subtotal)}</TableCell>
+                  <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(taxableTotal.toFixed(2))}</TableCell>
                   {split.kind === 'intra' ? (
                     <>
                       <TableCell className={t.summaryCell} />
-                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(halves.cgstTotal.toFixed(2))}</TableCell>
                       <TableCell className={t.summaryCell} />
-                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(halves.sgstTotal.toFixed(2))}</TableCell>
                     </>
                   ) : (
                     <>

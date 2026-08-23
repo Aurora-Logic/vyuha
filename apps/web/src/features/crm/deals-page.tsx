@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, CurrencyInrIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, XCircleIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
@@ -21,7 +21,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatAmount } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -70,7 +70,7 @@ function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number
 /** A deal's value, written the way the workspace writes figures; a whole rupee stays whole. */
 function formatValue(value: string | null): string {
   if (value === null) return EMPTY_VALUE;
-  const amount = formatAmount(value);
+  const amount = formatMoney(value);
   return amount.endsWith('.00') ? amount.slice(0, -3) : amount;
 }
 
@@ -478,10 +478,7 @@ export function DealsPage() {
                     </span>
                   )}
                   {deal.value === null ? null : (
-                    <span className="flex items-center gap-0.5 tabular-nums">
-                      <CurrencyInrIcon className="shrink-0" />
-                      {formatValue(deal.value)}
-                    </span>
+                    <span className="tabular-nums">{formatValue(deal.value)}</span>
                   )}
                   {deal.expectedCloseDate === null ? null : (
                     <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-warning')}>

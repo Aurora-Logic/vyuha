@@ -1,4 +1,8 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { XIcon } from '@phosphor-icons/react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 import {
   Field,
@@ -219,6 +223,79 @@ export function PolicyDurationField({
       <DurationField id={id} label={label} value={value} disabled={disabled} onValueChange={onValueChange} />
       {help ? <FieldDescription>{help}</FieldDescription> : null}
       <EnforcementNote by={enforcedBy} />
+    </Field>
+  );
+}
+
+/**
+ * 15 REQ-AK-02: the return desk's reasons, as a list an organisation edits.
+ *
+ * Editable rather than fixed because "wrong item" and "quality rejection"
+ * mean different things to a cable wholesaler and a machine shop, and the
+ * reason report is only readable while the list stays short. Stored as the
+ * words themselves, so retiring one never rewrites what an old receipt says.
+ */
+export function ReturnReasonsField({
+  reasons,
+  enforcedBy,
+  onValueChange,
+}: {
+  reasons: readonly string[];
+  enforcedBy: string | null;
+  onValueChange: (reasons: string[]) => void;
+}) {
+  const [typed, setTyped] = useState('');
+
+  function add(): void {
+    const value = typed.trim();
+    if (value.length < 2 || reasons.some((reason) => reason.toLowerCase() === value.toLowerCase()) || reasons.length >= 30) return;
+    onValueChange([...reasons, value]);
+    setTyped('');
+  }
+
+  return (
+    <Field>
+      <FieldLabel htmlFor="return-reason-add">Reasons</FieldLabel>
+      <div className="flex flex-wrap gap-2">
+        {reasons.map((reason) => (
+          <Badge key={reason} variant="outline" className="gap-1 pr-1">
+            {reason}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Remove ${reason}`}
+              disabled={reasons.length <= 1}
+              onClick={() => {
+                onValueChange(reasons.filter((value) => value !== reason));
+              }}
+            >
+              <XIcon />
+            </Button>
+          </Badge>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          id="return-reason-add"
+          placeholder="Add a reason"
+          value={typed}
+          maxLength={60}
+          onChange={(event) => {
+            setTyped(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            add();
+          }}
+        />
+        <Button variant="outline" onClick={add} disabled={typed.trim().length < 2}>
+          Add
+        </Button>
+      </div>
+      <FieldDescription>
+        {enforcedBy === null ? 'Nothing reads this yet.' : `Read by ${enforcedBy}.`} The last reason cannot be removed — a return without one is a return nobody can report on.
+      </FieldDescription>
     </Field>
   );
 }
