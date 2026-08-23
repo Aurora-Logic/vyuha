@@ -341,6 +341,259 @@ describe('projection through the writer (REQ-R-01, R-02, T-03)', () => {
     ]);
   });
 
+  it('a party ledger carries its balances, address, contact and credit terms', async () => {
+    const response = await deliver(
+      envelope('evt_led_detail', 'ledger.created', {
+        guid: 'led-guid-detail', masterId: '90', alterId: 320, name: 'Sunmill Traders',
+        parent: 'Sundry Debtors', gstin: '27AABCU9603R1ZM', gstRegistrationType: 'Regular',
+        openingBalance: -25000, closingBalance: 184250.5,
+        address: ['Unit 4, Sunmill Compound', 'Lower Parel West', 'Mumbai'],
+        state: 'Maharashtra', country: 'India', pincode: '400018',
+        contactPerson: 'Ravi Menon', phone: '022-24001188', mobile: '9820011223',
+        email: 'accounts@sunmill.in', creditLimit: 500000, creditPeriodDays: 45, isBillWiseOn: true,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toBe('ok: 1 party');
+
+    const party = await harness.db.execute<{
+      gst_registration_type: string | null; address: string | null; state: string | null;
+      country: string | null; pincode: string | null; contact_person: string | null;
+      email: string | null; phone: string | null; credit_limit: string | null;
+      credit_days: number | null; opening_balance: string | null; closing_balance: string | null;
+      bill_wise_tracking: boolean | null;
+    }>(sql`
+      SELECT gst_registration_type, address, state, country, pincode, contact_person, email, phone,
+             credit_limit, credit_days, opening_balance, closing_balance, bill_wise_tracking
+        FROM parties WHERE org_id = ${ORG_ID} AND name = 'Sunmill Traders'
+    `);
+    const row = party.rows[0];
+    expect(row?.gst_registration_type).toBe('Regular');
+    // Tally's own line structure is kept; it is a postal address, not one string.
+    expect(row?.address).toBe('Unit 4, Sunmill Compound\nLower Parel West\nMumbai');
+    expect(row?.state).toBe('Maharashtra');
+    expect(row?.country).toBe('India');
+    expect(row?.pincode).toBe('400018');
+    expect(row?.contact_person).toBe('Ravi Menon');
+    expect(row?.email).toBe('accounts@sunmill.in');
+    // The mobile wins over the landline: it is the number a person is reached on.
+    expect(row?.phone).toBe('9820011223');
+    expect(Number(row?.credit_limit)).toBe(500000);
+    expect(row?.credit_days).toBe(45);
+    // Tally's sign convention survives: debit positive, credit negative.
+    expect(Number(row?.opening_balance)).toBe(-25000);
+    expect(Number(row?.closing_balance)).toBe(184250.5);
+    expect(row?.bill_wise_tracking).toBe(true);
+  });
+
+  it('a ledger from an Agent that predates the detail fields still lands, and holds what is stored', async () => {
+    // Same GUID as the detailed delivery above, with only the fields an older
+    // Agent sends. The detail must survive: absent is "not reported", not
+    // "cleared", or an install that has not updated would blank the projection.
+    const response = await deliver(
+      envelope('evt_led_old_agent', 'ledger.updated', {
+        guid: 'led-guid-detail', masterId: '90', alterId: 321, name: 'Sunmill Traders',
+        parent: 'Sundry Debtors', gstin: '27AABCU9603R1ZM',
+      }),
+    );
+    expect(response.body.result).toBe('ok: 1 party');
+
+    const party = await harness.db.execute<{ address: string | null; closing_balance: string | null; state: string | null }>(sql`
+      SELECT address, closing_balance, state FROM parties WHERE org_id = ${ORG_ID} AND name = 'Sunmill Traders'
+    `);
+    expect(party.rows[0]?.state).toBe('Maharashtra');
+    expect(party.rows[0]?.address).toContain('Sunmill Compound');
+    expect(Number(party.rows[0]?.closing_balance)).toBe(184250.5);
+  });
+
+  it('a settled account lands its zero balance rather than keeping the stored figure', async () => {
+    const response = await deliver(
+      envelope('evt_led_settled', 'ledger.updated', {
+        guid: 'led-guid-detail', masterId: '90', alterId: 322, name: 'Sunmill Traders',
+        parent: 'Sundry Debtors', closingBalance: 0,
+      }),
+    );
+    expect(response.body.result).toBe('ok: 1 party');
+
+    const party = await harness.db.execute<{ closing_balance: string | null }>(sql`
+      SELECT closing_balance FROM parties WHERE org_id = ${ORG_ID} AND name = 'Sunmill Traders'
+    `);
+    expect(Number(party.rows[0]?.closing_balance)).toBe(0);
+  });
+
+  it('a ledger snapshot projects the party groups and counts the rest as skipped', async () => {
+    const response = await deliver(
+      envelope('evt_led_snap', 'ledger.snapshot', {
+        chunk: 1,
+        total_chunks: 1,
+        ledgers: [
+          { guid: 'led-snap-1', masterId: '201', alterId: 410, name: 'Kaveri Hardware', parent: 'Sundry Debtors', closingBalance: 9100 },
+          { guid: 'led-snap-2', masterId: '202', alterId: 411, name: 'Nandi Timber', parent: 'Sundry Creditors', closingBalance: -3300 },
+          { guid: 'led-snap-3', masterId: '203', alterId: 412, name: 'CGST Payable', parent: 'Duties & Taxes' },
+          { guid: 'led-snap-4', masterId: '204', alterId: 413, name: 'Office Rent', parent: 'Indirect Expenses' },
+        ],
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toBe('ok: snapshot chunk 1/1, 2 parties, 2 non-party ledgers skipped');
+
+    const parties = await harness.db.execute<{ name: string; closing_balance: string | null }>(sql`
+      SELECT name, closing_balance FROM parties
+       WHERE org_id = ${ORG_ID} AND name IN ('Kaveri Hardware', 'Nandi Timber', 'CGST Payable', 'Office Rent')
+       ORDER BY name
+    `);
+    expect(parties.rows.map((r) => r.name)).toEqual(['Kaveri Hardware', 'Nandi Timber']);
+    expect(Number(parties.rows[1]?.closing_balance)).toBe(-3300);
+
+    // The cursor advances to the highest AlterID actually written, not the
+    // highest in the chunk -- the skipped ledgers were never projected.
+    const cursor = await harness.db.execute<{ last_alter_id: number }>(sql`
+      SELECT last_alter_id FROM sync_cursors WHERE connection_id = ${connectionId} AND entity_type = 'party'
+    `);
+    expect(Number(cursor.rows[0]?.last_alter_id)).toBe(411);
+  });
+
+  it('a ledger snapshot chunk with no party groups is acknowledged and skipped', async () => {
+    const response = await deliver(
+      envelope('evt_led_snap_empty', 'ledger.snapshot', {
+        chunk: 2,
+        total_chunks: 2,
+        ledgers: [
+          { guid: 'led-snap-5', masterId: '205', alterId: 420, name: 'Bank OD A/c', parent: 'Bank OCC A/c' },
+        ],
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toContain('no party-group ledgers in 1 ledgers');
+  });
+
+  it('a voucher carries its order, terms, dispatch and consignee detail', async () => {
+    const response = await deliver(
+      envelope('evt_vch_detail', 'voucher.created', {
+        guid: 'vch-guid-detail', masterId: '5100', alterId: 940, date: '20260818',
+        voucherType: 'Sales', voucherNumber: 'INV-0100', party: 'Asha Traders',
+        narration: '', isCancelled: false, amount: 9100,
+        ledgerEntries: [{ ledgerName: 'Asha Traders', amount: 9100, isDeemedPositive: true }],
+        inventoryEntries: [],
+        reference: 'PIXM/21-22/05', referenceDate: '20260810',
+        orderRef: 'Lead 9480', buyerOrderNumber: 'PO-7781', buyerOrderDate: '20260805',
+        paymentTerms: '100% Advance Payment',
+        deliveryTerms: ['1. Ex-Works', '2. Risk passes on despatch'],
+        dispatchedThrough: 'Harish / Rutik', dispatchDocNo: 'ORD-INN/24_25/00012',
+        vehicleNumber: 'GJ03AZ6791', destination: 'Ludhiyana',
+        buyerName: 'Asha Traders', buyerAddress: ['Unit 4, Sunmill', 'Lower Parel'],
+        partyGstin: '27AAAPL1234C1ZV', partyState: 'Maharashtra', placeOfSupply: 'Maharashtra',
+        consigneeName: 'Asha Traders Warehouse', consigneeState: 'Gujarat',
+        consigneePincode: '360006', consigneeGstin: '24AKRPD7559E1ZY',
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    const v = await harness.db.execute<{
+      reference: string | null; reference_date: string | null; buyer_order_number: string | null;
+      buyer_order_date: string | null; payment_terms: string | null; delivery_terms: string | null;
+      dispatched_through: string | null; vehicle_number: string | null; destination: string | null;
+      buyer_address: string | null; consignee_pincode: string | null; consignee_gstin: string | null;
+    }>(sql`
+      SELECT reference, reference_date::text AS reference_date, buyer_order_number,
+             buyer_order_date::text AS buyer_order_date, payment_terms, delivery_terms,
+             dispatched_through, vehicle_number, destination, buyer_address,
+             consignee_pincode, consignee_gstin
+        FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0100'
+    `);
+    const row = v.rows[0];
+    expect(row?.reference).toBe('PIXM/21-22/05');
+    // Tally's YYYYMMDD converted into a real date column.
+    expect(row?.reference_date).toBe('2026-08-10');
+    expect(row?.buyer_order_number).toBe('PO-7781');
+    expect(row?.buyer_order_date).toBe('2026-08-05');
+    expect(row?.payment_terms).toBe('100% Advance Payment');
+    // Multi-line source joined into the single block the column holds.
+    expect(row?.delivery_terms).toBe('1. Ex-Works\n2. Risk passes on despatch');
+    expect(row?.buyer_address).toBe('Unit 4, Sunmill\nLower Parel');
+    expect(row?.dispatched_through).toBe('Harish / Rutik');
+    expect(row?.vehicle_number).toBe('GJ03AZ6791');
+    expect(row?.destination).toBe('Ludhiyana');
+    expect(row?.consignee_pincode).toBe('360006');
+    expect(row?.consignee_gstin).toBe('24AKRPD7559E1ZY');
+  });
+
+  it('a receipt carries settlement on the bank line, not on the voucher', async () => {
+    const response = await deliver(
+      envelope('evt_vch_receipt', 'voucher.created', {
+        guid: 'vch-guid-receipt', masterId: '5200', alterId: 950, date: '20260819',
+        voucherType: 'Receipt', voucherNumber: 'RCPT-9', party: 'Asha Traders',
+        narration: '', isCancelled: false, amount: 6313,
+        ledgerEntries: [
+          {
+            ledgerName: 'Bank of Baroda', amount: -6313, isDeemedPositive: true,
+            bankAllocation: {
+              transactionType: 'Cheque/DD', paymentMode: 'Transacted',
+              instrumentNumber: '328650', instrumentDate: '20260819',
+              bankName: 'State Bank of India (India)', paymentFavouring: 'Rajesh Sharma',
+            },
+          },
+          { ledgerName: 'Asha Traders', amount: 6313, isDeemedPositive: false },
+        ],
+        inventoryEntries: [],
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    const lines = await harness.db.execute<{
+      line_no: number; ledger_name: string | null; settlement_type: string | null;
+      settlement_mode: string | null; instrument_number: string | null;
+      instrument_date: string | null; bank_name: string | null; payment_favouring: string | null;
+    }>(sql`
+      SELECT l.line_no, l.ledger_name, l.settlement_type, l.settlement_mode, l.instrument_number,
+             l.instrument_date::text AS instrument_date, l.bank_name, l.payment_favouring
+        FROM voucher_lines l
+        JOIN vouchers v ON v.id = l.voucher_id
+       WHERE v.org_id = ${ORG_ID} AND v.voucher_number = 'RCPT-9'
+       ORDER BY l.line_no
+    `);
+    expect(lines.rows).toHaveLength(2);
+
+    // Settlement belongs to the bank line — that is where Tally records it.
+    const bank = lines.rows[0];
+    expect(bank?.ledger_name).toBe('Bank of Baroda');
+    expect(bank?.settlement_type).toBe('Cheque/DD');
+    expect(bank?.settlement_mode).toBe('Transacted');
+    expect(bank?.instrument_number).toBe('328650');
+    expect(bank?.instrument_date).toBe('2026-08-19');
+    expect(bank?.bank_name).toBe('State Bank of India (India)');
+    expect(bank?.payment_favouring).toBe('Rajesh Sharma');
+
+    // The party line has none, and must not inherit the bank line's.
+    expect(lines.rows[1]?.ledger_name).toBe('Asha Traders');
+    expect(lines.rows[1]?.settlement_type).toBeNull();
+  });
+
+  it('a voucher from an Agent that predates the detail fields holds what is stored', async () => {
+    // Same GUID as the detailed voucher, with only the old fields set. Absent
+    // means "not reported", not "cleared" — an install that has not updated
+    // must not blank detail a newer Agent already wrote.
+    const response = await deliver(
+      envelope('evt_vch_old_agent', 'voucher.updated', {
+        guid: 'vch-guid-detail', masterId: '5100', alterId: 941, date: '20260818',
+        voucherType: 'Sales', voucherNumber: 'INV-0100', party: 'Asha Traders',
+        narration: 'edited', isCancelled: false, amount: 9100,
+        ledgerEntries: [], inventoryEntries: [],
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    const v = await harness.db.execute<{
+      narration: string; dispatched_through: string | null; buyer_order_number: string | null;
+    }>(sql`
+      SELECT narration, dispatched_through, buyer_order_number
+        FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0100'
+    `);
+    expect(v.rows[0]?.narration).toBe('edited');
+    expect(v.rows[0]?.dispatched_through).toBe('Harish / Rutik');
+    expect(v.rows[0]?.buyer_order_number).toBe('PO-7781');
+  });
+
   const INVOICE = {
     guid: 'vch-guid-1', masterId: '5001', alterId: 900, date: '20260817', voucherType: 'Sales',
     voucherNumber: 'INV-0042', party: 'Asha Traders', narration: 'Cable order', isCancelled: false, amount: 4150.5,
