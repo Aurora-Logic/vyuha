@@ -37,6 +37,8 @@ import type { Principal } from '../rbac/principal.js';
 export interface ReportSourcePage {
   readonly rows: ReadonlyArray<unknown>;
   readonly total: number;
+  /** Sums over the whole report, for reports that declare them. */
+  readonly totals?: Readonly<Record<string, string>>;
 }
 
 export interface ReportSource {

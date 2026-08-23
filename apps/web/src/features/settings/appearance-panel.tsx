@@ -110,14 +110,30 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
                             'focus-visible:ring-ring relative flex aspect-square items-center justify-center rounded-md outline-none transition-transform focus-visible:ring-2 focus-visible:ring-offset-2',
                             'after:absolute after:inset-0 pointer-coarse:after:-inset-1',
                             'active:scale-95',
-                            SWATCH[candidate.id],
                             selected && 'ring-foreground ring-2 ring-offset-2',
                           )}
                         >
+                          {/*
+                            The colour is a layer inside the control, not the
+                            control's own background, which is how the base row
+                            below already does it. On the button itself it was
+                            being wiped by `hover:bg-transparent` -- that class
+                            is there to kill the ghost variant's hover tint, and
+                            a hover: utility beats a plain bg utility, so the
+                            swatch went invisible under the pointer. Painting an
+                            opaque layer over the button makes any hover
+                            background unreachable rather than fighting it.
+                          */}
+                          <span
+                            aria-hidden
+                            className={cn('absolute inset-0 rounded-md', SWATCH[candidate.id])}
+                          />
                           {/* White on every swatch: each is oklch(0.457), and
                               white on that lightness clears AA at any hue in
                               the ramp. */}
-                          {selected ? <CheckIcon weight="bold" className="size-4 text-white" /> : null}
+                          {selected ? (
+                            <CheckIcon weight="bold" className="relative size-4 text-white" />
+                          ) : null}
                         </Button>
                       }
                     />

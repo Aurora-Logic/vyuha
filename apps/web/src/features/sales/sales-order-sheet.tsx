@@ -6,8 +6,9 @@ import { PersonChip } from '@/components/shared/person';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { StatusBadge } from '@/components/shared/status-badge';
+import { statusTone } from '@/components/shared/status-tone';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,24 +21,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { DISPATCH_MODE_LABELS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS } from '@vyuha/shared';
 
 import { DispatchDialog } from './dispatch-dialog';
-import { DocumentLinesEditor, type StockItemOption } from './document-lines-editor';
+import { DocumentLinesEditor } from './document-lines-editor';
 import { FulfilmentBadge } from './fulfilment-badge';
 import { fulfilmentProgress } from './fulfilment-progress';
 import { FulfilmentSteps } from './fulfilment-steps';
 import { InvoiceDialog } from './invoice-dialog';
-import { formatMoney } from './money';
 import { PickPackDialog } from './pick-pack-dialog';
 import { ORDER_INVOICE_METHOD_LABELS, WAITING_ON_STATE_LABELS, lineBalances, trimZeros, type Estimate, type EstimateDraft, type SalesLine } from './types';
 import { creditBlockOf } from './credit-block';
@@ -61,7 +61,7 @@ import { usePackRecords, useShortCloseOrder } from './use-fulfilment';
 export function SyncStateBadge({ record }: { record: Pick<Estimate, 'syncState' | 'remoteVoucherNumber'> }) {
   const label = SYNC_STATE_LABELS[record.syncState];
   return (
-    <Badge variant={record.syncState === 'PUSHED' ? 'default' : record.syncState === 'FAILED' ? 'destructive' : 'outline'}>
+    <Badge variant={statusTone(record.syncState)}>
       {record.syncState === 'PUSHED' && record.remoteVoucherNumber ? `${label} · #${record.remoteVoucherNumber}` : label}
     </Badge>
   );
@@ -153,21 +153,10 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canOverrideCredit = usePermission(PERMISSIONS.SALES_CREDIT_OVERRIDE);
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeMasters });
   const isNew = initial.id === undefined;
   const isDraft = draft.status === 'DRAFT';
   const editable = isDraft || altering;
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
-  const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    label: i.name,
-    hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    salePrice: i.salePrice ?? null,
-    gstRate: i.gstRate,
-  }));
   const partyMissing = draft.partyId === null;
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const busy = save.isPending || alter.isPending || act.isPending;
@@ -257,7 +246,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex flex-wrap items-center gap-2">
           {isNew ? 'New sales order' : `Sales order ${initial.number ?? ''}`}
-          {isNew ? null : <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
+          {isNew ? null : <StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />}
           {record === null ? null : <SyncStateBadge record={record} />}
           {record?.fulfilment && confirmed ? <FulfilmentBadge state={record.fulfilment} /> : null}
         </SheetTitle>
@@ -286,6 +275,8 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             </Alert>
           ) : null}
 
+          {/* 15 REQ-AJ-10 / D-54: the promise flag sits with the limit and never blocks. */}
+          <BrokenPromiseNote partyId={record?.partyId ?? null} />
           {creditBlock !== null ? (
             <Alert variant="destructive">
               <WarningCircleIcon />
@@ -335,19 +326,16 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="order-party">Tally party</FieldLabel>
-              <RecordPicker
+              <PartyPicker
                 id="order-party"
                 label="Tally party"
                 placeholder="Choose the party"
-                searchPlaceholder="Search parties"
-                emptyMessage="No party matches. A prospect must become a party in Tally first."
                 icon={<BooksIcon className="text-muted-foreground" />}
-                options={partyOptions}
-                loading={parties.isPending}
+                enabled={canSeeMasters}
                 disabled={!editable || !canSeeMasters}
-                value={partyOptions.find((o) => o.id === draft.partyId) ?? null}
+                partyId={draft.partyId}
                 onValueChange={(next) => {
-                  setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.label ?? current.customerName }));
+                  setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.name ?? current.customerName }));
                 }}
               />
             </Field>
@@ -366,13 +354,12 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           </div>
 
           <DocumentLinesEditor
+            documentDate={draft.date}
             lines={draft.lines}
             onLinesChange={(next) => {
               setDraft((current) => ({ ...current, lines: next }));
             }}
             editable={editable}
-            itemOptions={itemOptions}
-            itemsLoading={items.isPending}
             canPickItems={canSeeMasters}
             partyId={draft.partyId}
             companyId={draft.companyId}
@@ -645,7 +632,7 @@ export function FulfilmentSections({
                         {req.neededBy ? ` · needed by ${formatDate(req.neededBy)}` : ''}
                       </span>
                     </span>
-                    <Badge variant={req.state === 'ordered' ? 'default' : 'outline'}>{WAITING_ON_STATE_LABELS[req.state]}</Badge>
+                    <StatusBadge state={req.state} label={WAITING_ON_STATE_LABELS[req.state]} />
                   </div>
                   {req.purchaseOrders.length === 0 ? (
                     <p className="text-muted-foreground text-xs">No purchase order yet.</p>

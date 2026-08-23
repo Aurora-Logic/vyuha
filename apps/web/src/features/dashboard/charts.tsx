@@ -21,6 +21,7 @@ import {
   shortDate,
   type HoursPoint,
   type LatePoint,
+  type TeamHoursPoint,
   type TrendPoint,
 } from './series';
 
@@ -58,8 +59,15 @@ const LATE_CONFIG = {
   late: { label: 'Arrived late', color: 'var(--warning)' },
 } satisfies ChartConfig;
 
+/* Hours worked is a quantity, not a state. It wore --success because it sits
+   beside the status bands where green means "at work", but a measurement is
+   not a verdict and a green bar in a crimson workspace belongs to neither. */
 const HOURS_CONFIG = {
-  workedMinutes: { label: 'Worked', color: 'var(--success)' },
+  workedMinutes: { label: 'Worked', color: 'var(--chart-1)' },
+} satisfies ChartConfig;
+
+const TEAM_HOURS_CONFIG = {
+  workedMinutes: { label: 'Worked, everyone', color: 'var(--chart-1)' },
 } satisfies ChartConfig;
 
 /** Five dates is what fits at 360px without the labels touching. */
@@ -185,7 +193,7 @@ export function AttendanceTrendChart({ points, animate }: ChartProps<TrendPoint>
           dataKey="work"
           stackId="day"
           fill="var(--color-work)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -194,7 +202,7 @@ export function AttendanceTrendChart({ points, animate }: ChartProps<TrendPoint>
           dataKey="leave"
           stackId="day"
           fill="var(--color-leave)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -203,7 +211,7 @@ export function AttendanceTrendChart({ points, animate }: ChartProps<TrendPoint>
           dataKey="absent"
           stackId="day"
           fill="var(--color-absent)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -212,7 +220,7 @@ export function AttendanceTrendChart({ points, animate }: ChartProps<TrendPoint>
           dataKey="other"
           stackId="day"
           fill="var(--color-other)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -317,7 +325,7 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
         <Bar
           dataKey="workedMinutes"
           fill="var(--color-workedMinutes)"
-          maxBarSize={24}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -325,6 +333,71 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
           <LabelList {...valueCaps('workedMinutes', compactCount)} />
         </Bar>
       </BarChart>
+    </ChartContainer>
+  );
+}
+
+function teamHoursValue(value: unknown, _name: unknown, item: unknown): string {
+  const people = (item as { payload?: { people?: number } } | undefined)?.payload?.people ?? 0;
+  return `${formatDuration(Number(value))} across ${String(people)} ${people === 1 ? 'person' : 'people'}`;
+}
+
+/**
+ * The team's worked hours, day by day.
+ *
+ * The line is everyone's minutes added together and the tooltip names the
+ * headcount behind it, because the total on its own cannot tell a quiet week
+ * from a short-staffed one.
+ */
+export function TeamHoursChart({ points, animate }: ChartProps<TeamHoursPoint>) {
+  const { domainMax, ticks } = hourTicks(
+    points.reduce((most, point) => Math.max(most, point.workedMinutes), 0),
+  );
+
+  return (
+    <ChartContainer config={TEAM_HOURS_CONFIG} className="aspect-auto h-44 w-full min-w-0 sm:h-48">
+      <LineChart accessibilityLayer data={[...points]} margin={LINE_MARGIN}>
+        <CartesianGrid vertical={false} />
+        <XAxis
+          dataKey="date"
+          tickLine={false}
+          axisLine={false}
+          tick={TICK}
+          tickMargin={8}
+          interval={0}
+          ticks={axisTicks(points.map((point) => point.date), MAX_DATE_TICKS)}
+          tickFormatter={dateTick}
+        />
+        <YAxis
+          width={32}
+          tickLine={false}
+          axisLine={false}
+          tick={TICK}
+          domain={[0, domainMax]}
+          ticks={ticks}
+          tickFormatter={hoursTick}
+        />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              labelFormatter={fullDate}
+              formatter={teamHoursValue}
+              indicator="dot"
+            />
+          }
+        />
+        <Line
+          dataKey="workedMinutes"
+          type="monotone"
+          stroke="var(--color-workedMinutes)"
+          strokeWidth={2}
+          dot={{ r: 2.5, fill: 'var(--color-workedMinutes)', strokeWidth: 0 }}
+          activeDot={{ r: 4 }}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        />
+      </LineChart>
     </ChartContainer>
   );
 }

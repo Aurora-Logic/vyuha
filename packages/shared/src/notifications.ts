@@ -50,6 +50,8 @@ export const NOTIFICATION_EVENTS = {
   SALES_INVOICE_WAITING: 'sales.invoice_waiting',
   /** D-46: the morning digest, sent only when an exception report has rows. */
   REPORTS_EXCEPTIONS_DAILY: 'reports.exceptions_daily',
+  /** 15 REQ-AJ-09: promises past their date with nothing against them, each morning. */
+  COLLECTIONS_PROMISES_BROKEN: 'collections.promises_broken',
 } as const;
 
 export type NotificationEventType =
@@ -84,6 +86,7 @@ export const NOTIFICATION_EVENT_GROUPS = [
   'Tasks',
   'Orders',
   'Reports',
+  'Receivables',
 ] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
@@ -198,6 +201,11 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Packed order waiting for its invoice',
     note: 'To accounts, once per order, when packed goods have waited longer than the configured hours (REQ-AA-15).',
   },
+  'collections.promises_broken': {
+    group: 'Receivables',
+    label: 'Promises not kept',
+    note: 'Each morning a promise to pay came due with nothing, or not enough, received against the bills it named.',
+  },
   'reports.exceptions_daily': {
     group: 'Reports',
     label: 'Daily exception digest',
@@ -249,6 +257,7 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'procurement.stock_arrived': '/sales/orders',
   'sales.invoice_waiting': '/sales/awaiting-invoice',
   'reports.exceptions_daily': '/reports',
+  'collections.promises_broken': '/collections',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

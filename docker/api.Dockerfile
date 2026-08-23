@@ -36,6 +36,15 @@ RUN pnpm install --frozen-lockfile --prod --filter @vyuha/api...
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
+
+# The build these bytes came from, readable at /api/v1/health. Defaulted so a
+# local build works; the release passes the real values.
+ARG APP_VERSION=0.0.0
+ARG GIT_COMMIT=unknown
+ARG BUILT_AT=""
+ENV APP_VERSION=${APP_VERSION}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILT_AT=${BUILT_AT}
 WORKDIR /app/apps/api
 
 # The pnpm layout is symlinks into the root .pnpm store and a workspace link

@@ -45,6 +45,10 @@ function actionFor(key: string): CalculatorAction {
       return { kind: 'equals' };
     case '%':
       return { kind: 'percent' };
+    case 'g':
+      return { kind: 'gstAdd' };
+    case 'G':
+      return { kind: 'gstReverse' };
     case '~':
       return { kind: 'sign' };
     case '<':
@@ -149,12 +153,58 @@ describe('entry', () => {
 });
 
 describe('per cent', () => {
-  it('divides by a hundred', () => {
+  it('divides a standalone entry by a hundred', () => {
     expect(press('50%').display).toBe('0.5');
   });
 
   it('is exact for a value a double would mangle', () => {
     expect(press('4.35%').display).toBe('0.0435');
+  });
+
+  // The iOS rule: against + or −, the per cent is OF the left operand and waits
+  // for =; against × or ÷, or alone, it is a plain hundredth.
+  it('adds a percentage of the left operand: 100 + 10% = 110', () => {
+    expect(press('100+10%=').display).toBe('110');
+  });
+
+  it('subtracts a percentage of the left operand: 200 − 10% = 180', () => {
+    expect(press('200-10%=').display).toBe('180');
+  });
+
+  it('holds the percentage until equals, not folding the + early', () => {
+    expect(press('100+10%').display).toBe('10');
+  });
+
+  it('is a plain hundredth against ×: 5 × 20% = 1', () => {
+    expect(press('5*20%=').display).toBe('1');
+  });
+
+  it('is a plain hundredth against ÷: 200 ÷ 50% = 400', () => {
+    expect(press('200/50%=').display).toBe('400');
+  });
+});
+
+describe('GST keys', () => {
+  it('adds 18% at once, no equals: 100 becomes 118', () => {
+    expect(press('100g').display).toBe('118');
+  });
+
+  it('strips 18% at once: 118 becomes 100', () => {
+    expect(press('118G').display).toBe('100');
+  });
+
+  it('is exact where a double would drift: 1000 → 1180 → 1000', () => {
+    expect(press('1000g').display).toBe('1180');
+    expect(press('1180G').display).toBe('1000');
+  });
+
+  it('ends the running sum and overwrites on the next digit', () => {
+    const afterGst = press('50+100g');
+    // The + is abandoned; 100 with tax stands alone.
+    expect(afterGst.display).toBe('118');
+    expect(afterGst.pending).toBeNull();
+    // The next digit starts a fresh number rather than appending to 118.
+    expect(press('7', afterGst).display).toBe('7');
   });
 });
 

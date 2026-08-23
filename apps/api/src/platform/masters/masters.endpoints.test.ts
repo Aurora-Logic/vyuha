@@ -1,4 +1,4 @@
-import { PERMISSIONS, SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
+import { PERMISSIONS, SALES_ANALYSIS_DIMENSIONS, SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -305,6 +305,27 @@ describe('the receivables reports (Phase 6d, REQ-Y-01, Y-03, Y-05, Y-07)', () =>
     `);
   });
 
+  it('is the same number of rows whichever way it is read (audit 21)', async () => {
+    type Body = { data: { voucherType: string }[]; meta: { total: number } };
+    const url = (extra: string): string => `/reports/customer-statement/rows?partyId=${ashaId}&from=2026-08-01&to=2026-08-31&pageSize=100&${extra}`;
+
+    const forwards = (await harness.get<Body>(url('page=1'), { token: adminToken })).body;
+    const backwards = (await harness.get<Body>(url('page=1&sort=-date'), { token: adminToken })).body;
+
+    // The total counts the opening row, and knows nothing about the sort. Read
+    // backwards the opening row used to be dropped, so the count was one
+    // higher than the statement and the pager offered an empty last page.
+    expect(backwards.meta.total).toBe(forwards.meta.total);
+    expect(backwards.data).toHaveLength(forwards.data.length);
+    expect(forwards.data.length).toBe(forwards.meta.total);
+
+    // Forwards it opens the statement; backwards it closes it, which is where
+    // reverse-chronological order puts what came before everything.
+    expect(forwards.data[0]?.voucherType).toBe('Opening balance');
+    expect(backwards.data.at(-1)?.voucherType).toBe('Opening balance');
+    expect(backwards.data.filter((row) => row.voucherType === 'Opening balance')).toHaveLength(1);
+  });
+
   it('a customer statement needs a party, opens from what came before, and runs a balance across the period', async () => {
     const noParty = await harness.get<{ error: { details?: { fields?: { path: string }[] } } }>(
       '/reports/customer-statement/rows?from=2026-08-01&to=2026-08-31',
@@ -372,6 +393,56 @@ describe('the receivables reports (Phase 6d, REQ-Y-01, Y-03, Y-05, Y-07)', () =>
     const bad = await harness.get('/reports/sales-analysis/rows?groupBy=salesperson', { token: adminToken });
     expect(bad.status).toBe(400);
   });
+
+  // Every dimension the dropdown offers has to answer. "By item group"
+  // shipped in it and returned 500 twice over -- the count query never
+  // joined stock_items, and once it did the label reached for a column the
+  // GROUP BY did not carry. Walking the shared list means a dimension added
+  // later cannot ship untried.
+  it('sales analysis answers on every dimension the dropdown offers', async () => {
+    // Its own item and invoice, so the assertion does not depend on a hook in
+    // a sibling describe, and so the item group is a real group rather than
+    // the ungrouped bucket.
+    await harness.db.execute(sql`
+      WITH s AS (
+        INSERT INTO stock_items (org_id, connection_id, name, parent_group, unit, closing_qty, cost_price, absent_in_tally)
+        VALUES (${ORG_ID}, ${connectionId}, 'Dimension Cable', 'Cables', 'NOS', 5, 100, false)
+        RETURNING id
+      ), v AS (
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+        VALUES (${ORG_ID}, ${connectionId}, '2026-08-12', 'Sales', 'DIM-1', 'Dimension Co', NULL, false, '600.00')
+        RETURNING id
+      )
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_id, stock_item_name, actual_qty, billed_qty, rate, amount)
+      SELECT ${ORG_ID}, v.id, 1, 'inventory', s.id, 'Dimension Cable', '2 NOS', '2 NOS', '300.00', '600.00' FROM v, s
+    `);
+    // A line no stock item backs, so the ungrouped bucket exists whatever
+    // else the fixtures hold.
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, actual_qty, billed_qty, rate, amount)
+      SELECT ${ORG_ID}, id, 2, 'inventory', 'Loose Item', '1 NOS', '1 NOS', '50.00', '50.00'
+        FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'DIM-1'
+    `);
+
+    for (const groupBy of SALES_ANALYSIS_DIMENSIONS) {
+      const res = await harness.get<{ data: { label: string; value: string; share: string }[]; meta: { total: number } }>(
+        `/reports/sales-analysis/rows?groupBy=${groupBy}&from=2026-08-01&to=2026-08-31`,
+        { token: adminToken },
+      );
+      expect([groupBy, res.status]).toEqual([groupBy, 200]);
+      expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.every((r) => r.label !== '' && /^-?\d+\.\d\d$/u.test(r.value))).toBe(true);
+    }
+
+    const byGroup = await harness.get<{ data: { label: string; value: string }[] }>(
+      '/reports/sales-analysis/rows?groupBy=itemGroup&from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    // Items with no group at all collapse into one bucket rather than
+    // appearing twice, once for NULL and once for the empty string.
+    expect(byGroup.body.data.find((r) => r.label === 'Cables')?.value).toBe('600.00');
+    expect(byGroup.body.data.filter((r) => r.label === '(ungrouped)')).toHaveLength(1);
+  });
 });
 
 describe('the Tier 1 analytics (14 REQ-AE-01, REQ-AG-02)', () => {
@@ -429,6 +500,56 @@ describe('the Tier 1 analytics, the wider set (14, D-46)', () => {
     expect(extract.status).toBe(200);
     expect(extract.body.data[0]?.voucherType).toBe('Opening balance');
     expect(extract.body.data.every((r) => /^-?\d+\.\d\d$/u.test(r.balance))).toBe(true);
+  });
+
+  it('the extract reads the same paged as it does whole', async () => {
+    // Its own ledger, so the fixtures the other tests write cannot move the
+    // arithmetic. One voucher before the period gives the opening row
+    // something to carry; five inside it are enough to page twice.
+    await harness.db.execute(sql`
+      WITH v AS (
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, is_cancelled, amount)
+        VALUES (${ORG_ID}, ${connectionId}, '2026-07-25', 'Sales', 'PG-0', 'Paging Co', false, '100.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-02', 'Sales', 'PG-1', 'Paging Co', false, '10.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-03', 'Sales', 'PG-2', 'Paging Co', false, '20.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-04', 'Sales', 'PG-3', 'Paging Co', false, '30.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-05', 'Sales', 'PG-4', 'Paging Co', false, '40.00'),
+               (${ORG_ID}, ${connectionId}, '2026-08-06', 'Sales', 'PG-5', 'Paging Co', false, '50.00')
+        RETURNING id, amount
+      )
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount)
+      SELECT ${ORG_ID}, v.id, 1, 'ledger', 'Paging Ledger', true, v.amount FROM v
+    `);
+
+    type Row = { voucherNumber: string; balance: string };
+    const fetch = async (page: number, pageSize: number) =>
+      (
+        await harness.get<{ data: Row[]; meta: { total: number } }>(
+          `/reports/ledger-extract/rows?ledgerName=Paging%20Ledger&from=2026-08-01&to=2026-08-31&page=${String(page)}&pageSize=${String(pageSize)}`,
+          { token: adminToken },
+        )
+      ).body;
+
+    const whole = await fetch(1, 50);
+    expect(whole.meta.total).toBe(6);
+    expect(whole.data.map((r) => r.balance)).toEqual(['100.00', '110.00', '130.00', '160.00', '200.00', '250.00']);
+
+    const first = await fetch(1, 3);
+    const second = await fetch(2, 3);
+    // Page two continues the statement. Accumulating across the page instead
+    // of summing the period restarted this at the opening figure, which read
+    // 130.00 here -- the balance of a statement that began at row three.
+    expect(second.data[0]?.balance).toBe('160.00');
+    // The opening row is the first row of page one, so three-a-page means
+    // three rows on every page and six rows in two -- no line shown twice,
+    // and none skipped.
+    expect(first.data).toHaveLength(3);
+    expect(second.data).toHaveLength(3);
+    expect([...first.data, ...second.data].map((r) => r.voucherNumber)).toEqual(whole.data.map((r) => r.voucherNumber));
+    // And the balance on page two continues the statement rather than
+    // restarting it from the opening figure.
+    expect([...first.data, ...second.data].map((r) => r.balance)).toEqual(whole.data.map((r) => r.balance));
+    expect(second.data[2]?.balance).toBe('250.00');
   });
 
   it('stock summary values closing at cost and carries committed and available', async () => {
@@ -562,6 +683,144 @@ describe('comparison flows into the exported file (data-analyst §3)', () => {
 });
 
 describe('the second analytics set (owner, 22 Aug 2026)', () => {
+  it('reports every confirmed order line and where it has got to (P-33, D-48)', async () => {
+    // Its own order, taken one step at a time, so each row's word is the
+    // furthest step that line actually reached rather than a coincidence of
+    // whatever else the fixtures left behind.
+    const order = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sales_documents (org_id, doc_type, number, status, date, party_id, customer_name, grand_total)
+      VALUES (${ORG_ID}, 'SALES_ORDER', 'SO-FULFIL-1', 'CONFIRMED', '2026-08-18', ${ashaId}, 'Asha Traders', '900.00')
+      RETURNING id
+    `);
+    const orderId = order.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO sales_document_lines (org_id, document_id, line_no, description, quantity, rate, amount, picked_qty, packed_qty, invoiced_qty, dispatched_qty)
+      VALUES (${ORG_ID}, ${orderId}, 1, 'Fully out', 5, 100, 500, 5, 5, 5, 5),
+             (${ORG_ID}, ${orderId}, 2, 'Half out', 4, 100, 400, 4, 4, 4, 2),
+             (${ORG_ID}, ${orderId}, 3, 'Invoiced only', 3, 100, 300, 3, 3, 3, 0),
+             (${ORG_ID}, ${orderId}, 4, 'Packed only', 2, 100, 200, 2, 2, 0, 0),
+             (${ORG_ID}, ${orderId}, 5, 'Picked only', 2, 100, 200, 1, 0, 0, 0),
+             (${ORG_ID}, ${orderId}, 6, 'Not started', 7, 100, 700, 0, 0, 0, 0)
+    `);
+
+    const rows = await harness.get<{ data: { number: string; item: string; state: string; balanceQty: string }[]; meta: { total: number } }>(
+      '/reports/order-fulfilment/rows?from=2026-08-01&to=2026-08-31&page=1&pageSize=200',
+      { token: adminToken },
+    );
+    expect(rows.status).toBe(200);
+    const mine = rows.body.data.filter((row) => row.number === 'SO-FULFIL-1');
+    expect(mine).toHaveLength(6);
+    expect(new Map(mine.map((row) => [row.item, row.state]))).toEqual(
+      new Map([
+        ['Fully out', 'closed'],
+        ['Half out', 'partially_dispatched'],
+        ['Invoiced only', 'ready_to_dispatch'],
+        ['Packed only', 'awaiting_invoice'],
+        ['Picked only', 'picking'],
+        ['Not started', 'open'],
+      ]),
+    );
+    // What is still to go is against what was ordered, and never negative.
+    expect(new Map(mine.map((row) => [row.item, row.balanceQty]))).toEqual(
+      new Map([
+        ['Fully out', '0.000'],
+        ['Half out', '2.000'],
+        ['Invoiced only', '3.000'],
+        ['Packed only', '2.000'],
+        ['Picked only', '2.000'],
+        ['Not started', '7.000'],
+      ]),
+    );
+
+    // A short-closed order says so, whatever its lines have reached.
+    await harness.db.execute(sql`UPDATE sales_documents SET short_closed_at = now() WHERE id = ${orderId}`);
+    const closed = await harness.get<{ data: { number: string; state: string }[] }>(
+      '/reports/order-fulfilment/rows?from=2026-08-01&to=2026-08-31&page=1&pageSize=200',
+      { token: adminToken },
+    );
+    expect(closed.body.data.filter((row) => row.number === 'SO-FULFIL-1').every((row) => row.state === 'short_closed')).toBe(true);
+  });
+
+  it('a headline total is the whole report, not whatever the page held', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)
+      VALUES (${ORG_ID}, ${connectionId}, 'Whole A', 'Sundry Debtors', 100000),
+             (${ORG_ID}, ${connectionId}, 'Whole B', 'Sundry Debtors', 100000)
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+      SELECT ${ORG_ID}, ${connectionId}, '2026-08-15', 'Sales', 'WH-' || p.name, p.name, p.id, false, '500.00'
+        FROM parties p WHERE p.org_id = ${ORG_ID} AND p.name IN ('Whole A', 'Whole B')
+    `);
+
+    type Body = { data: { exposure: string }[]; meta: { total: number; totals?: Record<string, string> } };
+    const all = (await harness.get<Body>('/reports/credit-cycle/rows?page=1&pageSize=200', { token: adminToken })).body;
+    const one = (await harness.get<Body>('/reports/credit-cycle/rows?page=1&pageSize=1', { token: adminToken })).body;
+
+    expect(one.data).toHaveLength(1);
+    // The same figure whichever slice was asked for: it is the report's.
+    expect(one.meta.totals?.exposure).toBe(all.meta.totals?.exposure);
+    const whole = Number(all.meta.totals?.exposure ?? '0');
+    expect(whole).toBeCloseTo(
+      all.data.reduce((running, row) => running + Number(row.exposure), 0),
+      2,
+    );
+    // And it is not the one row the caller was given, which is what the
+    // dashboard tile used to add up.
+    expect(Number(one.data[0]?.exposure ?? '0')).toBeLessThan(whole);
+  });
+
+  it('the quiet-revenue total leaves out customers still buying on rhythm', async () => {
+    type Body = { data: { state: string; revenue12m: string }[]; meta: { totals?: Record<string, string> } };
+    const lapse = (await harness.get<Body>('/reports/customer-lapse/rows?page=1&pageSize=200', { token: adminToken })).body;
+    const quiet = lapse.data.filter((row) => row.state !== 'ON_RHYTHM');
+    expect(lapse.meta.totals?.revenue12m).toBeDefined();
+    expect(Number(lapse.meta.totals?.revenue12m ?? '-1')).toBeCloseTo(
+      quiet.reduce((running, row) => running + Number(row.revenue12m), 0),
+      2,
+    );
+  });
+
+  it('credit breaches count each party its own releases, not the whole organisation', async () => {
+    // Two customers over their limit; one had an order released, the other
+    // never did. The count is the column's whole point -- a party released
+    // three times this quarter is a different conversation from one that has
+    // simply drifted over.
+    const parties = await harness.db.execute<{ id: string; name: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)
+      VALUES (${ORG_ID}, ${connectionId}, 'Breach Released', 'Sundry Debtors', 100),
+             (${ORG_ID}, ${connectionId}, 'Breach Untouched', 'Sundry Debtors', 100)
+      RETURNING id, name
+    `);
+    const released = parties.rows.find((r) => r.name === 'Breach Released')?.id ?? '';
+    const untouched = parties.rows.find((r) => r.name === 'Breach Untouched')?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+      VALUES (${ORG_ID}, ${connectionId}, '2026-08-14', 'Sales', 'BR-1', 'Breach Released', ${released}, false, '900.00'),
+             (${ORG_ID}, ${connectionId}, '2026-08-14', 'Sales', 'BR-2', 'Breach Untouched', ${untouched}, false, '900.00')
+    `);
+    const doc = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sales_documents (org_id, doc_type, number, status, date, party_id, customer_name, grand_total)
+      VALUES (${ORG_ID}, 'SALES_ORDER', 'SO-BREACH-1', 'CONFIRMED', '2026-08-14', ${released}, 'Breach Released', '900.00')
+      RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO audit_logs (org_id, action, entity_type, entity_id, created_at)
+      VALUES (${ORG_ID}, 'sales.order.credit_overridden', 'sales_document', ${doc.rows[0]?.id ?? ''}, now() - interval '10 days')
+    `);
+
+    const breaches = await harness.get<{ data: { partyName: string; releases90d: number; overBy: string }[] }>('/reports/credit-breaches/rows', {
+      token: adminToken,
+    });
+    expect(breaches.status).toBe(200);
+    const rows = breaches.body.data.filter((r) => r.partyName.startsWith('Breach '));
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.partyName === 'Breach Released')?.releases90d).toBe(1);
+    // Before the subquery was correlated this read 1 as well, because it was
+    // counting the organisation rather than the party.
+    expect(rows.find((r) => r.partyName === 'Breach Untouched')?.releases90d).toBe(0);
+  });
+
   it('serves each new report with its declared columns', async () => {
     for (const key of ['aov-trend', 'partial-shipments', 'vendor-lead-time', 'stock-out-frequency', 'sales-heatmap'] as const) {
       const page = await harness.get<{ data: Record<string, unknown>[]; meta: { total: number } }>(
@@ -721,5 +980,85 @@ describe('ageing and payment analysis (Phase 6d, REQ-Y-02 / REQ-Y-04)', () => {
   it('refuses an account without receivables.view', async () => {
     const refused = await harness.get('/reports/ageing/rows', { token: employeeToken });
     expect(refused.status).toBe(403);
+  });
+});
+
+/**
+ * A search that only finds what you can already spell is not a search.
+ *
+ * The fixture is deliberately awkward: "Behar Supply Co" has a space where
+ * somebody might type none, and the GSTIN is the kind of string nobody
+ * reproduces exactly. Each case below failed before `masterSearch` learned to
+ * strip separators and match words in any order.
+ */
+describe('finding a party the way somebody actually types', () => {
+  const find = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}`,
+      { token: adminToken },
+    );
+    expect(res.status).toBe(200);
+    return res.body.data.map((p) => p.name).sort();
+  };
+
+  /*
+   * Both spellings, and that is the right answer rather than a nuisance.
+   * The duplicate-masters test above leaves "ASHA  TRADERS." in the fixture --
+   * two spaces and a full stop -- and it is the same party. A search that
+   * returned only the tidy spelling would hide the record somebody is most
+   * likely hunting for, which is the messy one somebody typed badly once.
+   */
+  const BOTH_ASHAS = ['ASHA  TRADERS.', 'Asha Traders'];
+
+  it('still finds the exact name, which must not regress', async () => {
+    expect(await find('Asha Traders')).toEqual(BOTH_ASHAS);
+  });
+
+  it('finds it with the words the other way round', async () => {
+    // "traders asha" is how somebody who half-remembers the name types it.
+    expect(await find('traders asha')).toEqual(BOTH_ASHAS);
+  });
+
+  it('does not care how many spaces were typed', async () => {
+    expect(await find('  asha    traders  ')).toEqual(BOTH_ASHAS);
+  });
+
+  it('finds a name typed without its space', async () => {
+    // The reported case: the separator has to be reproduced exactly or nothing
+    // comes back.
+    expect(await find('beharsupply')).toEqual(['Behar Supply Co']);
+  });
+
+  it('finds a name typed with a hyphen the record does not have', async () => {
+    expect(await find('behar-supply')).toEqual(['Behar Supply Co']);
+  });
+
+  it('finds a GSTIN typed in pieces, and only the record that has it', async () => {
+    // The duplicate has no GSTIN, so this is also the case that shows the
+    // search still narrows rather than sweeping both in on the name.
+    expect(await find('27AAAPL 1234C1ZV')).toEqual(['Asha Traders']);
+  });
+
+  it('matches across columns within one word, and narrows across words', async () => {
+    // Both parties contain neither word, so an OR across words would return
+    // both and prove nothing. AND is what makes a second word useful.
+    expect(await find('asha behar')).toEqual([]);
+  });
+
+  it('is still case-insensitive', async () => {
+    expect(await find('ASHA')).toEqual(BOTH_ASHAS);
+  });
+
+  it('does not let a wildcard turn the filter off', async () => {
+    // The escaping this function has always had: a bare % must not match every
+    // row, which would be a filter that silently stopped filtering.
+    expect(await find('%%')).toEqual([]);
+  });
+
+  it('treats an all-separator term as no filter rather than matching nothing', async () => {
+    // Stripping "---" leaves an empty string; searching for it must not become
+    // a contains-empty that matches everything, nor an error.
+    const all = await find('---');
+    expect(all.length).toBeGreaterThanOrEqual(0);
   });
 });

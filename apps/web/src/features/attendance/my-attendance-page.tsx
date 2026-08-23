@@ -21,7 +21,9 @@ import { useShortcut } from '@/lib/keyboard/registry';
 import { useMe } from '@/lib/session/use-session';
 import { cn } from '@/lib/utils';
 
-import { ChartPanel, TimekeepingChart, WorkedHoursChart } from './charts';
+import { ChartCard } from '@/components/shared/chart-card';
+
+import { TimekeepingChart, WorkedHoursChart } from './charts';
 import { dateRange, hasValues, timekeepingByDay, workedByDay } from './chart-series';
 import { DayDetailSheet } from './day-detail-sheet';
 import { formatClock, formatDuration, fromDateParam, toDateParam } from './format';
@@ -402,37 +404,31 @@ export function MyAttendancePage() {
                 only place a reader can ask the same question about June. */}
             {days.length > 0 ? (
               <>
-                <ChartPanel
-                  caption="Hours worked, day by day"
-                  note={
+                <ChartCard
+                  title="Hours worked, day by day"
+                  description="Line. Minutes worked on each day of the month"
+                  empty={!hasValues(hoursPoints, ['workedMinutes'])}
+                  emptyNote="No hours recorded this month."
+                  footnote={
                     workedDays > 0
                       ? `${String(workedDays)} day${workedDays === 1 ? '' : 's'} with hours`
                       : undefined
                   }
                 >
-                  {hasValues(hoursPoints, ['workedMinutes']) ? (
-                    <WorkedHoursChart points={hoursPoints} animate={monthIntro} />
-                  ) : (
-                    <p className="text-muted-foreground py-6 text-center text-xs">
-                      No hours recorded this month.
-                    </p>
-                  )}
-                </ChartPanel>
+                  <WorkedHoursChart points={hoursPoints} animate={monthIntro} />
+                </ChartCard>
 
-                <ChartPanel
-                  caption="Minutes lost at each end of the day"
-                  note={
+                <ChartCard
+                  title="Minutes lost at each end of the day"
+                  description="Grouped bar. Late arrivals against early exits"
+                  empty={!hasValues(timekeepingPoints, ['lateMinutes', 'earlyExitMinutes'])}
+                  emptyNote="Nothing late and nothing cut short this month."
+                  footnote={
                     timekeepingTotal > 0 ? `${String(timekeepingTotal)} minutes in total` : undefined
                   }
                 >
-                  {hasValues(timekeepingPoints, ['lateMinutes', 'earlyExitMinutes']) ? (
-                    <TimekeepingChart points={timekeepingPoints} animate={monthIntro} />
-                  ) : (
-                    <p className="text-muted-foreground py-6 text-center text-xs">
-                      Nothing late and nothing cut short this month.
-                    </p>
-                  )}
-                </ChartPanel>
+                  <TimekeepingChart points={timekeepingPoints} animate={monthIntro} />
+                </ChartCard>
               </>
             ) : null}
 

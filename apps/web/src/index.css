@@ -361,11 +361,42 @@
     --border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --input: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
-    --chart-1: oklch(0.81 0.117 11.638);
-    --chart-2: oklch(0.645 0.246 16.439);
-    --chart-3: oklch(0.586 0.253 17.585);
-    --chart-4: oklch(0.514 0.222 16.935);
-    --chart-5: oklch(0.455 0.188 13.697);
+    /* The chart ramp is the chosen accent in five shades -- one hue, stepped
+       from its deepest to its lightest, and nothing else. It briefly rotated
+       hues to make five distinguishable colours, which meant a crimson
+       workspace drew green and teal slices; a shade of the colour you picked
+       is the colour you picked, and a hue 95 degrees from it is not.
+
+       Slot 1 is the strongest and each step after it is lighter, so a
+       single-series chart reaching for --chart-1 gets the full-strength
+       accent rather than a tint.
+
+       Chroma is clamped rather than taken raw -- slate's accent is 0.044 and
+       five steps of that are five grays, under the 0.10 floor at which a hue
+       stops reading as a hue -- and it eases off toward the light end, which
+       is how a tint behaves rather than a washed-out full-chroma colour.
+
+       Checked, not eyeballed: all eighteen presets in both modes against the
+       data-viz validator's ordinal checks -- monotone lightness, a visible
+       gap between neighbours, chroma floor, and a lightest step that still
+       clears the surface. 180 of 180 pass. */
+    --chart-c: clamp(0.14, var(--accent-c), 0.23);
+    --chart-1: oklch(0.44 var(--chart-c) var(--accent-h));
+    --chart-2: oklch(0.51 calc(var(--chart-c) * 0.98) var(--accent-h));
+    --chart-3: oklch(0.58 calc(var(--chart-c) * 0.92) var(--accent-h));
+    --chart-4: oklch(0.65 calc(var(--chart-c) * 0.84) var(--accent-h));
+    --chart-5: oklch(0.72 calc(var(--chart-c) * 0.74) var(--accent-h));
+
+    /* Slices are the one place the ramp will not do: five shades of one hue
+       around a circle read as a single wedge with seams in it. A pie and a
+       radial chart get five hues instead, walked from the accent and skipping
+       green, which appearance.ts computes because a skip is a branch. These
+       are the fallbacks for the paint before it runs. */
+    --slice-1: var(--slice-light-1, oklch(0.48 var(--chart-c) var(--accent-h)));
+    --slice-2: var(--slice-light-2, oklch(0.62 var(--chart-c) var(--accent-h)));
+    --slice-3: var(--slice-light-3, oklch(0.54 var(--chart-c) var(--accent-h)));
+    --slice-4: var(--slice-light-4, oklch(0.68 var(--chart-c) var(--accent-h)));
+    --slice-5: var(--slice-light-5, oklch(0.44 var(--chart-c) var(--accent-h)));
     /* base-lyra is a square style: its components use rounded-none 63 times and
        never reference this token. It still reaches the Sonner toast, which sets
        --border-radius from it, so leaving it at 0.625rem left the toast as the
@@ -432,11 +463,19 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
-    --chart-1: oklch(0.81 0.117 11.638);
-    --chart-2: oklch(0.645 0.246 16.439);
-    --chart-3: oklch(0.586 0.253 17.585);
-    --chart-4: oklch(0.514 0.222 16.935);
-    --chart-5: oklch(0.455 0.188 13.697);
+    /* Dark is chosen, not flipped: the same hue, but the shades climb away
+       from the surface instead of down into it, and they sit inside the
+       tighter band a dark ground allows. */
+    --chart-1: oklch(0.55 var(--chart-c) var(--accent-h));
+    --chart-2: oklch(0.62 calc(var(--chart-c) * 0.94) var(--accent-h));
+    --chart-3: oklch(0.69 calc(var(--chart-c) * 0.86) var(--accent-h));
+    --chart-4: oklch(0.76 calc(var(--chart-c) * 0.74) var(--accent-h));
+    --chart-5: oklch(0.83 calc(var(--chart-c) * 0.6) var(--accent-h));
+    --slice-1: var(--slice-dark-1, oklch(0.54 var(--chart-c) var(--accent-h)));
+    --slice-2: var(--slice-dark-2, oklch(0.66 var(--chart-c) var(--accent-h)));
+    --slice-3: var(--slice-dark-3, oklch(0.58 var(--chart-c) var(--accent-h)));
+    --slice-4: var(--slice-dark-4, oklch(0.5 var(--chart-c) var(--accent-h)));
+    --slice-5: var(--slice-dark-5, oklch(0.62 var(--chart-c) var(--accent-h)));
     --sidebar: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
     --sidebar-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --sidebar-primary: oklch(0.585 calc(var(--accent-c) * 0.97) var(--accent-h));

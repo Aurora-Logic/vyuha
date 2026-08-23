@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import type { ItemAnalytics, ItemCustomerRow, ItemVendorRow } from '@vyuha/shared';
 
 import { RankingChart, RateRadial, TrendChart } from './lifecycle-charts';
@@ -36,18 +36,14 @@ function qty(value: number, unit: string | null = null): string {
   return unit ? `${text} ${unit}` : text;
 }
 
-function money(value: number): string {
-  return `${currencySymbol()}${formatAmount(value.toFixed(2))}`;
-}
-
 function rate(value: number | null): string {
-  return value === null ? EMPTY_VALUE : money(value);
+  return value === null ? EMPTY_VALUE : formatMoney(value);
 }
 
 const CUSTOMER_COLUMNS: RecordColumn<ItemCustomerRow>[] = [
   { key: 'name', header: 'Customer', cell: (row) => <span className="font-medium">{row.name}</span> },
   { key: 'quantity', header: 'Quantity', cell: (row) => qty(row.quantity), numeric: true },
-  { key: 'value', header: 'Value', cell: (row) => money(row.value), numeric: true },
+  { key: 'value', header: 'Value', cell: (row) => formatMoney(row.value), numeric: true },
   { key: 'orders', header: 'Orders', cell: (row) => String(row.orders), numeric: true },
   { key: 'lastRate', header: 'Last rate', cell: (row) => rate(row.lastRate), numeric: true },
   { key: 'lastAt', header: 'Last order', cell: (row) => formatDate(row.lastAt), className: 'tabular-nums', secondary: true },
@@ -171,22 +167,22 @@ function ItemAnalyticsBody({ a, unit, compareLabel, ready, onParty }: { a: ItemA
     withDelta({ label: 'Shortages raised', value: String(kpis.shortages.value), format: String, lowerIsBetter: true }, kpis.shortages),
   ];
   const moneyTiles: KpiTileProps[] = [
-    withDelta({ label: 'Revenue (Tally)', value: money(kpis.revenue.value), format: money }, kpis.revenue),
+    withDelta({ label: 'Revenue (Tally)', value: formatMoney(kpis.revenue.value), format: formatMoney }, kpis.revenue),
     withDelta({ label: 'Billed', value: q(kpis.billedQty.value), format: q }, kpis.billedQty),
-    withDelta({ label: 'Realised rate', value: money(kpis.realisedRate.value), format: money }, kpis.realisedRate),
+    withDelta({ label: 'Realised rate', value: formatMoney(kpis.realisedRate.value), format: formatMoney }, kpis.realisedRate),
     ...(kpis.marginProxyPct === null ? [] : [{ label: 'Margin proxy', value: `${String(kpis.marginProxyPct)}%`, note: 'realised rate vs cost price' }]),
   ];
   const supply: KpiTileProps[] = [
     withDelta({ label: 'Purchased', value: q(kpis.purchased.value), format: q }, kpis.purchased),
     withDelta({ label: 'Received', value: q(kpis.received.value), format: q }, kpis.received),
-    withDelta({ label: 'Purchase rate', value: money(kpis.purchaseRate.value), format: money, lowerIsBetter: true }, kpis.purchaseRate),
+    withDelta({ label: 'Purchase rate', value: formatMoney(kpis.purchaseRate.value), format: formatMoney, lowerIsBetter: true }, kpis.purchaseRate),
     { label: 'Last purchase rate', value: rate(kpis.lastPurchaseRate), note: kpis.lastPurchasedAt ? formatDate(kpis.lastPurchasedAt) : 'never' },
   ];
   const now: KpiTileProps[] = [
     { label: 'On the shelf', value: kpis.closingQty === null ? EMPTY_VALUE : q(kpis.closingQty), note: 'Tally closing' },
     { label: 'Months of cover', value: kpis.monthsOfCover === null ? EMPTY_VALUE : String(kpis.monthsOfCover), note: "at the period's pace" },
     { label: 'Open orders', value: String(kpis.openOrders), note: 'now' },
-    { label: 'Last sold', value: kpis.lastSoldAt ? formatDate(kpis.lastSoldAt) : 'never', note: kpis.lastSoldRate === null ? undefined : `at ${money(kpis.lastSoldRate)}` },
+    { label: 'Last sold', value: kpis.lastSoldAt ? formatDate(kpis.lastSoldAt) : 'never', note: kpis.lastSoldRate === null ? undefined : `at ${formatMoney(kpis.lastSoldRate)}` },
   ];
 
   const trend = itemTrend(a);
@@ -269,7 +265,7 @@ function ItemAnalyticsBody({ a, unit, compareLabel, ready, onParty }: { a: ItemA
               rows={[...a.customers]}
               rowKey={(row) => row.id ?? row.name}
               mobilePrimary={(row) => row.name}
-              mobileSupporting={(row) => `${qty(row.quantity, unit)} · ${money(row.value)} · ${String(row.orders)} order${row.orders === 1 ? '' : 's'}`}
+              mobileSupporting={(row) => `${qty(row.quantity, unit)} · ${formatMoney(row.value)} · ${String(row.orders)} order${row.orders === 1 ? '' : 's'}`}
               onRowActivate={(row) => {
                 if (row.id !== null) onParty(row.id);
               }}

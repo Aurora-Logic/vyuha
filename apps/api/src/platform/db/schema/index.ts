@@ -23,3 +23,7 @@ export * from './task.schema.js';
 export * from './procurement.schema.js';
 export * from './rate-limit.schema.js';
 export * from './jobs-fallback.schema.js';
+export * from './pricing.schema.js';
+export * from './duplicates.schema.js';
+export * from './collections.schema.js';
+export * from './portal.schema.js';

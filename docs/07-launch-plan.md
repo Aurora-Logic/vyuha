@@ -169,7 +169,14 @@ for Payroll Input, not tomorrow.
   CLAUDE.md §5.** This is a standing instruction across this whole plan.
 - Project skills now exist and are the gates: `/vyuha-verify` (quality
   gates), `/vyuha-security` (pre-deploy security), `/vyuha-structure`
-  (structure and constitution review), `/vyuha-charts` (all chart work).
+  (structure and constitution review).
+
+  Owner, 22 Aug 2026: `/vyuha-charts` is retired. It mandated a house chart
+  layer -- shared label helpers, a draw-once motion hook, a ChartPanel
+  surface -- on top of the shadcn primitive, and the product now uses the
+  shadcn chart examples directly and unmodified. A chart is a Card, a
+  ChartContainer and Recharts; the only rules left are the ones in this
+  file's own section on charts.
   Every workstream ends by running `/vyuha-verify`; the plan ends by running
   `/vyuha-security`.
 - Commit at each working increment with REQ IDs. Do not push unless asked.
@@ -367,10 +374,13 @@ SQL.
 ### WS-F — Charts and insights (parallel session; launch-week, not go/no-go)
 
 Dashboard and the employee detail page get more charts and, more
-importantly, computed insight sentences. All of this goes through
-`/vyuha-charts`, which mandates the `dataviz` skill, the shadcn MCP chart
-primitive, the series/charts split with tests, and the `/emil-design-eng` +
-`/thumb-reach` passes.
+importantly, computed insight sentences. Charts are plain shadcn: the
+ChartContainer primitive and the Recharts shapes from shadcn's own examples,
+square and slim to match the theme. What survives from the retired chart
+skill is the part that was never about styling -- the series and every
+insight threshold live in a tested module, because a chart cannot be
+rendered in jsdom and its arithmetic must not be the part nobody can check.
+The `dataviz`, `/emil-design-eng` and `/thumb-reach` passes still apply.
 
 Dashboard (REQ-K-01 — closes part of the audited gap):
 - Employee: leave balance donut per type with "N days expire on carry-forward
@@ -395,8 +405,8 @@ both themes, reduced motion, and a 360px pass.
 Prompt:
 
 ```
-Read docs/07-launch-plan.md §WS-F. Load /vyuha-charts, dataviz,
-/emil-design-eng, /thumb-reach and /apple-design. Build the dashboard and
+Read docs/07-launch-plan.md §WS-F. Load dataviz, /emil-design-eng,
+/thumb-reach and /apple-design. Build the dashboard and
 employee-detail charts and insight sentences listed there, using the shadcn
 MCP for chart components, extending features/employees/attendance-analysis.ts
 and the existing series/charts pattern. Every threshold tested in the series

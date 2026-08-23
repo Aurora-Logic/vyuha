@@ -4,7 +4,7 @@ import { BooksIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { flagClasses, flagLabel } from '@/features/attendance/status';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
@@ -89,9 +89,8 @@ interface FilterBarProps {
   onChange: (patch: Partial<ReportFilterState>) => void;
   departments: readonly Option[];
   locations: readonly Option[];
-  /** Tally parties, for the receivables reports; empty when the caller may not read the masters. */
-  parties: readonly PickerOption[];
-  partiesLoading?: boolean;
+  /** Whether the viewer may read the Tally masters, so the party filter searches the book. */
+  canReadParties?: boolean;
   periodOpen: boolean;
   onPeriodOpenChange: (open: boolean) => void;
   onClear: () => void;
@@ -146,8 +145,7 @@ export function ReportFilterBar({
   onChange,
   departments,
   locations,
-  parties,
-  partiesLoading = false,
+  canReadParties = true,
   periodOpen,
   onPeriodOpenChange,
   onClear,
@@ -159,17 +157,14 @@ export function ReportFilterBar({
     <div className="flex flex-wrap items-center gap-2">
       {shows('partyId') ? (
         <div className="w-full sm:w-64">
-          <RecordPicker
+          <PartyPicker
             label="Filter by party"
             placeholder="Choose a party"
-            searchPlaceholder="Search parties"
-            emptyMessage="No party matches that."
             icon={<BooksIcon className="text-muted-foreground" />}
-            options={parties}
-            loading={partiesLoading}
+            enabled={canReadParties}
             clearable
             clearLabel="Any party"
-            value={parties.find((option) => option.id === value.partyId) ?? null}
+            partyId={value.partyId}
             onValueChange={(next) => {
               onChange({ partyId: next?.id ?? null });
             }}

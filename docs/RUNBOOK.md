@@ -1,5 +1,8 @@
 # Runbook
 
+Running the system day to day. For cutting a version, stamping the build and
+getting back from a bad one, see `RELEASE.md`.
+
 One page for whoever is holding the pager. Everything runs from the repo root
 on the VPS; every command takes the same two flags, so they are abbreviated:
 

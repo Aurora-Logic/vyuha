@@ -40,7 +40,9 @@ import {
   type AttendanceStatus,
 } from '@vyuha/shared';
 
-import { ChartPanel, ChartSkeleton, StatusBandsChart } from './charts';
+import { ChartCard } from '@/components/shared/chart-card';
+
+import { StatusBandsChart } from './charts';
 import { dateRange, statusBands } from './chart-series';
 import { DayDetailSheet } from './day-detail-sheet';
 import { formatClock, formatDuration, fromDateParam, toDateParam } from './format';
@@ -522,9 +524,13 @@ export function TeamAttendancePage() {
             because a day with nothing recorded is exactly when the run-up
             matters most. */}
         {context.isPending ? (
-          <ChartPanel caption={`The fortnight to ${formatDate(dateParam)}`}>
-            <ChartSkeleton label="Loading the fortnight" className="h-48 sm:h-56" />
-          </ChartPanel>
+          <ChartCard
+            title={`The fortnight to ${formatDate(dateParam)}`}
+            description="Stacked bar. How the status bands moved over the run-up"
+            pending
+          >
+            <span />
+          </ChartCard>
         ) : null}
 
         {context.isError ? (
@@ -548,18 +554,15 @@ export function TeamAttendancePage() {
         ) : null}
 
         {context.isSuccess && contextComplete ? (
-          <ChartPanel
-            caption={`The fortnight to ${formatDate(dateParam)}`}
-            note={departmentName ?? 'Everyone you may see'}
+          <ChartCard
+            title={`The fortnight to ${formatDate(dateParam)}`}
+            description="Stacked bar. How the status bands moved over the run-up"
+            empty={contextDays.length === 0}
+            emptyNote={`Nothing recorded in the ${String(CONTEXT_DAYS)} days to this date.`}
+            footnote={departmentName ?? 'Everyone you may see'}
           >
-            {contextDays.length > 0 ? (
-              <StatusBandsChart points={bandPoints} animate={contextIntro} />
-            ) : (
-              <p className="text-muted-foreground py-6 text-center text-xs">
-                Nothing recorded in the {String(CONTEXT_DAYS)} days to this date.
-              </p>
-            )}
-          </ChartPanel>
+            <StatusBandsChart points={bandPoints} animate={contextIntro} />
+          </ChartCard>
         ) : null}
 
         {rows.length > 0 ? (

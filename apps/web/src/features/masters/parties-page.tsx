@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { ArrowsClockwiseIcon, BooksIcon, LockKeyIcon } from '@phosphor-icons/react';
 import { useSearchParams, useNavigate } from 'react-router';
 
+import { DuplicateBadge } from '@/components/shared/duplicate-badge';
+import { DUPLICATE_ROW_CLASS } from '@/components/shared/duplicate-flag';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -24,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -62,7 +64,7 @@ const COLUMNS: RecordColumn<Party>[] = [
     key: 'credit',
     header: 'Credit limit',
     // Tally's figure verbatim; this application never does arithmetic on it.
-    cell: (row) => row.creditLimit ?? EMPTY_VALUE,
+    cell: (row) => formatMoney(row.creditLimit),
     numeric: true,
   },
   {
@@ -140,7 +142,7 @@ export function PartiesPage() {
 
   const query = useParties(
     { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}) },
-    { enabled: canView },
+    { enabled: canView, prefetchNext: true },
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
@@ -256,12 +258,16 @@ export function PartiesPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+
+              rowClassName={(row) => (row.duplicate ? DUPLICATE_ROW_CLASS : undefined)}
+
+              rowLeading={(row) => (row.duplicate ? <DuplicateBadge flag={row.duplicate} /> : null)}
               mobilePrimary={(row) => row.name}
               onRowActivate={(row) => {
                 void navigate(`/masters/parties/${row.id}`);
               }}
               mobileStatus={(row) =>
-                row.absentInTally ? <Badge variant="outline">Absent</Badge> : null
+                row.absentInTally ? <Badge variant="outline">Absent</Badge> : row.duplicate ? <Badge variant="destructive">Duplicate?</Badge> : null
               }
               mobileSupporting={(row) =>
                 `${row.parentGroup}${row.gstin === null ? '' : ` · ${row.gstin}`}`

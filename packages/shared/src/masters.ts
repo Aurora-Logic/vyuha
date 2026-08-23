@@ -1,3 +1,4 @@
+import type { DuplicateFlag } from './duplicates.js';
 import { z } from 'zod';
 
 import { pageQuerySchema } from './pagination.js';
@@ -30,6 +31,8 @@ export interface PartyView {
   readonly absentInTally: boolean;
   /** REQ-Y-07's habit, started early: every projected figure says its age. */
   readonly lastPulledAt: string;
+  /** 15 REQ-AO-06: set when the record sits in an open duplicate cluster. */
+  readonly duplicate: DuplicateFlag | null;
 }
 
 export const partyListQuerySchema = pageQuerySchema.extend({
@@ -56,6 +59,8 @@ export interface StockItemView {
   readonly costPrice: string | null;
   readonly absentInTally: boolean;
   readonly lastPulledAt: string;
+  /** 15 REQ-AO-06: set when the record sits in an open duplicate cluster. */
+  readonly duplicate: DuplicateFlag | null;
 }
 
 export const stockItemListQuerySchema = pageQuerySchema.extend({

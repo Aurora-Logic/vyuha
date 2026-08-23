@@ -184,6 +184,27 @@ export class XlsxReportWriter implements ReportWriter {
         continue;
       }
 
+      /*
+       * Money is a number with a currency format on the cell, never a string
+       * with a symbol in front of it -- a string cell is not summable, and a
+       * total is the whole reason a finance team opens the file. It arrives
+       * as a decimal string because the projection columns are numeric in
+       * Postgres, so it is parsed here rather than trusted to be a number.
+       *
+       * The format carries no symbol on purpose: the export context knows the
+       * organisation's timezone and date format but not its currency, and the
+       * wrong symbol on every cell is worse than none. The screen is where the
+       * symbol belongs.
+       */
+      if (column.type === 'money') {
+        const amount = typeof value === 'number' ? value : Number(value);
+        if (value !== null && value !== '' && Number.isFinite(amount)) {
+          cell.value = amount;
+          cell.numFmt = '#,##0.00';
+          continue;
+        }
+      }
+
       const text = formatCell(value, column.type, this.context);
       /*
        * Assigned as a string, never through a formula field, so a punch reason

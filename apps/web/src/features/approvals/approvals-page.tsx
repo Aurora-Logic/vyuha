@@ -1,7 +1,7 @@
 import { createElement, useMemo, useState } from 'react';
 import { CheckIcon, ProhibitIcon, TrayIcon, UserGearIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import type { HalfDayPart, PunchFlagReviewAction } from '@vyuha/shared';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PersonChip } from '@/components/shared/person';
@@ -314,7 +314,15 @@ export function ApprovalsPage() {
     {
       key: 'subject',
       header: 'Asking for',
-      cell: (row) => <span className="line-clamp-2">{row.subject}</span>,
+      // 15 REQ-AN-12: a price list is decided with its diff in view, one tap away.
+      cell: (row) =>
+        row.subjectType === 'price_list' ? (
+          <Link to={`/masters/price-lists/${row.subjectId}`} className="line-clamp-2 underline-offset-4 hover:underline">
+            {row.subject}
+          </Link>
+        ) : (
+          <span className="line-clamp-2">{row.subject}</span>
+        ),
     },
     {
       key: 'submitted',

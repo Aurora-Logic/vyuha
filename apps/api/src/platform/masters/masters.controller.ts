@@ -1,6 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   MethodNotAllowedException,
   Param,
   ParseUUIDPipe,
@@ -22,7 +25,7 @@ import {
   type VoucherDetailView,
   type VoucherView,
   type ItemLifecycle,
-  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics, voucherPaper } from '@vyuha/shared';
+  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics, voucherPaper, duplicateClustersQuerySchema, dismissDuplicateSchema, detectDuplicatesSchema, DUPLICATE_ENTITY_TYPES, type DuplicateClusterView, type DuplicateDetectionResult } from '@vyuha/shared';
 
 import type { Response } from 'express';
 
@@ -33,12 +36,16 @@ import { DocumentSettingsService } from '../documents/document-settings.service.
 import { DocumentXlsxService } from '../documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
+import { DuplicatesService } from './duplicates.service.js';
 import { LifecycleAnalyticsService } from './lifecycle-analytics.service.js';
 import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
 class LifecycleAnalyticsQueryDto extends createZodDto(lifecycleAnalyticsQuerySchema) {}
+class DuplicateClustersQueryDto extends createZodDto(duplicateClustersQuerySchema) {}
+class DismissDuplicateDto extends createZodDto(dismissDuplicateSchema) {}
+class DetectDuplicatesDto extends createZodDto(detectDuplicatesSchema) {}
 class StockItemListQueryDto extends createZodDto(stockItemListQuerySchema) {}
 class PriceListListQueryDto extends createZodDto(priceListListQuerySchema) {}
 class VoucherListQueryDto extends createZodDto(voucherListQuerySchema) {}
@@ -58,6 +65,7 @@ export class MastersController {
   constructor(private readonly masters: MastersService,
     private readonly lifecycle: LifecycleService,
     private readonly analytics: LifecycleAnalyticsService,
+    private readonly duplicates: DuplicatesService,
     @InjectDatabase() private readonly db: Database,
     private readonly documentSettings: DocumentSettingsService,
     private readonly xlsx: DocumentXlsxService,
@@ -140,6 +148,47 @@ export class MastersController {
    * gives it to Accounts and Sales managers, not to everyone who may look up
    * a party.
    */
+  // ---------------------------------------------------------- duplicates (15 AO)
+
+  /** REQ-AO-10: clusters ranked by impact; open and sent-to-Tally by default, a state when asked. */
+  @Get('duplicates')
+  @RequirePermission(PERMISSIONS.DUPLICATES_VIEW)
+  listDuplicates(@CurrentUser() principal: Principal, @Query() query: DuplicateClustersQueryDto): Promise<Paginated<DuplicateClusterView>> {
+    return this.duplicates.list(principal, query);
+  }
+
+  /** The detector by hand; the pull enqueues it on its own (REQ-AO-13). */
+  @Post('duplicates/detect')
+  @RequirePermission(PERMISSIONS.DUPLICATES_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  async detectDuplicates(@CurrentUser() principal: Principal, @Body() body: DetectDuplicatesDto): Promise<DuplicateDetectionResult[]> {
+    const types = body.entityType === undefined ? DUPLICATE_ENTITY_TYPES : [body.entityType];
+    const out: DuplicateDetectionResult[] = [];
+    for (const entityType of types) out.push(await this.duplicates.detect(principal.orgId, entityType, principal.userId));
+    return out;
+  }
+
+  @Post('duplicates/:id/dismiss')
+  @RequirePermission(PERMISSIONS.DUPLICATES_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  dismissDuplicate(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: DismissDuplicateDto): Promise<DuplicateClusterView> {
+    return this.duplicates.dismiss(principal, id, body.reason);
+  }
+
+  @Post('duplicates/:id/sent-to-tally')
+  @RequirePermission(PERMISSIONS.DUPLICATES_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  sentToTally(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<DuplicateClusterView> {
+    return this.duplicates.markSentToTally(principal, id);
+  }
+
+  @Post('duplicates/:id/reopen')
+  @RequirePermission(PERMISSIONS.DUPLICATES_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  reopenDuplicate(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<DuplicateClusterView> {
+    return this.duplicates.reopen(principal, id);
+  }
+
   @Get('vouchers')
   @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
   listVouchers(

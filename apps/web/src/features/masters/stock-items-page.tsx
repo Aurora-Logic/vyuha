@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { ArrowsClockwiseIcon, LockKeyIcon, PackageIcon } from '@phosphor-icons/react';
 import { useSearchParams, useNavigate } from 'react-router';
 
+import { DuplicateBadge } from '@/components/shared/duplicate-badge';
+import { DUPLICATE_ROW_CLASS } from '@/components/shared/duplicate-flag';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -110,7 +112,7 @@ export function StockItemsPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useStockItems({ page, ...(q ? { q } : {}) }, { enabled: canView });
+  const query = useStockItems({ page, ...(q ? { q } : {}) }, { enabled: canView, prefetchNext: true });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
 
@@ -198,12 +200,16 @@ export function StockItemsPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+
+              rowClassName={(row) => (row.duplicate ? DUPLICATE_ROW_CLASS : undefined)}
+
+              rowLeading={(row) => (row.duplicate ? <DuplicateBadge flag={row.duplicate} /> : null)}
               mobilePrimary={(row) => row.name}
               onRowActivate={(row) => {
                 void navigate(`/masters/items/${row.id}`);
               }}
               mobileStatus={(row) =>
-                row.absentInTally ? <Badge variant="outline">Absent</Badge> : null
+                row.absentInTally ? <Badge variant="outline">Absent</Badge> : row.duplicate ? <Badge variant="destructive">Duplicate?</Badge> : null
               }
               mobileSupporting={(row) =>
                 `${row.parentGroup} · ${row.unit}${row.gstRate === null ? '' : ` · GST ${row.gstRate}%`}`

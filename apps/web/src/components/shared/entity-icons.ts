@@ -35,8 +35,7 @@ import {
   UserGearIcon,
   UsersThreeIcon,
   XIcon,
-  type Icon,
-} from '@phosphor-icons/react';
+  type Icon, TagIcon } from '@phosphor-icons/react';
 import type { ApprovalType, AttendanceStatus, HandlingMark, PunchSource, ReportCategory } from '@vyuha/shared';
 
 import { ACTION_ICONS } from './action-icons';
@@ -65,6 +64,7 @@ export const APPROVAL_TYPE_ICONS: Record<ApprovalType, Icon> = {
   DEVICE_REBIND: DeviceMobileIcon,
   PURCHASE_ORDER: ShoppingCartIcon,
   SALES_DISCOUNT: PercentIcon,
+  PRICE_LIST: TagIcon,
 };
 
 export const PUNCH_SOURCE_ICONS: Record<PunchSource, Icon> = {

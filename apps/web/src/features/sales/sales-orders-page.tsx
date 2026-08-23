@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { FileTextIcon, GearIcon, KanbanIcon, ListIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams, Link } from 'react-router';
 
 import { PersonChip } from '@/components/shared/person';
@@ -8,21 +8,22 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatDate, EMPTY_VALUE } from '@/lib/format';
+import { SalesOrderBoard } from './sales-order-board';
+import { formatDate, formatMoney, EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
 import { FulfilmentBadge } from './fulfilment-badge';
-import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useSalesOrders } from './use-estimates';
 
@@ -42,7 +43,7 @@ const COLUMNS: RecordColumn<EstimateSummary>[] = [
   ) },
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
-  { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'status', header: 'Status', cell: (row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} /> },
   { key: 'fulfilment', header: 'Fulfilment', cell: (row) => (row.fulfilment ? <FulfilmentBadge state={row.fulfilment} /> : EMPTY_VALUE) },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
@@ -111,9 +112,12 @@ export function SalesOrdersPage() {
     };
   }, [draft, q, setSearchParams]);
 
+  // The register and the fulfilment board draw the same orders two ways; the
+  // board loads its own confirmed set, so the list query rests while it shows.
+  const [view, setView] = useState<'list' | 'board'>('list');
   const query = useSalesOrders(
     { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(syncState ? { syncState } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(partyParam ? { partyId: partyParam } : {}) },
-    { enabled: canView },
+    { enabled: canView && view === 'list' },
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
@@ -243,10 +247,32 @@ export function SalesOrdersPage() {
               ))}
             </SelectContent>
           </Select>
+
+          {/* Pushed to the end: the toggle changes how the same orders are
+              drawn, so it sits with the view, not the filters. */}
+          <ToggleGroup
+            variant="outline"
+            aria-label="View"
+            className="ms-auto"
+            value={[view]}
+            onValueChange={(next: string[]) => {
+              const chosen = next[0];
+              if (chosen === 'list' || chosen === 'board') setView(chosen);
+            }}
+          >
+            <ToggleGroupItem value="list" aria-label="List view">
+              <ListIcon />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="board" aria-label="Fulfilment board">
+              <KanbanIcon />
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
-        {query.isError ? (
+        {view === 'board' ? <SalesOrderBoard canView={canView} /> : null}
+
+        {view === 'list' && query.isPending ? <ListSkeleton /> : null}
+        {view === 'list' && query.isError ? (
           <QueryErrorAlert
             error={query.error}
             subject="sales orders"
@@ -256,7 +282,7 @@ export function SalesOrdersPage() {
           />
         ) : null}
 
-        {query.isSuccess && rows.length === 0 ? (
+        {view === 'list' && query.isSuccess && rows.length === 0 ? (
           <Empty className="border">
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -276,7 +302,7 @@ export function SalesOrdersPage() {
           </Empty>
         ) : null}
 
-        {rows.length > 0 ? (
+        {view === 'list' && rows.length > 0 ? (
           <>
             <RecordTable
               columns={COLUMNS}

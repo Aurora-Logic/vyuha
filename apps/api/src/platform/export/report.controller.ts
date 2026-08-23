@@ -239,7 +239,8 @@ export class ReportController {
         )
         .catch(() => undefined);
     }
-    return paginated<unknown>([...page.rows], query, page.total);
+    const body = paginated<unknown>([...page.rows], query, page.total);
+    return page.totals === undefined ? body : { ...body, meta: { ...body.meta, totals: page.totals } };
   }
 }
 

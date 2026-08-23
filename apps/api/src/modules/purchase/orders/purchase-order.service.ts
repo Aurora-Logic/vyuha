@@ -98,11 +98,20 @@ export class PurchaseOrderService implements OnModuleInit {
     `);
     if (!mirror.isCancelled) return;
     if (table === 'purchase_orders') {
-      const rows = await tx.execute<{ status: string; number: string }>(sql`SELECT status, number FROM purchase_orders WHERE id = ${documentId}`);
-      const po = rows.rows[0];
-      if (po?.status === 'CONFIRMED') {
-        await tx.execute(sql`UPDATE purchase_orders SET status = 'CANCELLED', updated_at = now() WHERE id = ${documentId}`);
-        this.auditContext.record({ action: 'purchase.order.cancelled_in_tally', entityType: 'purchase_order', entityId: documentId, before: { status: po.status }, after: { number: po.number, remoteGuid: mirror.remoteGuid } });
+      // The status is claimed by the write, and the requirements are given
+      // back only if this write is the one that cancelled it. A PO that was
+      // already short-closed has given them back once; releasing again would
+      // subtract the same quantity twice, so `short_closed_at IS NULL` is part
+      // of the claim rather than a separate check.
+      const cancelled = await tx.execute<{ number: string; short_closed_at: Date | null }>(sql`
+        UPDATE purchase_orders SET status = 'CANCELLED', updated_at = now()
+         WHERE id = ${documentId} AND org_id = ${orgId} AND status = 'CONFIRMED' AND deleted_at IS NULL
+        RETURNING number, short_closed_at
+      `);
+      const po = cancelled.rows[0];
+      if (po !== undefined) {
+        if (po.short_closed_at === null) await this.releaseRequirementsWithin(tx, documentId);
+        this.auditContext.record({ action: 'purchase.order.cancelled_in_tally', entityType: 'purchase_order', entityId: documentId, before: { status: 'CONFIRMED' }, after: { number: po.number, remoteGuid: mirror.remoteGuid } });
       }
       return;
     }
@@ -149,7 +158,10 @@ export class PurchaseOrderService implements OnModuleInit {
       `);
       const poId = inserted.rows[0]?.id;
       if (poId === undefined) throw new Error('Purchase order insert returned no row.');
-      await this.replaceLines(tx, principal, poId, input.lines.map((line, i) => ({ ...line, ...lines[i] })));
+      // Built from the resolved lines and given back their requirement ids,
+      // rather than spread over the input by index -- an indexed read can be
+      // undefined, which quietly put back the unresolved tax percentage.
+      await this.replaceLines(tx, principal, poId, lines.map((line, i) => ({ ...line, requirementIds: input.lines[i]?.requirementIds ?? [] })));
       return poId;
     });
     this.auditContext.record({ action: 'purchase.order.created', entityType: 'purchase_order', entityId: id, before: null, after: { partyId: input.partyId, lines: input.lines.length } });
@@ -204,9 +216,10 @@ export class PurchaseOrderService implements OnModuleInit {
           updated_at = now(), updated_by = ${principal.userId}
          WHERE id = ${id} AND org_id = ${principal.orgId}
       `);
-      if (input.lines !== undefined) {
-        const resolved = await resolveDocumentLines(this.db, principal, input.lines);
-        await this.replaceLines(tx, principal, id, input.lines.map((line, i) => ({ ...line, ...resolved[i] })));
+      const requested = input.lines;
+      if (requested !== undefined) {
+        const resolved = await resolveDocumentLines(this.db, principal, requested);
+        await this.replaceLines(tx, principal, id, resolved.map((line, i) => ({ ...line, requirementIds: requested[i]?.requirementIds ?? [] })));
       }
     });
     this.auditContext.record({ action: 'purchase.order.updated', entityType: 'purchase_order', entityId: id, before: { grandTotal: existing.grandTotal }, after: null });
@@ -244,7 +257,7 @@ export class PurchaseOrderService implements OnModuleInit {
       this.auditContext.record({ action: 'purchase.order.submitted_for_approval', entityType: 'purchase_order', entityId: id, before: null, after: { grandTotal: existing.grandTotal } });
       return this.find(principal, id);
     }
-    return this.release(principal, id, existing.approvalRequired ? 'purchase.order.approved' : 'purchase.order.confirmed');
+    return this.release(principal, id, existing.number, existing.approvalRequired ? 'purchase.order.approved' : 'purchase.order.confirmed');
   }
 
   /**
@@ -263,7 +276,7 @@ export class PurchaseOrderService implements OnModuleInit {
       await this.approvals.decide(principal, approvalRequestId, 'APPROVE', null);
       return this.find(principal, id);
     }
-    return this.release(principal, id, 'purchase.order.approved');
+    return this.release(principal, id, existing.number, 'purchase.order.approved');
   }
 
   /** Called by the framework through the registry, inside its transaction. */
@@ -282,24 +295,34 @@ export class PurchaseOrderService implements OnModuleInit {
         return Promise.resolve();
       };
     }
-    await this.releaseWithin(tx, ctx.orgId, po.id, decision.decidedByUserId);
+    await this.releaseWithin(tx, ctx.orgId, po.id, po.number, decision.decidedByUserId);
     return async () => {
       await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId }, po.id);
       this.auditContext.record({ action: 'purchase.order.approved', entityType: 'purchase_order', entityId: po.id, before: null, after: { approvalRequestId: decision.approvalRequestId } });
     };
   }
 
-  private async release(principal: Principal, id: string, action: string): Promise<PurchaseOrderView> {
+  private async release(principal: Principal, id: string, number: string, action: string): Promise<PurchaseOrderView> {
     await this.db.transaction(async (tx) => {
-      await this.releaseWithin(tx, principal.orgId, id, principal.userId);
+      await this.releaseWithin(tx, principal.orgId, id, number, principal.userId);
     });
     await this.enqueuePush(principal, id);
     this.auditContext.record({ action, entityType: 'purchase_order', entityId: id, before: null, after: null });
     return this.find(principal, id);
   }
 
-  private async releaseWithin(tx: Database, orgId: string, id: string, actorUserId: string | null): Promise<void> {
-    await tx.execute(sql`UPDATE purchase_orders SET status = 'CONFIRMED', updated_at = now(), updated_by = ${actorUserId} WHERE org_id = ${orgId} AND id = ${id}`);
+  private async releaseWithin(tx: Database, orgId: string, id: string, number: string, actorUserId: string | null): Promise<void> {
+    // The status this transition depends on is asserted by the write itself.
+    // It was read before the transaction opened, so two confirms racing --
+    // the button and the approval landing together -- both passed the check
+    // and both ran the block below, adding the ordered quantity twice and
+    // sending the vendor two copies of the same order.
+    const claimed = await tx.execute<{ id: string }>(sql`
+      UPDATE purchase_orders SET status = 'CONFIRMED', updated_at = now(), updated_by = ${actorUserId}
+       WHERE org_id = ${orgId} AND id = ${id} AND deleted_at IS NULL AND status IN ('DRAFT', 'PENDING_APPROVAL')
+      RETURNING id
+    `);
+    if (claimed.rows.length === 0) throw AppError.conflict(`${number} is already confirmed.`);
     // REQ-X-18: the vendor's copy, composed now and sent by hand until the channel lands (REQ-AA-26).
     const po = await this.view(orgId, id);
     if (po !== null) {
@@ -398,17 +421,44 @@ export class PurchaseOrderService implements OnModuleInit {
     if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Short-closing a purchase order needs purchase.document.approve.');
     const existing = await this.find(principal, id);
     if (existing.status !== 'CONFIRMED') throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}.`);
+    if (existing.shortClosedAt !== null) throw AppError.conflict(`${existing.number} is already short-closed.`);
     await this.db.transaction(async (tx) => {
-      await tx.execute(sql`UPDATE purchase_orders SET short_closed_at = now(), short_close_reason = ${reason}, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
-      // The requirements it carried go back to open for the part it will never bring.
-      await tx.execute(sql`
-        UPDATE procurement_requirements r SET ordered_qty = GREATEST(0, r.ordered_qty - t.qty), state = CASE WHEN r.received_qty >= r.quantity THEN r.state ELSE 'open' END, updated_at = now()
-          FROM (SELECT plr.requirement_id, sum(plr.quantity - plr.allocated_qty) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${id} GROUP BY plr.requirement_id) t
-         WHERE r.id = t.requirement_id AND r.state <> 'closed'
+      // The mark is the claim: short-closing twice used to subtract the same
+      // quantity from the requirements twice, so an order short-closed by two
+      // people at once -- or by one person who pressed the button again --
+      // left its requirements believing less was on order than really was,
+      // and the sweep reordered goods already coming.
+      const marked = await tx.execute<{ id: string }>(sql`
+        UPDATE purchase_orders SET short_closed_at = now(), short_close_reason = ${reason}, updated_at = now(), updated_by = ${principal.userId}
+         WHERE id = ${id} AND org_id = ${principal.orgId} AND short_closed_at IS NULL
+        RETURNING id
       `);
+      if (marked.rows.length === 0) throw AppError.conflict(`${existing.number} is already short-closed.`);
+      await this.releaseRequirementsWithin(tx, id);
     });
     this.auditContext.record({ action: 'purchase.order.short_closed', entityType: 'purchase_order', entityId: id, before: null, after: { reason } });
     return this.find(principal, id);
+  }
+
+  /**
+   * Give back what this order had spoken for.
+   *
+   * Called when an order stops being a promise of goods -- short-closed here,
+   * or cancelled in Tally, which is the same fact arriving from the other
+   * direction. The Tally path used to mark the order CANCELLED and leave its
+   * requirements sitting in `ordered`, so the buyer went on believing the
+   * goods were coming and the nightly sweep raised nothing.
+   *
+   * `state <> 'closed'` keeps a requirement somebody has already finished
+   * with; GREATEST(0, ...) keeps the arithmetic from going negative if two
+   * orders covered one requirement between them.
+   */
+  private async releaseRequirementsWithin(tx: Database, purchaseOrderId: string): Promise<void> {
+    await tx.execute(sql`
+      UPDATE procurement_requirements r SET ordered_qty = GREATEST(0, r.ordered_qty - t.qty), state = CASE WHEN r.received_qty >= r.quantity THEN r.state ELSE 'open' END, updated_at = now()
+        FROM (SELECT plr.requirement_id, sum(plr.quantity - plr.allocated_qty) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${purchaseOrderId} GROUP BY plr.requirement_id) t
+       WHERE r.id = t.requirement_id AND r.state <> 'closed'
+    `);
   }
 
   async cancel(principal: Principal, id: string): Promise<PurchaseOrderView> {
@@ -505,7 +555,8 @@ export class PurchaseOrderService implements OnModuleInit {
       for (const allocation of input.allocations) {
         const pending = grn.pendingAllocations.find((p) => p.waiting.some((w) => w.requirementId === allocation.requirementId));
         if (pending === undefined) throw AppError.validation('That requirement is not waiting on this receipt.', { requirementId: allocation.requirementId });
-        if (Number(allocation.quantity) > Number(pending.unallocatedQty) + 1e-9) throw AppError.validation(`Only ${pending.unallocatedQty} of ${pending.stockItemName} is left to allocate.`, { requirementId: allocation.requirementId });
+        // How much is left is read inside the transaction, not from the
+        // snapshot this request was built against -- see `allocate`.
         await this.allocate(tx, principal, grnId, pending.purchaseOrderLineId, allocation.requirementId, allocation.quantity);
       }
     });
@@ -514,6 +565,38 @@ export class PurchaseOrderService implements OnModuleInit {
   }
 
   private async allocate(tx: Transaction, principal: Principal, grnId: string, purchaseOrderLineId: string, requirementId: string, quantity: string): Promise<void> {
+    /*
+     * Two ceilings, both read here with the rows locked rather than from the
+     * view the caller was looking at.
+     *
+     * The receipt's own: what arrived on this line, less everything already
+     * allocated from it. Two people allocating at once each read the whole
+     * receipt as free and both spent it, and so did one request naming the
+     * same line twice -- the snapshot was taken before the loop began and
+     * never moved as the loop allocated.
+     *
+     * And the requirement's: what this order is still waiting for on this
+     * line. Nothing capped that at all, so a requirement short by three could
+     * be allocated ten and read as received, with the seven belonging to
+     * whoever else was waiting quietly taken.
+     */
+    const room = await tx.execute<{ line_free: string; requirement_left: string; item: string }>(sql`
+      SELECT (pl.received_qty - COALESCE((SELECT sum(x.allocated_qty) FROM po_line_requirements x WHERE x.purchase_order_line_id = pl.id), 0))::text AS line_free,
+             (plr.quantity - plr.allocated_qty)::text AS requirement_left,
+             pl.description AS item
+        FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id
+       WHERE plr.purchase_order_line_id = ${purchaseOrderLineId} AND plr.requirement_id = ${requirementId}
+       FOR UPDATE OF plr, pl
+    `);
+    const room0 = room.rows[0];
+    if (room0 === undefined) throw AppError.validation('That requirement is not waiting on this receipt.', { requirementId });
+    const asked = Number(quantity);
+    if (asked > Number(room0.line_free) + 1e-9) {
+      throw AppError.validation(`Only ${Number(room0.line_free).toFixed(3)} of ${room0.item} is left to allocate.`, { requirementId });
+    }
+    if (asked > Number(room0.requirement_left) + 1e-9) {
+      throw AppError.validation(`That order is waiting for only ${Number(room0.requirement_left).toFixed(3)} of ${room0.item}.`, { requirementId });
+    }
     await tx.execute(sql`UPDATE po_line_requirements SET allocated_qty = allocated_qty + ${quantity}::numeric WHERE purchase_order_line_id = ${purchaseOrderLineId} AND requirement_id = ${requirementId}`);
     const updated = await tx.execute<{ sales_order_id: string | null; stock_item_id: string; state: string; received: string; quantity: string }>(sql`
       UPDATE procurement_requirements SET received_qty = received_qty + ${quantity}::numeric,
@@ -569,10 +652,28 @@ export class PurchaseOrderService implements OnModuleInit {
 
   /** D-28: reorder level and minimum order quantity, Vyuha's for now. */
   async putItemSettings(principal: Principal, stockItemId: string, input: PutItemSettingsInput): Promise<void> {
+    /*
+     * The item id arrives from the path and was trusted. `item_settings` is
+     * unique on `stock_item_id` alone, so an id belonging to another
+     * organisation did not collide -- it matched, and the ON CONFLICT branch
+     * wrote this organisation's reorder level over that one's row. Stock item
+     * ids are uuids and not meant to be guessable, which made it unlikely
+     * rather than impossible; an id that appears in a shared export or a
+     * support ticket is enough.
+     *
+     * Two things now stand in the way: the item must be this organisation's,
+     * and the update may only touch a row that already is.
+     */
+    const owns = await this.db.execute<{ one: number }>(sql`
+      SELECT 1 AS one FROM stock_items WHERE id = ${stockItemId} AND org_id = ${principal.orgId}
+    `);
+    if (owns.rows.length === 0) throw AppError.notFound('Stock item', stockItemId);
+
     await this.db.execute(sql`
       INSERT INTO item_settings (org_id, stock_item_id, reorder_level, minimum_order_qty, created_by, updated_by)
       VALUES (${principal.orgId}, ${stockItemId}, ${input.reorderLevel ?? null}, ${input.minimumOrderQty ?? null}, ${principal.userId}, ${principal.userId})
       ON CONFLICT (stock_item_id) DO UPDATE SET reorder_level = EXCLUDED.reorder_level, minimum_order_qty = EXCLUDED.minimum_order_qty, updated_at = now(), updated_by = EXCLUDED.updated_by, deleted_at = NULL
+       WHERE item_settings.org_id = ${principal.orgId}
     `);
     this.auditContext.record({ action: 'purchase.item_settings.set', entityType: 'stock_item', entityId: stockItemId, before: null, after: { ...input } });
   }
@@ -610,7 +711,12 @@ export class PurchaseOrderService implements OnModuleInit {
     return row.name;
   }
 
-  private async replaceLines(tx: Transaction, principal: Principal, poId: string, lines: readonly PurchaseLineInput[]): Promise<void> {
+  /**
+   * `taxPct` is required rather than optional: it is bound straight into SQL
+   * below, where the compiler cannot see it, and a NOT NULL column would take
+   * the null at runtime. `resolveDocumentLines` is what fills it in.
+   */
+  private async replaceLines(tx: Transaction, principal: Principal, poId: string, lines: readonly (PurchaseLineInput & { taxPct: string })[]): Promise<void> {
     await tx.execute(sql`DELETE FROM purchase_order_lines WHERE purchase_order_id = ${poId}`);
     for (const [index, line] of lines.entries()) {
       const inserted = await tx.execute<{ id: string }>(sql`
@@ -633,9 +739,21 @@ export class PurchaseOrderService implements OnModuleInit {
         remaining -= take;
       }
     }
+    // `subtotal` is gross, before the discount, which is what `sales_documents`
+    // means by the same word and what the Subtotal / Discount / Tax / Total
+    // block on the export adds up. It used to store the net -- the discount
+    // already taken off -- while `view()` reported `discountTotal` beside it,
+    // so the four figures did not reconcile and a reader subtracting the
+    // discount took it off twice. The total itself is unchanged: it is still
+    // net plus tax.
     await tx.execute(sql`
-      UPDATE purchase_orders po SET subtotal = t.subtotal, tax_total = t.tax, grand_total = t.subtotal + t.tax, updated_at = now()
-        FROM (SELECT COALESCE(sum(amount), 0) AS subtotal, COALESCE(sum(tax_amount), 0) AS tax FROM purchase_order_lines WHERE purchase_order_id = ${poId} AND deleted_at IS NULL) t
+      UPDATE purchase_orders po SET subtotal = t.gross, tax_total = t.tax, grand_total = t.net + t.tax, updated_at = now()
+        FROM (
+          SELECT COALESCE(sum(round(quantity * rate, 2)), 0) AS gross,
+                 COALESCE(sum(amount), 0) AS net,
+                 COALESCE(sum(tax_amount), 0) AS tax
+            FROM purchase_order_lines WHERE purchase_order_id = ${poId} AND deleted_at IS NULL
+        ) t
        WHERE po.id = ${poId}
     `);
   }
@@ -665,7 +783,7 @@ export class PurchaseOrderService implements OnModuleInit {
       remoteGuid: null,
       lines: po.lines.map((l) => ({ stockItemName: l.description, quantity: l.quantity, unit: l.unit, rate: l.rate, discountPct: l.discountPct, amount: l.amount })),
     };
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, po.partyId);
     await this.db.execute(sql`UPDATE purchase_orders SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${id}`);
     return jobId !== null;
   }
@@ -685,7 +803,12 @@ export class PurchaseOrderService implements OnModuleInit {
       lines: grn.lines.filter((l) => Number(l.receivedQty) > 0).map((l) => ({ stockItemName: l.description, quantity: l.receivedQty, unit: null, rate: '0', discountPct: '0', amount: '0' })),
     };
     if (payload.lines.length === 0) return false;
-    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    // The purchase order names the vendor, and the vendor names the Tally
+    // company this receipt belongs in.
+    const owner = await this.db.execute<{ party_id: string | null }>(
+      sql`SELECT party_id FROM purchase_orders WHERE id = ${grn.purchaseOrderId} AND org_id = ${principal.orgId}`,
+    );
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload, owner.rows[0]?.party_id ?? null);
     await this.db.execute(sql`UPDATE grns SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${grnId}`);
     return jobId !== null;
   }

@@ -145,7 +145,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       case 'sales-analysis':
         return this.scalar(sql`
           SELECT count(*)::int AS value FROM (
-            SELECT 1 FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+            SELECT 1 ${this.salesLinesFrom()}
              WHERE ${this.salesLinesWhere(principal.orgId, usable)}
              GROUP BY ${this.dimensionKey(usable.groupBy ?? 'party')}
           ) grouped
@@ -182,7 +182,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       case 'customer-statement':
         return this.wrap(key, total, await this.statementRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'credit-cycle':
-        return this.wrap(key, total, await this.creditRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
+        return this.wrap(key, total, await this.creditRows(principal.orgId, usable, filters.sort, limit, offset, asOf), await this.creditTotals(principal.orgId, usable));
       case 'sales-analysis':
         return this.wrap(key, total, await this.salesRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'ageing':
@@ -194,15 +194,15 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       case 'day-book':
         return this.wrap(key, total, await this.dayBookRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'customer-lapse':
-        return this.wrap(key, total, await this.customerLapseRows(principal.orgId, filters.sort, limit, offset, asOf));
+        return this.wrap(key, total, await this.customerLapseRows(principal.orgId, filters.sort, limit, offset, asOf), await this.lapseTotals(principal.orgId));
       default:
         throw new Error(`TallyReportSource does not serve "${key}".`);
     }
   }
 
-  private wrap(key: ReportKey, total: number, rows: TallyReportPage['rows']): ReportSourcePage {
+  private wrap(key: ReportKey, total: number, rows: TallyReportPage['rows'], totals?: Readonly<Record<string, string>>): ReportSourcePage {
     const page: TallyReportPage = { key, total, rows };
-    return page;
+    return totals === undefined ? page : { ...page, totals };
   }
 
   cells(page: ReportSourcePage, index: number, columns: readonly ReportColumnSpec[]): ReportCellValue[] {
@@ -277,25 +277,23 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     const partyId = filters.partyId ?? '';
     const from = filters.from;
     const desc = sort === '-date';
-    const openingRow: CustomerStatementSource | null =
-      offset === 0 && !desc
-        ? {
-            id: `opening-${partyId}`,
-            date: from ?? '',
-            voucherType: 'Opening balance',
-            voucherNumber: '',
-            narration: from === undefined ? 'Before the first voucher held' : `Before ${from}`,
-            debit: null,
-            credit: null,
-            unclassified: null,
-            balance: await this.openingBalance(orgId, partyId, from),
-            asOf,
-          }
-        : null;
-    // The opening row takes slot zero of page one; vouchers shift by one.
-    const voucherOffset = desc ? offset : Math.max(0, offset - 1);
-    const voucherLimit = openingRow === null ? limit : limit - 1;
-    if (voucherLimit <= 0) return openingRow === null ? [] : [openingRow];
+    // The opening row exists whichever way the statement is read, because
+    // `count()` promises vouchers + 1 and knows nothing about the sort. It
+    // used to be built only for an ascending page one, so a descending
+    // statement returned one row fewer than the total said -- and the pager
+    // offered a last page that was always empty.
+    const openingRow: CustomerStatementSource = {
+      id: `opening-${partyId}`,
+      date: from ?? '',
+      voucherType: 'Opening balance',
+      voucherNumber: '',
+      narration: from === undefined ? 'Before the first voucher held' : `Before ${from}`,
+      debit: null,
+      credit: null,
+      unclassified: null,
+      balance: await this.openingBalance(orgId, partyId, from),
+      asOf,
+    };
 
     const rows = await this.db.execute<{
       id: string;
@@ -323,7 +321,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     // period and the page are cut afterwards. A party's vouchers number in
     // the thousands at most, which the projection's shape already assumes.
     const inPeriod = rows.rows.filter((row) => (from === undefined || row.voucher_date >= from) && (filters.to === undefined || row.voucher_date <= filters.to));
-    const paged = inPeriod.slice(voucherOffset, voucherOffset + voucherLimit).map((row): CustomerStatementSource => ({
+    const vouchers = inPeriod.map((row): CustomerStatementSource => ({
       id: row.id,
       date: row.voucher_date,
       voucherType: row.voucher_type,
@@ -335,7 +333,12 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       balance: row.balance,
       asOf,
     }));
-    return openingRow === null ? paged : [openingRow, ...paged];
+    // Read forwards the opening balance is the first line; read backwards it
+    // is the last, which is where reverse-chronological order puts what came
+    // before everything. Sliced from the whole statement rather than offset by
+    // hand, so the page arithmetic cannot disagree with the total.
+    const statement = desc ? [...vouchers, openingRow] : [openingRow, ...vouchers];
+    return statement.slice(offset, offset + limit);
   }
 
   private async openingBalance(orgId: string, partyId: string, from: string | undefined): Promise<string> {
@@ -531,6 +534,51 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     }));
   }
 
+  /**
+   * One FROM for the rows and for the total. The dashboard's "Receivables
+   * exposure" tile added up whatever the first page held -- two hundred rows
+   * -- beneath a caption that named every debtor, so any organisation with
+   * more debtors than that was shown a headline belonging to nobody. The
+   * total is now the report's, and it cannot drift from the rows because it
+   * reads the same set.
+   */
+  private creditFrom(orgId: string, filters: ReportFilters): SQL {
+    return sql`FROM parties p
+        LEFT JOIN (
+          SELECT party_id,
+                 sum(${debitCase} - ${creditCase}) AS exposure,
+                 max(voucher_date) FILTER (WHERE voucher_type = 'Sales') AS last_invoice,
+                 max(voucher_date) FILTER (WHERE voucher_type = 'Receipt') AS last_receipt
+            FROM vouchers
+           WHERE org_id = ${orgId} AND NOT is_cancelled AND party_id IS NOT NULL
+             ${filters.to === undefined ? sql`` : sql`AND voucher_date <= ${filters.to}`}
+           GROUP BY party_id
+        ) b ON b.party_id = p.id
+       WHERE p.org_id = ${orgId} AND lower(p.parent_group) = 'sundry debtors'
+         ${filters.partyId === undefined ? sql`` : sql`AND p.id = ${filters.partyId}`}`;
+  }
+
+  private async creditTotals(orgId: string, filters: ReportFilters): Promise<Record<string, string>> {
+    const row = await this.db.execute<{ value: string }>(sql`
+      SELECT round(COALESCE(sum(COALESCE(b.exposure, 0)), 0), 2)::text AS value ${this.creditFrom(orgId, filters)}
+    `);
+    return { exposure: row.rows[0]?.value ?? '0' };
+  }
+
+  /**
+   * Only the customers who have actually gone quiet. The tile that reads this
+   * is captioned "from lapsed and at-risk customers", and summing every row
+   * put the revenue of customers buying exactly on rhythm into it.
+   */
+  private async lapseTotals(orgId: string): Promise<Record<string, string>> {
+    const row = await this.db.execute<{ value: string }>(sql`
+      SELECT round(COALESCE(sum(revenue_12m::numeric), 0), 2)::text AS value
+        FROM (${this.customerLapseQuery(orgId)}) t
+       WHERE state IN ('LAPSED', 'AT_RISK')
+    `);
+    return { revenue12m: row.rows[0]?.value ?? '0' };
+  }
+
   private async creditRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<CreditCycleSource[]> {
     const orderBy =
       sort === 'partyName' ? sql`p.name ASC` : sort === '-partyName' ? sql`p.name DESC` : sort === 'exposure' ? sql`exposure ASC, p.name ASC` : sql`exposure DESC, p.name ASC`;
@@ -546,19 +594,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       SELECT p.id, p.name, p.credit_limit::text AS credit_limit, p.credit_days,
              round(COALESCE(b.exposure, 0), 2)::text AS exposure,
              b.last_invoice, b.last_receipt
-        FROM parties p
-        LEFT JOIN (
-          SELECT party_id,
-                 sum(${debitCase} - ${creditCase}) AS exposure,
-                 max(voucher_date) FILTER (WHERE voucher_type = 'Sales') AS last_invoice,
-                 max(voucher_date) FILTER (WHERE voucher_type = 'Receipt') AS last_receipt
-            FROM vouchers
-           WHERE org_id = ${orgId} AND NOT is_cancelled AND party_id IS NOT NULL
-             ${filters.to === undefined ? sql`` : sql`AND voucher_date <= ${filters.to}`}
-           GROUP BY party_id
-        ) b ON b.party_id = p.id
-       WHERE p.org_id = ${orgId} AND lower(p.parent_group) = 'sundry debtors'
-         ${filters.partyId === undefined ? sql`` : sql`AND p.id = ${filters.partyId}`}
+        ${this.creditFrom(orgId, filters)}
        ORDER BY ${orderBy}
        LIMIT ${limit} OFFSET ${offset}
     `);
@@ -582,6 +618,20 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   // ------------------------------------------------------- sales analysis
+
+  /**
+   * The count and the rows have to read the same tables. Grouping by item
+   * group reaches into `stock_items`, and the count query had never joined
+   * it: choosing "By item group" -- an option that shipped in the dropdown --
+   * failed with `missing FROM-clause entry for table "s"` before a single row
+   * was fetched. One FROM, so the two cannot drift again. `stock_items.id` is
+   * the primary key, so the LEFT JOIN cannot multiply a line.
+   */
+  private salesLinesFrom(): SQL {
+    return sql`FROM voucher_lines l
+        JOIN vouchers v ON v.id = l.voucher_id
+        LEFT JOIN stock_items s ON s.id = l.stock_item_id`;
+  }
 
   private salesLinesWhere(orgId: string, filters: ReportFilters): SQL {
     return sql`l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
@@ -611,7 +661,13 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       case 'item':
         return sql`COALESCE(NULLIF(l.stock_item_name, ''), '(no item)')`;
       case 'itemGroup':
-        return sql`COALESCE(NULLIF(s.parent_group, ''), '(ungrouped)')`;
+        // Postgres accepts a grouping expression verbatim in the select list
+        // and nothing else built from an ungrouped column, so this repeats
+        // COALESCE(s.parent_group, '') rather than reaching for the bare
+        // column: with NULLIF(s.parent_group, ...) the query was rejected
+        // even once the join was in place. Blank and NULL are one group, so
+        // "(ungrouped)" appears once rather than twice.
+        return sql`CASE WHEN COALESCE(s.parent_group, '') = '' THEN '(ungrouped)' ELSE COALESCE(s.parent_group, '') END`;
       case 'month':
         return sql`to_char(v.voucher_date, 'YYYY-MM')`;
       default:
@@ -637,9 +693,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
                   THEN sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text || ' ' || max(s.unit)
                   ELSE NULL END AS quantity,
              round(COALESCE(sum(l.amount), 0), 2)::text AS value
-        FROM voucher_lines l
-        JOIN vouchers v ON v.id = l.voucher_id
-        LEFT JOIN stock_items s ON s.id = l.stock_item_id
+        ${this.salesLinesFrom()}
        WHERE ${this.salesLinesWhere(orgId, filters)}
        GROUP BY ${this.dimensionKey(dimension)}
        ORDER BY ${orderBy}

@@ -121,7 +121,11 @@ export class PasswordResetRateLimiter {
    * so the limiter's behaviour cannot be used to tell the two apart.
    */
   async tryAcquire(email: string, ip: string | null, now: number = Date.now()): Promise<boolean> {
-    if (this.redis.status !== 'ready') return this.tryAcquireViaDb(email, ip, now);
+    // `end`, not `!== 'ready'`: a client that is merely connecting -- which
+    // every client is at boot and after any reconnect -- would otherwise send
+    // every reset request down the Postgres path. See the note in
+    // login-rate-limit.service.ts.
+    if (this.redis.status === 'end') return this.tryAcquireViaDb(email, ip, now);
 
     const emailKey = passwordResetEmailKey(email);
     const ipKey = ip === null ? null : passwordResetIpKey(ip);

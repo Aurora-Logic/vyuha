@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ChartBarIcon, InfoIcon, LockKeyIcon } from '@phosphor-icons/react';
 import { subDays } from 'date-fns';
 
@@ -26,7 +26,9 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { ChartPanel, ChartSkeleton } from '@/features/attendance/charts';
+import { ChartCard } from '@/components/shared/chart-card';
+import { KpiGrid } from '@/components/shared/kpi-grid';
+import { ChartSkeleton } from '@/features/attendance/charts';
 import { dateRange } from '@/features/attendance/chart-series';
 import { formatDuration, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -105,37 +107,6 @@ const ALL = 'ALL';
 
 function isRangeDays(value: string | undefined): value is `${RangeDays}` {
   return value === '30' || value === '60' || value === '90';
-}
-
-/**
- * The one strip pattern this product uses for a row of figures: a bordered
- * band divided by rules. Not a row of cards — CLAUDE.md §3 rule 3 puts content
- * on the page surface, and a grid of cards each holding a figure is the
- * box-in-box this product does not do.
- */
-/** Label, value, and optionally the glyph the figure's subject wears elsewhere (the flag). */
-function FigureStrip({ entries }: { entries: readonly (readonly [string, string] | readonly [string, string, ReactNode])[] }) {
-  return (
-    <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-4 sm:divide-y-0">
-      {entries.map(([label, value, icon], index) => (
-        <div
-          key={label}
-          className={cn(
-            'flex flex-col gap-0.5 px-3 py-2',
-            entries.length % 2 === 1 && index === entries.length - 1
-              ? 'col-span-2 sm:col-span-1'
-              : null,
-          )}
-        >
-          <dt className="text-muted-foreground text-[0.6875rem]">
-            {icon ? <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">{icon}</span> : null}
-            {label}
-          </dt>
-          <dd className="text-base font-medium tabular-nums">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
 }
 
 /** The strip's own shape, so the page does not jump when the figures land. */
@@ -335,9 +306,9 @@ export function AnalyticsPage() {
           {period.isPending ? (
             <>
               <StripSkeleton />
-              <ChartPanel caption="Attendance rate, day by day">
+              <ChartCard title="Attendance rate, day by day">
                 <ChartSkeleton label="Loading the attendance rate" className="h-44 sm:h-52" />
-              </ChartPanel>
+              </ChartCard>
             </>
           ) : null}
 
@@ -363,15 +334,16 @@ export function AnalyticsPage() {
 
           {period.isSuccess && periodComplete ? (
             <>
-              <FigureStrip
-                entries={[
-                  ['People', String(totals.people)],
-                  ['Days recorded', String(totals.rows)],
-                  [
-                    'Attendance rate',
-                    totals.attendanceRate === null ? '—' : `${String(totals.attendanceRate)}%`,
-                  ],
-                  ['Flagged days', String(totals.flaggedDays), <ACTION_ICONS.flag key="flag" />],
+              <KpiGrid
+                columns={4}
+                tiles={[
+                  { label: 'People', value: String(totals.people) },
+                  { label: 'Days recorded', value: String(totals.rows) },
+                  {
+                    label: 'Attendance rate',
+                    value: totals.attendanceRate === null ? '—' : `${String(totals.attendanceRate)}%`,
+                  },
+                  { label: 'Flagged days', value: String(totals.flaggedDays), icon: <ACTION_ICONS.flag /> },
                 ]}
               />
 
@@ -380,9 +352,9 @@ export function AnalyticsPage() {
                   pair belongs together anyway, because "the rate is falling"
                   and "it falls on Mondays" are one thought. */}
               <div className="grid gap-3 lg:grid-cols-2">
-              <ChartPanel
-                caption="Attendance rate, day by day"
-                note="Of the people expected that day"
+              <ChartCard
+                title="Attendance rate, day by day"
+                description="Of the people expected that day"
               >
                 {totals.expected > 0 ? (
                   <AttendanceRateChart points={ratePoints} animate={periodIntro} />
@@ -392,9 +364,9 @@ export function AnalyticsPage() {
                     Holidays and weekly offs are left out of the denominator on purpose.
                   </NothingYet>
                 )}
-              </ChartPanel>
+              </ChartCard>
 
-              <ChartPanel caption="Absence by weekday" note="Share of expected days missed">
+              <ChartCard title="Absence by weekday" description="Share of expected days missed">
                 {totals.absent > 0 ? (
                   <WeekdayAbsenceChart points={weekdayPoints} animate={periodIntro} />
                 ) : (
@@ -404,7 +376,7 @@ export function AnalyticsPage() {
                       : 'No expected working days in this period.'}
                   </NothingYet>
                 )}
-              </ChartPanel>
+              </ChartCard>
               </div>
             </>
           ) : null}
@@ -419,27 +391,27 @@ export function AnalyticsPage() {
             />
 
             <div className="grid gap-3 lg:grid-cols-2">
-            <ChartPanel
-              caption="Late arrivals, by minutes late"
-              note={lateDays > 0 ? `${String(lateDays)} late day${lateDays === 1 ? '' : 's'}` : undefined}
+            <ChartCard
+              title="Late arrivals, by minutes late"
+              description={lateDays > 0 ? `${String(lateDays)} late day${lateDays === 1 ? '' : 's'}` : undefined}
             >
               {lateDays > 0 ? (
                 <LateSpreadChart points={latePoints} animate={periodIntro} />
               ) : (
                 <NothingYet>Nobody arrived late in this period.</NothingYet>
               )}
-            </ChartPanel>
+            </ChartCard>
 
-            <ChartPanel
-              caption="Late most often"
-              note={repeatPoints.length > 0 ? `Top ${String(Math.min(TOP_N, repeatPoints.length))}` : undefined}
+            <ChartCard
+              title="Late most often"
+              description={repeatPoints.length > 0 ? `Top ${String(Math.min(TOP_N, repeatPoints.length))}` : undefined}
             >
               {repeatPoints.length > 0 ? (
                 <RepeatLateChart points={repeatPoints} animate={periodIntro} />
               ) : (
                 <NothingYet>No repeat late arrivals to rank.</NothingYet>
               )}
-            </ChartPanel>
+            </ChartCard>
             </div>
           </section>
         ) : null}
@@ -452,9 +424,9 @@ export function AnalyticsPage() {
               note="Minutes only. This product records overtime and never prices it."
             />
 
-            <ChartPanel
-              caption="Who carries the overtime"
-              note={
+            <ChartCard
+              title="Who carries the overtime"
+              description={
                 overtimePoints.length > 0
                   ? `${formatDuration(overtimeTotal)} in total · these ${String(overtimePoints.length)} carry ${String(overtimeShare)}%`
                   : undefined
@@ -465,7 +437,7 @@ export function AnalyticsPage() {
               ) : (
                 <NothingYet>No overtime recorded in this period.</NothingYet>
               )}
-            </ChartPanel>
+            </ChartCard>
           </section>
         ) : null}
 
@@ -477,9 +449,9 @@ export function AnalyticsPage() {
           />
 
           {punchWindow.isPending ? (
-            <ChartPanel caption="How punches reached the server">
+            <ChartCard title="How punches reached the server">
               <ChartSkeleton label="Loading the punch mix" className="h-24" shape="row" />
-            </ChartPanel>
+            </ChartCard>
           ) : null}
 
           {punchWindow.isError ? (
@@ -504,21 +476,21 @@ export function AnalyticsPage() {
 
           {punchWindow.isSuccess && punchWindow.data.complete ? (
             <>
-              <ChartPanel
-                caption="How punches reached the server"
-                note={`${String(punches.length)} punch${punches.length === 1 ? '' : 'es'}`}
+              <ChartCard
+                title="How punches reached the server"
+                description={`${String(punches.length)} punch${punches.length === 1 ? '' : 'es'}`}
               >
                 {punches.length > 0 ? (
                   <PunchSourceChart points={sourcePoints} animate={punchIntro} />
                 ) : (
                   <NothingYet>No punches were logged in this period.</NothingYet>
                 )}
-              </ChartPanel>
+              </ChartCard>
 
-              <ChartPanel
+              <ChartCard
                 icon={<ACTION_ICONS.flag />}
-                caption="Flagged punches, by kind"
-                note={flagPoints.length > 0 ? 'Red needs somebody to look' : undefined}
+                title="Flagged punches, by kind"
+                description={flagPoints.length > 0 ? 'Red needs somebody to look' : undefined}
               >
                 {flagPoints.length > 0 ? (
                   <FlagVolumeChart points={flagPoints} animate={punchIntro} />
@@ -529,7 +501,7 @@ export function AnalyticsPage() {
                       : 'No punches were logged in this period.'}
                   </NothingYet>
                 )}
-              </ChartPanel>
+              </ChartCard>
             </>
           ) : null}
         </section>
@@ -549,9 +521,9 @@ export function AnalyticsPage() {
           ) : null}
 
           {canSeeRoster && roster.isPending ? (
-            <ChartPanel caption="Headcount by department">
+            <ChartCard title="Headcount by department">
               <ChartSkeleton label="Loading headcount" className="h-40" />
-            </ChartPanel>
+            </ChartCard>
           ) : null}
 
           {canSeeRoster && roster.isError ? (
@@ -565,9 +537,9 @@ export function AnalyticsPage() {
           ) : null}
 
           {canSeeRoster && roster.isSuccess ? (
-            <ChartPanel
-              caption="Headcount by department"
-              note={`${String(roster.data.total)} on the register`}
+            <ChartCard
+              title="Headcount by department"
+              description={`${String(roster.data.total)} on the register`}
             >
               {departmentPoints.length > 0 ? (
                 <HeadcountChart points={departmentPoints} animate={rosterIntro} />
@@ -584,7 +556,7 @@ export function AnalyticsPage() {
                   </EmptyHeader>
                 </Empty>
               )}
-            </ChartPanel>
+            </ChartCard>
           ) : null}
         </section>
 

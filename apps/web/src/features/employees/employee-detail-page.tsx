@@ -14,6 +14,7 @@ import { EmployeeDataExportButton } from '@/components/shared/employee-data-expo
 import { PageHeader } from '@/components/shared/page-header';
 import { RowActions } from '@/components/shared/row-actions';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { ChartCard } from '@/components/shared/chart-card';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
@@ -747,37 +748,31 @@ export function EmployeeDetailPage() {
               >
                 <RangeSummary totals={totals} />
 
-                <section className="flex flex-col gap-3">
-                  <SectionHeading
-                    title="Worked hours"
-                    note="One bar per day, with overtime carved out of the top of it. The dashed line is the rostered span, which runs door to door — worked time has the break taken out, so a full day sits just under the line."
-                  />
+                <ChartCard
+                  title="Worked hours"
+                  description="One bar per day, with overtime carved out of the top of it. The dashed line is the rostered span, which runs door to door — worked time has the break taken out, so a full day sits just under the line."
+                >
                   <WorkedHoursChart points={workedSeries} />
-                </section>
+                </ChartCard>
 
-                <section className="flex flex-col gap-3">
-                  <SectionHeading
-                    title="Days by status"
-                    note="How the month divides. Same colours as the pills in the table below."
-                  />
+                <ChartCard
+                  title="Days by status"
+                  description="How the month divides. Same colours as the pills in the table below."
+                >
                   <StatusSplitChart slices={statusSlices} delayMs={CHART_STAGGER_MS} />
-                </section>
+                </ChartCard>
 
-                <section className="flex flex-col gap-3">
-                  <SectionHeading
-                    title="Late arrivals"
-                    note="Minutes past the rostered start, day by day."
-                  />
-                  {totals.lateMinutes > 0 ? (
-                    <LateMinutesChart points={lateSeries} delayMs={CHART_STAGGER_MS * 2} />
-                  ) : (
-                    // An axis of nothing is not a finding, and it costs a
-                    // third of a phone screen to say so.
-                    <p className="text-muted-foreground border px-3 py-2.5 text-xs">
-                      No late arrival this month.
-                    </p>
-                  )}
-                </section>
+                {/* An axis of nothing is not a finding, and it costs a third
+                    of a phone screen to say so -- the card's own empty state
+                    says it in a line. */}
+                <ChartCard
+                  title="Late arrivals"
+                  description="Minutes past the rostered start, day by day."
+                  empty={totals.lateMinutes === 0}
+                  emptyNote="No late arrival this month."
+                >
+                  <LateMinutesChart points={lateSeries} delayMs={CHART_STAGGER_MS * 2} />
+                </ChartCard>
 
                 {flags.length > 0 ? (
                   <section className="flex flex-col gap-3">

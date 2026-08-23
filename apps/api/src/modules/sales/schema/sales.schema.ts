@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import type { DocumentDetails, ShipTo } from '@vyuha/shared';
 
@@ -52,6 +52,8 @@ export const salesDocuments = pgTable(
     grandTotal: numeric('grand_total', { precision: 16, scale: 2 }).notNull().default('0'),
     /** REQ-W-03: the estimate this order was converted from. Same table, no FK cascade wanted. */
     sourceDocumentId: uuid('source_document_id'),
+    /** 15 REQ-AK-08: the return this order replaces. No FK — sales_returns is declared below it. */
+    returnId: uuid('return_id'),
     /**
      * REQ-W-06 / REQ-W-07. `remote_guid` is the voucher Tally created; an
      * alter pushes against it and never creates a second (09 §3.3). The
@@ -122,6 +124,20 @@ export const salesDocumentLines = pgTable(
     packedQty: numeric('packed_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     invoicedQty: numeric('invoiced_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     dispatchedQty: numeric('dispatched_qty', { precision: 16, scale: 3 }).notNull().default('0'),
+    // 15 REQ-AN-15: what the price lists resolved when the line was written, as values; and why a rate went below it.
+    priceListId: uuid('price_list_id'),
+    priceListVersion: integer('price_list_version'),
+    resolvedRate: numeric('resolved_rate', { precision: 16, scale: 2 }),
+    appliedDiscountPct: numeric('applied_discount_pct', { precision: 5, scale: 2 }),
+    rateOverrideReason: text('rate_override_reason'),
+    /**
+     * 15 REQ-AK-09 / D-51: a free replacement line. REQ-AA-14 holds goods
+     * until the invoice exists, which is right when there will be one; a
+     * replacement the company decided to give away has no invoice to wait
+     * for, and without this mark it would wait for ever. The mark is per
+     * line because a replacement may be part free and part sold.
+     */
+    freeOfCharge: boolean('free_of_charge').notNull().default(false),
     ...standardColumns(),
   },
   (t) => [
@@ -129,7 +145,12 @@ export const salesDocumentLines = pgTable(
     check('sales_document_lines_picked_le_ordered', sql`picked_qty >= 0 AND picked_qty <= quantity`),
     check('sales_document_lines_packed_le_picked', sql`packed_qty >= 0 AND packed_qty <= picked_qty`),
     check('sales_document_lines_invoiced_le_packed', sql`invoiced_qty >= 0 AND invoiced_qty <= packed_qty`),
-    check('sales_document_lines_dispatched_le_invoiced', sql`dispatched_qty >= 0 AND dispatched_qty <= invoiced_qty`),
+    // A free replacement waits for no invoice, so what releases it is what was
+    // packed -- but `free_of_charge OR ...` short-circuits to true and left the
+    // line with no ceiling in the database at all. The service's own check was
+    // then the only thing between a request and a dispatched quantity larger
+    // than anything ever picked.
+    check('sales_document_lines_dispatched_le_invoiced', sql`dispatched_qty >= 0 AND dispatched_qty <= (CASE WHEN free_of_charge THEN packed_qty ELSE invoiced_qty END)`),
     // REQ-W-02: what was quoted for this item, by document.
     index('sales_document_lines_org_item_idx').on(t.orgId, t.stockItemId).where(ALIVE),
   ],
@@ -357,4 +378,127 @@ export const dispatchNotifications = pgTable(
     ...standardColumns(),
   },
   (t) => [index('dispatch_notifications_dispatch_idx').on(t.dispatchId)],
+);
+
+/**
+ * 15 Area AK — sales returns. The GRN inverted: goods come back, quantity
+ * and condition are recorded with the goods in hand, and the accounting
+ * document is Tally's (REQ-AK-05). No stock moves here (REQ-AK-07): a
+ * restocked line rises in Tally as a consequence of the credit note and
+ * arrives on the following pull.
+ */
+export const returnStateEnum = pgEnum('return_state', ['awaiting_credit_note', 'credited', 'cancelled']);
+export const returnConditionEnum = pgEnum('return_condition', ['sealed', 'opened', 'damaged']);
+export const returnDispositionEnum = pgEnum('return_disposition', ['restock', 'scrap']);
+export const replacementChargeEnum = pgEnum('replacement_charge', ['chargeable', 'free']);
+
+export const salesReturns = pgTable(
+  'sales_returns',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    /** `RET-0001`, from `document_sequences` under kind SALES_RETURN. */
+    number: text('number').notNull(),
+    state: returnStateEnum('state').notNull().default('awaiting_credit_note'),
+    partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
+    customerName: text('customer_name').notNull(),
+    /** REQ-AK-01: the invoice or sales order it relates to, and the dispatch when one is known. */
+    sourceDocumentId: uuid('source_document_id').references(() => salesDocuments.id, { onDelete: 'set null' }),
+    dispatchId: uuid('dispatch_id').references(() => dispatches.id, { onDelete: 'set null' }),
+    receivedOn: date('received_on', { mode: 'string' }).notNull(),
+    receivedBy: uuid('received_by').references(() => employees.id, { onDelete: 'restrict' }),
+    notes: text('notes'),
+    /** REQ-AK-09 / D-51: chargeable or free, decided per return. Null until somebody decides. */
+    replacementCharge: replacementChargeEnum('replacement_charge'),
+    cancelledReason: text('cancelled_reason'),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('sales_returns_org_number_uq').on(t.orgId, t.number),
+    index('sales_returns_org_state_idx').on(t.orgId, t.state).where(ALIVE),
+    index('sales_returns_org_party_idx').on(t.orgId, t.partyId).where(ALIVE),
+    index('sales_returns_org_received_idx').on(t.orgId, t.receivedOn).where(ALIVE),
+  ],
+);
+
+export const salesReturnLines = pgTable(
+  'sales_return_lines',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    returnId: uuid('return_id')
+      .notNull()
+      .references(() => salesReturns.id, { onDelete: 'cascade' }),
+    lineNo: integer('line_no').notNull(),
+    /** The invoice or order line it came off, when the return is against a Vyuha document. */
+    sourceLineId: uuid('source_line_id').references(() => salesDocumentLines.id, { onDelete: 'set null' }),
+    stockItemId: uuid('stock_item_id').references(() => stockItems.id, { onDelete: 'set null' }),
+    description: text('description').notNull(),
+    unit: text('unit'),
+    quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
+    /** REQ-AK-02: the words, not a code — the list is the organisation's to edit. */
+    reason: text('reason').notNull(),
+    reasonNote: text('reason_note'),
+    condition: returnConditionEnum('condition').notNull(),
+    disposition: returnDispositionEnum('disposition').notNull(),
+    /** REQ-AK-08: how much of this line has gone back out on a replacement order. */
+    replacedQty: numeric('replaced_qty', { precision: 16, scale: 3 }).notNull().default('0'),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('sales_return_lines_return_line_uq').on(t.returnId, t.lineNo),
+    index('sales_return_lines_org_item_idx').on(t.orgId, t.stockItemId).where(ALIVE),
+    check('sales_return_lines_qty_positive', sql`quantity > 0`),
+    check('sales_return_lines_replaced_le_returned', sql`replaced_qty >= 0 AND replaced_qty <= quantity`),
+  ],
+);
+
+/** REQ-AK-04: through the files pipeline, exactly as a dispatch photograph goes. */
+export const salesReturnAttachments = pgTable(
+  'sales_return_attachments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    returnId: uuid('return_id')
+      .notNull()
+      .references(() => salesReturns.id, { onDelete: 'cascade' }),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    ...standardColumns(),
+  },
+  (t) => [index('sales_return_attachments_return_idx').on(t.returnId)],
+);
+
+/**
+ * REQ-AK-05/AK-06: the credit note is Tally's, and this is the link — by the
+ * return number in its narration or by a person. Never guessed at by party
+ * and date; the unlinkable ones are a screen, exactly as the Sales vouchers
+ * with no order behind them are.
+ */
+export const salesReturnCreditNotes = pgTable(
+  'sales_return_credit_notes',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    returnId: uuid('return_id')
+      .notNull()
+      .references(() => salesReturns.id, { onDelete: 'cascade' }),
+    voucherId: uuid('voucher_id')
+      .notNull()
+      .references(() => vouchers.id, { onDelete: 'cascade' }),
+    method: text('method').notNull(),
+    linkedBy: uuid('linked_by'),
+    linkedAt: timestamp('linked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('sales_return_credit_notes_voucher_uq').on(t.voucherId), uniqueIndex('sales_return_credit_notes_return_uq').on(t.returnId)],
 );

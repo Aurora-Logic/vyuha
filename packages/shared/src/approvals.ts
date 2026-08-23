@@ -69,6 +69,7 @@ export const APPROVAL_SUBJECT_TYPES = [
   'device',
   'purchase_order',
   'sales_order',
+  'price_list',
 ] as const;
 
 export type KnownApprovalSubjectType = (typeof APPROVAL_SUBJECT_TYPES)[number];

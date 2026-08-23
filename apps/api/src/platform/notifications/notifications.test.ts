@@ -476,3 +476,69 @@ describe('housekeeping', () => {
     expect(rows).toHaveLength(0);
   });
 });
+
+describe('an event that must not be sent twice (audit 20)', () => {
+  /**
+   * The promise is "this notice goes out once". It used to be kept by BullMQ
+   * refusing a duplicate job id -- which holds only while the completed job
+   * still exists, and `DEFAULT_JOB_OPTIONS` keeps two hundred of them. On a
+   * busy day the key meant to suppress a repeat for ever was evicted by
+   * ordinary traffic and the notice went out again, with nothing failing.
+   */
+  it('stays suppressed after the queue has forgotten the job', async () => {
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const queue = harness.resolve(JobRunner).queueFor(QUEUES.NOTIFICATION);
+    const key = `audit-20-${uuidv7()}`;
+    const event = {
+      orgId: ORG_ID,
+      type: NOTIFICATION_EVENTS.PUNCH_FLAGGED,
+      audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_VIEW_ALL },
+      payload: { punchId: uuidv7(), employeeName: 'Devi Rao', date: '2026-08-20', flags: 'outside_window' },
+      idempotencyKey: key,
+    } as const;
+
+    const first = await dispatcher.emit(event);
+    expect(await queue.getJob(first)).toBeDefined();
+
+    // Exactly what retention does on a busy day, only sooner: this one job is
+    // removed, so the job id has nothing left to refuse. One job rather than
+    // the queue, because the queue is shared with every other file here -- and
+    // only once it has settled, because a worker holds a lock on it while it
+    // runs and BullMQ refuses to remove a locked job.
+    const deadline = Date.now() + 20_000;
+    for (;;) {
+      const job = await queue.getJob(first);
+      if (job === undefined) break;
+      const state = await job.getState();
+      if (state === 'completed' || state === 'failed') break;
+      if (Date.now() > deadline) throw new Error(`job ${first} never settled (state ${state})`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await queue.remove(first).catch(() => undefined);
+    expect(await queue.getJob(first)).toBeUndefined();
+
+    const second = await dispatcher.emit(event);
+    // The caller still gets the id it always got -- and no second job was
+    // enqueued behind it, which is the part the queue could no longer promise.
+    expect(second).toBe(first);
+    expect(await queue.getJob(first), 'the notice was queued a second time').toBeUndefined();
+
+    const claims = await harness.db.execute<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM notification_idempotency WHERE org_id = ${ORG_ID} AND key = ${key}`,
+    );
+    expect(claims.rows[0]?.n).toBe(1);
+  }, 60_000);
+
+  it('lets a different key through', async () => {
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const queue = harness.resolve(JobRunner).queueFor(QUEUES.NOTIFICATION);
+    const one = await dispatcher.emit({
+      orgId: ORG_ID,
+      type: NOTIFICATION_EVENTS.PUNCH_FLAGGED,
+      audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_VIEW_ALL },
+      payload: { punchId: uuidv7(), employeeName: 'Devi Rao', date: '2026-08-20', flags: 'outside_window' },
+      idempotencyKey: `audit-20-${uuidv7()}`,
+    });
+    expect(await queue.getJob(one)).toBeDefined();
+  }, 60_000);
+});

@@ -4,10 +4,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,12 +20,13 @@ import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '
 import { useDesignDraft } from '@/features/documents/use-design-draft';
 import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
-import { formatMoney } from '@/features/sales/money';
+import { ItemPicker } from '@/features/masters/item-picker';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { useParty } from '@/features/masters/use-parties';
+import { type StockItem } from '@/features/masters/use-stock-items';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
 import { newLine, previewLine, type LineDraft } from '@/features/sales/types';
-import { formatRelativeAge } from '@/lib/format';
+import { formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, PO_FULFILMENT_LABELS, PURCHASE_ORDER_STATUS_LABELS } from '@vyuha/shared';
@@ -135,8 +135,6 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
   const isNew = record === null;
   const isDraft = draft.status === 'DRAFT';
   const editable = canCreate && isDraft;
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeMasters });
   const dirty = draftFingerprint(draft) !== draftFingerprint(base);
   const busy = save.isPending || act.isPending || shortClose.isPending;
   const partyMissing = draft.partyId === null;
@@ -148,18 +146,10 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
   const receivable = confirmed && record.shortClosedAt === null && owed > 0;
   const linked = record?.lines.some((line) => line.requirements.length > 0) ?? false;
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
-  const itemOptions = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    label: i.name,
-    hint: [i.unit, i.costPrice === null || i.costPrice === undefined ? null : `@ ${i.costPrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    // The cost price is the buying figure; it prefills the rate.
-    costPrice: i.costPrice ?? null,
-    gstRate: i.gstRate,
-  }));
-  const party = (parties.data?.data ?? []).find((p) => p.id === draft.partyId) ?? null;
-  const vendorName = draft.vendorName.trim() === '' ? (partyOptions.find((o) => o.id === draft.partyId)?.label ?? '') : draft.vendorName;
+  // Resolved by id, not from a page-one list: the vendor picker reaches past
+  // the first page now, and the paper's vendor block (address, GSTIN) must too.
+  const party = useParty(draft.partyId).data ?? null;
+  const vendorName = draft.vendorName.trim() === '' ? (party?.name ?? '') : draft.vendorName;
 
   const serverLines = record !== null && !dirty ? record.lines : null;
   const paperLines: PaperLine[] = draft.lines.map((line, index) => {
@@ -213,11 +203,10 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
   function updateLine(key: string, patch: Partial<LineDraft>) {
     setDraft((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
   }
-  function chooseItem(key: string, option: PickerOption | null) {
-    const chosen = itemOptions.find((i) => i.id === option?.id);
+  function chooseItem(key: string, chosen: StockItem | null) {
     updateLine(key, {
       stockItemId: chosen?.id ?? null,
-      description: chosen?.label ?? '',
+      description: chosen?.name ?? '',
       unit: chosen?.unit ?? '',
       rate: chosen?.costPrice === null || chosen?.costPrice === undefined ? '' : chosen.costPrice.replace(/\.?0+$/u, ''),
       taxPct: chosen?.gstRate === null || chosen?.gstRate === undefined ? '0' : String(Number(chosen.gstRate)),
@@ -227,19 +216,16 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
     ? {
         customer: (
           <div className="flex flex-col gap-1">
-            <RecordPicker
+            <PartyPicker
               id="po-vendor"
               label="Vendor"
               placeholder="Choose the party"
-              searchPlaceholder="Search parties"
-              emptyMessage="No party matches. A vendor must be a party in Tally first."
               icon={<BooksIcon className="text-muted-foreground" />}
-              options={partyOptions}
-              loading={parties.isPending}
+              enabled={canSeeMasters}
               disabled={!canSeeMasters}
-              value={partyOptions.find((o) => o.id === draft.partyId) ?? (draft.partyId === null ? null : { id: draft.partyId, label: draft.vendorName })}
+              partyId={draft.partyId}
               onValueChange={(next) => {
-                setDraft((current) => ({ ...current, partyId: next?.id ?? null, vendorName: next?.label ?? current.vendorName }));
+                setDraft((current) => ({ ...current, partyId: next?.id ?? null, vendorName: next?.name ?? current.vendorName }));
               }}
             />
             <div className="grid grid-cols-2 gap-2 text-[0.9em]">
@@ -256,17 +242,15 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
           return canSeeMasters ? (
-            <RecordPicker
+            <ItemPicker
               id={`po-line-item-${line.key}`}
               label="Stock item"
               placeholder="Stock item, or type below"
               searchPlaceholder="Search stock items"
               emptyMessage="No item matches. Leave it and type a description."
-              options={itemOptions}
-              loading={items.isPending}
               clearable
               clearLabel="No stock item"
-              value={itemOptions.find((o) => o.id === draftLine?.stockItemId) ?? null}
+              value={draftLine?.stockItemId ? { id: draftLine.stockItemId, label: draftLine.description } : null}
               onValueChange={(next) => {
                 chooseItem(line.key, next);
               }}
@@ -374,8 +358,8 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
         title={isNew ? 'New purchase order' : `Purchase order ${record.number}`}
         badges={
           <>
-            <Badge variant="outline">{PURCHASE_ORDER_STATUS_LABELS[draft.status]}</Badge>
-            {confirmed ? <Badge variant={record.fulfilment === 'received' ? 'default' : 'outline'}>{PO_FULFILMENT_LABELS[record.fulfilment]}</Badge> : null}
+            <StatusBadge state={draft.status} label={PURCHASE_ORDER_STATUS_LABELS[draft.status]} />
+            {confirmed ? <StatusBadge state={record.fulfilment} label={PO_FULFILMENT_LABELS[record.fulfilment]} /> : null}
             {record === null ? null : <SyncStateBadge record={record} />}
           </>
         }

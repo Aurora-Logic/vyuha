@@ -161,7 +161,6 @@ export function OnDutyForm({ canRaise }: OnDutyFormProps) {
             value={siteName}
             maxLength={160}
             placeholder="Where you are working"
-            className="pointer-coarse:h-11"
             onChange={(event) => {
               setSiteName(event.target.value);
             }}

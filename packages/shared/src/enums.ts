@@ -81,6 +81,7 @@ export const APPROVAL_TYPES = [
   'PURCHASE_ORDER',
   /** 08 REQ-W-08: a sales order discounted past the threshold. */
   'SALES_DISCOUNT',
+  'PRICE_LIST',
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 

@@ -20,12 +20,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { InvoiceDialog } from './invoice-dialog';
-import { formatMoney } from './money';
 import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
 import { trimZeros, type AwaitingInvoiceEntry, type UnlinkedInvoice } from './types';
 import { useSalesOrder } from './use-estimates';

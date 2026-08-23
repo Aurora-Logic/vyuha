@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemSeparator, ItemTitle } from '@/components/ui/item';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { currencySymbol, formatAmount, formatDate, humaniseEnum } from '@/lib/format';
+import { formatDate, formatMoney, humaniseEnum } from '@/lib/format';
 import { LIFECYCLE_EVENT_LABELS, type LifecycleEvent, type LifecycleEventKind } from '@vyuha/shared';
 
 /**
@@ -104,7 +104,7 @@ export function LifecycleTimeline({ events, title = 'Timeline' }: { events: read
                       </ItemContent>
                       <div className="flex shrink-0 flex-col items-end gap-0.5 text-xs tabular-nums">
                         {event.quantity !== null ? <span>{event.quantity.replace(/\.?0+$/u, '')}{event.unit ? ` ${event.unit}` : ''}</span> : null}
-                        {event.amount !== null ? <span className="text-muted-foreground">{currencySymbol()}{formatAmount(event.amount)}</span> : null}
+                        {event.amount !== null ? <span className="text-muted-foreground">{formatMoney(event.amount)}</span> : null}
                         {event.state ? <Badge variant="outline">{humaniseEnum(event.state)}</Badge> : null}
                       </div>
                     </Item>

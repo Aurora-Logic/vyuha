@@ -14,6 +14,7 @@ import {
   attendanceRegisterCell,
   headcountCell,
   creditCycleCell,
+  paymentAnalysisCell,
   customerLapseCell,
   customerStatementCell,
   lowStockCell,
@@ -422,6 +423,27 @@ export const creditCycleRowSchema = z.object({
 });
 export type CreditCycleRow = z.infer<typeof creditCycleRowSchema>;
 
+/**
+ * The payment-analysis row, declared rather than left to the generic record
+ * shape. "Pays on time" is derived from the slippage by `paymentAnalysisCell`
+ * and is not a column the API sends, so the generic `recordCell` looked up a
+ * key that was not there and the column was blank on every screen -- while the
+ * exported file, which goes through that same cell function on the server,
+ * had it filled in. The screen and the file now read the row the same way.
+ */
+export const paymentAnalysisRowSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  creditDays: z.number().nullable(),
+  avgDaysToPay: z.number().nullable(),
+  slippage: z.number().nullable(),
+  billsPaid: z.number(),
+  billsOpen: z.number(),
+  oldestOpenDays: z.number().nullable(),
+  asOf: z.string().nullable(),
+});
+export type PaymentAnalysisRow = z.infer<typeof paymentAnalysisRowSchema>;
+
 export const salesAnalysisRowSchema = z.object({
   key: z.string(),
   label: z.string(),
@@ -622,6 +644,15 @@ const CREDIT_CYCLE_SHAPE: RowViewShape<CreditCycleRow> = {
   status: (row) => (row.overLimit ? 'OVER_LIMIT' : null),
 };
 
+const PAYMENT_ANALYSIS_SHAPE: RowViewShape<PaymentAnalysisRow> = {
+  schema: paymentAnalysisRowSchema,
+  cell: paymentAnalysisCell,
+  id: (row) => row.partyId,
+  primary: (row) => row.partyName,
+  // The same three words the cell renders, so the badge and the column agree.
+  status: (row) => (row.slippage === null ? 'NOT YET KNOWN' : row.slippage <= 0 ? 'ON TIME' : 'LATE'),
+};
+
 const SALES_ANALYSIS_SHAPE: RowViewShape<SalesAnalysisRow> = {
   schema: salesAnalysisRowSchema,
   cell: salesAnalysisCell,
@@ -670,13 +701,26 @@ const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
 const analyticsRowSchema = z.record(z.string(), z.unknown());
 type AnalyticsRow = z.infer<typeof analyticsRowSchema>;
 
-function analyticsShape(idKey: string, primaryKey: string, statusKey?: string): RowViewShape<AnalyticsRow> {
+function analyticsShape(
+  idKey: string | readonly string[],
+  primaryKey: string,
+  statusKey?: string,
+): RowViewShape<AnalyticsRow> {
+  // Some rows have no single identifying column. An ageing row is one bill of
+  // one party and the party repeats down the page, so the party id alone would
+  // hand the table duplicate React keys.
+  const idKeys = typeof idKey === 'string' ? [idKey] : idKey;
   return {
     schema: analyticsRowSchema,
     cell: recordCell,
     id: (row) => {
-      const value = row[idKey];
-      return typeof value === 'string' ? value : JSON.stringify(row);
+      const parts: string[] = [];
+      for (const key of idKeys) {
+        const value = row[key];
+        if (typeof value !== 'string') return JSON.stringify(row);
+        parts.push(value);
+      }
+      return parts.join('|');
     },
     primary: (row) => {
       const value = row[primaryKey];
@@ -703,9 +747,19 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'credit-breaches': analyticsShape('partyId', 'partyName'),
   'stock-ageing': analyticsShape('stockItemId', 'item'),
   'customer-concentration': analyticsShape('partyId', 'partyName'),
+  // Owner, 22 Aug 2026: the Pareto family. The name is the id too — an item
+  // name is what the projection groups by, and a party name is unique enough
+  // within one organisation to key a table row. `band` is the row's status.
+  'item-revenue-concentration': analyticsShape('id', 'name', 'band'),
+  'item-quantity-concentration': analyticsShape('id', 'name', 'band'),
+  'vendor-spend-concentration': analyticsShape('id', 'name', 'band'),
+  'receivables-concentration': analyticsShape('id', 'name', 'band'),
   'order-pipeline': analyticsShape('id', 'number', 'stage'),
   'dispatch-performance': analyticsShape('id', 'number', 'mode'),
   'order-fill-rate': analyticsShape('partyId', 'partyName'),
+  // One row is one line of one order, and both parts are needed for a key:
+  // an order repeats down the page and so does an item name.
+  'order-fulfilment': analyticsShape(['number', 'item'], 'number', 'state'),
   'new-vs-repeat': analyticsShape('month', 'month'),
   'requirement-ageing': analyticsShape('id', 'item', 'source'),
   // Owner, 22 Aug 2026: the second analytics set.
@@ -719,6 +773,17 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'stock-out-frequency': analyticsShape('id', 'item'),
   'margin-proxy': analyticsShape('stockItemId', 'item'),
   'sales-heatmap': analyticsShape('id', 'partyName'),
+  // Owner, 22 Aug 2026: receivables, collections, returns and the duplicate
+  // detector. These eight shipped with a definition and a row source but no
+  // shape, so every screen reading them showed the error state instead of the
+  // rows the API was returning. `row-shapes.test.ts` now fails on the next one.
+  ageing: analyticsShape(['partyId', 'billName'], 'partyName', 'bucket'),
+  'promised-vs-collected': analyticsShape('id', 'partyName'),
+  'broken-promises': analyticsShape('id', 'partyName'),
+  'return-rate-by-item': analyticsShape('id', 'itemName'),
+  'return-rate-by-customer': analyticsShape('id', 'partyName'),
+  'returns-by-reason': analyticsShape('id', 'reason'),
+  'duplicate-clusters': analyticsShape('id', 'kind'),
 };
 
 function build<T>(
@@ -782,6 +847,8 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(CUSTOMER_STATEMENT_SHAPE, reportKey, rows);
     case 'credit-cycle':
       return build(CREDIT_CYCLE_SHAPE, reportKey, rows);
+    case 'payment-analysis':
+      return build(PAYMENT_ANALYSIS_SHAPE, reportKey, rows);
     case 'sales-analysis':
       return build(SALES_ANALYSIS_SHAPE, reportKey, rows);
     case 'pending-dispatch':

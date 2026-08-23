@@ -8,7 +8,6 @@ import {
   type EstimateView,
   type ItemHistoryEntry,
   type SalesDocumentType,
-  type SalesLineInput,
   type SalesLineView,
   type ShipTo,
   type SortTerm,
@@ -16,7 +15,9 @@ import {
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
+import { type ResolvedLine } from '../../../platform/documents/document-support.js';
 import type { Database, Transaction } from '../../../platform/db/db.provider.js';
+import { resolveRate } from '../../../platform/pricing/pricing-resolver.js';
 import { employees, stockItems, voucherLines, vouchers } from '../../../platform/db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-repository.js';
 import { masterOrderBy, masterSearch } from '../../../platform/org/master-query.js';
@@ -54,15 +55,34 @@ export interface EstimateListFilters {
   readonly companyId?: string | undefined;
   readonly dealId?: string | undefined;
   readonly ownerId?: string | undefined;
+  /** The order an invoice was raised from. */
+  readonly sourceDocumentId?: string | undefined;
   readonly sort: readonly SortTerm[];
   readonly limit: number;
   readonly offset: number;
 }
 
+/**
+ * What the repository writes, which is the request contract plus one field
+ * no request may carry: 15 REQ-AK-09's free-of-charge mark, set by the
+ * return that raises a replacement and by nothing else.
+ */
+/**
+ * A line as the repository writes it: every field the row needs decided.
+ *
+ * `taxPct` is required here rather than optional, which is the point --
+ * `resolveDocumentLines` is what turns "not supplied" into the item's rate,
+ * and a caller that skips it now fails to compile instead of writing a null
+ * tax percentage into a NOT NULL column.
+ */
+export type RepositoryLineInput = ResolvedLine & { readonly freeOfCharge?: boolean };
+
 export interface EstimateHeaderInput {
   /** Only on create; the estimate's DRAFT or an order's DRAFT. */
   status?: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED';
   sourceDocumentId?: string | null;
+  /** 15 REQ-AK-08: the return this order replaces, when it is a replacement. */
+  returnId?: string | null;
   date: string;
   validUntil: string | null;
   partyId: string | null;
@@ -138,7 +158,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
             WHEN sum(l.packed_qty) > 0 THEN 'picking'
             ELSE 'open' END
             FROM sales_document_lines l
-           WHERE l.document_id = ${salesDocuments.id} AND l.deleted_at IS NULL
+           WHERE l.document_id = ${salesDocuments.id} AND l.org_id = ${salesDocuments.orgId} AND l.deleted_at IS NULL
         ) END`,
       createdAt: salesDocuments.createdAt,
       updatedAt: salesDocuments.updatedAt,
@@ -159,6 +179,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       filters.companyId === undefined ? undefined : eq(salesDocuments.companyId, filters.companyId),
       filters.dealId === undefined ? undefined : eq(salesDocuments.dealId, filters.dealId),
       filters.ownerId === undefined ? undefined : eq(salesDocuments.ownerId, filters.ownerId),
+      filters.sourceDocumentId === undefined ? undefined : eq(salesDocuments.sourceDocumentId, filters.sourceDocumentId),
     );
   }
 
@@ -187,18 +208,35 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     const inFlight =
       this.docType === 'SALES_ORDER'
         ? await this.db.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
-            SELECT il.stock_item_id, il.description, sum(il.quantity)::text AS quantity
+            SELECT il.stock_item_id, il.description, il.quantity::text AS quantity
               FROM sales_documents inv JOIN sales_document_lines il ON il.document_id = inv.id AND il.deleted_at IS NULL
              WHERE inv.org_id = ${this.ctx.orgId} AND inv.doc_type = 'INVOICE' AND inv.source_document_id = ${id}
                AND inv.status = 'CONFIRMED' AND inv.sync_state <> 'PUSHED' AND inv.deleted_at IS NULL
                AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.invoice_document_id = inv.id)
-             GROUP BY il.stock_item_id, il.description
+             ORDER BY inv.created_at, inv.id, il.line_no
           `)
         : { rows: [] };
+    // Assigned the way acceptance assigns (invoice.service.ts): each invoice
+    // line goes to the lowest-numbered order line that matches and still has
+    // packed quantity left to invoice, capped at what that line can hold.
+    //
+    // The preview used to sum the invoice lines by item and hand the total to
+    // the first order line that matched. An order with the same item on two
+    // lines -- the same goods at two rates, or for two dates -- showed all of
+    // it against line one, which then read as over-invoiced while line two
+    // read as untouched, and the screen disagreed with what acceptance would
+    // actually write.
     const invoicingByLine = new Map<string, number>();
     for (const row of inFlight.rows) {
-      const target = lines.find((line) => (row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description);
-      if (target !== undefined) invoicingByLine.set(target.id, (invoicingByLine.get(target.id) ?? 0) + Number(row.quantity));
+      const spokenFor = (line: typeof lines[number]): number => Number(line.invoicedQty) + (invoicingByLine.get(line.id) ?? 0);
+      const target = lines.find(
+        (line) =>
+          ((row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description) &&
+          Number(line.packedQty) > spokenFor(line),
+      );
+      if (target === undefined) continue;
+      const capacity = Number(target.packedQty) - spokenFor(target);
+      invoicingByLine.set(target.id, (invoicingByLine.get(target.id) ?? 0) + Math.min(Number(row.quantity), capacity));
     }
     const invoices =
       this.docType === 'SALES_ORDER'
@@ -210,9 +248,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
                    COALESCE(v.amount, d.grand_total)::text AS amount,
                    i.method, i.linked_at
               FROM sales_order_invoices i
-              LEFT JOIN vouchers v ON v.id = i.voucher_id
-              LEFT JOIN sales_documents d ON d.id = i.invoice_document_id
-             WHERE i.document_id = ${id}
+              LEFT JOIN vouchers v ON v.id = i.voucher_id AND v.org_id = ${this.ctx.orgId}
+              LEFT JOIN sales_documents d ON d.id = i.invoice_document_id AND d.org_id = ${this.ctx.orgId}
+             WHERE i.document_id = ${id} AND i.org_id = ${this.ctx.orgId}
              ORDER BY 3, 2
           `)
         : { rows: [] };
@@ -237,7 +275,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
    * Header and lines in one transaction, number issued from the sequence
    * row under `FOR UPDATE` so two estimates raised together cannot share it.
    */
-  async create(header: EstimateHeaderInput, lines: readonly SalesLineInput[]): Promise<string> {
+  async create(header: EstimateHeaderInput, lines: readonly RepositoryLineInput[]): Promise<string> {
     return this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx);
       const inserted = await tx
@@ -248,6 +286,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
           number,
           status: header.status ?? 'DRAFT',
           sourceDocumentId: header.sourceDocumentId ?? null,
+          returnId: header.returnId ?? null,
           date: header.date,
           validUntil: header.validUntil,
           partyId: header.partyId,
@@ -273,7 +312,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     });
   }
 
-  async updateHeader(id: string, patch: Partial<EstimateHeaderInput>, lines: readonly SalesLineInput[] | undefined): Promise<boolean> {
+  async updateHeader(id: string, patch: Partial<EstimateHeaderInput>, lines: readonly RepositoryLineInput[] | undefined): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       const rows = await tx
         .update(salesDocuments)
@@ -331,27 +370,58 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
   }
 
   /** Delete-then-insert inside the caller's transaction, then the header's totals from the new lines. */
-  private async replaceLines(tx: Transaction, documentId: string, lines: readonly SalesLineInput[]): Promise<void> {
+  private async replaceLines(tx: Transaction, documentId: string, lines: readonly RepositoryLineInput[]): Promise<void> {
+    // 15 REQ-AK-09 / D-51: the free-of-charge mark is set by the return that
+    // raised the order and by nothing else -- there is deliberately no field
+    // for it on the line editor. An edit replaces every line, so input that
+    // cannot carry the mark used to clear it, and a replacement the company
+    // had decided to give away went back to waiting for an invoice that was
+    // never coming. A line still naming the same item keeps its mark.
+    const marked = await tx.execute<{ stock_item_id: string | null; description: string }>(sql`
+      SELECT stock_item_id, description FROM sales_document_lines
+       WHERE document_id = ${documentId} AND org_id = ${this.ctx.orgId} AND free_of_charge AND deleted_at IS NULL
+    `);
+    const wasFree = new Set(marked.rows.map((row) => `${row.stock_item_id ?? ''}|${row.description}`));
     await tx.delete(salesDocumentLines).where(eq(salesDocumentLines.documentId, documentId));
     if (lines.length > 0) {
+      // 15 REQ-AN-13/15: the price lists resolve each item's rate at the
+      // document's date; the line carries what resolved as values. A rate the
+      // salesperson typed stands (the floor check happens at confirm); one
+      // they left blank becomes the resolved rate.
+      const head = await tx.execute<{ party_id: string | null; date: string }>(sql`SELECT party_id, date::text FROM sales_documents WHERE id = ${documentId} AND org_id = ${this.ctx.orgId}`);
+      const partyId = head.rows[0]?.party_id ?? null;
+      const date = head.rows[0]?.date ?? new Date().toISOString().slice(0, 10);
+      const resolved = await Promise.all(
+        lines.map((line) => (line.stockItemId ? resolveRate(tx, this.ctx.orgId, { partyId, stockItemId: line.stockItemId, quantity: line.quantity, date }) : Promise.resolve(null))),
+      );
       await tx.insert(salesDocumentLines).values(
-        lines.map((line, index) => ({
-          orgId: this.ctx.orgId,
-          documentId,
-          lineNo: index + 1,
-          stockItemId: line.stockItemId ?? null,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit ?? null,
-          rate: line.rate,
-          discountPct: line.discountPct,
-          taxPct: line.taxPct,
-          hsnCode: line.hsnCode ?? null,
-          amount: sql`round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
-          taxAmount: sql`round(round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
-          createdBy: this.ctx.actorUserId,
-          updatedBy: this.ctx.actorUserId,
-        })),
+        lines.map((line, index) => {
+          const resolution = resolved[index] ?? null;
+          const rate = line.rate ?? resolution?.rate ?? '0';
+          return {
+            orgId: this.ctx.orgId,
+            documentId,
+            lineNo: index + 1,
+            stockItemId: line.stockItemId ?? null,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit ?? null,
+            rate,
+            discountPct: line.discountPct,
+            taxPct: line.taxPct,
+            hsnCode: line.hsnCode ?? null,
+            priceListId: resolution?.priceListId ?? null,
+            priceListVersion: resolution?.priceListVersion ?? null,
+            resolvedRate: resolution?.rate ?? null,
+            appliedDiscountPct: resolution?.discountPct ?? null,
+            rateOverrideReason: line.rateOverrideReason ?? null,
+            freeOfCharge: line.freeOfCharge ?? wasFree.has(`${line.stockItemId ?? ''}|${line.description}`),
+            amount: sql`round(${line.quantity}::numeric * ${rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
+            taxAmount: sql`round(round(${line.quantity}::numeric * ${rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
+            createdBy: this.ctx.actorUserId,
+            updatedBy: this.ctx.actorUserId,
+          };
+        }),
       );
     }
     await tx.execute(sql`
@@ -366,9 +436,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
                  coalesce(sum(round(quantity * rate, 2) - amount), 0) AS discount_total,
                  coalesce(sum(tax_amount), 0) AS tax_total
             FROM sales_document_lines
-           WHERE document_id = ${documentId} AND deleted_at IS NULL
+           WHERE document_id = ${documentId} AND org_id = ${this.ctx.orgId} AND deleted_at IS NULL
         ) t
-       WHERE d.id = ${documentId}
+       WHERE d.id = ${documentId} AND d.org_id = ${this.ctx.orgId}
     `);
   }
 
@@ -576,6 +646,12 @@ function toLineView(row: typeof salesDocumentLines.$inferSelect, invoicing = 0):
     amount: row.amount,
     taxAmount: row.taxAmount,
     hsnCode: row.hsnCode,
+    priceListId: row.priceListId,
+    priceListVersion: row.priceListVersion,
+    resolvedRate: row.resolvedRate,
+    appliedDiscountPct: row.appliedDiscountPct,
+    rateOverrideReason: row.rateOverrideReason,
+    freeOfCharge: row.freeOfCharge,
     pickedQty: row.pickedQty,
     packedQty: row.packedQty,
     invoicedQty: row.invoicedQty,

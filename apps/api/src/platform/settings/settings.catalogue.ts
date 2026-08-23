@@ -13,8 +13,8 @@ import {
   retentionSchema,
   type Appearance,
   type RetentionPolicy,
-  type WorkspaceLocale,
-} from '@vyuha/shared';
+  type WorkspaceLocale, DEFAULT_DUPLICATES_POLICY, duplicatesPolicySchema, type DuplicatesPolicy,
+  DEFAULT_RETURN_REASONS_POLICY, returnReasonsPolicySchema, type ReturnReasonsPolicy } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -308,6 +308,22 @@ export const appearancePolicySchema = appearanceSchema;
 export type AppearancePolicy = Appearance;
 export const DEFAULT_APPEARANCE_POLICY: AppearancePolicy = DEFAULT_APPEARANCE;
 
+/** 15 REQ-AO-04 / D-56: the confidence a cluster shows from; the detector reads the same key. */
+export const DUPLICATES_SETTINGS = {
+  confidenceMin: { key: 'masters.duplicate_confidence_min', help: 'A duplicate cluster is shown from this confidence (0.5 to 1). A shared GSTIN or PAN is always 1.', enforcedBy: 'Duplicate detector' },
+} as const satisfies Record<string, SettingDescriptor>;
+export const duplicatesPolicyRowSchema = duplicatesPolicySchema;
+export type DuplicatesPolicyRow = DuplicatesPolicy;
+export const DEFAULT_DUPLICATES_POLICY_ROW: DuplicatesPolicy = DEFAULT_DUPLICATES_POLICY;
+
+/** 15 REQ-AK-02: the reasons the return desk may choose from. Free text rides alongside, never instead. */
+export const RETURNS_SETTINGS = {
+  reasons: { key: 'sales.return_reasons', help: 'The reasons a return may be recorded under. Free text is always allowed beside the reason, never in place of it.', enforcedBy: 'Return receipt' },
+} as const satisfies Record<string, SettingDescriptor>;
+export const returnReasonsPolicyRowSchema = returnReasonsPolicySchema;
+export type ReturnReasonsPolicyRow = ReturnReasonsPolicy;
+export const DEFAULT_RETURN_REASONS_POLICY_ROW: ReturnReasonsPolicy = DEFAULT_RETURN_REASONS_POLICY;
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
@@ -316,6 +332,8 @@ export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(APPEARANCE_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(LOCALE_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(RETENTION_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(DUPLICATES_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(RETURNS_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

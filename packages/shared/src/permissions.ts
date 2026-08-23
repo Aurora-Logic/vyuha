@@ -35,8 +35,6 @@ export const PERMISSIONS = {
   LEAVE_APPROVE_ALL: 'leave.approve.all',
   LEAVE_POLICY_MANAGE: 'leave.policy.manage',
 
-  REGULARIZATION_RAISE: 'regularization.raise',
-  REGULARIZATION_APPROVE: 'regularization.approve',
 
   EMPLOYEE_VIEW: 'employee.view',
   EMPLOYEE_MANAGE: 'employee.manage',
@@ -94,6 +92,22 @@ export const PERMISSIONS = {
   SALES_DISCOUNT_APPROVE: 'sales.discount.approve',
   /** 08 REQ-W-09: release an order blocked by the party's credit position, with a reason. */
   SALES_CREDIT_OVERRIDE: 'sales.credit.override',
+  // 15 REQ-AN-10: price lists are drafted by one key and activated by another.
+  PRICING_MANAGE: 'pricing.manage',
+  PRICING_APPROVE: 'pricing.approve',
+  // 15 REQ-AO-14: duplicates are seen by one key and decided by another.
+  DUPLICATES_VIEW: 'duplicates.view',
+  DUPLICATES_MANAGE: 'duplicates.manage',
+  // 15 REQ-AJ-11: my parties, everyone's parties, and the right to record intent.
+  COLLECTIONS_VIEW_SELF: 'collections.view.self',
+  COLLECTIONS_VIEW_ALL: 'collections.view.all',
+  COLLECTIONS_MANAGE: 'collections.manage',
+  // 15 REQ-AK-11: seeing returns, recording them, and deciding a line is scrap.
+  RETURNS_VIEW: 'returns.view',
+  RETURNS_MANAGE: 'returns.manage',
+  RETURNS_DISPOSITION: 'returns.disposition',
+  // 15 REQ-AL-03/AL-07: issuing a customer's portal link, and withdrawing it.
+  PORTAL_MANAGE: 'portal.manage',
 
   /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
@@ -120,8 +134,6 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'leave.approve.team': "Approve the team's leave",
   'leave.approve.all': 'Approve leave for anyone',
   'leave.policy.manage': 'Manage leave types and balances',
-  'regularization.raise': 'Raise a regularization request',
-  'regularization.approve': 'Approve a regularization request',
   'employee.view': 'View employee records',
   'employee.manage': 'Create and edit employee records',
   'shift.manage': 'Manage shifts, rosters, and weekly-off patterns',
@@ -151,6 +163,17 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'sales.document.alter': 'Alter an accepted document (re-pushed against its GUID)',
   'sales.discount.approve': 'Approve a discount above the threshold',
   'sales.credit.override': 'Release a sales order blocked by the party’s credit limit, with a reason',
+  'pricing.manage': 'Draft and edit price lists and submit them for approval',
+  'pricing.approve': 'Approve a price list into force',
+  'duplicates.view': 'See likely duplicate masters and the clusters behind them',
+  'duplicates.manage': 'Dismiss a duplicate cluster or mark it sent to Tally',
+  'collections.view.self': 'See the collections work for the parties assigned to me',
+  'collections.view.all': 'See every collector’s parties, promises and targets',
+  'collections.manage': 'Take a promise to pay, assign a collector, send a reminder',
+  'returns.view': 'See sales returns and what they are waiting on',
+  'returns.manage': 'Receive a return, link its credit note, raise a replacement',
+  'returns.disposition': 'Decide a returned line is scrap rather than restock',
+  'portal.manage': 'Issue a customer portal link and withdraw one',
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
@@ -190,14 +213,12 @@ const EMPLOYEE_PERMISSIONS = [
   PERMISSIONS.PUNCH_SELF,
   PERMISSIONS.ATTENDANCE_VIEW_SELF,
   PERMISSIONS.LEAVE_APPLY_SELF,
-  PERMISSIONS.REGULARIZATION_RAISE,
 ] as const satisfies readonly PermissionKey[];
 
 const OPERATIONS_PERMISSIONS = [
   ...EMPLOYEE_PERMISSIONS,
   PERMISSIONS.ATTENDANCE_VIEW_TEAM,
   PERMISSIONS.LEAVE_APPROVE_TEAM,
-  PERMISSIONS.REGULARIZATION_APPROVE,
   PERMISSIONS.EMPLOYEE_VIEW,
   PERMISSIONS.SHIFT_MANAGE,
   PERMISSIONS.REPORT_VIEW,
@@ -215,41 +236,25 @@ const HR_PERMISSIONS = [
   PERMISSIONS.REPORT_EXPORT,
 ] as const satisfies readonly PermissionKey[];
 
-const ADMIN_PERMISSIONS = [
-  ...HR_PERMISSIONS,
-  // REQ-E-09. Admin only, and deliberately not in `HR_PERMISSIONS`: HR closes
-  // a month, only Admin reopens one.
-  PERMISSIONS.ATTENDANCE_UNLOCK,
-  PERMISSIONS.SETTINGS_MANAGE,
-  PERMISSIONS.ROLES_MANAGE,
-  PERMISSIONS.AUDIT_VIEW,
-  PERMISSIONS.INTEGRATION_MANAGE,
-  PERMISSIONS.MASTERS_TALLY_VIEW,
-  // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
-  PERMISSIONS.RECEIVABLES_VIEW,
-  PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
-  PERMISSIONS.REPORTS_MARGIN_VIEW,
-  PERMISSIONS.CRM_CONTACT_VIEW_SELF,
-  PERMISSIONS.CRM_CONTACT_VIEW_ALL,
-  PERMISSIONS.CRM_CONTACT_MANAGE,
-  PERMISSIONS.CRM_DEAL_VIEW_SELF,
-  PERMISSIONS.CRM_DEAL_VIEW_ALL,
-  PERMISSIONS.CRM_DEAL_MANAGE,
-  PERMISSIONS.CRM_PIPELINE_MANAGE,
-  PERMISSIONS.CRM_TASK_VIEW_SELF,
-  PERMISSIONS.CRM_TASK_VIEW_TEAM,
-  PERMISSIONS.CRM_TASK_MANAGE,
-  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
-  PERMISSIONS.SALES_DOCUMENT_CREATE,
-  PERMISSIONS.SALES_DOCUMENT_ALTER,
-  PERMISSIONS.SALES_DISCOUNT_APPROVE,
-  PERMISSIONS.SALES_CREDIT_OVERRIDE,
-  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
-  PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
-  PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
-  PERMISSIONS.ACCESS_OUTSIDE_WINDOW,
-] as const satisfies readonly PermissionKey[];
+/**
+ * Admin holds every permission there is, derived rather than listed.
+ *
+ * This used to be an enumeration -- HR's set, then thirty-odd keys named one
+ * by one. It was complete, and that is the problem: it was complete because
+ * somebody remembered each time, and the failure mode is silent. A permission
+ * added for a new module and not added here leaves the owner of the system
+ * unable to reach a screen they are supposed to own, and nothing anywhere
+ * says so; they simply find a 403 one day and assume it is a bug elsewhere.
+ *
+ * Reading the catalogue makes "Admin can do everything" true by construction.
+ * A key that exists is a key Admin has, on the day it is added, without anyone
+ * doing anything.
+ *
+ * This is a *seed*, not an invariant -- REQ-B-07 lets an administrator edit
+ * any role afterwards, including their own, and the last-holder guard in
+ * `RbacAdminService` is what stops that going too far.
+ */
+const ADMIN_PERMISSIONS = Object.values(PERMISSIONS) satisfies readonly PermissionKey[];
 
 /**
  * Seed only. Admin can edit any of these in the UI afterwards (REQ-B-07), so
@@ -266,6 +271,7 @@ const SALES_PERMISSIONS = [
   PERMISSIONS.CRM_TASK_MANAGE,
   PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
   PERMISSIONS.SALES_DOCUMENT_CREATE,
+  PERMISSIONS.RETURNS_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
@@ -281,6 +287,13 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.SALES_DOCUMENT_ALTER,
   PERMISSIONS.SALES_DISCOUNT_APPROVE,
   PERMISSIONS.SALES_CREDIT_OVERRIDE,
+  PERMISSIONS.PRICING_MANAGE,
+  PERMISSIONS.DUPLICATES_VIEW,
+  PERMISSIONS.DUPLICATES_MANAGE,
+  PERMISSIONS.COLLECTIONS_VIEW_SELF,
+  PERMISSIONS.COLLECTIONS_VIEW_ALL,
+  PERMISSIONS.COLLECTIONS_MANAGE,
+  PERMISSIONS.RETURNS_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
@@ -310,6 +323,20 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.RECEIVABLES_VIEW,
   PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
   PERMISSIONS.REPORTS_MARGIN_VIEW,
+  PERMISSIONS.DUPLICATES_VIEW,
+  PERMISSIONS.DUPLICATES_MANAGE,
+  PERMISSIONS.COLLECTIONS_VIEW_SELF,
+  PERMISSIONS.COLLECTIONS_VIEW_ALL,
+  PERMISSIONS.COLLECTIONS_MANAGE,
+  // REQ-AK-05: the awaiting-credit-note queue is the accountant's, exactly
+  // as the awaiting-invoice one is -- and writing goods off is theirs too.
+  // Sales manages returns and raises replacements; it does not scrap stock,
+  // because the person a customer is complaining to should not be the person
+  // who decides the goods were worthless.
+  PERMISSIONS.RETURNS_VIEW,
+  PERMISSIONS.RETURNS_MANAGE,
+  PERMISSIONS.RETURNS_DISPOSITION,
+  PERMISSIONS.PORTAL_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

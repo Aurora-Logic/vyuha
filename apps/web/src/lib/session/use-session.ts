@@ -87,6 +87,13 @@ const meSnapshotSchema = z.object({
       ),
     ),
   accessWindow: z.object({ closesInMinutes: z.number().nullable(), exempt: z.boolean() }).optional(),
+  // REQ-B-09. `rememberMe` has always written this; only the read side
+  // dropped it, so an offline reload rendered the whole shell for an account
+  // whose enrolment the session gate would have stopped. Optional on purpose:
+  // a snapshot written before this existed has no key, and absent has to keep
+  // meaning "not required" -- failing closed would strand every one of those
+  // readers on an enrolment screen that cannot be completed without a server.
+  mfa: z.object({ enabled: z.boolean(), required: z.boolean(), enrolmentRequired: z.boolean() }).optional(),
 });
 
 // localStorage can be denied outright (privacy modes). Each helper treats
@@ -248,16 +255,26 @@ export function useLogout() {
 
   return useMutation({
     mutationFn: async () => {
-      try {
-        await apiRequest<void>('/auth/logout', { method: 'POST' });
-      } finally {
-        // Local state is cleared even if the call failed. A logout that leaves
-        // the session on screen because the network blipped is worse than one
-        // whose server-side revocation has to be retried.
-        setAccessToken(null);
-      }
+      await apiRequest<void>('/auth/logout', { method: 'POST' });
     },
-    onSuccess: () => {
+    /*
+     * `onSettled`, not `onSuccess`. The intent was always that local state
+     * goes whether or not the server answered -- a logout that leaves the
+     * session on screen because the network blipped is worse than one whose
+     * revocation has to be retried -- but only the access token was in the
+     * `finally`. `forgetMe`, the cached session and the query cache all sat
+     * in `onSuccess`, which does not run when the mutation rejects. So a
+     * logout that met a 502, or a dropped connection, cleared the one thing
+     * held in memory and left the identity snapshot, the cached session and
+     * the httpOnly refresh cookie exactly where they were: the next request
+     * exchanged the cookie and the user was signed straight back in, on a
+     * shared machine, having watched themselves sign out.
+     *
+     * The refresh cookie is the server's to revoke and cannot be cleared from
+     * here, so the local teardown is what has to be unconditional.
+     */
+    onSettled: () => {
+      setAccessToken(null);
       forgetMe();
       queryClient.setQueryData(SESSION_QUERY_KEY, null);
       queryClient.clear();

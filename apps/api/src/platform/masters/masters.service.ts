@@ -12,12 +12,12 @@ import {
   type VoucherDetailView,
   type VoucherLineView,
   type VoucherListQuery,
-  type VoucherView,
-} from '@vyuha/shared';
+  type VoucherView, type DuplicateFlag } from '@vyuha/shared';
 import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { DuplicatesService } from './duplicates.service.js';
 import { parties, priceListEntries, stockItems, voucherLines, vouchers } from '../db/schema/index.js';
 import { masterSearch } from '../org/master-query.js';
 import { type Principal } from '../rbac/principal.js';
@@ -33,7 +33,18 @@ import { type Principal } from '../rbac/principal.js';
  */
 @Injectable()
 export class MastersService {
-  constructor(@InjectDatabase() private readonly db: Database) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly duplicates: DuplicatesService,
+  ) {}
+
+  private attachPartyFlags(orgId: string, views: readonly PartyView[]): Promise<PartyView[]> {
+    return attachFlags(this.duplicates, orgId, 'party', views);
+  }
+
+  private attachItemFlags(orgId: string, views: readonly StockItemView[]): Promise<StockItemView[]> {
+    return attachFlags(this.duplicates, orgId, 'stock_item', views);
+  }
 
   async listParties(principal: Principal, query: PartyListQuery): Promise<Paginated<PartyView>> {
     const { limit, offset } = pageSlice(query);
@@ -52,7 +63,7 @@ export class MastersService {
       this.db.select({ value: sql<number>`count(*)::int` }).from(parties).where(where),
     ]);
 
-    return paginated(rows.map(toView), query, total[0]?.value ?? 0);
+    return paginated(await this.attachPartyFlags(principal.orgId, rows.map(toView)), query, total[0]?.value ?? 0);
   }
 
   async findParty(principal: Principal, id: string): Promise<PartyView> {
@@ -64,7 +75,7 @@ export class MastersService {
     const row = rows[0];
     // Cross-org and non-existent are one answer, as everywhere else.
     if (row === undefined) throw AppError.notFound('Party', id);
-    return toView(row);
+    return (await this.attachPartyFlags(principal.orgId, [toView(row)]))[0] ?? toView(row);
   }
 
   /** REQ-R-02, read side: same shape as parties, columns per the PRD's list. */
@@ -98,7 +109,7 @@ export class MastersService {
     ]);
 
     return paginated(
-      rows.map((row) => ({
+      await this.attachItemFlags(principal.orgId, rows.map((row) => ({
         id: row.id,
         connectionId: row.connectionId,
         name: row.name,
@@ -111,7 +122,8 @@ export class MastersService {
         costPrice: row.costPrice,
         absentInTally: row.absentInTally,
         lastPulledAt: row.lastPulledAt.toISOString(),
-      })),
+        duplicate: null,
+      }))),
       query,
       total[0]?.value ?? 0,
     );
@@ -130,7 +142,7 @@ export class MastersService {
       .limit(1);
     const row = rows[0];
     if (row === undefined) throw AppError.notFound('Stock item', id);
-    return {
+    const view: StockItemView = {
       id: row.id,
       connectionId: row.connectionId,
       name: row.name,
@@ -143,7 +155,9 @@ export class MastersService {
       costPrice: row.costPrice,
       absentInTally: row.absentInTally,
       lastPulledAt: row.lastPulledAt.toISOString(),
+      duplicate: null,
     };
+    return (await this.attachItemFlags(principal.orgId, [view]))[0] ?? view;
   }
 
   async listPriceListEntries(
@@ -300,6 +314,12 @@ export class MastersService {
   }
 }
 
+/** 15 REQ-AO-06: one join for a page of ids; the flag rides on the view wherever the record is listed. */
+async function attachFlags<T extends { id: string; duplicate: DuplicateFlag | null }>(duplicates: DuplicatesService, orgId: string, entityType: 'party' | 'stock_item', views: readonly T[]): Promise<T[]> {
+  const flags = await duplicates.flagsFor(orgId, entityType, views.map((v) => v.id));
+  return views.map((v) => ({ ...v, duplicate: flags.get(v.id) ?? null }));
+}
+
 function toView(row: typeof parties.$inferSelect): PartyView {
   return {
     id: row.id,
@@ -316,6 +336,7 @@ function toView(row: typeof parties.$inferSelect): PartyView {
     openingBalance: row.openingBalance,
     absentInTally: row.absentInTally,
     lastPulledAt: row.lastPulledAt.toISOString(),
+    duplicate: null,
   };
 }
 

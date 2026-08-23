@@ -33,6 +33,14 @@ import {
   localePolicySchema,
   type LocalePolicy,
   RETENTION_SETTINGS,
+  DUPLICATES_SETTINGS,
+  RETURNS_SETTINGS,
+  DEFAULT_DUPLICATES_POLICY_ROW,
+  DEFAULT_RETURN_REASONS_POLICY_ROW,
+  duplicatesPolicyRowSchema,
+  returnReasonsPolicyRowSchema,
+  type DuplicatesPolicyRow,
+  type ReturnReasonsPolicyRow,
   DEFAULT_RETENTION_POLICY,
   retentionPolicySchema,
   type RetentionPolicyRow,
@@ -71,6 +79,8 @@ export interface OrgSettingsView {
   readonly appearance: AppearancePolicy;
   readonly locale: LocalePolicy;
   readonly retention: RetentionPolicyRow;
+  readonly duplicates: DuplicatesPolicyRow;
+  readonly returns: ReturnReasonsPolicyRow;
   readonly email: EmailSettingsView;
   /**
    * What reads each policy field today, or null when nothing does. The screen
@@ -83,6 +93,8 @@ export interface OrgSettingsView {
     readonly appearance: Readonly<Record<string, SettingConsumer>>;
     readonly locale: Readonly<Record<string, SettingConsumer>>;
     readonly retention: Readonly<Record<string, SettingConsumer>>;
+    readonly duplicates: Readonly<Record<string, SettingConsumer>>;
+    readonly returns: Readonly<Record<string, SettingConsumer>>;
   };
   /**
    * Stored rows that no longer satisfy their schema. The screen shows the
@@ -338,6 +350,8 @@ export class SettingsService {
     const appearance = resolveGroup(appearancePolicySchema, APPEARANCE_SETTINGS, DEFAULT_APPEARANCE_POLICY, rows);
     const locale = resolveGroup(localePolicySchema, LOCALE_SETTINGS, DEFAULT_LOCALE_POLICY, rows);
     const retention = resolveGroup(retentionPolicySchema, RETENTION_SETTINGS, DEFAULT_RETENTION_POLICY, rows);
+    const duplicates = resolveGroup(duplicatesPolicyRowSchema, DUPLICATES_SETTINGS, DEFAULT_DUPLICATES_POLICY_ROW, rows);
+    const returns = resolveGroup(returnReasonsPolicyRowSchema, RETURNS_SETTINGS, DEFAULT_RETURN_REASONS_POLICY_ROW, rows);
 
     return {
       organisation,
@@ -347,6 +361,8 @@ export class SettingsService {
       appearance: appearance.value,
       locale: locale.value,
       retention: retention.value,
+      duplicates: duplicates.value,
+      returns: returns.value,
       email: emailView(),
       enforcement: {
         attendance: enforcementOf(ATTENDANCE_SETTINGS),
@@ -355,8 +371,10 @@ export class SettingsService {
         appearance: enforcementOf(APPEARANCE_SETTINGS),
         locale: enforcementOf(LOCALE_SETTINGS),
         retention: enforcementOf(RETENTION_SETTINGS),
+        duplicates: enforcementOf(DUPLICATES_SETTINGS),
+        returns: enforcementOf(RETURNS_SETTINGS),
       },
-      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable, ...locale.unreadable, ...retention.unreadable],
+      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable, ...locale.unreadable, ...retention.unreadable, ...duplicates.unreadable, ...returns.unreadable],
     };
   }
 
@@ -445,6 +463,20 @@ export class SettingsService {
       for (const [field, descriptor] of Object.entries(RETENTION_SETTINGS)) {
         if (!(field in input.retention)) continue;
         values.set(descriptor.key, merged[field as keyof RetentionPolicyRow]);
+      }
+    }
+    if (input.duplicates !== undefined) {
+      const merged = parseMerged(duplicatesPolicyRowSchema, { ...current.duplicates, ...input.duplicates }, 'duplicates');
+      for (const [field, descriptor] of Object.entries(DUPLICATES_SETTINGS)) {
+        if (!(field in input.duplicates)) continue;
+        values.set(descriptor.key, merged[field as keyof DuplicatesPolicyRow]);
+      }
+    }
+    if (input.returns !== undefined) {
+      const merged = parseMerged(returnReasonsPolicyRowSchema, { ...current.returns, ...input.returns }, 'returns');
+      for (const [field, descriptor] of Object.entries(RETURNS_SETTINGS)) {
+        if (!(field in input.returns)) continue;
+        values.set(descriptor.key, merged[field as keyof ReturnReasonsPolicyRow]);
       }
     }
 

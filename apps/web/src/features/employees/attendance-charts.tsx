@@ -1,4 +1,4 @@
-import { compactCount, endpointLabel, valueCaps } from '@/components/shared/chart-labels';
+import { compactCount, endpointLabel, stackTotal, valueCaps } from '@/components/shared/chart-labels';
 import { useMemo, type ReactNode } from 'react';
 import {
   Bar,
@@ -15,6 +15,8 @@ import { formatDuration } from '@/features/attendance/format';
 import { statusLabel } from '@/features/attendance/status';
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -29,13 +31,13 @@ import { CHART_EASING, useChartMotion } from './use-chart-motion';
 /**
  * The three charts on the employee detail screen (REQ-E-01, REQ-E-02).
  *
- * Every colour here is a theme token, and specifically the *same* token the
- * badge and the calendar cell for that state already use — success for a
- * present day, destructive for an absence, warning for overtime and lateness.
- * The `--chart-1..5` ramp the registry ships is a five-step monochrome that
- * would have given this product two unrelated colour languages, one for pills
- * and one for charts, and made "red" mean absence in a table and step four of
- * a scale in the graph beside it (CLAUDE.md §3 rule 4).
+ * Colour splits two ways. Where a mark is a *state* — present, absent, on
+ * leave, late, overtime — it wears the same token the badge and the calendar
+ * cell for that state already use, because "red" cannot mean absence in a
+ * table and step four of a scale in the graph beside it (CLAUDE.md §3 rule 4).
+ * Where a mark is only a quantity, it wears the `--chart-1..5` ramp: those are
+ * five shades of whatever accent the workspace picked, so ordinary worked time
+ * follows the theme rather than borrowing the button's hue.
  *
  * Nothing here is wrapped in a Card. Each chart sits on the page surface under
  * its own SectionHeading, divided by space rather than by a box (rule 3).
@@ -48,7 +50,7 @@ import { CHART_EASING, useChartMotion } from './use-chart-motion';
  * whole plot, and a chart whose bar width depends on how much data is missing
  * misreports the data it does have.
  */
-const MAX_BAR_PX = 28;
+const MAX_BAR_PX = 16;
 
 /**
  * Minutes, as an axis tick a person reads.
@@ -63,6 +65,17 @@ function hoursTick(value: number): string {
   if (value === 0) return '0';
   if (value % 60 === 0) return `${String(value / 60)}h`;
   return `${String(Math.round(value))}m`;
+}
+
+/**
+ * A day's worked time, short enough to sit on a bar cap.
+ *
+ * `formatDuration` writes "8h 30m", which is six characters over a bar that is
+ * nineteen pixels wide in a full month. A tenth of an hour is the finest
+ * reading a cap can usefully carry; the tooltip still gives the exact minutes.
+ */
+function capHours(minutes: number): string {
+  return `${(Math.round(minutes / 6) / 10).toFixed(1).replace(/\.0$/u, '')}h`;
 }
 
 /** `2026-08-12` as `12`. The month is stated by the picker above the chart. */
@@ -103,8 +116,11 @@ function dateTooltipLabel(label: ReactNode): ReactNode {
 // -------------------------------------------------------------- worked hours
 
 const WORKED_CONFIG = {
-  regular: { label: 'Worked', color: 'var(--primary)' },
-  overtime: { label: 'Overtime', color: 'var(--warning)' },
+  regular: { label: 'Worked', color: 'var(--chart-1)' },
+  /* Overtime is more of the same measurement, not a warning about it, and a
+     stack that mixes a ramp shade with a status token reads as two unrelated
+     things. Two steps down the ramp keeps the segments apart. */
+  overtime: { label: 'Overtime', color: 'var(--chart-3)' },
   scheduled: { label: 'Scheduled span', color: 'var(--muted-foreground)' },
 } satisfies ChartConfig;
 
@@ -150,6 +166,10 @@ export function WorkedHoursChart({ points, delayMs = 0 }: { points: WorkedPoint[
         <ChartTooltip
           content={<ChartTooltipContent labelFormatter={dateTooltipLabel} formatter={formatter} />}
         />
+        {/* Three series, so the legend is what names them: the split between
+            regular and overtime is a colour difference inside one column, and
+            the dashed reference is not self-explanatory either. */}
+        <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
         {/* Without a ceiling, a month holding one recorded day draws that day
             as a 900px slab across the whole plot, which reads as a filled
             background rather than as one measurement. */}
@@ -172,7 +192,12 @@ export function WorkedHoursChart({ points, delayMs = 0 }: { points: WorkedPoint[
           animationBegin={beginMs}
           animationDuration={durationMs}
           animationEasing={CHART_EASING}
-        />
+        >
+          {/* The total, not the two parts. Overtime is carved out of worked
+              time rather than added to it, so the cap reads the day's length
+              and the legend and the tooltip carry the split. */}
+          <LabelList {...stackTotal(points, ['regular', 'overtime'], capHours)} />
+        </Bar>
         <Line
           dataKey="scheduled"
           type="linear"
@@ -295,7 +320,7 @@ export function StatusSplitChart({ slices, delayMs = 0 }: { slices: StatusSlice[
         <ChartTooltip cursor={false} content={<ChartTooltipContent nameKey="status" hideLabel />} />
         <Bar
           dataKey="count"
-          barSize={14}
+          barSize={12}
           isAnimationActive={animate}
           animationBegin={beginMs}
           animationDuration={durationMs}

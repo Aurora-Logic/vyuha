@@ -4,6 +4,7 @@ import { sql, type SQL } from 'drizzle-orm';
 
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import type { Principal } from '../rbac/principal.js';
+import { live } from './live-document.js';
 import { MastersService } from './masters.service.js';
 
 /**
@@ -86,7 +87,7 @@ export class LifecycleService {
                 FROM sales_document_lines l
                 JOIN sales_documents d ON d.id = l.document_id
                WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId}
-                 AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT' AND d.deleted_at IS NULL AND ${sales}
+                 AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
             `)
             .then((r) => r.rows[0] ?? { ordered: '0', picked: '0', packed: '0', dispatched: '0', open_orders: 0, last_sold_at: null }),
       !purchase
@@ -100,7 +101,7 @@ export class LifecycleService {
                 JOIN purchase_orders p ON p.id = l.purchase_order_id
                 LEFT JOIN grn_lines gl ON gl.purchase_order_line_id = l.id
                 LEFT JOIN grns g ON g.id = gl.grn_id
-               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
             `)
             .then((r) => r.rows[0] ?? { purchased: '0', received: '0', last_received_at: null }),
       sales === null
@@ -111,7 +112,7 @@ export class LifecycleService {
                      (array_agg(l.rate ORDER BY d.date DESC))[1]::text AS last_rate, max(d.date)::text AS last_at
                 FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
                WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER'
-                 AND d.status <> 'DRAFT' AND d.deleted_at IS NULL AND ${sales}
+                 AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
                GROUP BY d.party_id, d.customer_name ORDER BY sum(l.quantity) DESC LIMIT ${COUNTERPARTY_CAP}
             `)
             .then((r) => r.rows),
@@ -122,7 +123,7 @@ export class LifecycleService {
               SELECT p.party_id AS id, p.vendor_name AS name, sum(l.quantity)::text AS quantity,
                      (array_agg(l.rate ORDER BY p.date DESC))[1]::text AS last_rate, max(p.date)::text AS last_at
                 FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
                GROUP BY p.party_id, p.vendor_name ORDER BY sum(l.quantity) DESC LIMIT ${COUNTERPARTY_CAP}
             `)
             .then((r) => r.rows),
@@ -160,16 +161,16 @@ export class LifecycleService {
         ? Promise.resolve(null)
         : this.db
             .execute<{ estimates: number; orders: number; open_orders: number; dispatches: number; delivered: number; invoices: number; ordered_value: string; invoiced_value: string; last_order_at: string | null }>(sql`
-              SELECT count(*) FILTER (WHERE d.doc_type = 'ESTIMATE')::int AS estimates,
-                     count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT')::int AS orders,
-                     count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT' AND d.short_closed_at IS NULL
+              SELECT count(*) FILTER (WHERE d.doc_type = 'ESTIMATE' AND ${live('d')})::int AS estimates,
+                     count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')})::int AS orders,
+                     count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.short_closed_at IS NULL
                                         AND EXISTS (SELECT 1 FROM sales_document_lines l WHERE l.document_id = d.id AND l.dispatched_qty < l.quantity))::int AS open_orders,
                      (SELECT count(*)::int FROM dispatches x JOIN sales_documents o ON o.id = x.document_id WHERE o.org_id = ${orgId} AND o.party_id = ${partyId} AND x.deleted_at IS NULL) AS dispatches,
                      (SELECT count(*)::int FROM dispatches x JOIN sales_documents o ON o.id = x.document_id WHERE o.org_id = ${orgId} AND o.party_id = ${partyId} AND x.deleted_at IS NULL AND x.delivered_at IS NOT NULL) AS delivered,
-                     count(*) FILTER (WHERE d.doc_type = 'INVOICE')::int AS invoices,
-                     coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'), 0)::text AS ordered_value,
-                     coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'INVOICE'), 0)::text AS invoiced_value,
-                     max(d.date) FILTER (WHERE d.doc_type = 'SALES_ORDER')::text AS last_order_at
+                     count(*) FILTER (WHERE d.doc_type = 'INVOICE' AND ${live('d')})::int AS invoices,
+                     coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')}), 0)::text AS ordered_value,
+                     coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'INVOICE' AND ${live('d')}), 0)::text AS invoiced_value,
+                     max(d.date) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')})::text AS last_order_at
                 FROM sales_documents d
                WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.deleted_at IS NULL AND ${sales}
             `)
@@ -183,7 +184,7 @@ export class LifecycleService {
                      coalesce(sum(p.grand_total), 0)::text AS purchased_value,
                      max(p.date)::text AS last_purchase_at
                 FROM purchase_orders p
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
             `)
             .then((r) => r.rows[0] ?? null),
       this.partyEvents(orgId, partyId, sales, purchase, vouchers),

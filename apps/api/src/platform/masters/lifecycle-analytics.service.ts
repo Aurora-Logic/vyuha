@@ -16,6 +16,7 @@ import {
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
+import { live } from './live-document.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import type { Principal } from '../rbac/principal.js';
 import { MastersService } from './masters.service.js';
@@ -172,7 +173,7 @@ export class LifecycleAnalyticsService {
               WITH lines AS (
                 SELECT l.quantity, l.dispatched_qty, d.id AS doc_id, coalesce(d.party_id::text, d.customer_name) AS customer
                   FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-                 WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+                 WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                    AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
               ), by_customer AS (
                 SELECT customer, sum(quantity) AS qty, count(DISTINCT doc_id) AS orders FROM lines GROUP BY customer
@@ -203,7 +204,7 @@ export class LifecycleAnalyticsService {
             .execute<{ purchased: string; received: string; value: string }>(sql`
               SELECT coalesce(sum(l.quantity), 0)::text AS purchased, coalesce(sum(l.received_qty), 0)::text AS received, coalesce(sum(l.amount), 0)::text AS value
                 FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
                  AND p.date BETWEEN ${range.from} AND ${range.to}
             `)
             .then((r) => r.rows[0] ?? null),
@@ -241,7 +242,7 @@ export class LifecycleAnalyticsService {
                      max(d.date)::text AS last_sold_at,
                      (array_agg(l.rate ORDER BY d.date DESC, d.created_at DESC))[1]::text AS last_rate
                 FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-               WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT' AND d.deleted_at IS NULL AND ${sales}
+               WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
             `)
             .then((r) => r.rows[0] ?? null),
       !purchase
@@ -250,7 +251,7 @@ export class LifecycleAnalyticsService {
             .execute<{ last_at: string | null; last_rate: string | null }>(sql`
               SELECT max(p.date)::text AS last_at, (array_agg(l.rate ORDER BY p.date DESC, p.created_at DESC))[1]::text AS last_rate
                 FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
             `)
             .then((r) => r.rows[0] ?? null),
     ]);
@@ -277,7 +278,7 @@ export class LifecycleAnalyticsService {
             .execute<{ month: string; ordered: string; dispatched: string }>(sql`
               SELECT to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS ordered, sum(l.dispatched_qty)::text AS dispatched
                 FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-               WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+               WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                  AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
                GROUP BY 1
             `)
@@ -300,7 +301,7 @@ export class LifecycleAnalyticsService {
             .execute<{ month: string; purchased: string; received: string }>(sql`
               SELECT to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS purchased, sum(l.received_qty)::text AS received
                 FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
                  AND p.date BETWEEN ${range.from} AND ${range.to}
                GROUP BY 1
             `)
@@ -329,7 +330,7 @@ export class LifecycleAnalyticsService {
         SELECT d.party_id AS id, d.customer_name AS name, sum(l.quantity)::text AS quantity, sum(l.amount)::text AS value,
                count(DISTINCT d.id)::int AS orders, max(d.date)::text AS last_at, (array_agg(l.rate ORDER BY d.date DESC))[1]::text AS last_rate
           FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-         WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+         WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
            AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
          GROUP BY d.party_id, d.customer_name ORDER BY sum(l.quantity) DESC LIMIT ${ROW_CAP}
       `)
@@ -362,7 +363,7 @@ export class LifecycleAnalyticsService {
                (SELECT iv.lead_time_days FROM item_vendors iv WHERE iv.org_id = ${orgId} AND iv.stock_item_id = ${itemId} AND iv.party_id = p.party_id AND iv.deleted_at IS NULL LIMIT 1) AS promised_days,
                CASE WHEN sum(l.received_qty + l.rejected_qty) > 0 THEN (sum(l.rejected_qty) * 100 / sum(l.received_qty + l.rejected_qty))::text ELSE NULL END AS rejected_pct
           FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-         WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+         WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
            AND p.date BETWEEN ${range.from} AND ${range.to}
          GROUP BY p.party_id, p.vendor_name ORDER BY sum(l.quantity) DESC LIMIT ${ROW_CAP}
       `)
@@ -393,13 +394,13 @@ export class LifecycleAnalyticsService {
         WITH top AS (
           SELECT coalesce(d.party_id::text, d.customer_name) AS key
             FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-           WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+           WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
              AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
            GROUP BY 1 ORDER BY sum(l.quantity) DESC LIMIT ${ROW_CAP}
         )
         SELECT d.party_id AS row_id, d.customer_name AS row, to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS value
           FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-         WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+         WHERE d.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
            AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
            AND coalesce(d.party_id::text, d.customer_name) IN (SELECT key FROM top)
          GROUP BY 1, 2, 3
@@ -511,7 +512,7 @@ export class LifecycleAnalyticsService {
                        (SELECT count(*) FROM dispatches x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS dispatches,
                        (SELECT min(x.dispatched_at) FROM dispatches x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS first_dispatch
                   FROM sales_documents d
-                 WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+                 WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                    AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
               )
               SELECT (SELECT count(*) FROM orders)::int AS orders,
@@ -544,7 +545,7 @@ export class LifecycleAnalyticsService {
                 SELECT p.id, p.date, p.grand_total,
                        (SELECT min(g.received_at) FROM grns g WHERE g.purchase_order_id = p.id AND g.deleted_at IS NULL) AS first_receipt
                   FROM purchase_orders p
-                 WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+                 WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
                    AND p.date BETWEEN ${range.from} AND ${range.to}
               )
               SELECT (SELECT count(*) FROM pos)::int AS purchase_orders,
@@ -593,7 +594,7 @@ export class LifecycleAnalyticsService {
                        AND EXISTS (SELECT 1 FROM sales_document_lines l WHERE l.document_id = d.id AND l.dispatched_qty < l.quantity))::int AS open_orders,
                      max(d.date)::text AS last_order_at
                 FROM sales_documents d
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT' AND d.deleted_at IS NULL AND ${sales}
+               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
             `)
             .then((r) => r.rows[0] ?? null),
       sales === null
@@ -601,7 +602,7 @@ export class LifecycleAnalyticsService {
         : this.db
             .execute<{ date: string }>(sql`
               SELECT DISTINCT d.date::text AS date FROM sales_documents d
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT' AND d.deleted_at IS NULL AND ${sales}
+               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
                ORDER BY 1
             `)
             .then((r) => r.rows.map((row) => row.date)),
@@ -614,7 +615,7 @@ export class LifecycleAnalyticsService {
                      max(p.date)::text AS last_at,
                      (SELECT avg(iv.lead_time_days) FROM item_vendors iv WHERE iv.org_id = ${orgId} AND iv.party_id = ${partyId} AND iv.deleted_at IS NULL AND iv.lead_time_days IS NOT NULL)::text AS promised_days
                 FROM purchase_orders p
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
             `)
             .then((r) => r.rows[0] ?? null),
     ]);
@@ -644,7 +645,7 @@ export class LifecycleAnalyticsService {
             .execute<{ month: string; orders: number; value: string }>(sql`
               SELECT to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, count(*)::int AS orders, sum(d.grand_total)::text AS value
                 FROM sales_documents d
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                  AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
                GROUP BY 1
             `)
@@ -668,7 +669,7 @@ export class LifecycleAnalyticsService {
               SELECT to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, sum(p.grand_total)::text AS value,
                      coalesce((SELECT sum(l.received_qty) FROM purchase_order_lines l WHERE l.purchase_order_id = ANY(array_agg(p.id))), 0)::text AS received
                 FROM purchase_orders p
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
                  AND p.date BETWEEN ${range.from} AND ${range.to}
                GROUP BY 1
             `)
@@ -701,7 +702,7 @@ export class LifecycleAnalyticsService {
         SELECT l.stock_item_id AS id, l.description AS name, l.unit, sum(l.quantity)::text AS quantity, sum(l.amount)::text AS value,
                count(DISTINCT d.id)::int AS documents, max(d.date)::text AS last_at, (array_agg(l.rate ORDER BY d.date DESC))[1]::text AS last_rate
           FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-         WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+         WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
            AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
          GROUP BY l.stock_item_id, l.description, l.unit ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
       `)
@@ -718,10 +719,10 @@ export class LifecycleAnalyticsService {
                (SELECT min(r.last_rate) FROM (
                   SELECT DISTINCT ON (q.party_id) l2.rate AS last_rate
                     FROM purchase_order_lines l2 JOIN purchase_orders q ON q.id = l2.purchase_order_id
-                   WHERE q.org_id = ${orgId} AND l2.stock_item_id = l.stock_item_id AND q.status <> 'DRAFT' AND q.deleted_at IS NULL AND l2.rate > 0
+                   WHERE q.org_id = ${orgId} AND l2.stock_item_id = l.stock_item_id AND ${live('q')} AND q.deleted_at IS NULL AND l2.rate > 0
                    ORDER BY q.party_id, q.date DESC) r)::text AS best_rate
           FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-         WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+         WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
            AND p.date BETWEEN ${range.from} AND ${range.to}
          GROUP BY l.stock_item_id, l.description, l.unit ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
       `)
@@ -750,13 +751,13 @@ export class LifecycleAnalyticsService {
             .execute<{ row_id: string | null; row: string; month: string; value: string }>(sql`
               WITH top AS (
                 SELECT l.description AS key FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-                 WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+                 WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                    AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales ?? sql`TRUE`}
                  GROUP BY 1 ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
               )
               SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS value
                 FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND d.status <> 'DRAFT'
+               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                  AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales ?? sql`TRUE`}
                  AND l.description IN (SELECT key FROM top)
                GROUP BY 1, 2, 3
@@ -766,13 +767,13 @@ export class LifecycleAnalyticsService {
             .execute<{ row_id: string | null; row: string; month: string; value: string }>(sql`
               WITH top AS (
                 SELECT l.description AS key FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-                 WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+                 WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
                    AND p.date BETWEEN ${range.from} AND ${range.to}
                  GROUP BY 1 ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
               )
               SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS value
                 FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND p.status <> 'DRAFT' AND p.deleted_at IS NULL
+               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
                  AND p.date BETWEEN ${range.from} AND ${range.to} AND l.description IN (SELECT key FROM top)
                GROUP BY 1, 2, 3
             `)

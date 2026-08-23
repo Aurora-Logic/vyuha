@@ -76,6 +76,8 @@ export type CalculatorAction =
   | { readonly kind: 'operator'; readonly operator: Operator }
   | { readonly kind: 'equals' }
   | { readonly kind: 'percent' }
+  | { readonly kind: 'gstAdd' }
+  | { readonly kind: 'gstReverse' }
   | { readonly kind: 'sign' }
   | { readonly kind: 'backspace' }
   | { readonly kind: 'clearEntry' }
@@ -87,6 +89,14 @@ export type CalculatorAction =
 
 export const DIVIDE_BY_ZERO = 'Cannot divide by zero';
 export const TOO_LARGE = 'Number too large';
+
+/**
+ * The GST keys of a desk calculator, at the single Indian rate this business
+ * bills at (D-01 forbids money math elsewhere; this is the calculator, where a
+ * figure is scratch, not a posted amount). 1.18 adds 18%, dividing by it strips
+ * a tax already inside a figure.
+ */
+export const GST_MULTIPLIER = '1.18';
 
 /** The tape is capped so a long session cannot grow the panel without bound. */
 export const TAPE_LIMIT = 100;
@@ -211,13 +221,48 @@ export function reduce(state: CalculatorState, action: CalculatorAction): Calcul
       return { ...INITIAL_STATE, memory: state.memory, nextLineId: state.nextLineId };
 
     case 'percent': {
-      // Per cent means "divide this by a hundred", not the Casio chain form
-      // where `200 + 10 %` gives 220. The chain form reads two different ways
-      // depending on the pending operator, and a calculator whose answer
-      // depends on something invisible is worse than one that is plain.
-      const value = divide(currentValue(state), fromText('100'), currentValue(state).scale + 2);
-      if (value === null) return state;
+      // The iOS rule (owner, 23 Aug). Against a running + or −, the per cent is
+      // OF the left operand and waits for = to be added or taken off, so
+      // `100 + 10 %` holds 10 and `=` gives 110. Against × or ÷, or on its own,
+      // it is a plain hundredth, so `5 × 20 %` holds 0.2 and `=` gives 1. The
+      // pending operator and left operand (`accumulator`) are kept either way;
+      // only the entry on the display is transformed, then held (typing = null).
+      const entry = currentValue(state);
+      const hundredth = divide(entry, fromText('100'), Math.max(entry.scale, 2) + 2);
+      if (hundredth === null) return state;
+      const value =
+        state.pending === 'add' || state.pending === 'subtract'
+          ? multiply(state.accumulator, hundredth)
+          : hundredth;
       return { ...state, display: toDisplay(value), typing: null };
+    }
+
+    case 'gstAdd':
+    case 'gstReverse': {
+      // A physical calculator's tax keys: they act at once on the figure shown,
+      // with no = to press. GST× multiplies by 1.18, GST÷ strips it. The figure
+      // with (or without) tax is a fresh total, so any running sum is ended and
+      // the next digit overwrites the display (typing = null, pending = null) --
+      // exactly the reset a desk calculator does after its tax key.
+      const entry = currentValue(state);
+      const gst = fromText(GST_MULTIPLIER);
+      const result =
+        action.kind === 'gstAdd' ? multiply(entry, gst) : divide(entry, gst, Math.max(entry.scale, 2) + DISPLAY_DIGITS);
+      if (result === null) return failed(state, DIVIDE_BY_ZERO);
+      if (overflows(result)) return failed(state, TOO_LARGE);
+      const marker = action.kind === 'gstAdd' ? '+GST' : '−GST';
+      return {
+        ...state,
+        ...appended(state, [
+          { value: toText(entry), marker, total: false },
+          { value: toText(result), marker: '=', total: true },
+        ]),
+        display: toDisplay(result),
+        typing: null,
+        accumulator: result,
+        pending: null,
+        repeat: null,
+      };
     }
 
     case 'operator': {

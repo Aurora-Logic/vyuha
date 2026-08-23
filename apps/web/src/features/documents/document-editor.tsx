@@ -103,7 +103,12 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const [preview, setPreview] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [fit, setFit] = useState(true);
+  // Open at 100% on a desk, where a document is read and typed at full size
+  // (owner, 22 Aug); a phone still starts fit-to-width, because 210mm at 100%
+  // would scroll sideways off a 360px screen — the reason fit exists there.
+  const [fit, setFit] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
   const [zoomIndex, setZoomIndex] = useState(ZOOMS.length - 1);
   const [sheetHeight, setSheetHeight] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);

@@ -12,9 +12,8 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { DateField } from '@/features/attendance/pickers';
-import { formatMoney } from '@/features/sales/money';
 import { trimZeros as trimQty } from '@/features/sales/types';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { PRINTED_DOCUMENT_TITLES, SECOND_DATE_LABELS, VENDOR_FACING_TYPES, gstStateName, type DocumentDesign, type DocumentDetails } from '@vyuha/shared';
 
@@ -201,7 +200,7 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
             <TotalRow label="Subtotal" value={formatMoney(model.totals.subtotal)} />
             {showDiscount && Number(model.totals.discountTotal) > 0 ? <TotalRow label="Less: Discount" value={`-${formatMoney(model.totals.discountTotal)}`} muted /> : null}
             {showTax && Number(model.totals.taxTotal) > 0 ? <TotalRow label="Tax" value={formatMoney(model.totals.taxTotal)} /> : null}
-            <TotalRow label="Total" value={`₹ ${formatMoney(model.totals.grandTotal)}`} strong />
+            <TotalRow label="Total" value={formatMoney(model.totals.grandTotal)} strong />
             {model.totals.preview ? <p className="text-muted-foreground text-xs">Figures are a preview until the document is saved.</p> : null}
           </section>
         </>

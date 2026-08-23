@@ -151,6 +151,10 @@ describe('FallbackJobRunner.enqueue + workerTick', () => {
 
 describe('FallbackJobRunner.activate', () => {
   it('seeds a schedule row per SCHEDULED_JOBS entry with a future next_run_at', async () => {
+    // Seeding is what is under test, so it starts from nothing. Left in place,
+    // a row an earlier run seeded is simply overdue by now -- which is a
+    // correct state, and the subject of the test below.
+    await db.execute(sql`DELETE FROM fallback_job_schedules`);
     const { fallback } = newFallback();
     try {
       await fallback.activate();
@@ -167,6 +171,33 @@ describe('FallbackJobRunner.activate', () => {
     } finally {
       // Stops the timers `activate()` started, so this test does not keep
       // the process alive waiting for a 30s/5s/1h tick that nothing asserts on.
+      fallback.onApplicationShutdown();
+    }
+  });
+
+  it('leaves an overdue schedule where it is, so a missed sweep still runs', async () => {
+    // `activate()` inserts ON CONFLICT DO NOTHING on purpose. If the process
+    // was down over a sweep's hour, its row is in the past, and pushing it
+    // forward at boot would silently skip the run -- the retention purge and
+    // the exception sweep would be quietly missed by any deployment that
+    // happened to restart across their window. The scheduler tick is what
+    // moves a row on, after it has enqueued the run it was due.
+    const first = SCHEDULED_JOBS[0];
+    expect(first).toBeDefined();
+    const overdue = new Date(Date.now() - 60 * 60 * 1000);
+    await db.execute(sql`DELETE FROM fallback_job_schedules`);
+    await db.execute(sql`
+      INSERT INTO fallback_job_schedules (scheduler_id, next_run_at) VALUES (${first?.schedulerId ?? ''}, ${overdue})
+    `);
+
+    const { fallback } = newFallback();
+    try {
+      await fallback.activate();
+      const rows = await db.execute<{ next_run_at: string }>(
+        sql`SELECT next_run_at FROM fallback_job_schedules WHERE scheduler_id = ${first?.schedulerId ?? ''}`,
+      );
+      expect(new Date(rows.rows[0]?.next_run_at ?? 0).getTime()).toBe(overdue.getTime());
+    } finally {
       fallback.onApplicationShutdown();
     }
   });

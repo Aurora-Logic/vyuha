@@ -90,6 +90,11 @@ export const purchaseOrderLines = pgTable(
     /** REQ-X-19/X-21: received and rejected never exceed ordered — a constraint, not code. */
     receivedQty: numeric('received_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     rejectedQty: numeric('rejected_qty', { precision: 16, scale: 3 }).notNull().default('0'),
+    // 15 REQ-AN-15: carried for symmetry with sales lines; purchase rates resolve from nothing yet.
+    priceListId: uuid('price_list_id'),
+    priceListVersion: integer('price_list_version'),
+    resolvedRate: numeric('resolved_rate', { precision: 16, scale: 2 }),
+    appliedDiscountPct: numeric('applied_discount_pct', { precision: 5, scale: 2 }),
     ...standardColumns(),
   },
   (t) => [

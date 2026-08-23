@@ -1,9 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Label, LabelList, Line, LineChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
 
-import { compactCount } from '@/components/shared/chart-labels';
-import { SectionHeading } from '@/components/shared/section-heading';
+import { compactCount, endpointLabel } from '@/components/shared/chart-labels';
 import { CHART_INTRO_MS, useChartIntro } from '@/components/shared/use-chart-motion';
+import { ChartCard } from '@/components/shared/chart-card';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 
 import type { RankPoint, TrendPoint } from './lifecycle-series';
@@ -18,15 +18,6 @@ import type { RankPoint, TrendPoint } from './lifecycle-series';
 
 const AXIS = { top: 8, right: 12, bottom: 0, left: 0 } as const;
 
-function Frame({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
-  return (
-    <section className="flex min-w-0 flex-col gap-2">
-      <SectionHeading title={title} note={note} />
-      {children}
-    </section>
-  );
-}
-
 export function TrendChart({
   title,
   note,
@@ -34,6 +25,7 @@ export function TrendChart({
   labels,
   compareLabel,
   format,
+  axisFormat,
   ready,
 }: {
   title: string;
@@ -42,6 +34,14 @@ export function TrendChart({
   labels: { a: string; b: string };
   compareLabel: string | null;
   format: (value: number) => string;
+  /**
+   * The axis tick, when it is not a plain count.
+   *
+   * `format` writes the exact figure into the tooltip and is too long for a
+   * tick; the axis had its own compact formatter and no way to be told the
+   * series was money, so a rupee axis read "12.5L" with no symbol on it.
+   */
+  axisFormat?: (value: number) => string;
   ready: boolean;
 }) {
   const animate = useChartIntro(ready);
@@ -52,15 +52,22 @@ export function TrendChart({
     bPrev: { label: `${labels.b}, ${compareLabel ?? 'comparison'}`, color: 'var(--muted-foreground)' },
   } satisfies ChartConfig;
   return (
-    <Frame title={title} note={note}>
+    <ChartCard title={title} description={note}>
       <ChartContainer config={config} className="h-56 w-full">
         <LineChart accessibilityLayer data={[...points]} margin={AXIS}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
-          <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(value: number) => compactCount(value)} />
+          <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(value: number) => (axisFormat ?? compactCount)(value)} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={(value) => format(Number(value))} />} />
-          <Line dataKey="a" type="monotone" stroke="var(--color-a)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
-          <Line dataKey="b" type="monotone" stroke="var(--color-b)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          {/* The endpoint only. A figure beside every dot on four lines is
+              chaos and goes unread; where the series got to is the number the
+              reader is after, and it was reachable only by hovering. */}
+          <Line dataKey="a" type="monotone" stroke="var(--color-a)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+            <LabelList {...endpointLabel('a', points, axisFormat ?? compactCount)} />
+          </Line>
+          <Line dataKey="b" type="monotone" stroke="var(--color-b)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+            <LabelList {...endpointLabel('b', points, axisFormat ?? compactCount)} />
+          </Line>
           {compareLabel !== null ? (
             <>
               <Line dataKey="aPrev" type="monotone" stroke="var(--color-aPrev)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
@@ -70,7 +77,7 @@ export function TrendChart({
           <ChartLegend content={<ChartLegendContent />} />
         </LineChart>
       </ChartContainer>
-    </Frame>
+    </ChartCard>
   );
 }
 
@@ -80,18 +87,18 @@ export function RankingChart({ title, note, points, valueLabel, format, ready }:
   // One row per bar: the chart is as tall as its list, no taller. The measured value reaches CSS as a custom property.
   const height = Math.max(120, points.length * 30 + 16);
   return (
-    <Frame title={title} note={note}>
+    <ChartCard title={title} description={note}>
       <ChartContainer config={config} className="h-[var(--rank-h)] w-full" style={{ '--rank-h': `${String(height)}px` } as CSSProperties}>
         <BarChart accessibilityLayer data={[...points]} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={120} tick={{ fontSize: 11 }} tickFormatter={(value: string) => (value.length > 18 ? `${value.slice(0, 17)}…` : value)} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel formatter={(value) => format(Number(value))} />} />
-          <Bar dataKey="value" fill="var(--color-value)" radius={4} maxBarSize={18} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+          <Bar dataKey="value" fill="var(--color-value)" maxBarSize={12} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
             <LabelList dataKey="value" position="right" className="fill-muted-foreground tabular-nums" fontSize={11} formatter={(label: ReactNode) => format(Number(label))} />
           </Bar>
         </BarChart>
       </ChartContainer>
-    </Frame>
+    </ChartCard>
   );
 }
 
@@ -102,11 +109,11 @@ export function RateRadial({ title, note, pct, previousPct, label, ready }: { ti
   const config = { rate: { label, color: 'var(--chart-2)' } } satisfies ChartConfig;
   const data = [{ name: label, rate: clamped, fill: 'var(--color-rate)' }];
   return (
-    <Frame title={title} note={note}>
+    <ChartCard title={title} description={note}>
       <ChartContainer config={config} className="mx-auto aspect-square max-h-48 w-full">
         <RadialBarChart data={data} startAngle={90} endAngle={90 - 360 * (clamped / 100)} innerRadius={56} outerRadius={72}>
           <PolarGrid gridType="circle" radialLines={false} stroke="none" className="first:fill-muted last:fill-background" polarRadius={[62, 50]} />
-          <RadialBar dataKey="rate" background cornerRadius={6} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          <RadialBar dataKey="rate" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
             <Label
               content={({ viewBox }) => {
@@ -128,6 +135,6 @@ export function RateRadial({ title, note, pct, previousPct, label, ready }: { ti
           </PolarRadiusAxis>
         </RadialBarChart>
       </ChartContainer>
-    </Frame>
+    </ChartCard>
   );
 }

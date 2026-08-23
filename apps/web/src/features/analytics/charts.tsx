@@ -306,7 +306,7 @@ export function WeekdayAbsenceChart({ points, animate }: ChartProps<WeekdayPoint
         <Bar
           dataKey="rate"
           fill="var(--color-rate)"
-          maxBarSize={32}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -346,7 +346,7 @@ export function LateSpreadChart({ points, animate }: ChartProps<LateBucket>) {
         <Bar
           dataKey="days"
           fill="var(--color-days)"
-          maxBarSize={40}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -390,7 +390,7 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
         <Bar
           dataKey="value"
           fill="var(--color-value)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -403,7 +403,7 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
 }
 
 const OVERTIME_CONFIG = {
-  value: { label: 'Overtime', color: 'var(--info)' },
+  value: { label: 'Overtime', color: 'var(--chart-1)' },
 } satisfies ChartConfig;
 
 /** Who carries the overtime. Minutes only — REQ-E-05, no rate and no money. */
@@ -446,7 +446,7 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
         <Bar
           dataKey="value"
           fill="var(--color-value)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -460,11 +460,16 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
 
 // --------------------------------------------------------------- punch quality
 
+/* Where a punch came from is a category, not a verdict -- an offline sync is
+   not a warning and a web punch is not a lesser one. It was drawn in status
+   tokens, and two of the four were the same muted grey, so "Web" and
+   "Recorded by admin" shared a legend swatch and could not be told apart in
+   the bar at all. Four shades of the accent, in the order they stack. */
 const SOURCE_CONFIG = {
-  MOBILE: { label: 'Mobile', color: 'var(--info)' },
-  WEB: { label: 'Web', color: 'var(--muted-foreground)' },
-  OFFLINE_SYNC: { label: 'Offline sync', color: 'var(--warning)' },
-  ADMIN_ENTRY: { label: 'Recorded by admin', color: 'var(--muted-foreground)' },
+  MOBILE: { label: 'Mobile', color: 'var(--chart-1)' },
+  WEB: { label: 'Web', color: 'var(--chart-2)' },
+  OFFLINE_SYNC: { label: 'Offline sync', color: 'var(--chart-3)' },
+  ADMIN_ENTRY: { label: 'Recorded by admin', color: 'var(--chart-4)' },
 } satisfies ChartConfig;
 
 /** The order the mix is stacked in, so the legend agrees with the bar. */
@@ -510,7 +515,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="MOBILE"
           stackId="source"
           fill="var(--color-MOBILE)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -519,7 +524,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="WEB"
           stackId="source"
           fill="var(--color-WEB)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -528,7 +533,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="OFFLINE_SYNC"
           stackId="source"
           fill="var(--color-OFFLINE_SYNC)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -537,7 +542,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="ADMIN_ENTRY"
           stackId="source"
           fill="var(--color-ADMIN_ENTRY)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -607,7 +612,7 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
         />
         <Bar
           dataKey="punches"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -621,9 +626,12 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
 
 // ------------------------------------------------------------------ headcount
 
+/* Employment type is a category, not a status: fixed-term is a contract, not
+   a warning. Two shades apart in the ramp rather than adjacent, so the stack
+   still separates. */
 const HEADCOUNT_CONFIG = {
-  permanent: { label: 'Permanent', color: 'var(--info)' },
-  fixedTerm: { label: 'Fixed-term', color: 'var(--warning)' },
+  permanent: { label: 'Permanent', color: 'var(--chart-1)' },
+  fixedTerm: { label: 'Fixed-term', color: 'var(--chart-3)' },
 } satisfies ChartConfig;
 
 const HEADCOUNT_ORDER = ['permanent', 'fixedTerm'];
@@ -660,7 +668,7 @@ export function HeadcountChart({ points, animate }: ChartProps<DepartmentPoint>)
           dataKey="permanent"
           stackId="head"
           fill="var(--color-permanent)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -669,7 +677,7 @@ export function HeadcountChart({ points, animate }: ChartProps<DepartmentPoint>)
           dataKey="fixedTerm"
           stackId="head"
           fill="var(--color-fixedTerm)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"

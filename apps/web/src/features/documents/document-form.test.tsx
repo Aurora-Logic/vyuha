@@ -53,9 +53,9 @@ describe('DocumentForm', () => {
     expect(container.querySelectorAll('input, textarea')).toHaveLength(0);
     expect(screen.getByText('Live Drive Traders')).toBeTruthy();
     expect(screen.getByText('Cat6 Cable Box')).toBeTruthy();
-    expect(screen.getByText(/2 Nos × 1,500\.00/u)).toBeTruthy();
+    expect(screen.getByText(/2 Nos × ₹1,500\.00/u)).toBeTruthy();
     expect(screen.getByText(/10% off/u)).toBeTruthy();
-    expect(screen.getByText('₹ 4,389.60')).toBeTruthy();
+    expect(screen.getByText('₹4,389.60')).toBeTruthy();
     expect(screen.getByText("Buyer's order")).toBeTruthy();
     expect(screen.getByText('PO-77')).toBeTruthy();
     expect(screen.getByText('Deliver before Friday')).toBeTruthy();

@@ -3,6 +3,7 @@ import { ArrowRightIcon, CompassIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { BuildStamp } from '@/components/shared/build-stamp';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -65,6 +66,7 @@ export function UpdatesPage() {
     return (
       <>
         <PageHeader description="What changed in the product, and when." />
+      <BuildStamp />
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -83,6 +85,7 @@ export function UpdatesPage() {
   return (
     <>
       <PageHeader description="What changed in the product, and when." />
+      <BuildStamp />
 
       {releases.map((release) => (
         <section key={release.version} className="flex flex-col gap-1">

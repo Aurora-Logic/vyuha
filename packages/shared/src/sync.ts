@@ -138,13 +138,30 @@ export const partyPullRowSchema = z.object({
   /** Sundry Debtors / Sundry Creditors, verbatim from the parent group. */
   parentGroup: z.string().min(1).max(120),
   gstin: z.string().min(1).max(20).optional(),
+  /** Regular / Composition / Unregistered / Consumer, verbatim. */
+  gstRegistrationType: z.string().min(1).max(40).optional(),
+  /** The mailing address as one block; a multi-line source joins on newlines. */
   address: z.string().min(1).max(1000).optional(),
+  state: z.string().min(1).max(120).optional(),
+  country: z.string().min(1).max(120).optional(),
+  /** Text, not a number: a postal code's leading zero is part of it. */
+  pincode: z.string().min(1).max(20).optional(),
   /** 12 REQ-AA-28: the ledger's email and mobile, where the company keeps them. */
   email: z.string().min(3).max(254).optional(),
   phone: z.string().min(6).max(40).optional(),
+  contactPerson: z.string().min(1).max(200).optional(),
   creditLimit: decimalString.optional(),
   creditDays: z.number().int().min(0).max(3650).optional(),
   openingBalance: decimalString.optional(),
+  /**
+   * The outstanding as the source last saw it. Held, never computed on
+   * (D-01), and never the basis of a payable or receivable Vyuha asserts on
+   * its own: Tally is the ledger of record and this is a projection of it.
+   * Unlike a price, zero is meaningful — a settled account — so the writer
+   * lands a zero rather than keeping a stored non-zero over it.
+   */
+  closingBalance: decimalString.optional(),
+  billWiseTracking: z.boolean().optional(),
 });
 
 export type PartyPullRow = z.infer<typeof partyPullRowSchema>;
@@ -209,6 +226,20 @@ export const voucherLinePullSchema = z.discriminatedUnion('kind', [
     amount: decimalString,
     /** Tally's debit/credit convention — true on the debit side. */
     isDeemedPositive: z.boolean(),
+    /*
+     * Bank settlement, on the line rather than the voucher, because that is
+     * where Tally records it. Kept on the line deliberately: flattening it onto
+     * the header would be easier to query but would assert something Tally does
+     * not — that a voucher has one settlement. A contra with two bank lines has
+     * two, and the projection mirrors the books rather than reshaping them.
+     */
+    settlementType: z.string().min(1).max(80).optional(),
+    settlementMode: z.string().min(1).max(80).optional(),
+    instrumentNumber: z.string().min(1).max(120).optional(),
+    /** ISO date (YYYY-MM-DD); sources convert from Tally's YYYYMMDD. */
+    instrumentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+    bankName: z.string().min(1).max(200).optional(),
+    paymentFavouring: z.string().min(1).max(200).optional(),
   }),
   z.object({
     kind: z.literal('inventory'),
@@ -236,6 +267,36 @@ export const voucherPullRowSchema = z.object({
   isCancelled: z.boolean(),
   amount: decimalString,
   lines: z.array(voucherLinePullSchema).max(2000),
+
+  /*
+   * Order, terms, dispatch and consignee detail, where the source carries it.
+   * All optional — a source that omits one is saying "not reported", which is
+   * why the writer COALESCEs rather than assigns. Which fields a company fills
+   * varies wildly between companies; none of these may be treated as reliable.
+   */
+  reference: z.string().min(1).max(200).optional(),
+  /** ISO date (YYYY-MM-DD). */
+  referenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  orderRef: z.string().min(1).max(200).optional(),
+  buyerOrderNumber: z.string().min(1).max(200).optional(),
+  buyerOrderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  paymentTerms: z.string().min(1).max(500).optional(),
+  /** Terms of delivery as one block; a multi-line source joins on newlines. */
+  deliveryTerms: z.string().min(1).max(2000).optional(),
+  dispatchedThrough: z.string().min(1).max(200).optional(),
+  dispatchDocNo: z.string().min(1).max(200).optional(),
+  vehicleNumber: z.string().min(1).max(80).optional(),
+  destination: z.string().min(1).max(200).optional(),
+  buyerName: z.string().min(1).max(200).optional(),
+  /** Buyer address as one block; a multi-line source joins on newlines. */
+  buyerAddress: z.string().min(1).max(1000).optional(),
+  partyGstin: z.string().min(1).max(20).optional(),
+  partyState: z.string().min(1).max(120).optional(),
+  placeOfSupply: z.string().min(1).max(120).optional(),
+  consigneeName: z.string().min(1).max(200).optional(),
+  consigneeState: z.string().min(1).max(120).optional(),
+  consigneePincode: z.string().min(1).max(20).optional(),
+  consigneeGstin: z.string().min(1).max(20).optional(),
 });
 
 export type VoucherPullRow = z.infer<typeof voucherPullRowSchema>;

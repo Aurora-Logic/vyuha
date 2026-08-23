@@ -91,7 +91,7 @@ Every syncable entity declares an owner. There is no bidirectional entity.
 |---|---|---|---|
 | Party (ledger) | Tally | pull | — (master) |
 | Stock item | Tally | pull | — (master) |
-| Price list | Tally | pull | — (master) |
+| Price list | **Vyuha** (D-49) | — | Vyuha-owned and approved; Tally's pulled entries are ignored |
 | Estimate | Vyuha | none | — |
 | Sales order | Vyuha | push | Sales Order |
 | Delivery challan | Vyuha | push | Delivery Note |

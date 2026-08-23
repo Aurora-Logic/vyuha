@@ -33,6 +33,28 @@ export const ALL_QUEUES: readonly QueueName[] = Object.values(QUEUES);
  */
 export interface JobPayloads {
   /**
+   * 15 REQ-AJ-09: each morning, every open promise is re-read against the
+   * receipts Tally has sent, and whoever holds a collections view key hears
+   * about the ones that are now broken.
+   */
+  'sweep-broken-promises': {
+    /** Only for the trail; the handler works from the current clock. */
+    readonly now?: string;
+  };
+
+  /**
+   * 15 REQ-AO-13: duplicate detection after a masters pull. Enqueued by the
+   * sync writer when a pull's final chunk lands, one job per organisation
+   * and entity type (deduplicated by id), never run on a list render.
+   */
+  'detect-duplicates': {
+    readonly orgId: string;
+    /** Both when absent. */
+    readonly entityType?: 'party' | 'stock_item';
+    readonly requestedAt: string;
+  };
+
+  /**
    * REQ-L-03. Subsumes §11's `purge-expired-photos` and `purge-expired-exports`:
    * both are rows in `files` with an `expires_at`, and two jobs running the
    * same query against the same table is two places for the retention rule to
@@ -263,6 +285,8 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-task-reminders': QUEUES.NOTIFICATION,
   'link-sales-invoices': QUEUES.MAINTENANCE,
+  'detect-duplicates': QUEUES.MAINTENANCE,
+  'sweep-broken-promises': QUEUES.NOTIFICATION,
   'raise-reorder-requirements': QUEUES.MAINTENANCE,
   'sweep-exception-reports': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
@@ -374,6 +398,8 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   { schedulerId: 'purchase:reorder-sweep', jobName: 'raise-reorder-requirements', pattern: '15 1 * * *' },
   // D-46. After the reorder sweep, still before anyone reads the digest with breakfast.
   { schedulerId: 'reports:exception-sweep', jobName: 'sweep-exception-reports', pattern: '45 1 * * *' },
+  // After the exception sweep, before the working day: the promises that came due yesterday.
+  { schedulerId: 'collections:broken-promises', jobName: 'sweep-broken-promises', pattern: '0 3 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

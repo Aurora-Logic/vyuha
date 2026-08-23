@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
+import { PushOutcomeRegistry } from '../../../platform/sync/push-outcome.registry.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 
 /**
@@ -371,4 +372,295 @@ describe('approval by value through the inbox (13 REQ-X-16)', () => {
     const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
     expect(inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING')).toBeUndefined();
   });
+});
+
+describe('item settings belong to the organisation that owns the item', () => {
+  /**
+   * `item_settings` is unique on `stock_item_id` alone, and the id arrived
+   * from the path unchecked — so a settings write naming another
+   * organisation's item did not collide with its row, it updated it.
+   */
+  it('refuses a stock item this organisation does not own, and leaves its settings alone', async () => {
+    // An item belonging to nobody in this org: a different organisation's row.
+    const otherOrg = '01900000-0000-7000-8000-0000000000eb';
+    await harness.db.execute(sql`
+      INSERT INTO organizations (id, name) VALUES (${otherOrg}, 'Other Co')
+      ON CONFLICT (id) DO NOTHING
+    `);
+    // resetOrganisation clears this org, not the other one, so a second run
+    // would collide on the connection's company guid. Clear the neighbour
+    // first: it is this test's fixture and nobody else's.
+    await harness.db.execute(sql`DELETE FROM item_settings WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`DELETE FROM integration_connections WHERE org_id = ${otherOrg}`);
+    const conn = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO integration_connections (org_id, system, name, company_guid)
+      VALUES (${otherOrg}, 'TALLY', 'Other Co', 'guid-other-co-settings') RETURNING id
+    `);
+    const theirItem = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO stock_items (org_id, connection_id, name, unit, parent_group, gst_rate, last_pulled_at)
+      VALUES (${otherOrg}, ${conn.rows[0]?.id ?? ''}, 'Their cable', 'NOS', 'Cables', '18.00', now()) RETURNING id
+    `);
+    const theirItemId = theirItem.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO item_settings (org_id, stock_item_id, reorder_level, minimum_order_qty)
+      VALUES (${otherOrg}, ${theirItemId}, 500, 50)
+    `);
+
+    const refused = await harness.put(`/purchase/items/${theirItemId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '1', minimumOrderQty: '1' },
+    });
+    expect(refused.status).toBe(404);
+
+    // Their row is untouched — this is what the bug overwrote.
+    const after = await harness.db.execute<{ reorder_level: string; org_id: string }>(sql`
+      SELECT reorder_level::text, org_id::text FROM item_settings WHERE stock_item_id = ${theirItemId}
+    `);
+    expect(after.rows[0]?.reorder_level).toBe('500.000');
+    expect(after.rows[0]?.org_id).toBe(otherOrg);
+
+    await harness.db.execute(sql`DELETE FROM item_settings WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${otherOrg}`);
+    await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${otherOrg}`);
+  });
+
+  it('accepts an item this organisation does own', async () => {
+    const ok = await harness.put(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '25', minimumOrderQty: '5' },
+    });
+    expect([200, 204]).toContain(ok.status);
+  });
+});
+
+describe('the two ceilings on an allocation (audits 11, 12)', () => {
+  /**
+   * How much is left was read from the view the request was built against and
+   * never moved while the request ran. Two allocators looking at the same
+   * screen each saw the whole receipt free and both spent it; so did one
+   * request naming the same requirement twice. And nothing capped an
+   * allocation by what the order was actually waiting for, so a requirement
+   * short by one could be allocated four and read as received, quietly taking
+   * what belonged to whoever else was in the queue.
+   */
+  const lastGrn = async (): Promise<GrnView> => {
+    const row = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM grns WHERE org_id = ${ORG_ID} AND purchase_order_id = ${poId} ORDER BY created_at DESC LIMIT 1
+    `);
+    return (await harness.get<GrnView>(`/purchase/grns/${row.rows[0]?.id ?? ''}`, { token: adminToken })).body;
+  };
+
+  it('refuses the second half of a request that spends the same receipt twice', async () => {
+    // Everything allocated so far is given back, so this GRN's line has room
+    // again and the two requirements are waiting on it.
+    await harness.db.execute(sql`
+      UPDATE po_line_requirements SET allocated_qty = 0
+       WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE purchase_order_id = ${poId})
+    `);
+    await harness.db.execute(sql`
+      UPDATE procurement_requirements SET received_qty = 0, state = 'ordered'
+       WHERE org_id = ${ORG_ID} AND id IN (SELECT requirement_id FROM po_line_requirements
+         WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE purchase_order_id = ${poId}))
+    `);
+    await harness.db.execute(sql`
+      UPDATE purchase_order_lines SET received_qty = 4 WHERE purchase_order_id = ${poId}
+    `);
+
+    const grn = await lastGrn();
+    const pending = grn.pendingAllocations[0];
+    expect(pending?.unallocatedQty).toBe('4.000');
+    const first = pending?.waiting[0]?.requirementId ?? '';
+
+    // Four are free; three and three is six. The snapshot said four was free
+    // for both halves, and both used to be written.
+    const refused = await harness.post<ErrorBody>(`/purchase/grns/${grn.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: first, quantity: '3' }, { requirementId: first, quantity: '3' }] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('left to allocate');
+
+    // The transaction took neither half.
+    const after = await lastGrn();
+    expect(after.pendingAllocations[0]?.unallocatedQty).toBe('4.000');
+  });
+
+  it('refuses more than the order is waiting for, even when the receipt has it', async () => {
+    // One requirement now waits for a single unit while four sit unallocated
+    // on the line: the receipt has room, the order does not.
+    await harness.db.execute(sql`
+      UPDATE po_line_requirements SET quantity = 1, allocated_qty = 0
+       WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE purchase_order_id = ${poId})
+    `);
+    const grn = await lastGrn();
+    const pending = grn.pendingAllocations[0];
+    expect(Number(pending?.unallocatedQty)).toBeGreaterThan(1);
+    const waiting = pending?.waiting[0];
+    expect(waiting?.outstandingQty).toBe('1.000');
+
+    const refused = await harness.post<ErrorBody>(`/purchase/grns/${grn.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '3' }] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('waiting for only');
+
+    // One is taken, which is all it was waiting for.
+    const allowed = await harness.post<GrnView>(`/purchase/grns/${grn.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '1' }] },
+    });
+    expect(allowed.status).toBe(200);
+  });
+});
+
+describe('an order that stops being a promise of goods (audits 3, 4, 8, 12)', () => {
+  /**
+   * Short-closing and a Tally cancellation are the same fact arriving from
+   * two directions: the vendor is not bringing the balance. Both have to give
+   * the requirements back, and neither may give them back twice.
+   *
+   * Built from SQL rather than through the shortage flow so each test owns its
+   * own order and requirement and the numbers are not a coincidence of what
+   * the fixtures above left behind.
+   */
+  const buildOrder = async (number: string, quantity: number): Promise<{ poId: string; requirementId: string }> => {
+    const req = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO procurement_requirements (org_id, stock_item_id, quantity, source, state, ordered_qty, received_qty)
+      VALUES (${ORG_ID}, ${cableId}, ${quantity}, 'shortage', 'ordered', ${quantity}, 0)
+      RETURNING id
+    `);
+    const requirementId = req.rows[0]?.id ?? '';
+    const po = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO purchase_orders (org_id, number, status, date, party_id, vendor_name)
+      VALUES (${ORG_ID}, ${number}, 'CONFIRMED', CURRENT_DATE, ${vendorId}, 'Behar Supply Co')
+      RETURNING id
+    `);
+    const poId = po.rows[0]?.id ?? '';
+    const line = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO purchase_order_lines (org_id, purchase_order_id, line_no, stock_item_id, description, quantity, rate, amount, tax_pct, tax_amount)
+      VALUES (${ORG_ID}, ${poId}, 1, ${cableId}, 'Cat6 cable 305m', ${quantity}, 100, ${quantity * 100}, 18, ${quantity * 18})
+      RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO po_line_requirements (org_id, purchase_order_line_id, requirement_id, quantity, allocated_qty)
+      VALUES (${ORG_ID}, ${line.rows[0]?.id ?? ''}, ${requirementId}, ${quantity}, 0)
+    `);
+    return { poId, requirementId };
+  };
+
+  /** The registry's own mirror callback, bound so it can be called detached. */
+  const mirrorHandler = () => {
+    const handler = harness.resolve(PushOutcomeRegistry).find('PURCHASE_ORDER');
+    return handler?.onMirror?.bind(handler);
+  };
+
+  const orderedQty = async (requirementId: string): Promise<string> =>
+    (
+      await harness.db.execute<{ ordered_qty: string }>(
+        sql`SELECT ordered_qty::text FROM procurement_requirements WHERE id = ${requirementId}`,
+      )
+    ).rows[0]?.ordered_qty ?? '';
+
+  it('short-closes once, however many times it is asked (audit 3)', async () => {
+    const { poId, requirementId } = await buildOrder('PO-SHORT-1', 6);
+    expect(await orderedQty(requirementId)).toBe('6.000');
+
+    const first = await harness.post(`/purchase/orders/${poId}/short-close`, { token: adminToken, body: { reason: 'Vendor cannot supply' } });
+    expect(first.status).toBe(200);
+    expect(await orderedQty(requirementId)).toBe('0.000');
+
+    // The second attempt subtracted the same six again, so the requirement
+    // believed less was on order than really was and the sweep reordered
+    // goods that were already coming.
+    const again = await harness.post<ErrorBody>(`/purchase/orders/${poId}/short-close`, { token: adminToken, body: { reason: 'Pressed twice' } });
+    expect(again.status).toBe(409);
+    expect(again.body.error.message).toContain('already short-closed');
+    expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('gives the requirements back when Tally cancels the order (audit 4)', async () => {
+    const { poId, requirementId } = await buildOrder('PO-TALLY-1', 5);
+    expect(await orderedQty(requirementId)).toBe('5.000');
+
+    const onMirror = mirrorHandler();
+    expect(onMirror).toBeDefined();
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, poId, {
+      remoteGuid: 'guid-tally-cancel-1',
+      remoteVoucherNumber: '4242',
+      isCancelled: true,
+      alterId: 2,
+      });
+    });
+
+    const status = await harness.db.execute<{ status: string }>(sql`SELECT status FROM purchase_orders WHERE id = ${poId}`);
+    expect(status.rows[0]?.status).toBe('CANCELLED');
+    // The order is gone from Tally, so nothing is on the way any more. It used
+    // to be marked cancelled and leave the requirement sitting in `ordered`,
+    // so the buyer went on believing the goods were coming.
+    expect(await orderedQty(requirementId)).toBe('0.000');
+
+    // And a second pull of the same cancellation does not subtract again.
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, poId, {
+      remoteGuid: 'guid-tally-cancel-1',
+      remoteVoucherNumber: '4242',
+      isCancelled: true,
+      alterId: 3,
+      });
+    });
+    expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('does not release twice when an order is short-closed and then cancelled in Tally (audits 3, 4)', async () => {
+    const { poId, requirementId } = await buildOrder('PO-BOTH-1', 4);
+    await harness.post(`/purchase/orders/${poId}/short-close`, { token: adminToken, body: { reason: 'Vendor cannot supply' } });
+    expect(await orderedQty(requirementId)).toBe('0.000');
+
+    // Short-closing leaves the status CONFIRMED, so the Tally cancellation
+    // passes a status check and would have released a second time.
+    const onMirror = mirrorHandler();
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, poId, {
+      remoteGuid: 'guid-tally-cancel-2',
+      remoteVoucherNumber: '4243',
+      isCancelled: true,
+      alterId: 2,
+      });
+    });
+    expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('stores the subtotal gross, so subtotal less discount plus tax is the total (audit 12)', async () => {
+    // Its own order with a real discount on it: without one, net and gross are
+    // the same number and the assertion holds either way.
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: {
+        partyId: vendorId,
+        lines: [{ stockItemId: cableId, description: 'Cat6 cable 305m', quantity: '10', rate: '100', discountPct: '10', taxPct: '18' }],
+      },
+    });
+    expect(created.status, created.text).toBe(201);
+
+    const po = await harness.get<PurchaseOrderView>(`/purchase/orders/${created.body.id}`, { token: adminToken });
+    const gross = Number(po.body.subtotal);
+    const discount = Number(po.body.discountTotal);
+    const tax = Number(po.body.taxTotal);
+    const total = Number(po.body.grandTotal);
+
+    // Ten at a hundred, less a tenth, plus eighteen per cent of what is left.
+    expect(gross).toBe(1000);
+    expect(discount).toBe(100);
+    expect(tax).toBe(162);
+    expect(total).toBe(1062);
+    // The four figures on the export reconcile. `subtotal` used to be the net,
+    // with the discount already taken off, so a reader subtracting the
+    // discount printed beside it took it off twice -- 962 against a total of
+    // 1062.
+    expect(gross - discount + tax).toBeCloseTo(total, 2);
+  });
+
 });

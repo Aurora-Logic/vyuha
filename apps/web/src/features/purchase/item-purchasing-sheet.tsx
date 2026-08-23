@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { BooksIcon, PlusIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -18,10 +17,9 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
-import { useParties } from '@/features/masters/use-parties';
-import { formatMoney } from '@/features/sales/money';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
@@ -253,11 +251,9 @@ function VendorsSection({ stockItemId, canEdit }: { stockItemId: string; canEdit
   const vendors = useItemVendors(stockItemId);
   const put = usePutItemVendors();
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters && canEdit });
   const [edited, setEdited] = useState<VendorRow[] | null>(null);
   const rows = edited ?? rowsOf(vendors.data ?? []);
   const dirty = edited !== null;
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
 
   const preferredCount = rows.filter((r) => r.isPreferred).length;
   const missingParty = rows.some((r) => r.partyId === null);
@@ -346,18 +342,16 @@ function VendorsSection({ stockItemId, canEdit }: { stockItemId: string; canEdit
           {rows.map((row, index) => (
             <li key={row.key} className="grid gap-2 p-3 md:grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_auto] md:items-center">
               {canEdit && canSeeMasters ? (
-                <RecordPicker
+                <PartyPicker
                   id={`vendor-${row.key}`}
                   label={`Vendor ${String(index + 1)}`}
                   placeholder="Choose the party"
-                  searchPlaceholder="Search parties"
-                  emptyMessage="No party matches. A vendor must be a party in Tally first."
                   icon={<BooksIcon className="text-muted-foreground" />}
-                  options={partyOptions}
-                  loading={parties.isPending}
-                  value={partyOptions.find((o) => o.id === row.partyId) ?? (row.partyId === null ? null : { id: row.partyId, label: row.partyName })}
+                  enabled={canSeeMasters && canEdit}
+                  partyId={row.partyId}
+                  partyName={row.partyName}
                   onValueChange={(next) => {
-                    update(row.key, { partyId: next?.id ?? null, partyName: next?.label ?? '' });
+                    update(row.key, { partyId: next?.id ?? null, partyName: next?.name ?? '' });
                   }}
                 />
               ) : (

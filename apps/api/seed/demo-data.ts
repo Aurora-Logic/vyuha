@@ -102,6 +102,13 @@ const STAGES = [
   ['Negotiation', 60, false, false], ['Won', 100, true, false], ['Lost', 0, false, true],
 ] as const;
 
+/** DEFAULT_RETURN_REASONS from the returns contract, restated so the seeder
+ *  does not import an app module. */
+const RETURN_REASONS = [
+  'Damaged in transit', 'Wrong item', 'Wrong quantity',
+  'Quality rejection', 'Customer cancelled', 'Warranty',
+] as const;
+
 const BOARD_COLUMNS = [['To do', false], ['In progress', false], ['Blocked', false], ['Done', true]] as const;
 
 const TASK_TITLES = [
@@ -209,15 +216,22 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
   }
 
   const partyIds = new Map<string, string>();
-  for (const [index, name] of [...CUSTOMERS, ...VENDORS].entries()) {
+  /*
+   * Guarded like every other section rather than left to ON CONFLICT. There is
+   * no unique index on (org_id, name) -- parties are a Tally projection and the
+   * sync engine keys them by its own identifier -- so an unqualified ON CONFLICT
+   * DO NOTHING had nothing to conflict against and every run inserted a second
+   * Godavari Electricals under a fresh id. Four runs left 75 rows for 21 names.
+   */
+  const seedParties = !(await already('parties'));
+  for (const [index, name] of seedParties ? [...CUSTOMERS, ...VENDORS].entries() : []) {
     const isCustomer = index < CUSTOMERS.length;
     const id = randomUUID();
     partyIds.set(name, id);
     await db.query(
       `INSERT INTO parties (id, org_id, connection_id, name, parent_group, gstin, address,
          credit_limit, credit_days, opening_balance, email, phone, last_pulled_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
-       ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())`,
       [
         id, orgId, connectionId, name,
         isCustomer ? 'Sundry Debtors' : 'Sundry Creditors',
@@ -237,21 +251,21 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
 
   for (const row of (
     await db.query<{ id: string; name: string }>(
-      `SELECT id, name FROM parties WHERE org_id = $1`, [orgId],
+      `SELECT id, name FROM parties WHERE org_id = $1 ORDER BY created_at`, [orgId],
     )
   ).rows) {
     partyIds.set(row.name, row.id);
   }
 
   const itemIds = new Map<string, string>();
-  for (const [name, group, unit, gst, sale, cost] of ITEMS) {
+  const seedItems = !(await already('stock_items'));
+  for (const [name, group, unit, gst, sale, cost] of seedItems ? ITEMS : []) {
     const id = randomUUID();
     itemIds.set(name, id);
     await db.query(
       `INSERT INTO stock_items (id, org_id, connection_id, name, unit, parent_group, gst_rate,
          closing_qty, sale_price, cost_price, last_pulled_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
-       ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())`,
       [id, orgId, connectionId, name, unit, group, gst, between(0, 400), sale, cost],
     );
     bump('stock_items');
@@ -259,7 +273,7 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
 
   for (const row of (
     await db.query<{ id: string; name: string }>(
-      `SELECT id, name FROM stock_items WHERE org_id = $1`, [orgId],
+      `SELECT id, name FROM stock_items WHERE org_id = $1 ORDER BY created_at`, [orgId],
     )
   ).rows) {
     itemIds.set(row.name, row.id);
@@ -508,7 +522,11 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
     }
   }
 
-  for (const [index, title] of TASK_TITLES.entries()) {
+  // Guarded for the same reason the masters are: nothing here has a unique key
+  // to conflict against, so an ungated re-run stacks a second copy of every
+  // task on the board.
+  const seedTasks = !(await already('tasks'));
+  for (const [index, title] of seedTasks ? TASK_TITLES.entries() : []) {
     const columnIndex = index % columnIds.length;
     const done = (
       await db.query<{ is_done: boolean }>(
@@ -683,7 +701,11 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
   ).rows[0]?.id ?? null;
 
   const DAYS_OF_MUSTER = 60;
-  for (const [personIndex, employeeId] of staff.entries()) {
+  // `attendance_days` has a unique key and quietly skips a re-run, but the
+  // punches and leave requests hanging off it do not -- so the section is
+  // gated as a whole rather than relying on the one table that is protected.
+  const seedMuster = !(await already('attendance_days'));
+  for (const [personIndex, employeeId] of seedMuster ? staff.entries() : []) {
     for (let back = 1; back <= DAYS_OF_MUSTER; back += 1) {
       const date = daysAgo(back);
       if (holidayDates.has(date)) continue;
@@ -872,6 +894,178 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
           [randomUUID(), orgId, connectionId, receipt.id, receipt.party_id, (-remaining).toFixed(2)],
         );
         bump('bill_allocations');
+      }
+    }
+  }
+
+  // -------------------------------------------------------- promises to pay
+  /*
+   * Built from the bills the ageing report already shows as open, not from a
+   * fresh set of invented amounts. A promise against a bill that does not exist
+   * would make "promised versus collected" disagree with the ledger it is meant
+   * to be read beside, and the disagreement would look like a bug in the report
+   * rather than a bug in the fixture.
+   *
+   * The mix of states is deliberate: the collections screens are only worth
+   * looking at when some promises were kept, some part-kept, some broken
+   * outright, and some are still ahead of their date.
+   */
+  if (!(await already('promises_to_pay'))) {
+    const openBills = (
+      await db.query<{ party_id: string; bill_name: string; outstanding: string }>(
+        `SELECT party_id, bill_name, round(sum(amount), 2)::text AS outstanding
+           FROM bill_allocations
+          WHERE org_id = $1 AND party_id IS NOT NULL AND ref_type IN ('new', 'against')
+          GROUP BY party_id, bill_name HAVING round(sum(amount), 2) > 0
+          ORDER BY party_id, bill_name`,
+        [orgId],
+      )
+    ).rows;
+
+    // One promise covers up to three of a party's open bills, which is how a
+    // collector takes one -- against a balance, not against a single invoice.
+    const byParty = new Map<string, typeof openBills>();
+    for (const bill of openBills) {
+      const held = byParty.get(bill.party_id) ?? [];
+      held.push(bill);
+      byParty.set(bill.party_id, held);
+    }
+
+    let promiseNo = 0;
+    for (const [partyId, bills] of byParty) {
+      const covered = bills.slice(0, between(1, 3));
+      const amount = covered.reduce((sum, b) => sum + Number(b.outstanding), 0);
+      if (amount <= 0) continue;
+
+      // Half fall due in the past, so there is something to have been kept or
+      // broken; the rest are open and still ahead of their date.
+      const daysOut = promiseNo % 2 === 0 ? -between(3, 55) : between(2, 21);
+      const promised = daysAgo(-daysOut);
+      const roll = promiseNo % 6;
+      const state = daysOut > 0 ? 'open' : roll < 3 ? 'kept' : roll < 5 ? 'partially_kept' : 'broken';
+      const received =
+        state === 'kept' ? amount : state === 'partially_kept' ? amount * (between(30, 80) / 100) : 0;
+
+      await db.query(
+        `INSERT INTO promises_to_pay (id, org_id, party_id, amount, promised_date, bills, taken_by,
+           taken_on, notes, state, received_amount, received_on, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [randomUUID(), orgId, partyId, amount.toFixed(2), promised, covered.map((b) => b.bill_name),
+         staffAt(promiseNo), daysAgo(Math.abs(daysOut) + between(2, 10)),
+         pick(['Confirmed on the phone with accounts.', 'Cheque to be handed over at the site visit.',
+               'Waiting on their own customer to release funds.', 'Agreed after the rate dispute was settled.']),
+         state, received.toFixed(2), received > 0 ? promised : null, owner],
+      );
+      bump('promises_to_pay');
+      promiseNo += 1;
+    }
+  }
+
+  // ---------------------------------------------------------------- returns
+  /*
+   * Returns only read as a rate, so they are spread across items that were
+   * actually sold -- a return of something never invoiced gives "return rate by
+   * item" a denominator of zero and a row that says nothing. Damaged goods are
+   * scrapped and everything else restocked, which is what makes the disposition
+   * worth a column.
+   */
+  if (!(await already('sales_returns'))) {
+    const sold = (
+      await db.query<{ stock_item_name: string; qty: string }>(
+        // billed_qty is text on the projection because Tally sends it that way,
+        // and it sometimes arrives with the unit attached (1 NOS), so the digits
+        // have to be pulled out before it will add up.
+        `SELECT l.stock_item_name,
+                sum(nullif(regexp_replace(l.billed_qty, '[^0-9.]', '', 'g'), '')::numeric)::text AS qty
+           FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+          WHERE l.org_id = $1 AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
+            AND l.stock_item_name IS NOT NULL AND l.billed_qty IS NOT NULL
+          GROUP BY l.stock_item_name
+         HAVING sum(nullif(regexp_replace(l.billed_qty, '[^0-9.]', '', 'g'), '')::numeric) > 0
+          ORDER BY 2 DESC LIMIT 10`,
+        [orgId],
+      )
+    ).rows;
+
+    for (let n = 0; n < 14 && sold.length > 0; n += 1) {
+      const customer = pick(CUSTOMERS);
+      const returnId = randomUUID();
+      const state = n % 7 === 6 ? 'cancelled' : n % 3 === 0 ? 'credited' : 'awaiting_credit_note';
+
+      await db.query(
+        `INSERT INTO sales_returns (id, org_id, number, state, party_id, customer_name, received_on,
+           received_by, notes, replacement_charge, cancelled_reason, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [returnId, orgId, `SR/${String(1001 + n)}`, state, partyIds.get(customer) ?? null, customer,
+         daysAgo(between(2, 120)), staffAt(n),
+         n % 4 === 0 ? 'Collected by our own vehicle on the return leg.' : null,
+         n % 5 === 0 ? 'free' : 'chargeable',
+         state === 'cancelled' ? 'Customer kept the goods after a rate adjustment.' : null, owner],
+      );
+      bump('sales_returns');
+
+      for (let lineNo = 1; lineNo <= between(1, 3); lineNo += 1) {
+        const item = sold[(n + lineNo) % sold.length];
+        if (item === undefined) continue;
+        const reason = RETURN_REASONS[(n + lineNo) % RETURN_REASONS.length] as string;
+        const damaged = reason === 'Damaged in transit' || reason === 'Quality rejection';
+        // A tenth of what was sold, so the rate lands somewhere a person would
+        // investigate rather than at 0.01% or at 90%.
+        const qty = Math.max(1, Math.round((Number(item.qty) / 10) * (between(20, 90) / 100)));
+
+        await db.query(
+          `INSERT INTO sales_return_lines (id, org_id, return_id, line_no, stock_item_id, description,
+             unit, quantity, reason, reason_note, condition, disposition, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [randomUUID(), orgId, returnId, lineNo, itemIds.get(item.stock_item_name) ?? null,
+           item.stock_item_name, 'Nos', String(qty), reason,
+           damaged ? 'Photographed at the gate before it was taken in.' : null,
+           damaged ? 'damaged' : lineNo === 1 ? 'sealed' : 'opened',
+           damaged ? 'scrap' : 'restock', owner],
+        );
+        bump('sales_return_lines');
+      }
+    }
+  }
+
+  // ------------------------------------------------------------- duplicates
+  /*
+   * Real pairs out of the masters already seeded, so opening a cluster shows two
+   * records a person can compare rather than two names that resolve to nothing.
+   * The bands matter more than the count: the detector's screens sort by
+   * confidence, and a fixture with everything at 0.99 never exercises them.
+   */
+  if (!(await already('duplicate_clusters'))) {
+    const pairs: ReadonlyArray<readonly [string, readonly string[], number, string]> = [
+      ['party', CUSTOMERS.slice(0, 2), 0.97, 'gstin,name'],
+      ['party', CUSTOMERS.slice(2, 4), 0.88, 'name,phone'],
+      ['party', VENDORS.slice(0, 2), 0.79, 'name'],
+      ['stock_item', ITEMS.slice(0, 2).map((i) => i[0]), 0.96, 'alias,name'],
+      ['stock_item', ITEMS.slice(2, 4).map((i) => i[0]), 0.83, 'name,unit'],
+    ];
+
+    for (const [entityType, names, confidence, matched] of pairs) {
+      const lookup = entityType === 'party' ? partyIds : itemIds;
+      const members = names.map((n) => lookup.get(n)).filter((id): id is string => id !== undefined);
+      if (members.length < 2) continue;
+
+      const clusterId = randomUUID();
+      await db.query(
+        `INSERT INTO duplicate_clusters (id, org_id, entity_type, confidence, matched_fields, state,
+           signature, member_count)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [clusterId, orgId, entityType, confidence.toFixed(3), matched,
+         confidence >= 0.95 ? 'sent_to_tally' : 'open', [...members].sort().join(':'), members.length],
+      );
+      bump('duplicate_clusters');
+
+      for (const entityId of members) {
+        await db.query(
+          `INSERT INTO duplicate_cluster_members (id, org_id, cluster_id, entity_type, entity_id)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [randomUUID(), orgId, clusterId, entityType, entityId],
+        );
+        bump('duplicate_cluster_members');
       }
     }
   }

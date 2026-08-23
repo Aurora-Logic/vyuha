@@ -1,4 +1,6 @@
 import {
+  LinkSimpleIcon,
+  ArrowUUpLeftIcon,
   AddressBookIcon,
   ArchiveIcon,
   BooksIcon,
@@ -40,6 +42,7 @@ import {
   CheckCircleIcon,
   ReceiptXIcon,
   TruckIcon,
+  CopyIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -103,7 +106,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Me',
     items: [
-      { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
+      { to: '/dashboard', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
         to: '/punch',
         label: 'Punch',
@@ -161,7 +164,7 @@ export const NAV_GROUPS: NavGroup[] = [
         // The raise key, not the approve key: this screen is what a person
         // opens about their own days, and every Employee holds it. The
         // approver's surface is a band on /approvals.
-        permission: PERMISSIONS.REGULARIZATION_RAISE,
+        permission: PERMISSIONS.PUNCH_SELF,
         phase: 2,
         reqs: 'REQ-F-01…F-05',
       },
@@ -370,7 +373,7 @@ const ATTENDANCE_MODULE: ModuleDef = {
   id: 'attendance',
   label: 'Attendance',
   icon: CalendarDotsIcon,
-  home: '/',
+  home: '/dashboard',
   groups: NAV_GROUPS,
 };
 
@@ -412,13 +415,58 @@ export const MODULES: ModuleDef[] = [
             icon: TagIcon,
             permission: PERMISSIONS.MASTERS_TALLY_VIEW,
             phase: 6,
-            reqs: 'REQ-R-03',
+            reqs: 'docs/15 REQ-AN-01…18',
           },
         ],
       },
       {
         label: 'Books',
         items: [
+          {
+
+            to: '/collections',
+
+            label: 'Collections',
+
+            shortLabel: 'Collect',
+
+            icon: HandshakeIcon,
+
+            permission: PERMISSIONS.COLLECTIONS_VIEW_SELF,
+
+            phase: 8,
+
+            reqs: 'docs/15 REQ-AJ-01…13',
+
+          },
+          {
+            to: '/masters/portal-links',
+            label: 'Customer links',
+            shortLabel: 'Links',
+            icon: LinkSimpleIcon,
+            // Accounts and Admin hold it; the panel on a party page is the
+            // other way in, for when you already have the customer open.
+            permission: PERMISSIONS.PORTAL_MANAGE,
+            phase: 9,
+            reqs: 'docs/15 REQ-AL-01, REQ-AL-03, REQ-AL-07',
+          },
+          {
+
+            to: '/masters/duplicates',
+
+            label: 'Duplicates',
+
+            shortLabel: 'Dupes',
+
+            icon: CopyIcon,
+
+            permission: PERMISSIONS.DUPLICATES_VIEW,
+
+            phase: 9,
+
+            reqs: 'docs/15 REQ-AO-10',
+
+          },
           {
             to: '/masters/vouchers',
             label: 'Vouchers',
@@ -573,6 +621,15 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+          {
+            to: '/sales/returns',
+            label: 'Returns',
+            shortLabel: 'Returns',
+            icon: ArrowUUpLeftIcon,
+            permission: PERMISSIONS.RETURNS_VIEW,
+            phase: 8,
+            reqs: 'docs/15 REQ-AK-01…11',
           },
           {
             to: '/sales/delivered',
@@ -815,6 +872,11 @@ export interface Crumb {
  */
 const OFF_NAV_LABELS: Record<string, string> = {
   '/profile': 'Profile',
+  /* The shadcn-shaped second take on the reports dashboard. Deliberately not a
+     nav item -- it exists to be compared against /reports/dashboard, and two
+     entries called "Dashboard" in the same group would be a puzzle rather than
+     a choice. Named here so the header does not say "Not found" above it. */
+  '/reports/dashboard/v2': 'Dashboard (v2)',
   /* REQ-O-02's landing screen. Reached from the sidebar footer rather than
      being a destination inside a module, so it needs a name here for the same
      reason the three below do -- without it the header announced the page as
@@ -849,6 +911,8 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },
   { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/price-lists\/new$/u, parent: '/masters/price-lists', label: 'New price list' },
+  { pattern: /^\/masters\/price-lists\/[^/]+$/u, parent: '/masters/price-lists', label: 'Price list' },
   { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
