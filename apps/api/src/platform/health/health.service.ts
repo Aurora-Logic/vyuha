@@ -23,9 +23,15 @@ export interface DependencyResult {
   error?: string;
 }
 
+import { buildInfo } from './build-info.js';
+
 export interface LivenessResult {
   status: 'ok';
   uptimeSeconds: number;
+  /** Which build answered. See `build-info.ts` for why this is here. */
+  version: string;
+  commit: string;
+  builtAt: string | null;
 }
 
 export interface ReadinessResult {
@@ -42,7 +48,14 @@ export class HealthService {
   constructor(@InjectDatabase() private readonly db: Database) {}
 
   liveness(): LivenessResult {
-    return { status: 'ok', uptimeSeconds: Math.round(process.uptime()) };
+    const build = buildInfo();
+    return {
+      status: 'ok',
+      uptimeSeconds: Math.round(process.uptime()),
+      version: build.version,
+      commit: build.commit,
+      builtAt: build.builtAt,
+    };
   }
 
   async readiness(): Promise<ReadinessResult> {

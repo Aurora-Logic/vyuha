@@ -26,6 +26,10 @@ services:
       args:
         # Same-origin: Caddy serves the app and proxies /api/* to the api.
         VITE_API_BASE_URL: /api/v1
+        # Empty unless the release exports them, which is what makes an
+        # unreleased build say so rather than claim a commit it is not.
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+        BUILT_AT: ${BUILT_AT:-}
     image: vyuha-web
     restart: unless-stopped
     depends_on:
@@ -63,6 +67,10 @@ services:
     build:
       context: ..
       dockerfile: docker/api.Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILT_AT: ${BUILT_AT:-}
     image: vyuha-api
     restart: unless-stopped
     # Docker's default is 10s, and the API can legitimately need longer after a

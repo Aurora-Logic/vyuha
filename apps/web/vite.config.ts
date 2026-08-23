@@ -5,6 +5,25 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
+/**
+ * What is running, stamped into the bundle.
+ *
+ * The version is the package's, which is the one place a release changes it.
+ * The commit and the build time can only come from the build, so the release
+ * passes them in; a dev build says "dev" rather than inventing a SHA, because
+ * a wrong one sends whoever is debugging to the wrong diff.
+ */
+const APP_VERSION: string = (() => {
+  const raw: unknown = JSON.parse(
+    readFileSync(path.resolve(import.meta.dirname, "./package.json"), "utf8"),
+  )
+  return typeof raw === "object" && raw !== null && "version" in raw && typeof raw.version === "string"
+    ? raw.version
+    : "0.0.0"
+})()
+const APP_COMMIT = process.env.GIT_COMMIT ?? "dev"
+const APP_BUILT_AT = process.env.BUILT_AT ?? ""
+
 const SW_SOURCE = path.resolve(import.meta.dirname, "./src/lib/offline/service-worker.js")
 const SW_VERSION_TOKEN = "__SW_VERSION__"
 const SW_CRITICAL_TOKEN = "__SW_BUILD_CRITICAL__"
@@ -117,6 +136,11 @@ function serviceWorker(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   envDir: path.resolve(import.meta.dirname, "../../"),
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __APP_COMMIT__: JSON.stringify(APP_COMMIT),
+    __APP_BUILT_AT__: JSON.stringify(APP_BUILT_AT),
+  },
   plugins: [react(), tailwindcss(), serviceWorker()],
   resolve: {
     alias: {
