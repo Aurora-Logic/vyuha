@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./tsconfig.base.json": "./tsconfig.base.json",
-    "./eslint": "./eslint.base.js"
+    "./eslint": "./eslint.base.js",
+    "./eslint-org-scope": { "types": "./eslint-org-scope.d.ts", "default": "./eslint-org-scope.js" }
   },
   "dependencies": {
     "@eslint/js": "^10.0.1",

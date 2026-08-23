@@ -150,7 +150,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
             WHEN sum(l.packed_qty) > 0 THEN 'picking'
             ELSE 'open' END
             FROM sales_document_lines l
-           WHERE l.document_id = ${salesDocuments.id} AND l.deleted_at IS NULL
+           WHERE l.document_id = ${salesDocuments.id} AND l.org_id = ${salesDocuments.orgId} AND l.deleted_at IS NULL
         ) END`,
       createdAt: salesDocuments.createdAt,
       updatedAt: salesDocuments.updatedAt,
@@ -240,9 +240,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
                    COALESCE(v.amount, d.grand_total)::text AS amount,
                    i.method, i.linked_at
               FROM sales_order_invoices i
-              LEFT JOIN vouchers v ON v.id = i.voucher_id
-              LEFT JOIN sales_documents d ON d.id = i.invoice_document_id
-             WHERE i.document_id = ${id}
+              LEFT JOIN vouchers v ON v.id = i.voucher_id AND v.org_id = ${this.ctx.orgId}
+              LEFT JOIN sales_documents d ON d.id = i.invoice_document_id AND d.org_id = ${this.ctx.orgId}
+             WHERE i.document_id = ${id} AND i.org_id = ${this.ctx.orgId}
              ORDER BY 3, 2
           `)
         : { rows: [] };
@@ -371,7 +371,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     // never coming. A line still naming the same item keeps its mark.
     const marked = await tx.execute<{ stock_item_id: string | null; description: string }>(sql`
       SELECT stock_item_id, description FROM sales_document_lines
-       WHERE document_id = ${documentId} AND free_of_charge AND deleted_at IS NULL
+       WHERE document_id = ${documentId} AND org_id = ${this.ctx.orgId} AND free_of_charge AND deleted_at IS NULL
     `);
     const wasFree = new Set(marked.rows.map((row) => `${row.stock_item_id ?? ''}|${row.description}`));
     await tx.delete(salesDocumentLines).where(eq(salesDocumentLines.documentId, documentId));
@@ -380,7 +380,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       // document's date; the line carries what resolved as values. A rate the
       // salesperson typed stands (the floor check happens at confirm); one
       // they left blank becomes the resolved rate.
-      const head = await tx.execute<{ party_id: string | null; date: string }>(sql`SELECT party_id, date::text FROM sales_documents WHERE id = ${documentId}`);
+      const head = await tx.execute<{ party_id: string | null; date: string }>(sql`SELECT party_id, date::text FROM sales_documents WHERE id = ${documentId} AND org_id = ${this.ctx.orgId}`);
       const partyId = head.rows[0]?.party_id ?? null;
       const date = head.rows[0]?.date ?? new Date().toISOString().slice(0, 10);
       const resolved = await Promise.all(
@@ -428,9 +428,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
                  coalesce(sum(round(quantity * rate, 2) - amount), 0) AS discount_total,
                  coalesce(sum(tax_amount), 0) AS tax_total
             FROM sales_document_lines
-           WHERE document_id = ${documentId} AND deleted_at IS NULL
+           WHERE document_id = ${documentId} AND org_id = ${this.ctx.orgId} AND deleted_at IS NULL
         ) t
-       WHERE d.id = ${documentId}
+       WHERE d.id = ${documentId} AND d.org_id = ${this.ctx.orgId}
     `);
   }
 

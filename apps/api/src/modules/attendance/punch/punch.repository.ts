@@ -66,14 +66,19 @@ export const PUNCH_COLUMNS = {
   reason: punches.reason,
   flags: punches.flags,
   recordedByUserId: punches.recordedByUserId,
-  recordedByName: sql<string | null>`(select trim(concat(e.first_name, ' ', coalesce(e.last_name, ''))) from users u left join employees e on e.id = u.employee_id where u.id = ${punches.recordedByUserId})`,
+  // Each correlated read names the punch's own org_id as well as its id. The
+  // id alone would be enough today, because it came from a scoped read -- but
+  // that is an argument about the caller, and these subqueries are written
+  // once and read by everyone. Naming org_id makes each of them true on its
+  // own terms.
+  recordedByName: sql<string | null>`(select trim(concat(e.first_name, ' ', coalesce(e.last_name, ''))) from users u left join employees e on e.id = u.employee_id and e.org_id = ${punches.orgId} where u.id = ${punches.recordedByUserId} and u.org_id = ${punches.orgId})`,
   // The latest decisive review (a NOTE decides nothing), three correlated
   // reads per row; a page of punches is fifty rows, not fifty thousand.
-  reviewAction: sql<string | null>`(select r.action::text from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
-  reviewNote: sql<string | null>`(select r.note from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
-  reviewAt: sql<Date | null>`(select r.created_at from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
-  reviewByName: sql<string | null>`(select trim(concat(e.first_name, ' ', coalesce(e.last_name, ''))) from punch_flag_reviews r join users u on u.id = r.decided_by left join employees e on e.id = u.employee_id where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
-  reviewById: sql<string | null>`(select r.decided_by from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewAction: sql<string | null>`(select r.action::text from punch_flag_reviews r where r.punch_id = ${punches.id} and r.org_id = ${punches.orgId} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewNote: sql<string | null>`(select r.note from punch_flag_reviews r where r.punch_id = ${punches.id} and r.org_id = ${punches.orgId} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewAt: sql<Date | null>`(select r.created_at from punch_flag_reviews r where r.punch_id = ${punches.id} and r.org_id = ${punches.orgId} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewByName: sql<string | null>`(select trim(concat(e.first_name, ' ', coalesce(e.last_name, ''))) from punch_flag_reviews r join users u on u.id = r.decided_by and u.org_id = ${punches.orgId} left join employees e on e.id = u.employee_id and e.org_id = ${punches.orgId} where r.punch_id = ${punches.id} and r.org_id = ${punches.orgId} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewById: sql<string | null>`(select r.decided_by from punch_flag_reviews r where r.punch_id = ${punches.id} and r.org_id = ${punches.orgId} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
 } as const;
 
 export interface PunchRow {
