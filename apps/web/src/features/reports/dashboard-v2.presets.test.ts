@@ -6,6 +6,7 @@ import { asApiDate, DASHBOARD_PRESETS, defaultRange } from './dashboard-v2.prese
 describe('dashboard period presets', () => {
   it('offers every window without a gap in the list', () => {
     expect(DASHBOARD_PRESETS.map((p) => p.label)).toEqual([
+      'Today',
       'Last 7 days',
       'Last 30 days',
       'Last 90 days',
@@ -73,6 +74,6 @@ describe('the period a drill-through carries (audit 23)', () => {
   });
 
   it('carries nothing when there is nothing to carry', () => {
-    expect(periodParams('sales-analysis', {})).toEqual({});
+    expect(periodParams('sales-analysis', { from: undefined })).toEqual({});
   });
 });
