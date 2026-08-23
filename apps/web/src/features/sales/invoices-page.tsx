@@ -6,6 +6,7 @@ import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
@@ -15,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
+import { ESTIMATE_SORT_FIELDS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
 import type { EstimateSummary } from './types';
@@ -31,17 +32,17 @@ import { useInvoices } from './use-invoices';
 const ALL = '__all__';
 
 const COLUMNS: RecordColumn<EstimateSummary>[] = [
-  { key: 'number', header: 'Number', cell: (row) => (
+  { key: 'number', header: 'Number', sortField: 'number', cell: (row) => (
     <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
       <DOCUMENT_ICONS.invoice aria-hidden className="text-muted-foreground" />
       {row.number}
     </span>
   ) },
-  { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
-  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
+  { key: 'customer', header: 'Customer', cell: (row) => row.customerName, sortField: 'customerName' },
+  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums', sortField: 'date' },
   { key: 'status', header: 'Status', cell: (row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} /> },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
-  { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
+  { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true, sortField: 'grandTotal' },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
@@ -105,8 +106,9 @@ export function InvoicesPage() {
     };
   }, [draft, q, setSearchParams]);
 
+  const { sort, activeSort, onSortChange } = useUrlSort(ESTIMATE_SORT_FIELDS);
   const query = useInvoices(
-    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { sourceDocumentId: orderParam } : {}), ...(partyParam ? { partyId: partyParam } : {}) },
+    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { sourceDocumentId: orderParam } : {}), ...(partyParam ? { partyId: partyParam } : {}), ...(sort ? { sort } : {}) },
     { enabled: canView },
   );
   const rows = query.data?.data ?? [];
@@ -225,6 +227,8 @@ export function InvoicesPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+              sort={activeSort}
+              onSortChange={onSortChange}
               mobilePrimary={(row) => `${row.number} · ${row.customerName}`}
               mobileStatus={(row) => <SyncStateBadge record={row} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${SALES_DOCUMENT_STATUS_LABELS[row.status]}`}

@@ -6,6 +6,7 @@ import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -20,7 +21,7 @@ import { SalesOrderBoard } from './sales-order-board';
 import { formatDate, formatMoney, EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
+import { ESTIMATE_SORT_FIELDS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
 import { FulfilmentBadge } from './fulfilment-badge';
@@ -35,18 +36,18 @@ import { useSalesOrders } from './use-estimates';
 const ALL = '__all__';
 
 const COLUMNS: RecordColumn<EstimateSummary>[] = [
-  { key: 'number', header: 'Number', cell: (row) => (
+  { key: 'number', header: 'Number', sortField: 'number', cell: (row) => (
     <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
       <DOCUMENT_ICONS.sales_order aria-hidden className="text-muted-foreground" />
       {row.number}
     </span>
   ) },
-  { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
-  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
+  { key: 'customer', header: 'Customer', cell: (row) => row.customerName, sortField: 'customerName' },
+  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums', sortField: 'date' },
   { key: 'status', header: 'Status', cell: (row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} /> },
   { key: 'fulfilment', header: 'Fulfilment', cell: (row) => (row.fulfilment ? <FulfilmentBadge state={row.fulfilment} /> : EMPTY_VALUE) },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
-  { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
+  { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true, sortField: 'grandTotal' },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
@@ -115,8 +116,9 @@ export function SalesOrdersPage() {
   // The register and the fulfilment board draw the same orders two ways; the
   // board loads its own confirmed set, so the list query rests while it shows.
   const [view, setView] = useState<'list' | 'board'>('list');
+  const { sort, activeSort, onSortChange } = useUrlSort(ESTIMATE_SORT_FIELDS);
   const query = useSalesOrders(
-    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(syncState ? { syncState } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(partyParam ? { partyId: partyParam } : {}) },
+    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(syncState ? { syncState } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(partyParam ? { partyId: partyParam } : {}), ...(sort ? { sort } : {}) },
     { enabled: canView && view === 'list' },
   );
   const rows = query.data?.data ?? [];
@@ -308,6 +310,8 @@ export function SalesOrdersPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+              sort={activeSort}
+              onSortChange={onSortChange}
               mobilePrimary={(row) => `${row.number} · ${row.customerName}`}
               mobileStatus={(row) => <SyncStateBadge record={row} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${SYNC_STATE_LABELS[row.syncState]}`}

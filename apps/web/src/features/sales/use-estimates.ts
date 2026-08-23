@@ -13,6 +13,8 @@ export interface EstimateFilters {
   dealId?: string;
   companyId?: string;
   partyId?: string;
+  /** A term the server knows (ESTIMATE_SORT_FIELDS), e.g. "-date" or "grandTotal". */
+  sort?: string;
 }
 
 export function useEstimates(filters: EstimateFilters, options: { enabled?: boolean } = {}): UseQueryResult<EstimatesResponse, Error> {
@@ -22,6 +24,7 @@ export function useEstimates(filters: EstimateFilters, options: { enabled?: bool
   if (filters.dealId) params.set('dealId', filters.dealId);
   if (filters.companyId) params.set('companyId', filters.companyId);
   if (filters.partyId) params.set('partyId', filters.partyId);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return useQuery({
     enabled: options.enabled ?? true,
@@ -159,6 +162,8 @@ export interface SalesOrderFilters {
   syncState?: 'NOT_PUSHED' | 'QUEUED' | 'PUSHED' | 'FAILED';
   dealId?: string;
   partyId?: string;
+  /** A term the server knows (ESTIMATE_SORT_FIELDS), e.g. "-date" or "grandTotal". */
+  sort?: string;
 }
 
 export function useSalesOrders(filters: SalesOrderFilters, options: { enabled?: boolean } = {}): UseQueryResult<EstimatesResponse, Error> {
@@ -168,6 +173,7 @@ export function useSalesOrders(filters: SalesOrderFilters, options: { enabled?: 
   if (filters.syncState) params.set('syncState', filters.syncState);
   if (filters.dealId) params.set('dealId', filters.dealId);
   if (filters.partyId) params.set('partyId', filters.partyId);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return useQuery({
     enabled: options.enabled ?? true,
