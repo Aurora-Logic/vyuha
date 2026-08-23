@@ -1,5 +1,5 @@
 import { compactCount, stackTotal, valueCaps } from '@/components/shared/chart-labels';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, LabelList } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -234,7 +234,15 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
   );
 }
 
-/** One person's worked hours per day, for the month on screen. */
+/**
+ * One person's worked hours per day, for the month on screen.
+ *
+ * A line, not bars (owner, 23 Aug): a day's hours are a measurement that runs
+ * on across the month, and the line reads the rise and dip of a working month
+ * at a glance where thirty separate bars only counted. No number sits on each
+ * point -- thirty labels are noise (dataviz); the tooltip carries the exact
+ * figure, and the axis carries the scale.
+ */
 export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
   const { domainMax, ticks } = hourTicks(
     points.reduce((most, point) => Math.max(most, point.workedMinutes), 0),
@@ -242,7 +250,7 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
 
   return (
     <ChartContainer config={HOURS_CONFIG} className="aspect-auto h-40 w-full min-w-0 sm:h-44">
-      <BarChart accessibilityLayer data={[...points]} margin={AXIS_MARGIN}>
+      <LineChart accessibilityLayer data={[...points]} margin={AXIS_MARGIN}>
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="date"
@@ -269,18 +277,19 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
           }
         />
         {/* Minutes, drawn as hours. Plotting the rounded hours instead would
-            make the tooltip disagree with the bar it is describing. */}
-        <Bar
+            make the tooltip disagree with the point it is describing. */}
+        <Line
           dataKey="workedMinutes"
-          fill="var(--color-workedMinutes)"
-          maxBarSize={16}
+          type="monotone"
+          stroke="var(--color-workedMinutes)"
+          strokeWidth={2}
+          dot={{ r: 2.5, fill: 'var(--color-workedMinutes)', strokeWidth: 0 }}
+          activeDot={{ r: 4 }}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        >
-          <LabelList {...valueCaps('workedMinutes', compactCount)} />
-        </Bar>
-      </BarChart>
+        />
+      </LineChart>
     </ChartContainer>
   );
 }

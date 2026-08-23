@@ -406,7 +406,7 @@ export function MyAttendancePage() {
               <>
                 <ChartCard
                   title="Hours worked, day by day"
-                  description="Bar. Minutes worked on each day of the month"
+                  description="Line. Minutes worked on each day of the month"
                   empty={!hasValues(hoursPoints, ['workedMinutes'])}
                   emptyNote="No hours recorded this month."
                   footnote={
