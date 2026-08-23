@@ -89,7 +89,7 @@ export class CollectionsController {
   @Get('parties/:id/bills')
   @RequirePermission(...VIEW)
   async bills(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<readonly OpenBillView[]> {
-    return this.reminders.billsFor(principal.orgId, id, new Date().toISOString().slice(0, 10));
+    return this.reminders.billsFor(principal, id, new Date().toISOString().slice(0, 10));
   }
 
   /** REQ-AJ-06: every reminder ever sent to this party, newest first. */

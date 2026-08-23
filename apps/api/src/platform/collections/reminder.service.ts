@@ -3,6 +3,7 @@ import { type Paginated, type ReminderNoticeView, type SendReminderInput } from 
 import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
+import { CollectionsService } from './collections.service.js';
 import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { DocumentSettingsService } from '../documents/document-settings.service.js';
@@ -33,10 +34,23 @@ export class ReminderService {
     private readonly mailer: Mailer,
     private readonly settings: DocumentSettingsService,
     private readonly auditContext: AuditContext,
+    // For `partyVisible` only: the collector scope is defined once, next to
+    // every other read that honours it, rather than restated here.
+    private readonly collections: CollectionsService,
   ) {}
 
-  /** The open bills behind a party's balance, oldest first, with Tally's due date or the party's credit days deciding overdue. */
-  async billsFor(orgId: string, partyId: string, asOf: string): Promise<ReminderBill[]> {
+  /**
+   * The open bills behind a party's balance, oldest first, with Tally's due
+   * date or the party's credit days deciding overdue.
+   *
+   * Narrowed to the parties this caller may work. It used to take a bare
+   * `orgId`, so `GET /collections/parties/:id/bills` -- and `send` below,
+   * through the same method -- answered for any party in the organisation.
+   * Doing it here rather than in the controller is what closes both doors
+   * with one line.
+   */
+  async billsFor(principal: Principal, partyId: string, asOf: string): Promise<ReminderBill[]> {
+    const orgId = principal.orgId;
     const rows = await this.db.execute<{ bill_name: string; bill_date: string | null; due_date: string | null; outstanding: string; overdue: boolean }>(sql`
       SELECT b.bill_name, min(b.bill_date)::text AS bill_date, max(b.due_date)::text AS due_date,
              round(sum(b.amount), 2)::text AS outstanding,
@@ -47,6 +61,7 @@ export class ReminderService {
              END AS overdue
         FROM bill_allocations b JOIN parties p ON p.id = b.party_id
        WHERE b.org_id = ${orgId} AND b.party_id = ${partyId} AND b.ref_type IN ('new', 'against')
+         AND ${this.collections.partyVisible(principal, sql`b.party_id`)}
        GROUP BY b.bill_name
       HAVING round(sum(b.amount), 2) > 0
        ORDER BY min(b.bill_date) NULLS LAST, b.bill_name
@@ -62,7 +77,7 @@ export class ReminderService {
       .execute<{ id: string; name: string; email: string | null; phone: string | null }>(sql`SELECT id, name, email, phone FROM parties WHERE org_id = ${ctx.orgId} AND id = ${input.partyId}`)
       .then((r) => r.rows[0]);
     if (party === undefined) throw AppError.notFound('Party', input.partyId);
-    const bills = await this.billsFor(ctx.orgId, input.partyId, asOf);
+    const bills = await this.billsFor(principal, input.partyId, asOf);
     if (bills.length === 0) throw AppError.conflict(`${party.name} has nothing outstanding as of ${asOf}; there is nothing to remind about.`);
 
     const [settings, org, promise] = await Promise.all([
@@ -143,8 +158,12 @@ export class ReminderService {
   async list(principal: Principal, partyId: string, page: number, pageSize: number): Promise<Paginated<ReminderNoticeView>> {
     const offset = (page - 1) * pageSize;
     const [rows, total] = await Promise.all([
-      this.rows(principal.orgId, sql`r.party_id = ${partyId}`, sql`LIMIT ${pageSize} OFFSET ${offset}`),
-      this.db.execute<{ count: number }>(sql`SELECT count(*)::int AS count FROM reminder_notices r WHERE r.org_id = ${principal.orgId} AND r.party_id = ${partyId} AND r.deleted_at IS NULL`),
+      this.rows(principal.orgId, sql`r.party_id = ${partyId} AND ${this.collections.partyVisible(principal, sql`r.party_id`)}`, sql`LIMIT ${pageSize} OFFSET ${offset}`),
+      this.db.execute<{ count: number }>(sql`
+        SELECT count(*)::int AS count FROM reminder_notices r
+         WHERE r.org_id = ${principal.orgId} AND r.party_id = ${partyId} AND r.deleted_at IS NULL
+           AND ${this.collections.partyVisible(principal, sql`r.party_id`)}
+      `),
     ]);
     return { data: rows, meta: { page, pageSize, total: total.rows[0]?.count ?? 0 } };
   }

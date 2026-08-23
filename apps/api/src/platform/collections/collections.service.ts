@@ -18,7 +18,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { orgContextOf, type Principal } from '../rbac/principal.js';
+import { hasPermission, orgContextOf, type Principal } from '../rbac/principal.js';
 import { ScopeService } from '../rbac/scope.service.js';
 
 /**
@@ -409,6 +409,34 @@ export class CollectionsService {
   // ----------------------------------------------------------------- scope
 
   /** Self is the parties assigned to me and the promises I took; all is everyone's. */
+  /**
+   * May this caller work this party at all: everyone's, anyone's to act on,
+   * or their own.
+   *
+   * A fragment rather than a check, so it costs no extra round trip and there
+   * is no error path to get wrong -- a party outside the scope yields no rows,
+   * which is also the right shape: it answers the same way for a party that
+   * does not exist, so nothing here is an oracle for which ids are real.
+   *
+   * Every other collections read narrows by the collector scope; the party's
+   * bills and its reminder history did not, so a holder of
+   * `collections.view.self` could read the open bills of any party in the
+   * organisation by passing its id -- and the party list hands those ids out.
+   *
+   * `collections.manage` passes because that key already pulls the identical
+   * bill table out of `POST /collections/reminders`; refusing the read while
+   * allowing the write would be a rule that protects nothing. The
+   * `promises_to_pay` arm mirrors `scopeWhere`'s own `OR p.taken_by`, so the
+   * two definitions of "mine" cannot drift apart.
+   */
+  partyVisible(principal: Principal, partyColumn: SQL): SQL {
+    if (hasPermission(principal, PERMISSIONS.COLLECTIONS_VIEW_ALL) || hasPermission(principal, PERMISSIONS.COLLECTIONS_MANAGE)) return sql`true`;
+    const resolved = this.scopes.resolve(principal, GRANTS, sql`ca.collector_id`);
+    if (resolved.scope === 'none' || principal.employeeId === null) return sql`false`;
+    return sql`(EXISTS (SELECT 1 FROM collector_assignments ca WHERE ca.org_id = ${principal.orgId} AND ca.party_id = ${partyColumn} AND ca.deleted_at IS NULL AND ${resolved.where})
+            OR EXISTS (SELECT 1 FROM promises_to_pay pr WHERE pr.org_id = ${principal.orgId} AND pr.party_id = ${partyColumn} AND pr.deleted_at IS NULL AND pr.taken_by = ${principal.employeeId}))`;
+  }
+
   private scopeWhere(principal: Principal): SQL {
     const resolved = this.scopes.resolve(principal, GRANTS, sql`ca.collector_id`);
     if (resolved.scope === 'all' || principal.employeeId === null) return resolved.where;

@@ -1,4 +1,4 @@
-import { SYSTEM_ROLES, type CollectorAssignmentView, type CollectorDashboard, type CreditPosition, type Paginated, type PromiseView, type ReminderNoticeView } from '@vyuha/shared';
+import { SYSTEM_ROLES, uuidv7, type CollectorAssignmentView, type CollectorDashboard, type CreditPosition, type Paginated, type PromiseView, type ReminderNoticeView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -314,4 +314,53 @@ describe('Area AJ: collections', () => {
     expect(reread.body.state).toBe('broken');
   });
 
+
+  it('a self-scoped collector reads only their own parties\' bills and reminders (audit 0)', async () => {
+    // Every other collections read narrows by the collector scope. The party's
+    // bills and its reminder history did not, so a holder of
+    // `collections.view.self` could read the open bills of any party in the
+    // organisation by passing its id -- and `GET /masters/parties` hands those
+    // ids out to anyone who can raise a promise.
+    // A code of its own each run: resetOrganisation keeps people, because an
+    // employee who has ever punched can never be deleted.
+    const code = `CL-${uuidv7().slice(-8)}`;
+    const otherEmployee = await harness.createEmployee({ code, firstName: 'Nita', lastName: 'Collector' });
+    const selfRoleId = await harness.createRole('Collector Self Only', ['collections.view.self']);
+    const nita = await harness.createUser({ email: scopedEmail('coll-nita'), roleIds: [selfRoleId], employeeId: otherEmployee });
+    const nitaToken = (await harness.login(nita.email, nita.password)).token;
+
+    // A party of her own with a real open bill, so the empty answer below is
+    // the scope talking and not an empty fixture. Behar's bills net to nought,
+    // which would have proved nothing either way.
+    const mine = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_days)
+      VALUES (${ORG_ID}, ${connectionId}, ${`Nita's Customer ${code}`}, 'Sundry Debtors', 30)
+      RETURNING id
+    `);
+    const herParty = mine.rows[0]?.id ?? '';
+    await raiseBill(herParty, `Nita's Customer ${code}`, `INV-N-${code}`, 12000, '2026-08-02', '2026-09-01');
+    await harness.post('/collections/assignments', { token: accountsToken, body: { partyId: herParty, collectorId: otherEmployee, periodFrom: '2026-08-01' } });
+
+    type Bills = { data?: unknown[] } | unknown[];
+    const rowsOf = (body: Bills): unknown[] => (Array.isArray(body) ? body : (body.data ?? []));
+
+    const hers = await harness.get<Bills>(`/collections/parties/${herParty}/bills`, { token: nitaToken });
+    expect(hers.status).toBe(200);
+    expect(rowsOf(hers.body).length, 'her own party has bills, so an empty answer below means the scope and not an empty fixture').toBeGreaterThan(0);
+
+    // Asha is somebody else's party.
+    const theirs = await harness.get<Bills>(`/collections/parties/${asha}/bills`, { token: nitaToken });
+    expect(theirs.status).toBe(200);
+    expect(rowsOf(theirs.body)).toEqual([]);
+
+    const theirReminders = await harness.get<{ data: unknown[]; meta: { total: number } }>(`/collections/parties/${asha}/reminders`, { token: nitaToken });
+    expect(theirReminders.status).toBe(200);
+    expect(theirReminders.body.data).toEqual([]);
+    // The count has to agree with the rows, or the pager offers pages of nothing.
+    expect(theirReminders.body.meta.total).toBe(0);
+
+    // And an accounts holder, who may see everyone's, still does.
+    const all = await harness.get<Bills>(`/collections/parties/${asha}/bills`, { token: accountsToken });
+    expect(rowsOf(all.body).length).toBeGreaterThan(0);
+  });
 });
