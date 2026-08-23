@@ -450,6 +450,10 @@ export class ApiHarness {
         .where(inArray(consentAcceptances.userId, userIds));
     }
 
+    // Claimed notification keys are durable on purpose (audit 20), so a file
+    // that emits with a fixed key would find it already claimed on its second
+    // run and see the notice suppressed.
+    await this.db.execute(sql`DELETE FROM notification_idempotency WHERE org_id = ${this.orgId}`);
     await this.db.delete(invitations).where(eq(invitations.orgId, this.orgId));
     await this.db.delete(users).where(eq(users.orgId, this.orgId));
 

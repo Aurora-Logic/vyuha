@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { NotificationChannel as NotificationChannelKey } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
 
 import { AuditService } from '../audit/audit.service.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { env } from '../common/env.js';
 import { describeError } from '../common/errors.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
@@ -75,6 +77,7 @@ export class NotificationDispatcher {
   private readonly logger = new Logger(NotificationDispatcher.name);
 
   constructor(
+    @InjectDatabase() private readonly db: Database,
     private readonly channels: ChannelRegistry,
     private readonly recipients: RecipientResolver,
     private readonly preferences: NotificationPreferencesService,
@@ -102,8 +105,28 @@ export class NotificationDispatcher {
     return this.preferences.usersOptedIn(orgId, type);
   }
 
-  /** Hands the event to the `notification` queue and returns. */
+  /**
+   * Hands the event to the `notification` queue and returns.
+   *
+   * An idempotency key is claimed in the database first. It used to be
+   * BullMQ's own job id and nothing else, which suppresses a duplicate only
+   * while the completed job still exists -- and `DEFAULT_JOB_OPTIONS` keeps
+   * two hundred of them, so on a busy day the key meant to stop a repeat for
+   * ever was evicted and the sweep told everybody a second time about a punch
+   * they had already been told about. Nothing failed; the notice simply went
+   * out again.
+   *
+   * The job id is still passed. It costs nothing and it catches the narrower
+   * case the row cannot: two emits racing before either has committed.
+   */
   async emit(event: NotificationEvent): Promise<string> {
+    if (event.idempotencyKey !== undefined) {
+      // The same id a duplicate has always returned -- BullMQ answered with
+      // the existing job's id rather than enqueuing a second, and callers
+      // that keep the id must go on getting it. Only the enqueue is skipped.
+      const jobId = `notify-${assertUsableAsJobId(event.idempotencyKey)}`;
+      if (!(await this.claimIdempotencyKey(event.orgId, event.idempotencyKey))) return jobId;
+    }
     return this.jobs.enqueue(
       'send-notification',
       {
@@ -116,6 +139,16 @@ export class NotificationDispatcher {
         ? {}
         : { jobId: `notify-${assertUsableAsJobId(event.idempotencyKey)}` },
     );
+  }
+
+  /** True the first time this organisation claims this key, false after. */
+  private async claimIdempotencyKey(orgId: string, key: string): Promise<boolean> {
+    const claimed = await this.db.execute<{ key: string }>(sql`
+      INSERT INTO notification_idempotency (org_id, key) VALUES (${orgId}, ${key})
+      ON CONFLICT (org_id, key) DO NOTHING
+      RETURNING key
+    `);
+    return claimed.rows.length > 0;
   }
 
   /**

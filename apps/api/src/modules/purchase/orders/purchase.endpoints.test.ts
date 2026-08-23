@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
+import { PushOutcomeRegistry } from '../../../platform/sync/push-outcome.registry.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 
 /**
@@ -512,4 +513,154 @@ describe('the two ceilings on an allocation (audits 11, 12)', () => {
     });
     expect(allowed.status).toBe(200);
   });
+});
+
+describe('an order that stops being a promise of goods (audits 3, 4, 8, 12)', () => {
+  /**
+   * Short-closing and a Tally cancellation are the same fact arriving from
+   * two directions: the vendor is not bringing the balance. Both have to give
+   * the requirements back, and neither may give them back twice.
+   *
+   * Built from SQL rather than through the shortage flow so each test owns its
+   * own order and requirement and the numbers are not a coincidence of what
+   * the fixtures above left behind.
+   */
+  const buildOrder = async (number: string, quantity: number): Promise<{ poId: string; requirementId: string }> => {
+    const req = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO procurement_requirements (org_id, stock_item_id, quantity, source, state, ordered_qty, received_qty)
+      VALUES (${ORG_ID}, ${cableId}, ${quantity}, 'shortage', 'ordered', ${quantity}, 0)
+      RETURNING id
+    `);
+    const requirementId = req.rows[0]?.id ?? '';
+    const po = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO purchase_orders (org_id, number, status, date, party_id, vendor_name)
+      VALUES (${ORG_ID}, ${number}, 'CONFIRMED', CURRENT_DATE, ${vendorId}, 'Behar Supply Co')
+      RETURNING id
+    `);
+    const poId = po.rows[0]?.id ?? '';
+    const line = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO purchase_order_lines (org_id, purchase_order_id, line_no, stock_item_id, description, quantity, rate, amount, tax_pct, tax_amount)
+      VALUES (${ORG_ID}, ${poId}, 1, ${cableId}, 'Cat6 cable 305m', ${quantity}, 100, ${quantity * 100}, 18, ${quantity * 18})
+      RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO po_line_requirements (org_id, purchase_order_line_id, requirement_id, quantity, allocated_qty)
+      VALUES (${ORG_ID}, ${line.rows[0]?.id ?? ''}, ${requirementId}, ${quantity}, 0)
+    `);
+    return { poId, requirementId };
+  };
+
+  /** The registry's own mirror callback, bound so it can be called detached. */
+  const mirrorHandler = () => {
+    const handler = harness.resolve(PushOutcomeRegistry).find('PURCHASE_ORDER');
+    return handler?.onMirror?.bind(handler);
+  };
+
+  const orderedQty = async (requirementId: string): Promise<string> =>
+    (
+      await harness.db.execute<{ ordered_qty: string }>(
+        sql`SELECT ordered_qty::text FROM procurement_requirements WHERE id = ${requirementId}`,
+      )
+    ).rows[0]?.ordered_qty ?? '';
+
+  it('short-closes once, however many times it is asked (audit 3)', async () => {
+    const { poId, requirementId } = await buildOrder('PO-SHORT-1', 6);
+    expect(await orderedQty(requirementId)).toBe('6.000');
+
+    const first = await harness.post(`/purchase/orders/${poId}/short-close`, { token: adminToken, body: { reason: 'Vendor cannot supply' } });
+    expect(first.status).toBe(200);
+    expect(await orderedQty(requirementId)).toBe('0.000');
+
+    // The second attempt subtracted the same six again, so the requirement
+    // believed less was on order than really was and the sweep reordered
+    // goods that were already coming.
+    const again = await harness.post<ErrorBody>(`/purchase/orders/${poId}/short-close`, { token: adminToken, body: { reason: 'Pressed twice' } });
+    expect(again.status).toBe(409);
+    expect(again.body.error.message).toContain('already short-closed');
+    expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('gives the requirements back when Tally cancels the order (audit 4)', async () => {
+    const { poId, requirementId } = await buildOrder('PO-TALLY-1', 5);
+    expect(await orderedQty(requirementId)).toBe('5.000');
+
+    const onMirror = mirrorHandler();
+    expect(onMirror).toBeDefined();
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, poId, {
+      remoteGuid: 'guid-tally-cancel-1',
+      remoteVoucherNumber: '4242',
+      isCancelled: true,
+      alterId: 2,
+      });
+    });
+
+    const status = await harness.db.execute<{ status: string }>(sql`SELECT status FROM purchase_orders WHERE id = ${poId}`);
+    expect(status.rows[0]?.status).toBe('CANCELLED');
+    // The order is gone from Tally, so nothing is on the way any more. It used
+    // to be marked cancelled and leave the requirement sitting in `ordered`,
+    // so the buyer went on believing the goods were coming.
+    expect(await orderedQty(requirementId)).toBe('0.000');
+
+    // And a second pull of the same cancellation does not subtract again.
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, poId, {
+      remoteGuid: 'guid-tally-cancel-1',
+      remoteVoucherNumber: '4242',
+      isCancelled: true,
+      alterId: 3,
+      });
+    });
+    expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('does not release twice when an order is short-closed and then cancelled in Tally (audits 3, 4)', async () => {
+    const { poId, requirementId } = await buildOrder('PO-BOTH-1', 4);
+    await harness.post(`/purchase/orders/${poId}/short-close`, { token: adminToken, body: { reason: 'Vendor cannot supply' } });
+    expect(await orderedQty(requirementId)).toBe('0.000');
+
+    // Short-closing leaves the status CONFIRMED, so the Tally cancellation
+    // passes a status check and would have released a second time.
+    const onMirror = mirrorHandler();
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, poId, {
+      remoteGuid: 'guid-tally-cancel-2',
+      remoteVoucherNumber: '4243',
+      isCancelled: true,
+      alterId: 2,
+      });
+    });
+    expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('stores the subtotal gross, so subtotal less discount plus tax is the total (audit 12)', async () => {
+    // Its own order with a real discount on it: without one, net and gross are
+    // the same number and the assertion holds either way.
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: {
+        partyId: vendorId,
+        lines: [{ stockItemId: cableId, description: 'Cat6 cable 305m', quantity: '10', rate: '100', discountPct: '10', taxPct: '18' }],
+      },
+    });
+    expect(created.status, created.text).toBe(201);
+
+    const po = await harness.get<PurchaseOrderView>(`/purchase/orders/${created.body.id}`, { token: adminToken });
+    const gross = Number(po.body.subtotal);
+    const discount = Number(po.body.discountTotal);
+    const tax = Number(po.body.taxTotal);
+    const total = Number(po.body.grandTotal);
+
+    // Ten at a hundred, less a tenth, plus eighteen per cent of what is left.
+    expect(gross).toBe(1000);
+    expect(discount).toBe(100);
+    expect(tax).toBe(162);
+    expect(total).toBe(1062);
+    // The four figures on the export reconcile. `subtotal` used to be the net,
+    // with the discount already taken off, so a reader subtracting the
+    // discount printed beside it took it off twice -- 962 against a total of
+    // 1062.
+    expect(gross - discount + tax).toBeCloseTo(total, 2);
+  });
+
 });

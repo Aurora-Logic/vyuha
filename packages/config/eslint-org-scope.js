@@ -66,6 +66,7 @@ export const ORG_SCOPED_TABLES = [
   'mfa_challenges',
   'mfa_recovery_codes',
   'mfa_trusted_devices',
+  'notification_idempotency',
   'notification_preferences',
   'notifications',
   'on_duty_requests',
