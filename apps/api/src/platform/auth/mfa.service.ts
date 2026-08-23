@@ -56,7 +56,11 @@ import type { SessionRequestContext } from './session.service.js';
  */
 
 const SETTINGS_KEY = 'security.mfa_policy';
-const ISSUER = 'Vyuha';
+
+function getTotpIssuer(): string {
+  return (env.NODE_ENV as string) === 'production' ? 'Vyuha' : 'Vyuha (Dev)';
+}
+
 /** No 0/O or 1/I: a recovery code is read aloud and typed from paper. */
 const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RECOVERY_HALF = 5;
@@ -406,7 +410,7 @@ export class MfaService {
   }
 
   private totpFor(secret: Secret, email: string): TOTP {
-    return new TOTP({ issuer: ISSUER, label: email, algorithm: 'SHA1', digits: TOTP_DIGITS, period: TOTP_PERIOD_SECONDS, secret });
+    return new TOTP({ issuer: getTotpIssuer(), label: email, algorithm: 'SHA1', digits: TOTP_DIGITS, period: TOTP_PERIOD_SECONDS, secret });
   }
 
   /** One step either side: a phone's clock a few seconds out is not a wrong code. */
