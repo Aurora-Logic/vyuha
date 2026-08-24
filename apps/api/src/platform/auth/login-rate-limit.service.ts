@@ -163,7 +163,7 @@ export class LoginRateLimiter {
      * `end` -- a client that has been closed and will not reconnect -- is
      * worth short-circuiting.
      */
-    if (this.redis.status === 'end') return this.claimViaDb(ip, now, scope);
+    if (this.redis.status !== 'ready') return this.claimViaDb(ip, now, scope);
 
     const key = loginRateLimitKey(ip, scope);
     // Unique per attempt: a sorted set deduplicates by member, so two failures
