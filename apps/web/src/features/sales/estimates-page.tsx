@@ -6,6 +6,7 @@ import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
@@ -18,7 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { ESTIMATE_STATUSES, SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
+import { ESTIMATE_SORT_FIELDS, ESTIMATE_STATUSES, SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
 
 import type { EstimateSummary } from './types';
 import { useEstimates } from './use-estimates';
@@ -32,16 +33,16 @@ import { useEstimates } from './use-estimates';
 const ALL = '__all__';
 
 const COLUMNS: RecordColumn<EstimateSummary>[] = [
-  { key: 'number', header: 'Number', cell: (row) => (
+  { key: 'number', header: 'Number', sortField: 'number', cell: (row) => (
     <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
       <DOCUMENT_ICONS.estimate aria-hidden className="text-muted-foreground" />
       {row.number}
     </span>
   ) },
-  { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
-  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
+  { key: 'customer', header: 'Customer', cell: (row) => row.customerName, sortField: 'customerName' },
+  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums', sortField: 'date' },
   { key: 'status', header: 'Status', cell: (row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} /> },
-  { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
+  { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true, sortField: 'grandTotal' },
   { key: 'valid', header: 'Valid until', cell: (row) => formatDate(row.validUntil), className: 'tabular-nums', secondary: true },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
@@ -71,6 +72,7 @@ export function EstimatesPage() {
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { sort, activeSort, onSortChange } = useUrlSort(ESTIMATE_SORT_FIELDS);
 
   const q = searchParams.get('q') ?? '';
   const statusParam = searchParams.get('status');
@@ -107,7 +109,7 @@ export function EstimatesPage() {
   }, [draft, q, setSearchParams]);
 
   const query = useEstimates(
-    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(companyParam ? { companyId: companyParam } : {}), ...(partyParam ? { partyId: partyParam } : {}) },
+    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(companyParam ? { companyId: companyParam } : {}), ...(partyParam ? { partyId: partyParam } : {}), ...(sort ? { sort } : {}) },
     { enabled: canView },
   );
   const rows = query.data?.data ?? [];
@@ -236,6 +238,8 @@ export function EstimatesPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+              sort={activeSort}
+              onSortChange={onSortChange}
               mobilePrimary={(row) => `${row.number} · ${row.customerName}`}
               mobileStatus={(row) => <StatusBadge state={row.status} label={SALES_DOCUMENT_STATUS_LABELS[row.status]} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)}`}

@@ -571,7 +571,8 @@ describe('DayEngine against Postgres', () => {
     // was the reason and not something else about the date.
     await db
       .update(attendancePeriodLocks)
-      .set({ unlockedAt: AFTER_HOURS })
+      // REQ-E-09: reopening carries a reason, and the database keeps that.
+      .set({ unlockedAt: AFTER_HOURS, unlockReason: 'Reopened for the engine fixture' })
       .where(and(eq(attendancePeriodLocks.orgId, ORG_ID), eq(attendancePeriodLocks.month, 4)));
 
     const reopened = await engine.computeDay(EMPLOYEE_ID, LOCKED_DAY, { now: AFTER_HOURS });

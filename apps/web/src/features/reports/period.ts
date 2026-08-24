@@ -1,6 +1,6 @@
 import type { DateRange } from 'react-day-picker';
 
-import type { ReportDefinition } from '@vyuha/shared';
+import { REPORT_DEFINITIONS, type ReportDefinition, type ReportKey } from '@vyuha/shared';
 
 /**
  * What a report's period is, and how to bend one into it.
@@ -49,4 +49,31 @@ export function periodFor(mode: PeriodMode, period: DateRange): DateRange {
       : monthRange(anchor);
   }
   return period;
+}
+
+/** `YYYY-MM-DD` for an endpoint, from a Date. Never the ISO instant (NFR-05). */
+export function toDateParam(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${String(year)}-${month}-${day}`;
+}
+
+/**
+ * The period a link to a report should carry, bent into what that report can
+ * answer for.
+ *
+ * Every drill-through from the dashboard dropped the period: the reader
+ * clicked a figure for one quarter and landed on a report showing its own
+ * default range, so the number they had just been looking at was not on the
+ * screen they arrived at. Bent rather than copied, for the same reason
+ * switching report re-anchors: a month-only report given a quarter shows an
+ * error, which reads as the report being broken.
+ */
+export function periodParams(report: ReportKey, period: DateRange): Record<string, string> {
+  const fitted = periodFor(periodModeOf(REPORT_DEFINITIONS[report]), period);
+  return {
+    ...(fitted.from === undefined ? {} : { from: toDateParam(fitted.from) }),
+    ...(fitted.to === undefined ? {} : { to: toDateParam(fitted.to) }),
+  };
 }

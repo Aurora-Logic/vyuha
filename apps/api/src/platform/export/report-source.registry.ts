@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { narrowToDeclaredFilters } from '@vyuha/shared';
 import type {
   ReportCellValue,
   ReportColumnSpec,
@@ -60,6 +61,17 @@ export interface ReportSource {
    */
   assertFiltersUsable(key: ReportKey, filters: ReportFilters): ReportFilters;
 
+  /**
+   * Which of this report's fields the source can actually order by.
+   *
+   * The catalogue advertises sortable columns; this is the source admitting
+   * which of them it implements, and `report-sorting.test.ts` holds the two
+   * against each other. Before it existed a column could carry `sortField`
+   * with no matching arm in the source's ORDER BY, and the only symptom was a
+   * header arrow that changed the URL and nothing else.
+   */
+  sortableFields(key: ReportKey): readonly string[];
+
   /** The total on its own, so an export can refuse an oversized job before starting it. */
   count(principal: Principal, key: ReportKey, filters: ReportFilters): Promise<number>;
 
@@ -96,6 +108,19 @@ export class ReportSourceRegistry {
     for (const key of source.keys) this.sourcesByKey.set(key, source);
     this.sources.push(source);
     this.logger.log({ msg: 'Report source registered', keys: source.keys.length });
+  }
+
+  /**
+   * The filters a request may use, narrowed twice: to the families this
+   * report declares, then by the source's own rules.
+   *
+   * Both halves, in this order, at every entry point. Narrowing only in the
+   * source let an undeclared filter through to the stored request and to the
+   * header block of an exported file, where it claimed a period the rows had
+   * never honoured.
+   */
+  usableFilters(key: ReportKey, filters: ReportFilters): ReportFilters {
+    return this.require(key).assertFiltersUsable(key, narrowToDeclaredFilters(key, filters));
   }
 
   sourceFor(key: ReportKey): ReportSource | null {

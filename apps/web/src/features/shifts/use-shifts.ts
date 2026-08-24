@@ -50,12 +50,20 @@ import {
 
 // ---------------------------------------------------------------- shifts
 
-export function useShifts(): UseQueryResult<Sampled<Paginated<Shift>>, Error> {
+export interface ShiftListParams {
+  /** A term the server knows (SHIFT_SORT_FIELDS), e.g. "-code" or "name". */
+  sort?: string;
+}
+
+export function useShifts(params: ShiftListParams = {}): UseQueryResult<Sampled<Paginated<Shift>>, Error> {
+  const search = new URLSearchParams({ pageSize: '200' });
+  if (params.sort) search.set('sort', params.sort);
+  const key = search.toString();
   return useQuery({
-    queryKey: ['shifts', 'list'],
+    queryKey: ['shifts', 'list', key],
     queryFn: async ({ signal }) => {
       try {
-        const body = await apiRequest<unknown>('/shifts?pageSize=200', { signal });
+        const body = await apiRequest<unknown>(`/shifts?${key}`, { signal });
         return { value: parseOrThrow(shiftsResponseSchema, body, 'shift list'), sample: false };
       } catch (error) {
         if (isUnbuiltEndpoint(error)) {
@@ -187,6 +195,8 @@ export interface RosterParams {
   q?: string;
   page: number;
   pageSize: number;
+  /** A term the server knows (ROSTER_SORT_FIELDS), e.g. "-from" or "name". */
+  sort?: string;
 }
 
 function toSearch(params: RosterParams): string {

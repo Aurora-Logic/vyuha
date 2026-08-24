@@ -334,6 +334,19 @@
     --info: oklch(0.567 0.183 259.052);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
+/* The four fulfilment steps.
+       Their own colours rather than borrowed semantic ones: --info, --warning
+       and --success are muted on purpose, being warnings, and four steps at
+       three opacities of the accent said only "some of this is done". These
+       are picked to be told apart at a glance and checked against the data-viz
+       validator in both modes -- lightness band, chroma floor, colour-blind
+       separation, contrast -- rather than chosen by eye. No green: cyan closes
+       the run instead. */
+    --step-picked: oklch(0.55 0.22 270);
+    --step-packed: oklch(0.6 0.23 350);
+    --step-shipped: oklch(0.72 0.17 70);
+    --step-delivered: oklch(0.66 0.14 215);
+
     --flag-late: oklch(0.58 0.17 71);
     --flag-early-exit: oklch(0.58 0.17 50);
     --flag-missing-punch: oklch(0.58 0.17 27);
@@ -440,6 +453,13 @@
     --info: oklch(0.707 0.165 254.624);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
+    /* Chosen for the dark ground, not lightened from the light set: the band a
+       mark stays a mark in is narrower here. */
+    --step-picked: oklch(0.62 0.2 270);
+    --step-packed: oklch(0.64 0.21 350);
+    --step-shipped: oklch(0.66 0.16 70);
+    --step-delivered: oklch(0.58 0.14 215);
+
     --flag-late: oklch(0.74 0.16 71);
     --flag-early-exit: oklch(0.74 0.16 50);
     --flag-missing-punch: oklch(0.74 0.16 27);
@@ -537,6 +557,12 @@
   color: #111;
   background: #fff;
 }
+/* The stock. #E8D3BE is the owner's colour and the default; white is what a
+   laser printer on plain stock actually produces, so it stays available. */
+.a4-paper[data-paper='sand'] { background: #e8d3be; }
+.a4-paper[data-paper='ivory'] { background: #faf6ee; }
+.a4-paper[data-paper='white'] { background: #fff; }
+
 .a4-paper[data-accent='blue'] { --paper-accent: #1d4ed8; --paper-accent-soft: #eff6ff; }
 .a4-paper[data-accent='teal'] { --paper-accent: #0f766e; --paper-accent-soft: #f0fdfa; }
 .a4-paper[data-accent='green'] { --paper-accent: #15803d; --paper-accent-soft: #f0fdf4; }

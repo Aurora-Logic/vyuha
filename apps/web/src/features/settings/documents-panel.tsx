@@ -4,6 +4,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DesignRail } from '@/features/documents/design-rail';
 import { DocumentPaper, type PaperModel } from '@/features/documents/paper';
+import { PackingSlipPaper } from '@/features/documents/packing-slip-paper';
+import { SLIP_PAPER_TYPES } from '@/features/documents/paper-support';
 import { useDocumentSettings, useFooterLogoUrls, useSaveDocumentSettings } from '@/features/documents/use-document-settings';
 import { useBranding } from '@/lib/branding/use-branding';
 import { usePermission } from '@/lib/session/permissions';
@@ -117,7 +119,19 @@ export function DocumentsPanel() {
       </div>
       <div className="bg-muted/40 min-w-0 overflow-auto p-4">
         <div className="mx-auto w-fit max-w-full [zoom:0.8]">
-          <DocumentPaper design={draft.designs[docType]} profile={draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={{ ...SAMPLE, type: docType, copyLabel: docType === 'INVOICE' ? 'Original for Recipient' : null }} />
+          {SLIP_PAPER_TYPES.includes(docType) ? (
+            // The goods papers have their own paper; the sample carries a three-box packing so the box badge reads.
+            <PackingSlipPaper
+              design={draft.designs[docType]}
+              profile={draft.profile}
+              orgName={branding.data?.name ?? ''}
+              logoUrl={branding.data?.logoUrl ?? null}
+              model={{ ...SAMPLE, type: docType, slip: { boxCount: 3, packedAt: '2026-08-19T10:30:00.000Z', packedByName: 'Asha Rao', phone: '98200 11223' } }}
+              box={1}
+            />
+          ) : (
+            <DocumentPaper design={draft.designs[docType]} profile={draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={{ ...SAMPLE, type: docType, copyLabel: docType === 'INVOICE' ? 'Original for Recipient' : null }} />
+          )}
         </div>
       </div>
     </div>

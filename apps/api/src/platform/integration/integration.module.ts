@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import './constraint-messages.js';
 import { IntegrationController } from './integration.controller.js';
 import { IntegrationService } from './integration.service.js';
 

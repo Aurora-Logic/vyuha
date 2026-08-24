@@ -36,6 +36,7 @@ import {
   type ReportSource,
   type ReportSourcePage,
 } from '../export/report-source.registry.js';
+import { orderBy as orderByField, type SortMap } from '../export/report-order.js';
 import { hasPermission, type Principal } from '../rbac/principal.js';
 
 /**
@@ -73,6 +74,22 @@ interface TallyReportPage extends ReportSourcePage {
   readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | AgeingSource | PaymentAnalysisSource | SalesAnalysisSource | LowStockSource | DayBookSource | CustomerLapseSource)[];
 }
 
+const SORTABLE = {
+  'voucher-reconciliation': { month: 'month', voucherType: 'voucher_type' },
+  // `date` here is honoured by `statementRows` itself: the running balance is
+  // a window over the same order, and the opening row belongs at whichever
+  // end the reader is starting from, so the direction cannot be a suffix on
+  // an ORDER BY built somewhere else.
+  'customer-statement': { date: 'voucher_date' },
+  'ageing': { partyName: 'party_name', billDate: 'bill_date', ageDays: 'age_days', outstanding: 'outstanding' },
+  'credit-cycle': { partyName: 'p.name', exposure: 'exposure' },
+  'payment-analysis': { partyName: 'party_name', avgDaysToPay: 'avg_days_to_pay', slippage: 'slippage' },
+  'sales-analysis': { label: 'label', value: 'value' },
+  'low-stock': { item: 'name', available: 'available', shortfall: 'shortfall' },
+  'day-book': { date: 'voucher_date', voucherType: 'voucher_type', partyName: 'party_name', amount: 'amount' },
+  'customer-lapse': { partyName: 'party_name', lastSaleDate: 'last_sale', daysSince: 'days_since', revenue12m: 'revenue_12m::numeric' },
+} satisfies Partial<Record<ReportKey, SortMap>>;
+
 @Injectable()
 export class TallyReportSource implements ReportSource, OnModuleInit {
   readonly keys: readonly ReportKey[] = TALLY_REPORTS.map((report) => report.key);
@@ -88,6 +105,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
 
   visibleDefinitions(principal: Principal): readonly ReportDefinition[] {
     return hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW) ? TALLY_REPORTS : [];
+  }
+
+  sortableFields(key: ReportKey): readonly string[] {
+    return Object.hasOwn(SORTABLE, key) ? Object.keys(SORTABLE[key as keyof typeof SORTABLE]) : [];
   }
 
   assertFiltersUsable(key: ReportKey, filters: ReportFilters): ReportFilters {
@@ -238,7 +259,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   // ------------------------------------------------------- reconciliation
 
   private async reconciliationRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number): Promise<VoucherReconciliationSource[]> {
-    const orderBy = sort === 'voucherType' ? sql`voucher_type ASC, month ASC` : sql`month ASC, voucher_type ASC`;
+    const orderBy = orderByField(sort, SORTABLE['voucher-reconciliation'], 'month ASC, voucher_type ASC', 'month ASC, voucher_type ASC');
     const rows = await this.db.execute<{ month: string; voucher_type: string; count: number; cancelled: number; total: string; last_pulled_at: Date }>(sql`
       SELECT to_char(voucher_date, 'YYYY-MM') AS month,
              voucher_type,
@@ -388,13 +409,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   private async ageingRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<AgeingSource[]> {
-    const orderBy =
-      sort === 'partyName' ? sql`party_name ASC, bill_date ASC`
-      : sort === '-partyName' ? sql`party_name DESC, bill_date ASC`
-      : sort === 'ageDays' ? sql`age_days ASC, party_name ASC`
-      : sort === 'outstanding' ? sql`outstanding ASC, party_name ASC`
-      : sort === '-outstanding' ? sql`outstanding DESC, party_name ASC`
-      : sql`age_days DESC, party_name ASC`;
+    const orderBy = orderByField(sort, SORTABLE['ageing'], 'age_days DESC, party_name ASC', 'party_name ASC, bill_date ASC');
 
     const rows = await this.db.execute<{
       party_id: string | null;
@@ -495,13 +510,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   private async paymentRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<PaymentAnalysisSource[]> {
-    const orderBy =
-      sort === 'partyName' ? sql`party_name ASC`
-      : sort === '-partyName' ? sql`party_name DESC`
-      : sort === 'avgDaysToPay' ? sql`avg_days_to_pay ASC NULLS LAST, party_name ASC`
-      : sort === '-avgDaysToPay' ? sql`avg_days_to_pay DESC NULLS LAST, party_name ASC`
-      : sort === 'slippage' ? sql`slippage ASC NULLS LAST, party_name ASC`
-      : sql`slippage DESC NULLS LAST, party_name ASC`;
+    const orderBy = orderByField(sort, SORTABLE['payment-analysis'], 'slippage DESC NULLS LAST, party_name ASC', 'party_name ASC');
 
     const rows = await this.db.execute<{
       party_id: string;
@@ -580,8 +589,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   private async creditRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<CreditCycleSource[]> {
-    const orderBy =
-      sort === 'partyName' ? sql`p.name ASC` : sort === '-partyName' ? sql`p.name DESC` : sort === 'exposure' ? sql`exposure ASC, p.name ASC` : sql`exposure DESC, p.name ASC`;
+    const orderBy = orderByField(sort, SORTABLE['credit-cycle'], 'exposure DESC, p.name ASC', 'p.name ASC');
     const rows = await this.db.execute<{
       id: string;
       name: string;
@@ -677,7 +685,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
 
   private async salesRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<SalesAnalysisSource[]> {
     const dimension = filters.groupBy ?? 'party';
-    const orderBy = sort === 'label' ? sql`label ASC` : sort === '-label' ? sql`label DESC` : sort === 'value' ? sql`value ASC, label ASC` : sql`value DESC, label ASC`;
+    const orderBy = orderByField(sort, SORTABLE['sales-analysis'], 'value DESC, label ASC', 'label ASC');
     const grand = await this.db.execute<{ value: string }>(sql`
       SELECT round(COALESCE(sum(l.amount), 0), 2)::text AS value
         FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
@@ -729,7 +737,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   private async lowStockRows(orgId: string, sort: string | undefined, limit: number, offset: number): Promise<LowStockSource[]> {
-    const orderBy = sort === 'item' ? sql`name ASC` : sort === 'available' ? sql`available ASC` : sql`shortfall DESC, name ASC`;
+    const orderBy = orderByField(sort, SORTABLE['low-stock'], 'shortfall DESC, name ASC', 'name ASC');
     const rows = await this.db.execute<{ id: string; name: string; closing_qty: string | null; committed: string; open_po: string; reorder_level: string; last_pulled_at: Date | null; available: string; shortfall: string }>(sql`
       SELECT t.*, (COALESCE(t.closing_qty, 0) - t.committed)::text AS available,
              GREATEST(t.reorder_level - (COALESCE(t.closing_qty, 0) - t.committed + t.open_po), 0)::text AS shortfall
@@ -759,15 +767,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   private async dayBookRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<DayBookSource[]> {
-    const order =
-      sort === 'date' ? sql`voucher_date ASC, created_at ASC`
-      : sort === 'voucherType' ? sql`voucher_type ASC, voucher_date DESC`
-      : sort === '-voucherType' ? sql`voucher_type DESC, voucher_date DESC`
-      : sort === 'partyName' ? sql`party_name ASC NULLS LAST, voucher_date DESC`
-      : sort === '-partyName' ? sql`party_name DESC NULLS LAST, voucher_date DESC`
-      : sort === 'amount' ? sql`amount ASC`
-      : sort === '-amount' ? sql`amount DESC`
-      : sql`voucher_date DESC, created_at DESC`;
+    const order = orderByField(sort, SORTABLE['day-book'], 'voucher_date DESC, created_at DESC', 'voucher_date DESC, created_at DESC');
     const rows = await this.db.execute<{ id: string; voucher_date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; narration: string | null; is_cancelled: boolean }>(sql`
       SELECT id, voucher_date, voucher_type, voucher_number, party_name, amount::text AS amount, narration, is_cancelled
         FROM vouchers
@@ -828,15 +828,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   private async customerLapseRows(orgId: string, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<CustomerLapseSource[]> {
-    const order =
-      sort === 'partyName' ? sql`party_name ASC`
-      : sort === '-partyName' ? sql`party_name DESC`
-      : sort === 'lastSaleDate' ? sql`last_sale ASC`
-      : sort === '-lastSaleDate' ? sql`last_sale DESC`
-      : sort === 'daysSince' ? sql`days_since ASC`
-      : sort === '-daysSince' ? sql`days_since DESC`
-      : sort === 'revenue12m' ? sql`revenue_12m::numeric ASC`
-      : sql`CASE state WHEN 'LAPSED' THEN 0 WHEN 'AT_RISK' THEN 1 ELSE 2 END ASC, revenue_12m::numeric DESC`;
+    const order = orderByField(sort, SORTABLE['customer-lapse'], "CASE state WHEN 'LAPSED' THEN 0 WHEN 'AT_RISK' THEN 1 ELSE 2 END ASC, revenue_12m::numeric DESC", 'party_name ASC');
     const rows = await this.db.execute<{ party_id: string; party_name: string; last_sale: string; median_gap: number; days_since: number; expected_by: string; sales_12m: number; revenue_12m: string; state: CustomerLapseSource['state'] }>(sql`
       SELECT * FROM (${this.customerLapseQuery(orgId)}) t ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
     `);

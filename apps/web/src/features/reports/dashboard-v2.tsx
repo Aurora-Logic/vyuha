@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowRightIcon } from '@phosphor-icons/react';
-import { PERMISSIONS, type ReportKey } from '@vyuha/shared';
+import { isReportKey, PERMISSIONS, type ReportKey } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
 import { useNavigate } from 'react-router';
 import {
@@ -45,6 +45,7 @@ import { DateRangeField } from '@/features/attendance/pickers';
 import { formatCount, formatMoney, formatMoneyShort } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
+import { periodParams } from './period';
 import { useReportRows } from './api';
 import { monthLabel } from './dashboard-v2.format';
 import { asApiDate, DASHBOARD_PRESETS, defaultRange } from './dashboard-v2.presets';
@@ -265,7 +266,18 @@ export function ReportsDashboardV2() {
   }
 
   const open = (query: string): void => {
-    void navigate(`/reports?${query}`);
+    // The period travels with the drill-through. Every one of these used to
+    // drop it, so a reader who clicked a figure for one quarter landed on a
+    // report showing its own default range -- the number they had just been
+    // looking at was not on the screen they arrived at, and nothing said the
+    // dates had changed. Bent into what the target can answer for, because a
+    // month-only report handed a quarter shows an error instead of a report.
+    const params = new URLSearchParams(query);
+    const report = params.get('report');
+    if (report !== null && isReportKey(report)) {
+      for (const [key, value] of Object.entries(periodParams(report, range))) params.set(key, value);
+    }
+    void navigate(`/reports?${params.toString()}`);
   };
 
   const thisMonth = asApiDate(new Date()).slice(0, 7);

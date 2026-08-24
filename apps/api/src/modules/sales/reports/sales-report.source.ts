@@ -14,9 +14,14 @@ import { sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { orderBy as orderByField, type SortMap } from '../../../platform/export/report-order.js';
 import { ReportSourceRegistry, type ReportSource, type ReportSourcePage } from '../../../platform/export/report-source.registry.js';
 import { hasPermission, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService } from '../../../platform/rbac/scope.service.js';
+
+const SORTABLE = {
+  'pending-dispatch': { orderNumber: 'order_number', customerName: 'customer_name', orderDate: 'order_date', ageDays: 'age_days' },
+} satisfies Partial<Record<ReportKey, SortMap>>;
 
 /** The sales module's report (12 REQ-AA-30) under the existing shell, scoped like the orders themselves. */
 @Injectable()
@@ -37,6 +42,10 @@ export class SalesReportSource implements ReportSource, OnModuleInit {
     return this.holds(principal) ? SALES_REPORTS : [];
   }
 
+  sortableFields(key: ReportKey): readonly string[] {
+    return Object.hasOwn(SORTABLE, key) ? Object.keys(SORTABLE[key as keyof typeof SORTABLE]) : [];
+  }
+
   assertFiltersUsable(key: ReportKey, filters: ReportFilters): ReportFilters {
     if (!this.keys.includes(key)) throw new Error(`SalesReportSource does not serve "${key}".`);
     return filters.partyId === undefined ? {} : { partyId: filters.partyId };
@@ -53,8 +62,7 @@ export class SalesReportSource implements ReportSource, OnModuleInit {
     this.require(principal);
     const usable = this.assertFiltersUsable(key, filters);
     const total = await this.count(principal, key, usable);
-    const orderBy =
-      filters.sort === 'orderNumber' ? sql`order_number ASC` : filters.sort === 'customerName' ? sql`customer_name ASC` : filters.sort === 'orderDate' ? sql`order_date ASC` : filters.sort === 'ageDays' ? sql`age_days ASC` : sql`age_days DESC, order_number ASC`;
+    const orderBy = orderByField(filters.sort, SORTABLE['pending-dispatch'], 'age_days DESC, order_number ASC', 'order_number ASC');
     const rows = await this.db.execute<{
       id: string; order_id: string; order_number: string; customer_name: string; order_date: string; age_days: number; item: string; ordered: string; packed: string; invoiced: string; dispatched: string; balance: string; fulfilment: string;
     }>(sql`SELECT * FROM (${this.query(principal, usable)}) t ORDER BY ${orderBy} LIMIT ${limit} OFFSET ${offset}`);

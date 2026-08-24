@@ -19,6 +19,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
+import { PushOutcomeRegistry } from '../../../platform/sync/push-outcome.registry.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 import { SyncWriterService } from '../../../platform/sync/sync-writer.service.js';
 import { FulfilmentService } from '../fulfilment/fulfilment.service.js';
@@ -1263,5 +1264,53 @@ describe('a line deliberately zero-rated (audit 14)', () => {
       body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '100', taxPct: '5' }] },
     });
     expect(explicit.body.lines[0]?.taxPct).toBe('5.00');
+  });
+});
+
+describe('an order cancelled in Tally (audit 1)', () => {
+  /**
+   * A cancelled order is not something to fulfil, so the shortages it raised
+   * are not work any more. They used to stay open for ever: the buyer went on
+   * purchasing for an order that no longer existed, and the requirement queue
+   * carried a job nobody wanted done.
+   */
+  it('closes the shortages it had raised', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '3', rate: '4000' }] },
+    });
+    const orderId9 = created.body.id;
+    await harness.post(`/sales/orders/${orderId9}/confirm`, { token: salesToken });
+    await harness.db.execute(sql`
+      INSERT INTO procurement_requirements (org_id, stock_item_id, quantity, source, state, sales_order_id, ordered_qty, received_qty)
+      VALUES (${ORG_ID}, ${cableId}, 3, 'shortage', 'open', ${orderId9}, 0, 0)
+    `);
+    const openBefore = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM procurement_requirements WHERE sales_order_id = ${orderId9} AND state IN ('open', 'ordered')
+    `);
+    expect(openBefore.rows[0]?.n).toBe(1);
+
+    const salesHandler = harness.resolve(PushOutcomeRegistry).find('SALES_ORDER');
+    const onMirror = salesHandler?.onMirror?.bind(salesHandler);
+    expect(onMirror).toBeDefined();
+    await harness.db.transaction(async (tx) => {
+      await onMirror?.(tx, ORG_ID, orderId9, {
+        remoteGuid: 'guid-so-cancelled-1',
+        remoteVoucherNumber: '9001',
+        isCancelled: true,
+        alterId: 2,
+      });
+    });
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderId9}`, { token: salesToken });
+    expect(order.body.status).toBe('CANCELLED');
+    const openAfter = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM procurement_requirements WHERE sales_order_id = ${orderId9} AND state IN ('open', 'ordered')
+    `);
+    expect(openAfter.rows[0]?.n).toBe(0);
+    const closed = await harness.db.execute<{ closed_reason: string }>(sql`
+      SELECT closed_reason FROM procurement_requirements WHERE sales_order_id = ${orderId9}
+    `);
+    expect(closed.rows[0]?.closed_reason).toContain('cancelled in Tally');
   });
 });

@@ -19,6 +19,7 @@ import {
   type ReportSource,
   type ReportSourcePage,
 } from '../export/report-source.registry.js';
+import { orderBy } from '../export/report-order.js';
 import { hasPermission, type Principal } from '../rbac/principal.js';
 
 /**
@@ -41,17 +42,6 @@ export type ExceptionReportKey = (typeof EXCEPTION_REPORT_KEYS)[number];
 interface AnalyticsPage extends ReportSourcePage {
   readonly key: ReportKey;
   readonly rows: readonly Record<string, unknown>[];
-}
-
-/** A whitelist of sortable fields to fragments; `-field` descends. */
-function orderBy(sort: string | undefined, fields: Record<string, string>, fallback: string): SQL {
-  if (sort !== undefined) {
-    const descending = sort.startsWith('-');
-    const field = descending ? sort.slice(1) : sort;
-    const column = fields[field];
-    if (column !== undefined) return sql.raw(`${column} ${descending ? 'DESC' : 'ASC'} NULLS LAST`);
-  }
-  return sql.raw(fallback);
 }
 
 
@@ -114,6 +104,10 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
       ...(filters.ledgerName === undefined ? {} : { ledgerName: filters.ledgerName }),
       ...(filters.itemName === undefined ? {} : { itemName: filters.itemName }),
     };
+  }
+
+  sortableFields(key: ReportKey): readonly string[] {
+    return Object.keys(SORTABLE[key] ?? {});
   }
 
   async count(principal: Principal, key: ReportKey, filters: ReportFilters): Promise<number> {

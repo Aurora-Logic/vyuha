@@ -945,7 +945,8 @@ describe('recompute on a roster change (REQ-C-06)', () => {
   it('allows the same change once the lock is lifted, which proves the lock was the reason', async () => {
     await harness.db
       .update(attendancePeriodLocks)
-      .set({ unlockedAt: new Date() })
+      // REQ-E-09: reopening carries a reason, and the database keeps that.
+      .set({ unlockedAt: new Date(), unlockReason: 'Reopened for the shift fixture' })
       .where(and(eq(attendancePeriodLocks.orgId, ORG_ID), eq(attendancePeriodLocks.month, 1)));
 
     const created = await harness.post<RosterAssignment>('/rosters', {

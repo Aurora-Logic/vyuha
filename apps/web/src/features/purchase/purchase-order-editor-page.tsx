@@ -25,7 +25,7 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { useParty } from '@/features/masters/use-parties';
 import { type StockItem } from '@/features/masters/use-stock-items';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
-import { newLine, previewLine, type LineDraft } from '@/features/sales/types';
+import { newLine, previewLine, previewTotals, type LineDraft } from '@/features/sales/types';
 import { formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -171,17 +171,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
   });
   const totals = (() => {
     if (serverLines !== null && record !== null) return { subtotal: record.subtotal, discountTotal: record.discountTotal, taxTotal: record.taxTotal, grandTotal: record.grandTotal, preview: false };
-    let gross = 0;
-    let net = 0;
-    let tax = 0;
-    for (const line of draft.lines) {
-      const p = previewLine(line);
-      if (p === null) continue;
-      gross += Number(line.quantity) * Number(line.rate);
-      net += p.amount;
-      tax += p.tax;
-    }
-    return { subtotal: net.toFixed(2), discountTotal: Math.max(0, gross - net).toFixed(2), taxTotal: tax.toFixed(2), grandTotal: (net + tax).toFixed(2), preview: true };
+    return previewTotals(draft.lines);
   })();
   const vendorStateCode = (party?.gstin ?? '').slice(0, 2).replace(/\D/gu, '');
   const model: PaperModel = {

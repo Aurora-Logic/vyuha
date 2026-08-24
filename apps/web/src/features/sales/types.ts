@@ -463,6 +463,47 @@ export function previewLine(line: LineDraft): { amount: number; tax: number } | 
   return { amount, tax: round2(amount * (tax / 100)) };
 }
 
+/**
+ * What the totals block shows while a document is still being typed.
+ *
+ * The same arithmetic both servers do, so the preview and the saved document
+ * agree: `subtotal` is GROSS, before the discount, which is what
+ * `sales_documents.subtotal` and `purchase_orders.subtotal` both hold, and
+ * the grand total is net plus tax. The editors defined subtotal as the net
+ * instead, so the same document showed one Subtotal while it was being typed
+ * and a larger one the moment it was saved, and the Discount line beneath it
+ * had already been taken off.
+ *
+ * Each line is rounded before it is summed, because both servers sum
+ * `round(quantity * rate, 2)` -- summing the raw products drifts a paisa on a
+ * three-decimal quantity against a two-decimal rate.
+ */
+export function previewTotals(lines: readonly LineDraft[]): {
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  grandTotal: string;
+  preview: true;
+} {
+  let gross = 0;
+  let net = 0;
+  let tax = 0;
+  for (const line of lines) {
+    const preview = previewLine(line);
+    if (preview === null) continue;
+    gross += round2(Number(line.quantity) * Number(line.rate));
+    net += preview.amount;
+    tax += preview.tax;
+  }
+  return {
+    subtotal: gross.toFixed(2),
+    discountTotal: Math.max(0, round2(gross - net)).toFixed(2),
+    taxTotal: tax.toFixed(2),
+    grandTotal: round2(net + tax).toFixed(2),
+    preview: true,
+  };
+}
+
 function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

@@ -19,6 +19,7 @@ import { DocumentForm } from './document-form';
 import { downloadDocumentFile } from './download';
 import { PackingSlipPaper } from './packing-slip-paper';
 import { SLIP_PAPER_TYPES } from './paper-support';
+import { A4_WIDTH_PX, ZOOMS, fitZoomIndex } from './paper-fit';
 import { DocumentPaper, type PaperEditing, type PaperModel } from './paper';
 import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-settings';
 
@@ -33,38 +34,7 @@ import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-setti
  * raised one document knows how to raise the others.
  */
 
-/** 210mm at CSS pixels. */
-const A4_WIDTH_PX = 794;
-
-/**
- * Zoom steps the fit chooses from — classes, not a computed transform, so
- * nothing is styled inline. A transform rather than CSS `zoom`: engines
- * disagree on whether a zoomed box's layout size is the scaled one, and on
- * the owner's phone the sheet sat against the left edge under both a
- * centred zoomed box and a zoomed centring container. A transform never
- * changes layout, so the sheet is centred with left-1/2 and a -50%
- * translate in every engine; what the transform leaves behind is layout
- * height, which the stage gives back by sizing the sheet's box to the
- * measured sheet times the step (owner, 22 Aug 2026: a margin sized to A4
- * pulled the caption up behind the shorter packing slip). Steps are close
- * together at the small end, where a phone lives.
- */
-const ZOOMS = [
-  { value: 0.4, className: 'scale-[0.4] mb-[calc(297mm*-0.6)]' },
-  { value: 0.42, className: 'scale-[0.42] mb-[calc(297mm*-0.58)]' },
-  { value: 0.45, className: 'scale-[0.45] mb-[calc(297mm*-0.55)]' },
-  { value: 0.48, className: 'scale-[0.48] mb-[calc(297mm*-0.52)]' },
-  { value: 0.5, className: 'scale-[0.5] mb-[calc(297mm*-0.5)]' },
-  { value: 0.55, className: 'scale-[0.55] mb-[calc(297mm*-0.45)]' },
-  { value: 0.6, className: 'scale-[0.6] mb-[calc(297mm*-0.4)]' },
-  { value: 0.65, className: 'scale-[0.65] mb-[calc(297mm*-0.35)]' },
-  { value: 0.7, className: 'scale-[0.7] mb-[calc(297mm*-0.3)]' },
-  { value: 0.75, className: 'scale-[0.75] mb-[calc(297mm*-0.25)]' },
-  { value: 0.8, className: 'scale-[0.8] mb-[calc(297mm*-0.2)]' },
-  { value: 0.85, className: 'scale-[0.85] mb-[calc(297mm*-0.15)]' },
-  { value: 0.9, className: 'scale-[0.9] mb-[calc(297mm*-0.1)]' },
-  { value: 1, className: 'scale-100' },
-] as const;
+// The zoom steps and the fit are a pure, tested module (paper-fit.ts).
 
 export interface DocumentEditorProps {
   docType: PrintedDocumentType;
@@ -142,16 +112,10 @@ export function DocumentEditor(props: DocumentEditorProps) {
       // The sheet is 210mm wide unless the stage has squashed it, so the width is known rather than measured.
       const naturalWidth = A4_WIDTH_PX;
       if (naturalHeight === 0 || availableWidth <= 0) return;
-      const byHeight = !isMobile;
-      const byWidth = isMobile;
-      let index = 0;
-      for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
-        const step = ZOOMS[i];
-        if (step !== undefined && (!byHeight || naturalHeight * step.value <= availableHeight) && (!byWidth || naturalWidth * step.value <= availableWidth)) {
-          index = i;
-          break;
-        }
-      }
+      // Fit inside both the stage's height and its width; the tighter side
+      // binds. A short slip on a narrow screen is bound by width, so it no
+      // longer takes a height-only scale that spills off both edges.
+      const index = fitZoomIndex({ naturalHeight, naturalWidth, availableHeight, availableWidth });
       setZoomIndex((prev) => (prev === index ? prev : index));
     };
     measure();
@@ -278,7 +242,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
               <div ref={paperRef} className={cn('relative left-1/2 w-[210mm] origin-top -translate-x-1/2', zoom.className)}>
                 {SLIP_PAPER_TYPES.includes(docType) ? (
                   // D-47: the goods papers have their own paper; the slip previews box 1 of N.
-                  <PackingSlipPaper design={design} profile={settings.draft.profile} orgName={branding.data?.name ?? ''} model={model} box={1} />
+                  <PackingSlipPaper design={design} profile={settings.draft.profile} orgName={branding.data?.name ?? ''} logoUrl={branding.data?.logoUrl ?? null} model={model} box={1} />
                 ) : (
                   <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
                 )}

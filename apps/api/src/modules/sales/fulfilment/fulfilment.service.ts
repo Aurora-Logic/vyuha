@@ -461,10 +461,7 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
         UPDATE sales_documents SET short_closed_at = now(), short_close_reason = ${reason}, updated_at = now(), updated_by = ${principal.userId}
          WHERE id = ${documentId} AND org_id = ${principal.orgId}
       `);
-      await tx.execute(sql`
-        UPDATE procurement_requirements SET state = 'closed', closed_reason = ${`Order short-closed: ${reason}`}, closed_at = now(), updated_at = now()
-         WHERE org_id = ${principal.orgId} AND sales_order_id = ${documentId} AND state IN ('open','ordered') AND deleted_at IS NULL
-      `);
+      await this.requirements.closeForSalesOrder(tx, principal.orgId, documentId, `Order short-closed: ${reason}`);
     });
     this.auditContext.record({ action: 'sales.order.short_closed', entityType: 'sales_document', entityId: documentId, before: { fulfilment: order.fulfilment }, after: { reason } });
     return this.order(principal, documentId);

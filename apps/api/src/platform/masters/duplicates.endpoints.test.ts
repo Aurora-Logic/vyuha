@@ -176,3 +176,38 @@ describe('Area AO: duplicate detection', () => {
     expect(names.rows.map((r) => r.name)).toEqual(['Asha Traders Private Limited', 'Asha Traders Pvt Ltd', 'Behar Supply Co']);
   });
 });
+
+describe('acting on a cluster that ranks low (audit 25)', () => {
+  /**
+   * `requireCluster` found its row by paging the ranked list -- one row, then
+   * five hundred -- and gave up. Every action on a cluster ranked below that
+   * (dismiss, send to Tally, reopen) answered 404 for a cluster that plainly
+   * existed and was on the screen the person was looking at. The comment
+   * above it said "a direct read for the one row", which is what it did not
+   * do; now it is one.
+   */
+  it('dismisses a cluster ranked past the five hundredth', async () => {
+    // Six hundred clusters that all rank below it: no open documents, no
+    // recent transactions, nothing outstanding, and detected earlier.
+    await harness.db.execute(sql`
+      INSERT INTO duplicate_clusters (org_id, entity_type, confidence, matched_fields, member_count, state, signature, detected_at, last_seen_at)
+      SELECT ${ORG_ID}, 'party', 0.90, '["name"]'::jsonb, 2, 'open', 'rank-filler-' || g::text, now() - interval '10 days', now()
+        FROM generate_series(1, 600) AS g
+    `);
+    const mine = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO duplicate_clusters (org_id, entity_type, confidence, matched_fields, member_count, state, signature, detected_at, last_seen_at)
+      VALUES (${ORG_ID}, 'party', 0.80, '["name"]'::jsonb, 2, 'open', 'ranked-last', now() - interval '30 days', now())
+      RETURNING id
+    `);
+    const id = mine.rows[0]?.id ?? '';
+
+    const dismissed = await harness.post<{ state: string }>(`/masters/duplicates/${id}/dismiss`, {
+      token: adminToken,
+      body: { reason: 'Two names, one supplier; kept apart on purpose.' },
+    });
+    expect(dismissed.status, dismissed.text).toBe(200);
+    expect(dismissed.body.state).toBe('dismissed');
+
+    await harness.db.execute(sql`DELETE FROM duplicate_clusters WHERE org_id = ${ORG_ID} AND (signature LIKE 'rank-filler-%' OR signature = 'ranked-last')`);
+  });
+});

@@ -224,7 +224,19 @@ export const shortClosePurchaseOrderSchema = z.object({ reason: z.string().trim(
 export const itemVendorSchema = z.object({ partyId: z.uuid(), isPreferred: z.boolean().default(false), leadTimeDays: z.number().int().min(0).max(365).nullish() });
 export const putItemVendorsSchema = z.object({ vendors: z.array(itemVendorSchema).max(20) });
 export type PutItemVendorsInput = z.infer<typeof putItemVendorsSchema>;
-export const putItemSettingsSchema = z.object({ reorderLevel: qtyText.nullish(), minimumOrderQty: qtyText.nullish() });
+/**
+ * A minimum order quantity of zero is not a minimum -- empty is how "no
+ * minimum" is said. Stored as zero it reached the reorder sweep, where it is
+ * the floor of a GREATEST: an item sitting exactly on its reorder level then
+ * produced a requirement to buy nought, which the buyer sees as a job to do
+ * and can do nothing with. The refinement sits before `.nullish()` so
+ * clearing the box still means null, and compares numerically because '00'
+ * and '0.000' both parse.
+ */
+export const putItemSettingsSchema = z.object({
+  reorderLevel: qtyText.nullish(),
+  minimumOrderQty: qtyText.refine((value) => Number(value) > 0, 'a minimum order quantity is more than zero; leave it empty for none').nullish(),
+});
 export type PutItemSettingsInput = z.infer<typeof putItemSettingsSchema>;
 
 export interface ItemVendorView {

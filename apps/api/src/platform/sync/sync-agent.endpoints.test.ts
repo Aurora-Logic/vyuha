@@ -733,6 +733,39 @@ describe('stock items and price lists repeat the pattern (REQ-R-02, REQ-R-03)', 
     expect(after.rows.every((row) => !row.absent_in_tally)).toBe(true);
   });
 
+  it('a full pull reads from zero even when a cursor is already committed (audit 10)', async () => {
+    // The cursor is committed per chunk, so an interrupted full pull leaves it
+    // partway through. The retry used to claim whatever the cursor said and
+    // pull only above it -- then markAbsentees marked rows absent on the
+    // strength of a pull that had not seen everything, which is the one
+    // premise it cannot do without. A job that asks for a full pull now reads
+    // from zero whatever the cursor holds.
+    const cursor = await harness.db.execute<{ last_alter_id: string }>(sql`
+      SELECT last_alter_id::text FROM sync_cursors WHERE connection_id = ${connectionId} AND entity_type = 'stock_item'
+    `);
+    const committed = Number(cursor.rows[0]?.last_alter_id ?? 0);
+    expect(committed).toBeGreaterThan(0);
+
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item', '{"full": true}'::jsonb)
+    `);
+    const full = await claimNext();
+    expect(full?.fromAlterId).toBe(0);
+    // Closed before the next is queued: only one job per connection and
+    // entity type may be open at a time.
+    await harness.db.execute(sql`UPDATE sync_jobs SET state = 'DONE' WHERE id = ${full?.id ?? ''}`);
+
+    // And an ordinary job still starts where the cursor left off.
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item')
+    `);
+    const incremental = await claimNext();
+    expect(incremental?.fromAlterId).toBe(committed);
+    await harness.db.execute(sql`UPDATE sync_jobs SET state = 'DONE' WHERE id = ${incremental?.id ?? ''}`);
+  });
+
   it('an incremental pull never marks: absence from a window proves nothing', async () => {
     await harness.db.execute(sql`
       INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)

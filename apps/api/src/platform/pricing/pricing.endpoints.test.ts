@@ -221,3 +221,54 @@ describe('Area AN: price lists', () => {
     expect(routed.body.status).toBe('PENDING_APPROVAL');
   });
 });
+
+describe('a list whose season has passed (audit 26)', () => {
+  /**
+   * `expired` is declared in the contract and offered as a filter, and no
+   * code path ever wrote it. A list past its effective-to date went on
+   * reading `active`: the register showed it as in force, the filter for
+   * expired lists returned nothing for ever, and the only clue was the date
+   * printed beside it.
+   */
+  it('reads as expired once its effective-to date has passed', async () => {
+    const created = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO price_lists (org_id, name, version, state, effective_from, effective_to)
+      VALUES (${ORG_ID}, 'Diwali 2025', 1, 'active', '2025-10-01', '2025-11-15')
+      RETURNING id
+    `);
+    const id = created.rows[0]?.id ?? '';
+
+    const detail = await harness.get<{ state: string; name: string }>(`/pricing/lists/${id}`, { token: adminToken });
+    expect(detail.status).toBe(200);
+    expect(detail.body.state).toBe('expired');
+
+    // The filter finds it, which it never could before.
+    const expired = await harness.get<{ data: { id: string; state: string }[] }>('/pricing/lists?state=expired&pageSize=100', { token: adminToken });
+    expect(expired.body.data.some((row) => row.id === id)).toBe(true);
+    expect(expired.body.data.every((row) => row.state === 'expired')).toBe(true);
+
+    // And it is no longer counted among the active ones.
+    const active = await harness.get<{ data: { id: string }[] }>('/pricing/lists?state=active&pageSize=100', { token: adminToken });
+    expect(active.body.data.some((row) => row.id === id)).toBe(false);
+
+    // Carrying last season forward is the whole reason the lineage exists.
+    const next = await harness.post<{ id: string; version: number; state: string }>(`/pricing/lists/${id}/versions`, { token: adminToken });
+    expect(next.status, next.text).toBe(201);
+    expect(next.body.version).toBe(2);
+    expect(next.body.state).toBe('draft');
+
+    await harness.db.execute(sql`DELETE FROM price_lists WHERE org_id = ${ORG_ID} AND name = 'Diwali 2025'`);
+  });
+
+  it('leaves a list with no end date alone', async () => {
+    const created = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO price_lists (org_id, name, version, state, effective_from, effective_to)
+      VALUES (${ORG_ID}, 'Standing List', 1, 'active', '2025-01-01', NULL)
+      RETURNING id
+    `);
+    const id = created.rows[0]?.id ?? '';
+    const detail = await harness.get<{ state: string }>(`/pricing/lists/${id}`, { token: adminToken });
+    expect(detail.body.state).toBe('active');
+    await harness.db.execute(sql`DELETE FROM price_lists WHERE id = ${id}`);
+  });
+});

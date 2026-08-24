@@ -108,7 +108,7 @@ export function UpdatesPage() {
                   <h3 className="text-sm font-medium">{entry.title}</h3>
                   <p className="text-muted-foreground max-w-prose text-sm">{entry.body}</p>
 
-                  {entry.reqs || entry.route || entry.guideStep ? (
+                  {entry.route || entry.guideStep ? (
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-2">
                       {entry.route ? (
                         <Button
@@ -143,11 +143,6 @@ export function UpdatesPage() {
                         </Button>
                       ) : null}
 
-                      {entry.reqs?.length ? (
-                        <span className="text-muted-foreground font-mono text-xs">
-                          {entry.reqs.join(', ')}
-                        </span>
-                      ) : null}
                     </div>
                   ) : null}
                 </div>

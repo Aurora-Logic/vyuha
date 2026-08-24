@@ -154,7 +154,7 @@ export class PricingService {
     const orgId = principal.orgId;
     const offset = (query.page - 1) * query.pageSize;
     const where = sql`l.org_id = ${orgId} AND l.deleted_at IS NULL
-      ${query.state === undefined ? sql`` : sql`AND l.state = ${query.state}`}
+      ${query.state === undefined ? sql`` : sql`AND ${this.effectiveState()} = ${query.state}`}
       ${query.q === undefined ? sql`` : sql`AND l.name ILIKE ${'%' + query.q + '%'}`}`;
     const [rows, total] = await Promise.all([
       this.db.execute<ListRow>(sql`
@@ -279,7 +279,13 @@ export class PricingService {
   /** REQ-AN-06: a change to an active list is a new version in draft, carrying the old lines until edited. */
   async newVersion(principal: Principal, id: string): Promise<PriceListDetail> {
     const existing = await this.find(principal, id);
-    if (existing.state !== 'active') throw AppError.conflict(`Only an active list is versioned; ${existing.name} v${String(existing.version)} is ${existing.state.replace('_', ' ')}.`);
+    // An expired list is versioned too: carrying last Diwali's prices forward
+    // to this one, with its lines and assignments, is the whole reason the
+    // lineage exists. Nothing becomes editable -- REQ-AN-06's immutability is
+    // about the list itself, not about its successor.
+    if (existing.state !== 'active' && existing.state !== 'expired') {
+      throw AppError.conflict(`Only an active or expired list is versioned; ${existing.name} v${String(existing.version)} is ${existing.state.replace('_', ' ')}.`);
+    }
     const open = await this.db
       .execute<{ id: string }>(sql`SELECT id FROM price_lists WHERE org_id = ${principal.orgId} AND supersedes_id = ${id} AND state IN ('draft', 'pending_approval') AND deleted_at IS NULL`)
       .then((r) => r.rows[0]);
@@ -367,8 +373,26 @@ export class PricingService {
 
   // --------------------------------------------------------------- private
 
+  /**
+   * The state a list is actually in, rather than the one last written.
+   *
+   * `expired` is declared in the contract and offered as a filter, and no
+   * code path ever wrote it: a list past its effective-to date went on
+   * reading `active`, so the register showed it as in force, the filter for
+   * expired lists returned nothing for ever, and the only clue was the date
+   * beside it. Derived at read time rather than swept: a date passing is not
+   * an event anything fires, and a job that wrote the row would be wrong for
+   * the hours between midnight and its next run.
+   *
+   * The stored value is what the resolver and every guard still read; this is
+   * the reader's word for it.
+   */
+  private effectiveState() {
+    return sql`CASE WHEN l.state = 'active' AND l.effective_to IS NOT NULL AND l.effective_to < current_date THEN 'expired'::price_list_state ELSE l.state END`;
+  }
+
   private summarySelection() {
-    return sql`l.id, l.name, l.version, l.state, l.effective_from::text, l.effective_to::text, l.supersedes_id, l.notes, l.approval_request_id,
+    return sql`l.id, l.name, l.version, ${this.effectiveState()} AS state, l.effective_from::text, l.effective_to::text, l.supersedes_id, l.notes, l.approval_request_id,
                l.approved_at, coalesce(nullif(concat_ws(' ', ae.first_name, ae.last_name), ''), au.email) AS approved_by_name, l.superseded_at, l.created_at,
                coalesce(nullif(concat_ws(' ', ce.first_name, ce.last_name), ''), cu.email) AS created_by_name,
                (SELECT count(*)::int FROM price_list_lines pl WHERE pl.price_list_id = l.id) AS line_count,

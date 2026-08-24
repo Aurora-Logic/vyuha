@@ -220,7 +220,7 @@ export class ReportController {
     // narrowed. Attendance happens to re-assert inside page(); the first
     // source written to the interface literally would otherwise serve
     // un-narrowed reads while the export path correctly refused them.
-    const filters = source.assertFiltersUsable(key, query);
+    const filters = this.sources.usableFilters(key, query);
     const { limit, offset } = pageSlice(query);
     const page = await source.page(principal, key, { ...filters, sort: query.sort }, limit, offset);
     // REQ-AD-09: the first page of a report is an "open"; later pages and

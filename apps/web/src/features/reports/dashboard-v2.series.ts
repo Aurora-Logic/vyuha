@@ -148,7 +148,17 @@ export interface AgeingSeries extends Series<AgeingSlice> {
   readonly total: number;
 }
 
-export const AGE_BUCKETS = ['0-30', '31-60', '61-90', '90+'] as const;
+/**
+ * The buckets the ageing report emits, in the order they should be read.
+ *
+ * `UNDATED` is one of them. Tally may send a bill with no date -- the API
+ * keeps those deliberately rather than guessing an age -- and this list did
+ * not have it, so `ageingByBucket` dropped them: the donut and the figure
+ * beside it quietly showed less money outstanding than the table underneath
+ * did, with nothing to say why. Last, because it is not an age; it is the
+ * absence of one.
+ */
+export const AGE_BUCKETS = ['0-30', '31-60', '61-90', '90+', 'UNDATED'] as const;
 
 /** Outstanding by age of bill. Buckets are ordered, so the ramp is a ramp. */
 export function ageingByBucket(rows: readonly ReportRowView[]): AgeingSeries {
@@ -164,7 +174,8 @@ export function ageingByBucket(rows: readonly ReportRowView[]): AgeingSeries {
     fill: `var(--chart-${String(index + 1)})`,
   }));
   const total = sum(points.map((p) => p.value));
-  const overdue = sum(points.filter((p) => p.bucket !== '0-30').map((p) => p.value));
+  // Undated is not overdue: nothing is known about when it was due.
+  const overdue = sum(points.filter((p) => p.bucket !== '0-30' && p.bucket !== 'UNDATED').map((p) => p.value));
   const share = pct(overdue, total);
 
   return {

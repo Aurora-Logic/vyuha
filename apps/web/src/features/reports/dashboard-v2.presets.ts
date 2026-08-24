@@ -18,6 +18,7 @@ function financialYearStart(on: Date): Date {
 }
 
 export const DASHBOARD_PRESETS: readonly RangePreset[] = [
+  { label: 'Today', range: () => ({ from: new Date(), to: new Date() }) },
   { label: 'Last 7 days', range: () => ({ from: subDays(new Date(), 6), to: new Date() }) },
   { label: 'Last 30 days', range: () => ({ from: subDays(new Date(), 29), to: new Date() }) },
   { label: 'Last 90 days', range: () => ({ from: subDays(new Date(), 89), to: new Date() }) },

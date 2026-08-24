@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DEFAULT_VOUCHER_SORT,
   pageSlice,
   paginated,
+  parseSort,
+  VOUCHER_SORT_FIELDS,
   type Paginated,
   type PartyListQuery,
   type PartyView,
@@ -12,8 +15,10 @@ import {
   type VoucherDetailView,
   type VoucherLineView,
   type VoucherListQuery,
+  type VoucherTypeFacet,
   type VoucherView, type DuplicateFlag } from '@vyuha/shared';
 import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { type PgColumn } from 'drizzle-orm/pg-core';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
@@ -233,13 +238,33 @@ export class MastersService {
         .select()
         .from(vouchers)
         .where(where)
-        .orderBy(desc(vouchers.voucherDate), desc(vouchers.createdAt), asc(vouchers.id))
+        .orderBy(...voucherOrderBy(query.sort))
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(vouchers).where(where),
     ]);
 
     return paginated(rows.map(toVoucherView), query, total[0]?.value ?? 0);
+  }
+
+  /**
+   * Every voucher type this organisation has, commonest first.
+   *
+   * The filter above the register needs options, and Tally's voucher types
+   * are configured per company (REQ-R-04) -- so they cannot be a list held
+   * here, only the distinct set of what has actually arrived. Cancelled
+   * vouchers count: they are still in the register when the switch is on, and
+   * a type that offers no rows would read as a broken filter.
+   */
+  async listVoucherTypes(principal: Principal): Promise<VoucherTypeFacet[]> {
+    const rows = await this.db
+      .select({ voucherType: vouchers.voucherType, count: sql<number>`count(*)::int` })
+      .from(vouchers)
+      .where(eq(vouchers.orgId, principal.orgId))
+      .groupBy(vouchers.voucherType)
+      .orderBy(desc(sql`count(*)`), asc(vouchers.voucherType));
+
+    return rows.map((row) => ({ voucherType: row.voucherType, count: row.count }));
   }
 
   async findVoucher(principal: Principal, id: string): Promise<VoucherDetailView> {
@@ -318,6 +343,38 @@ export class MastersService {
 async function attachFlags<T extends { id: string; duplicate: DuplicateFlag | null }>(duplicates: DuplicatesService, orgId: string, entityType: 'party' | 'stock_item', views: readonly T[]): Promise<T[]> {
   const flags = await duplicates.flagsFor(orgId, entityType, views.map((v) => v.id));
   return views.map((v) => ({ ...v, duplicate: flags.get(v.id) ?? null }));
+}
+
+const VOUCHER_SORT_COLUMNS: Readonly<Record<string, PgColumn>> = {
+  date: vouchers.voucherDate,
+  type: vouchers.voucherType,
+  number: vouchers.voucherNumber,
+  party: vouchers.partyName,
+  amount: vouchers.amount,
+};
+
+/**
+ * The register's order: what was asked for, then the two tiebreaks.
+ *
+ * `createdAt` descending keeps a day's vouchers in the order they arrived,
+ * which is the order Tally itself lists them in; `id` last makes paging
+ * deterministic, without which a row can appear on two pages while another
+ * appears on none. Both survive whatever column the reader sorted by, so the
+ * tiebreaks never move.
+ *
+ * `amount` is a numeric column, so Postgres orders it as a number -- sorting
+ * Tally's exact-decimal text lexically would put 9 above 10.
+ */
+function voucherOrderBy(sort: string | undefined): (SQL | PgColumn)[] {
+  const clauses: (SQL | PgColumn)[] = [];
+  for (const term of parseSort(sort ?? DEFAULT_VOUCHER_SORT, VOUCHER_SORT_FIELDS)) {
+    const column = VOUCHER_SORT_COLUMNS[term.field];
+    if (column === undefined) continue;
+    clauses.push(term.direction === 'desc' ? desc(column) : asc(column));
+  }
+  if (clauses.length === 0) clauses.push(desc(vouchers.voucherDate));
+  clauses.push(desc(vouchers.createdAt), asc(vouchers.id));
+  return clauses;
 }
 
 function toView(row: typeof parties.$inferSelect): PartyView {

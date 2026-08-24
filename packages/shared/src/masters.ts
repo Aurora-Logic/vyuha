@@ -153,6 +153,20 @@ export interface VoucherDetailView extends VoucherView {
   readonly lines: readonly VoucherLineView[];
 }
 
+/**
+ * What a voucher register can be ordered by, named as the table's own columns
+ * so a header and a `?sort=` term are the same word.
+ *
+ * Narration is deliberately absent: it is a paragraph, and sorting a register
+ * by the first letter of a sentence answers no question anyone asks.
+ */
+export const VOUCHER_SORT_FIELDS = ['date', 'type', 'number', 'party', 'amount'] as const;
+
+export type VoucherSortField = (typeof VOUCHER_SORT_FIELDS)[number];
+
+/** Newest first: a register is read from the last thing that happened. */
+export const DEFAULT_VOUCHER_SORT = '-date';
+
 export const voucherListQuerySchema = pageQuerySchema.extend({
   /** Free text over voucher number, party name and narration. */
   q: z.string().trim().min(1).max(80).optional(),
@@ -161,6 +175,19 @@ export const voucherListQuerySchema = pageQuerySchema.extend({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
   includeCancelled: z.coerce.boolean().optional(),
+  /** `field` or `-field` from VOUCHER_SORT_FIELDS; an unknown term is dropped, not a 400. */
+  sort: z.string().trim().max(60).optional(),
 });
 
 export type VoucherListQuery = z.infer<typeof voucherListQuerySchema>;
+
+/**
+ * The voucher types this organisation actually has, with how many of each.
+ *
+ * Tally's voucher types are configured per company, so the filter's options
+ * cannot be a list this codebase knows -- they are whatever has arrived.
+ */
+export interface VoucherTypeFacet {
+  readonly voucherType: string;
+  readonly count: number;
+}

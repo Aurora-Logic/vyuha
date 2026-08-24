@@ -6,6 +6,7 @@ import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { CONTACT_SORT_FIELDS, PERMISSIONS } from '@vyuha/shared';
 
 import { ContactSheet } from './contact-sheet';
 import { contactToDraft, emptyContactDraft, type Contact, type ContactDraft } from './types';

@@ -13,7 +13,7 @@ import {
   type DuplicateMatchField,
   type Paginated,
 } from '@vyuha/shared';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
@@ -236,7 +236,55 @@ export class DuplicatesService {
     const where = sql`c.org_id = ${orgId}
       ${query.entityType === undefined ? sql`` : sql`AND c.entity_type = ${query.entityType}`}
       ${query.state === undefined ? sql`AND c.state IN ('open', 'sent_to_tally')` : sql`AND c.state = ${query.state}`}`;
-    const body = sql`
+    const body = this.clusterBody(where);
+    const [rows, total] = await Promise.all([
+      this.db.execute<ClusterRow>(sql`
+        SELECT * FROM (${body}) t
+         ORDER BY (t.state = 'open') DESC, (t.open_documents + t.recent_transactions) DESC, t.outstanding::numeric DESC, t.confidence::numeric DESC, t.detected_at DESC
+         LIMIT ${query.pageSize} OFFSET ${offset}
+      `),
+      this.db.execute<{ count: number }>(sql`SELECT count(*)::int AS count FROM duplicate_clusters c WHERE ${where}`),
+    ]);
+    const members = await this.membersOf(orgId, rows.rows.map((r) => r.id));
+    return {
+      data: rows.rows.map((row) => this.toView(row, members.get(row.id) ?? [])),
+      meta: { page: query.page, pageSize: query.pageSize, total: total.rows[0]?.count ?? 0 },
+    };
+  }
+
+  /** One row as the screens read it. Shared, so the list and a single read cannot drift. */
+  private toView(row: ClusterRow, members: DuplicateClusterMember[]): DuplicateClusterView {
+    return {
+      id: row.id,
+      entityType: row.entity_type,
+      confidence: Number(row.confidence),
+      matchedFields: fieldsOf(row.matched_fields),
+      state: row.state,
+      members,
+      impact: { openDocuments: row.open_documents, outstanding: Number(row.outstanding).toFixed(2), recentTransactions: row.recent_transactions },
+      dismissedReason: row.dismissed_reason,
+      dismissedByName: row.dismissed_by_name,
+      dismissedAt: iso(row.dismissed_at),
+      sentToTallyAt: iso(row.sent_to_tally_at),
+      detectedAt: iso(row.detected_at) ?? '',
+      lastSeenAt: iso(row.last_seen_at) ?? '',
+      resolvedAt: iso(row.resolved_at),
+    };
+  }
+
+
+  /**
+   * One cluster with its impact figures, unordered and unlimited, so the
+   * ranked list and a direct read of one row can compose it.
+   *
+   * `requireCluster` used to find its row by paging the ranked list -- one
+   * row, then five hundred -- and give up. Every action on a cluster ranked
+   * below five hundred (dismiss, send to Tally, reopen) answered 404 for a
+   * cluster that plainly existed, and the comment above it said "a direct
+   * read for the one row", which is what it did not do. Now there is one.
+   */
+  private clusterBody(where: SQL): SQL {
+    return sql`
       SELECT c.id, c.entity_type, c.confidence::text, c.matched_fields, c.state, c.signature,
              c.dismissed_reason, c.dismissed_at, c.sent_to_tally_at, c.detected_at, c.last_seen_at, c.resolved_at,
              coalesce(nullif(concat_ws(' ', de.first_name, de.last_name), ''), du.email) AS dismissed_by_name,
@@ -264,34 +312,6 @@ export class DuplicatesService {
         LEFT JOIN users du ON du.id = c.dismissed_by
         LEFT JOIN employees de ON de.id = du.employee_id
        WHERE ${where}`;
-    const [rows, total] = await Promise.all([
-      this.db.execute<ClusterRow>(sql`
-        SELECT * FROM (${body}) t
-         ORDER BY (t.state = 'open') DESC, (t.open_documents + t.recent_transactions) DESC, t.outstanding::numeric DESC, t.confidence::numeric DESC, t.detected_at DESC
-         LIMIT ${query.pageSize} OFFSET ${offset}
-      `),
-      this.db.execute<{ count: number }>(sql`SELECT count(*)::int AS count FROM duplicate_clusters c WHERE ${where}`),
-    ]);
-    const members = await this.membersOf(orgId, rows.rows.map((r) => r.id));
-    return {
-      data: rows.rows.map((row) => ({
-        id: row.id,
-        entityType: row.entity_type,
-        confidence: Number(row.confidence),
-        matchedFields: fieldsOf(row.matched_fields),
-        state: row.state,
-        members: members.get(row.id) ?? [],
-        impact: { openDocuments: row.open_documents, outstanding: Number(row.outstanding).toFixed(2), recentTransactions: row.recent_transactions },
-        dismissedReason: row.dismissed_reason,
-        dismissedByName: row.dismissed_by_name,
-        dismissedAt: iso(row.dismissed_at),
-        sentToTallyAt: iso(row.sent_to_tally_at),
-        detectedAt: iso(row.detected_at) ?? '',
-        lastSeenAt: iso(row.last_seen_at) ?? '',
-        resolvedAt: iso(row.resolved_at),
-      })),
-      meta: { page: query.page, pageSize: query.pageSize, total: total.rows[0]?.count ?? 0 },
-    };
   }
 
   private async membersOf(orgId: string, clusterIds: readonly string[]): Promise<Map<string, DuplicateClusterMember[]>> {
@@ -358,16 +378,13 @@ export class DuplicatesService {
   }
 
   private async requireCluster(principal: Principal, id: string): Promise<DuplicateClusterView> {
-    const exists = await this.db.execute<{ entity_type: DuplicateEntityType; state: DuplicateClusterState }>(sql`SELECT entity_type, state FROM duplicate_clusters WHERE id = ${id} AND org_id = ${principal.orgId}`).then((r) => r.rows[0]);
-    if (exists === undefined) throw AppError.notFound('Duplicate cluster', id);
-    const page = await this.list(principal, { page: 1, pageSize: 1, entityType: exists.entity_type, state: exists.state });
-    const found = page.data.find((c) => c.id === id);
-    if (found !== undefined) return found;
-    // Ranked lists page; a direct read for the one row.
-    const all = await this.list(principal, { page: 1, pageSize: 500, entityType: exists.entity_type, state: exists.state });
-    const row = all.data.find((c) => c.id === id);
+    const rows = await this.db.execute<ClusterRow>(
+      this.clusterBody(sql`c.org_id = ${principal.orgId} AND c.id = ${id}`),
+    );
+    const row = rows.rows[0];
     if (row === undefined) throw AppError.notFound('Duplicate cluster', id);
-    return row;
+    const members = await this.membersOf(principal.orgId, [id]);
+    return this.toView(row, members.get(id) ?? []);
   }
 
   /** The states a record still highlights in, for the list services. */

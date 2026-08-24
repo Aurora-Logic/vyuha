@@ -45,7 +45,7 @@ export interface PunchAuditPage {
 }
 
 /** Sort fields the punch audit will honour, mapped to real columns. */
-const PUNCH_SORT_COLUMNS: Record<string, PgColumn> = {
+export const PUNCH_SORT_COLUMNS: Record<string, PgColumn> = {
   serverTime: punches.serverTime,
   attendanceDate: punches.attendanceDate,
   employeeCode: employees.employeeCode,
