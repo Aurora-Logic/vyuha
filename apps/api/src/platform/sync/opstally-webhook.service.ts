@@ -287,7 +287,17 @@ export class OpsTallyWebhookService {
     if (connection === null || connection.webhookSecretEnc === null) {
       throw unauthorised();
     }
-    const secret = openSecret(connection.webhookSecretEnc, env.JWT_REFRESH_SECRET, WEBHOOK_SECRET_PURPOSE);
+    let secret: string;
+    try {
+      secret = openSecret(connection.webhookSecretEnc, env.JWT_REFRESH_SECRET, WEBHOOK_SECRET_PURPOSE);
+    } catch (err) {
+      this.logger.warn({
+        msg: 'Failed to decrypt webhook secret with current JWT_REFRESH_SECRET. The webhook secret in the database needs to be re-entered or regenerated.',
+        connectionId: input.connectionId,
+        err,
+      });
+      throw unauthorised();
+    }
     if (!verifySignature(input.rawBody, input.signature, secret)) {
       throw unauthorised();
     }

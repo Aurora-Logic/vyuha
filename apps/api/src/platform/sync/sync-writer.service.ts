@@ -769,24 +769,39 @@ export class SyncWriterService {
     `);
   }
 
+  private readonly partyCache = new Map<string, string | null>();
+  private readonly stockItemCache = new Map<string, string | null>();
+
   private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
+    const cacheKey = `${agent.connectionId}:${name}`;
+    if (this.partyCache.has(cacheKey)) {
+      return this.partyCache.get(cacheKey)!;
+    }
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM parties
        WHERE connection_id = ${agent.connectionId} AND name = ${name}
        LIMIT 1
     `);
-    return rows.rows[0]?.id ?? null;
+    const id = rows.rows[0]?.id ?? null;
+    this.partyCache.set(cacheKey, id);
+    return id;
   }
 
   private async resolveStockItemId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
+    const cacheKey = `${agent.connectionId}:${name}`;
+    if (this.stockItemCache.has(cacheKey)) {
+      return this.stockItemCache.get(cacheKey)!;
+    }
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM stock_items
        WHERE connection_id = ${agent.connectionId} AND name = ${name}
        LIMIT 1
     `);
-    return rows.rows[0]?.id ?? null;
+    const id = rows.rows[0]?.id ?? null;
+    this.stockItemCache.set(cacheKey, id);
+    return id;
   }
 
   /**
