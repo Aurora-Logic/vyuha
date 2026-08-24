@@ -1,6 +1,6 @@
 import type { PurchaseOrder, Grn } from '@/features/purchase/types';
 import type { Dispatch, Estimate, PackRecord } from '@/features/sales/types';
-import { DISPATCH_MODE_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS, voucherPaper, type PrintedDocumentType, type VoucherDetailView } from '@vyuha/shared';
+import { DISPATCH_MODE_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS, gstStateName, voucherPaper, type DocumentDetails, type PrintedDocumentType, type VoucherDetailView } from '@vyuha/shared';
 
 import type { PaperModel, PaperSlipFacts } from './paper';
 
@@ -30,6 +30,9 @@ export interface PaperRecord {
   readonly grandTotal: string;
   readonly notes: string | null;
   readonly terms: string | null;
+  readonly buyerAddress?: string | null;
+  readonly partyGstin?: string | null;
+  readonly partyState?: string | null;
   /** D-47: present on a packing slip only; the party's phone joins it in paperModelOf. */
   readonly slip?: Omit<PaperSlipFacts, 'phone'>;
   /** A heading of its own, when the type's will not do (a Tally voucher). */
@@ -44,6 +47,10 @@ interface PartyFacts {
 
 /** The PaperModel the paper draws, from a record and what is known of its party. */
 export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, party: PartyFacts | null | undefined): PaperModel {
+  const gstin = (party?.gstin && party.gstin.trim() !== '' ? party.gstin : record.partyGstin) ?? '';
+  const stateCode = record.placeOfSupply ?? gstin.slice(0, 2).replace(/\D/gu, '');
+  const stateName = record.partyState || (stateCode ? gstStateName(stateCode) : '');
+
   return {
     type,
     number: record.number,
@@ -52,10 +59,10 @@ export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, par
     validUntil: record.validUntil,
     buyer: {
       name: record.customerName,
-      address: party?.address ?? '',
-      gstin: party?.gstin ?? '',
-      stateName: '',
-      stateCode: record.placeOfSupply ?? (party?.gstin ?? '').slice(0, 2).replace(/\D/gu, ''),
+      address: (party?.address && party.address.trim() !== '' ? party.address : record.buyerAddress) ?? '',
+      gstin,
+      stateName,
+      stateCode,
     },
     shipTo: record.shipTo,
     details: record.details ?? {},
@@ -196,6 +203,46 @@ export function grnAsPaper(grn: Grn, po: PurchaseOrder): PaperRecord {
  */
 export function voucherAsPaper(voucher: VoucherDetailView): { type: PrintedDocumentType; record: PaperRecord } {
   const paper = voucherPaper(voucher);
+
+  const hasDetails = Boolean(
+    voucher.paymentTerms ||
+    voucher.reference ||
+    voucher.referenceDate ||
+    voucher.orderRef ||
+    voucher.buyerOrderNumber ||
+    voucher.buyerOrderDate ||
+    voucher.dispatchDocNo ||
+    voucher.dispatchedThrough ||
+    voucher.vehicleNumber ||
+    voucher.destination ||
+    voucher.deliveryTerms
+  );
+
+  const details: DocumentDetails | null = hasDetails
+    ? {
+        paymentTerms: voucher.paymentTerms || undefined,
+        referenceNo: [voucher.reference, voucher.referenceDate ? voucher.referenceDate.split('-').reverse().join('-') : null].filter(Boolean).join(' · ') || undefined,
+        otherReferences: voucher.orderRef || undefined,
+        buyersOrderNo: voucher.buyerOrderNumber || undefined,
+        buyersOrderDate: voucher.buyerOrderDate ? voucher.buyerOrderDate.split('-').reverse().join('-') : undefined,
+        dispatchDocNo: voucher.dispatchDocNo || undefined,
+        dispatchedThrough: [voucher.dispatchedThrough, voucher.vehicleNumber].filter(Boolean).join(' · ') || undefined,
+        destination: voucher.destination || undefined,
+        termsOfDelivery: voucher.deliveryTerms || undefined,
+      }
+    : null;
+
+  const hasShipTo = Boolean(voucher.consigneeName || voucher.consigneeGstin || voucher.consigneeState);
+  const shipTo = hasShipTo
+    ? {
+        name: voucher.consigneeName || voucher.buyerName || voucher.partyName,
+        address: voucher.consigneePincode ? `PIN: ${voucher.consigneePincode}` : '',
+        gstin: voucher.consigneeGstin || undefined,
+        stateName: voucher.consigneeState || undefined,
+        stateCode: (voucher.consigneeGstin || '').slice(0, 2).replace(/\D/gu, '') || undefined,
+      }
+    : null;
+
   return {
     type: paper.type,
     record: {
@@ -204,10 +251,10 @@ export function voucherAsPaper(voucher: VoucherDetailView): { type: PrintedDocum
       date: voucher.date,
       validUntil: null,
       partyId: voucher.partyId,
-      customerName: voucher.partyName,
-      placeOfSupply: null,
-      shipTo: null,
-      details: null,
+      customerName: voucher.buyerName || voucher.partyName,
+      placeOfSupply: voucher.placeOfSupply || null,
+      shipTo,
+      details,
       reference: `Tally ${voucher.voucherType}${voucher.voucherNumber ? ` ${voucher.voucherNumber}` : ''}`,
       lines: paper.lines.map((line) => ({ ...line, hsnCode: null, discountPct: '0', taxPct: '0', taxAmount: '0' })),
       subtotal: paper.subtotal,
@@ -215,7 +262,10 @@ export function voucherAsPaper(voucher: VoucherDetailView): { type: PrintedDocum
       taxTotal: paper.taxTotal,
       grandTotal: paper.grandTotal,
       notes: voucher.narration || null,
-      terms: null,
+      terms: voucher.deliveryTerms || voucher.paymentTerms || null,
+      buyerAddress: voucher.buyerAddress || null,
+      partyGstin: voucher.partyGstin || null,
+      partyState: voucher.partyState || null,
       title: paper.title,
     },
   };

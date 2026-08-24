@@ -19,7 +19,8 @@
     "infra:up": "docker compose -f docker/docker-compose.yml up -d --wait",
     "infra:down": "docker compose -f docker/docker-compose.yml down",
     "infra:reset": "docker compose -f docker/docker-compose.yml down -v",
-    "infra:logs": "docker compose -f docker/docker-compose.yml logs -f"
+    "infra:logs": "docker compose -f docker/docker-compose.yml logs -f",
+    "tally:clear": "pnpm --filter @vyuha/api tally:clear"
   },
 
   "devDependencies": {
