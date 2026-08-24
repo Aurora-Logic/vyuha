@@ -16,6 +16,7 @@
     "user:manage": "tsx seed/manage-users.ts",
     "user:password": "tsx seed/manage-users.ts",
     "user:mfa": "tsx seed/manage-mfa.ts",
+    "rate-limit:clear": "tsx seed/clear-rate-limits.ts",
     "db:demo": "tsx seed/run-demo.ts"
   },
   "dependencies": {
