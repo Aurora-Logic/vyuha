@@ -112,6 +112,28 @@ export interface VoucherView {
   readonly amount: string;
   /** REQ-Y-07: every figure says its age. */
   readonly lastPulledAt: string;
+
+  // Order, terms, dispatch and consignee facts from Tally
+  readonly reference?: string | null;
+  readonly referenceDate?: string | null;
+  readonly orderRef?: string | null;
+  readonly buyerOrderNumber?: string | null;
+  readonly buyerOrderDate?: string | null;
+  readonly paymentTerms?: string | null;
+  readonly deliveryTerms?: string | null;
+  readonly dispatchedThrough?: string | null;
+  readonly dispatchDocNo?: string | null;
+  readonly vehicleNumber?: string | null;
+  readonly destination?: string | null;
+  readonly buyerName?: string | null;
+  readonly buyerAddress?: string | null;
+  readonly partyGstin?: string | null;
+  readonly partyState?: string | null;
+  readonly placeOfSupply?: string | null;
+  readonly consigneeName?: string | null;
+  readonly consigneeState?: string | null;
+  readonly consigneePincode?: string | null;
+  readonly consigneeGstin?: string | null;
 }
 
 export interface VoucherLineView {

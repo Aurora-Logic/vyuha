@@ -52,12 +52,15 @@ const TITLES: Record<string, string> = {
 };
 
 export function voucherPaperTitle(voucherType: string): string {
-  return TITLES[voucherType] ?? `${voucherType} Voucher`;
+  if (TITLES[voucherType]) return TITLES[voucherType];
+  if (/sale|tax\s*inv|gst\s*inv/iu.test(voucherType)) return 'Tax Invoice';
+  if (/purchase/iu.test(voucherType)) return 'Purchase Voucher';
+  return `${voucherType} Voucher`;
 }
 
 /** The design a voucher borrows: the vendor-facing paper for what we owe, the invoice paper for everything else. */
 export function voucherPaperType(voucherType: string): PrintedDocumentType {
-  if (voucherType === 'Purchase' || voucherType === 'Receipt Note') return 'PURCHASE_ORDER';
+  if (voucherType === 'Purchase' || voucherType === 'Receipt Note' || /purchase/iu.test(voucherType)) return 'PURCHASE_ORDER';
   if (voucherType === 'Delivery Note') return 'DELIVERY_NOTE';
   return 'INVOICE';
 }
