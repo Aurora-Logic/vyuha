@@ -50,6 +50,12 @@ export const pgPoolProvider: Provider = {
       });
     });
 
+    // Auto-terminate orphaned transactions if they remain idle in transaction for >30s
+    pool.on('connect', (client) => {
+      client.query("SET idle_in_transaction_session_timeout = '30000'").catch(() => {});
+      client.query("SET statement_timeout = '120000'").catch(() => {});
+    });
+
     return pool;
   },
 };
