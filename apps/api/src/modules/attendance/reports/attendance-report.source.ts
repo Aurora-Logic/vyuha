@@ -1,5 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
+  ATTENDANCE_DAY_SORT_FIELDS,
   ATTENDANCE_REPORTS,
   type ReportCellValue,
   type ReportColumnSpec,
@@ -14,6 +15,8 @@ import {
   type ReportSourcePage,
 } from '../../../platform/export/report-source.registry.js';
 import type { Principal } from '../../../platform/rbac/principal.js';
+import { AGGREGATE_SORTS } from './report-aggregate.repository.js';
+import { PUNCH_SORT_COLUMNS } from './report.repository.js';
 import { ReportService, cellsFor, type ReportPage } from './report.service.js';
 
 /**
@@ -28,6 +31,19 @@ import { ReportService, cellsFor, type ReportPage } from './report.service.js';
  * catalogue, not `ALL_REPORTS` — so Phase 6d's receivables definitions can
  * join the catalogue without this source claiming their keys.
  */
+/**
+ * What each attendance report can actually be ordered by, read from the same
+ * constants the ORDER BY is built from rather than restated here. The two
+ * day-grained reports go through `AttendanceDayRepository`, whose field list
+ * is shared; the punch audit and the aggregates each own theirs.
+ */
+const SORTABLE: Partial<Record<ReportKey, readonly string[]>> = {
+  'attendance-register': ATTENDANCE_DAY_SORT_FIELDS,
+  'daily-muster': ATTENDANCE_DAY_SORT_FIELDS,
+  'punch-audit': Object.keys(PUNCH_SORT_COLUMNS),
+  ...Object.fromEntries(Object.entries(AGGREGATE_SORTS).map(([key, map]) => [key, Object.keys(map)])),
+};
+
 @Injectable()
 export class AttendanceReportSource implements ReportSource, OnModuleInit {
   readonly keys: readonly ReportKey[] = ATTENDANCE_REPORTS.map((report) => report.key);
@@ -43,6 +59,10 @@ export class AttendanceReportSource implements ReportSource, OnModuleInit {
 
   visibleDefinitions(principal: Principal): readonly ReportDefinition[] {
     return this.reports.catalogue(principal);
+  }
+
+  sortableFields(key: ReportKey): readonly string[] {
+    return SORTABLE[key] ?? [];
   }
 
   assertFiltersUsable(key: ReportKey, filters: ReportFilters): ReportFilters {

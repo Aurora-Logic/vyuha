@@ -28,6 +28,8 @@ export interface EmployeeListParams {
   status: EmployeeStatus | null;
   /** Department id, or null for every department. */
   departmentId: string | null;
+  /** A term the server knows (EMPLOYEE_SORT_FIELDS), e.g. "-dateOfJoining" or "status". */
+  sort?: string;
 }
 
 const namedRefSchema = z.object({ id: z.string(), name: z.string() });
@@ -82,6 +84,7 @@ function toSearch(params: EmployeeListParams): string {
   if (params.q) search.set('q', params.q);
   if (params.status) search.set('status', params.status);
   if (params.departmentId) search.set('departmentId', params.departmentId);
+  if (params.sort) search.set('sort', params.sort);
   return search.toString();
 }
 

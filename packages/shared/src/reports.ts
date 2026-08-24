@@ -1856,6 +1856,44 @@ export const reportFilterSchema = z.object({
 
 export type ReportFilters = z.infer<typeof reportFilterSchema>;
 
+/** Which `ReportFilters` keys each declared filter control owns. */
+const FILTER_KEYS: Readonly<Record<ReportFilterName, readonly (keyof ReportFilters)[]>> = {
+  period: ['from', 'to'],
+  employeeId: ['employeeId'],
+  departmentId: ['departmentId'],
+  locationId: ['locationId'],
+  status: ['status'],
+  flags: ['flags'],
+  punchType: ['punchType'],
+  partyId: ['partyId'],
+  groupBy: ['groupBy'],
+  voucherType: ['voucherType'],
+  ledgerName: ['ledgerName'],
+  itemName: ['itemName'],
+};
+
+/**
+ * The filters this report actually answers for, from the ones a caller sent.
+ *
+ * Twenty reports declare no period -- current stock, open clusters, a
+ * receivables ageing as of the last pull -- and their queries ignore `from`
+ * and `to` accordingly. The reports screen sends the period anyway, because
+ * one range lives in the URL for every report, and an export carried it into
+ * the file: "Period 01-08-2026 to 31-08-2026" printed above rows that cover
+ * all of history, on a page somebody then acts on. Dropping the undeclared
+ * families here means the stored request, the header block and the rows are
+ * the same set of filters rather than three readings of it.
+ */
+export function narrowToDeclaredFilters(reportKey: ReportKey, filters: ReportFilters): ReportFilters {
+  const kept: Record<string, unknown> = {};
+  for (const name of REPORT_DEFINITIONS[reportKey].filters) {
+    for (const key of FILTER_KEYS[name]) {
+      if (filters[key] !== undefined) kept[key] = filters[key];
+    }
+  }
+  return kept as ReportFilters;
+}
+
 /**
  * NFR-03 sizes the export job at "a full month for 500 employees". A year is
  * the outer bound this refuses past -- not because the query cannot do it, but

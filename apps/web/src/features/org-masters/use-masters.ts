@@ -44,6 +44,8 @@ const PAGE_SIZE = 50;
 export interface MasterListParams {
   q: string;
   page: number;
+  /** A term the server knows (MASTER_SORT_FIELDS), e.g. "-name" or "code". */
+  sort?: string;
 }
 
 function toSearch(params: MasterListParams): string {
@@ -53,6 +55,7 @@ function toSearch(params: MasterListParams): string {
   // Absent rather than empty: `?q=` filters for the empty string as far as the
   // server's schema is concerned, and that schema has a minimum length.
   if (params.q) search.set('q', params.q);
+  if (params.sort) search.set('sort', params.sort);
   return search.toString();
 }
 

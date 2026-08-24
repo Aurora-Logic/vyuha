@@ -6,8 +6,13 @@ import { parseOrThrow } from '@/lib/api/parse';
 import { apiRequest } from '@/lib/api/client';
 
 /**
- * `GET /masters/vouchers` and `/masters/vouchers/:id` (Phase 6c). Amounts
- * are strings end to end: Tally's figures, shown, never computed on (D-01).
+ * `GET /masters/vouchers`, `/masters/vouchers/:id` and `/masters/voucher-types`
+ * (Phase 6c). Amounts are strings end to end: Tally's figures, shown, never
+ * computed on (D-01).
+ *
+ * Filtering and ordering are the server's, not this hook's. The register pages
+ * at twenty-five, so a sort applied to the rows in hand would reorder a
+ * twenty-fifth of the register and read as wrong.
  */
 
 export const voucherSchema = z.object({
@@ -60,6 +65,8 @@ export interface VoucherFilters {
   from?: string;
   to?: string;
   includeCancelled?: boolean;
+  /** `field` or `-field` from VOUCHER_SORT_FIELDS; omitted means newest first. */
+  sort?: string;
 }
 
 function vouchersQuery(filters: VoucherFilters) {
@@ -70,6 +77,7 @@ function vouchersQuery(filters: VoucherFilters) {
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   if (filters.includeCancelled) params.set('includeCancelled', 'true');
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return {
     queryKey: ['masters', 'vouchers', key] as const,
@@ -96,7 +104,7 @@ export function useVouchers(
   // See useParties: the register pre-loads the next page so paging is instant.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, voucherType, partyId, from, to, includeCancelled } = filters;
+  const { page, q, voucherType, partyId, from, to, includeCancelled, sort } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
@@ -108,10 +116,11 @@ export function useVouchers(
         ...(from ? { from } : {}),
         ...(to ? { to } : {}),
         ...(includeCancelled ? { includeCancelled } : {}),
+        ...(sort ? { sort } : {}),
       }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled, sort]);
 
   return query;
 }
@@ -128,5 +137,28 @@ export function useVoucher(
       return parseOrThrow(voucherDetailSchema, body, 'voucher');
     },
     staleTime: 60_000,
+  });
+}
+
+const voucherTypeFacetSchema = z.object({ voucherType: z.string(), count: z.number() });
+
+export type VoucherTypeFacet = z.infer<typeof voucherTypeFacetSchema>;
+
+/**
+ * The options for the register's type filter.
+ *
+ * Held for an hour rather than a minute: Tally's voucher types change when an
+ * accountant configures a new one, which is a thing that happens a few times a
+ * year, not a few times a session.
+ */
+export function useVoucherTypes(options: { enabled?: boolean } = {}): UseQueryResult<VoucherTypeFacet[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['masters', 'voucher-types'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/masters/voucher-types', { signal });
+      return parseOrThrow(z.array(voucherTypeFacetSchema), body, 'voucher types');
+    },
+    staleTime: 60 * 60_000,
   });
 }

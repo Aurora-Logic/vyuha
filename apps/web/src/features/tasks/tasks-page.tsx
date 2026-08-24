@@ -9,6 +9,7 @@ import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -24,7 +25,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
+import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_SORT_FIELDS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
 
 import { BoardColumnsSheet } from './board-columns-sheet';
 import { DueDate } from './due-date';
@@ -54,6 +55,7 @@ const COLUMNS: RecordColumn<Task>[] = [
   {
     key: 'title',
     header: 'Task',
+    sortField: 'title',
     cell: (row) => (
       <span className="flex min-w-0 items-center gap-2">
         <span className={row.isClosed ? 'text-muted-foreground line-through' : 'font-medium'}>{row.title}</span>
@@ -63,11 +65,12 @@ const COLUMNS: RecordColumn<Task>[] = [
       </span>
     ),
   },
-  { key: 'due', header: 'Due', cell: (row) => <DueDate value={row.dueDate} closed={row.isClosed} /> },
+  { key: 'due', header: 'Due', sortField: 'dueDate', cell: (row) => <DueDate value={row.dueDate} closed={row.isClosed} /> },
   { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{row.columnName}</Badge> },
   {
     key: 'priority',
     header: 'Priority',
+    sortField: 'priority',
     cell: (row) => TASK_PRIORITY_LABELS[row.priority],
     secondary: true,
   },
@@ -172,8 +175,9 @@ export function TasksPage() {
     ...(subjectType && subjectId ? { subjectType, subjectId } : {}),
   };
   const owners = useManagerOptions();
+  const { sort, activeSort, onSortChange } = useUrlSort(TASK_SORT_FIELDS);
 
-  const list = useTasks({ ...filters, page }, { enabled: canView && view === 'list' });
+  const list = useTasks({ ...filters, page, ...(sort ? { sort } : {}) }, { enabled: canView && view === 'list' });
   const board = useTaskBoard(filters, { enabled: canView && view === 'board' });
   const open = useTask(canView ? openId : null);
   const move = useMoveTask();
@@ -413,6 +417,8 @@ export function TasksPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+              sort={activeSort}
+              onSortChange={onSortChange}
               mobilePrimary={(row) => row.title}
               mobileStatus={(row) => <Badge variant="outline">{row.columnName}</Badge>}
               mobileSupporting={(row) => (

@@ -86,7 +86,7 @@ export class ScheduleService {
     // The same refusal the export endpoint gives, at the point somebody can
     // still fix it: a report that cannot answer for this filter set would
     // otherwise produce a schedule that fails silently every morning.
-    this.sources.require(input.reportKey).assertFiltersUsable(input.reportKey, {
+    this.sources.usableFilters(input.reportKey, {
       ...input.filters,
       ...scheduleWindow(input.cadence, this.todayIso()),
     });

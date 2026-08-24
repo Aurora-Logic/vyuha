@@ -16,6 +16,7 @@ import { sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { orderBy, type SortMap } from '../export/report-order.js';
 import { ReportSourceRegistry, type ReportSource, type ReportSourcePage } from '../export/report-source.registry.js';
 import { hasPermission, type Principal } from '../rbac/principal.js';
 import { ScopeService } from '../rbac/scope.service.js';
@@ -69,6 +70,11 @@ type BrokenRow = {
   bills: string | null;
 };
 
+const SORTABLE = {
+  'broken-promises': { partyName: 'party_name', daysLate: 'days_late', shortfall: 'shortfall::numeric' },
+  'promised-vs-collected': { collectorName: 'collector_name', partyName: 'party_name', promised: 'promised::numeric' },
+} satisfies Partial<Record<ReportKey, SortMap>>;
+
 @Injectable()
 export class CollectionsReportSource implements ReportSource, OnModuleInit {
   readonly keys: readonly ReportKey[] = COLLECTIONS_REPORTS.map((r) => r.key);
@@ -85,6 +91,10 @@ export class CollectionsReportSource implements ReportSource, OnModuleInit {
 
   visibleDefinitions(principal: Principal): readonly ReportDefinition[] {
     return this.holds(principal) ? COLLECTIONS_REPORTS : [];
+  }
+
+  sortableFields(key: ReportKey): readonly string[] {
+    return Object.hasOwn(SORTABLE, key) ? Object.keys(SORTABLE[key as keyof typeof SORTABLE]) : [];
   }
 
   assertFiltersUsable(key: ReportKey, filters: ReportFilters): ReportFilters {
@@ -112,8 +122,7 @@ export class CollectionsReportSource implements ReportSource, OnModuleInit {
     const usable = this.assertFiltersUsable(key, filters);
     const total = await this.count(principal, key, usable);
     if (key === 'broken-promises') {
-      const order =
-        filters.sort === 'partyName' ? sql`party_name ASC` : filters.sort === 'daysLate' ? sql`days_late ASC` : filters.sort === '-daysLate' ? sql`days_late DESC` : sql`shortfall::numeric DESC, days_late DESC`;
+      const order = orderBy(filters.sort, SORTABLE['broken-promises'], 'shortfall::numeric DESC, days_late DESC', 'party_name ASC');
       const rows = await this.db.execute<BrokenRow>(sql`SELECT * FROM (${this.body(principal, key, usable)}) t ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`);
       const page: CollectionsPage = {
         total,
@@ -134,8 +143,7 @@ export class CollectionsReportSource implements ReportSource, OnModuleInit {
       };
       return page;
     }
-    const order =
-      filters.sort === 'collectorName' ? sql`collector_name ASC NULLS LAST` : filters.sort === 'partyName' ? sql`party_name ASC` : filters.sort === 'promised' ? sql`promised::numeric ASC` : sql`promised::numeric DESC`;
+    const order = orderBy(filters.sort, SORTABLE['promised-vs-collected'], 'promised::numeric DESC, party_name ASC', 'party_name ASC');
     const rows = await this.db.execute<PromisedRow>(sql`SELECT * FROM (${this.body(principal, key, usable)}) t ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`);
     const page: CollectionsPage = {
       total,

@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions } from '@/components/shared/row-actions';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -39,6 +40,7 @@ import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import {
   DEFAULT_PAGE_SIZE,
+  EMPLOYEE_SORT_FIELDS,
   EMPLOYEE_STATUSES,
   MAX_PAGE_SIZE,
   PERMISSIONS,
@@ -91,11 +93,16 @@ const BASE_COLUMNS: RecordColumn<EmployeeListItem>[] = [
     // left-to-right (PRD §6.3).
     cell: (row) => <span className="font-medium tabular-nums">{row.employeeCode}</span>,
     className: 'tabular-nums',
+    sortField: 'employeeCode',
   },
   {
     key: 'name',
     header: 'Employee',
     cell: (row) => employeeDisplayName(row.firstName, row.lastName),
+    // The column is written first-name-first, so first name is what the header
+    // orders by; lastName is a sort field the server also knows but no column
+    // surfaces it.
+    sortField: 'firstName',
   },
   {
     key: 'department',
@@ -119,6 +126,7 @@ const BASE_COLUMNS: RecordColumn<EmployeeListItem>[] = [
     header: 'Type',
     cell: (row) => humaniseEnum(row.employmentType),
     secondary: true,
+    sortField: 'employmentType',
   },
   {
     key: 'dateOfJoining',
@@ -126,11 +134,13 @@ const BASE_COLUMNS: RecordColumn<EmployeeListItem>[] = [
     // REQ-L-01: dd-MM-yyyy, never the raw ISO string the API sends.
     cell: (row) => formatDate(row.dateOfJoining),
     className: 'tabular-nums',
+    sortField: 'dateOfJoining',
   },
   {
     key: 'status',
     header: 'Status',
     cell: (row) => <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>,
+    sortField: 'status',
   },
 ];
 
@@ -206,6 +216,7 @@ function EmployeesSkeleton() {
 export function EmployeesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { sort, activeSort, onSortChange } = useUrlSort(EMPLOYEE_SORT_FIELDS);
   const canManage = usePermission(PERMISSIONS.EMPLOYEE_MANAGE);
   const [sheet, setSheet] = useState<EmployeeListItem | 'new' | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
@@ -316,7 +327,7 @@ export function EmployeesPage() {
   }
 
   const filtered = q.length > 0 || status !== null || departmentId !== null;
-  const query = useEmployees({ page, pageSize, q, status, departmentId });
+  const query = useEmployees({ page, pageSize, q, status, departmentId, ...(sort ? { sort } : {}) });
   // A failed picker must not take the table with it, so the error is swallowed
   // here on purpose: no options simply means no department filter is offered.
   const departments = useDepartments().data ?? [];
@@ -559,6 +570,8 @@ export function EmployeesPage() {
               columns={columns}
               rows={rows}
               rowKey={(row) => row.id}
+              sort={activeSort}
+              onSortChange={onSortChange}
               mobilePrimary={(row) => employeeDisplayName(row.firstName, row.lastName)}
               mobileStatus={(row) => (
                 <div className="flex items-center gap-1">

@@ -124,9 +124,13 @@ export class ExportService {
     // Checked here as well as in the job, and deliberately: a period the report
     // cannot answer for is a 400 on the button press, not a queued job that
     // fails five times with backoff before anyone is told why.
-    const filters = this.sources
-      .require(input.reportKey)
-      .assertFiltersUsable(input.reportKey, input.filters);
+    if (input.compare !== undefined && !REPORT_DEFINITIONS[input.reportKey].filters.includes('period')) {
+      // A comparison is two periods of the same query. Where the report has
+      // no period the second one is the first, and the file would carry a
+      // column of zero deltas that reads as "nothing changed".
+      throw AppError.validation('This report has no period, so there is nothing to compare it against.');
+    }
+    const filters = this.sources.usableFilters(input.reportKey, input.filters);
     const requestedAt = new Date();
     const filename = exportFileName(input.reportKey, requestedAt, input.format);
     const snapshot: RequestSnapshot = {

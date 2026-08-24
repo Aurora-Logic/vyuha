@@ -9,6 +9,7 @@ import {
   type LeaveLedgerSource,
   type MissingPunchSource,
   type MusterGridSource,
+  type ReportKey,
   type SortTerm,
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
@@ -117,6 +118,28 @@ const HEADCOUNT_SORTS: SortMap = {
   leavers: 'leavers',
   closing: 'closing',
 };
+
+
+/**
+ * Which fields each aggregate report actually orders by.
+ *
+ * The call sites read this table rather than the maps directly, so
+ * `AttendanceReportSource.sortableFields` can answer from the same object the
+ * ORDER BY is built from. A column that advertises `sortField` in the
+ * catalogue and is missing here fails `report-sorting.test.ts`.
+ */
+export const AGGREGATE_SORTS = {
+  'late-arrivals': EXCEPTION_SORTS,
+  'early-exits': EXCEPTION_SORTS,
+  overtime: EXCEPTION_SORTS,
+  'monthly-muster': MUSTER_GRID_SORTS,
+  absenteeism: ABSENTEEISM_SORTS,
+  'missing-punch': MISSING_PUNCH_SORTS,
+  'leave-balance': LEAVE_BALANCE_SORTS,
+  'leave-ledger': LEAVE_LEDGER_SORTS,
+  'leave-availed': LEAVE_AVAILED_SORTS,
+  headcount: HEADCOUNT_SORTS,
+} satisfies Partial<Record<ReportKey, SortMap>>;
 
 /**
  * `ORDER BY` from the parsed sort terms and a whitelist.
@@ -255,7 +278,7 @@ export class ReportAggregateRepository {
        WHERE ${this.dayWhere(filters)}
        GROUP BY "employees"."id", "employees"."employee_code", "employees"."first_name",
                 "employees"."last_name", "departments"."name"
-       ${orderBy(sort, MUSTER_GRID_SORTS, '"employees"."employee_code" ASC')}
+       ${orderBy(sort, AGGREGATE_SORTS['monthly-muster'], '"employees"."employee_code" ASC')}
        LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -338,7 +361,7 @@ export class ReportAggregateRepository {
        WHERE ${where}
        GROUP BY "employees"."id", "employees"."employee_code", "employees"."first_name",
                 "employees"."last_name", "departments"."name", "locations"."name"
-       ${orderBy(sort, EXCEPTION_SORTS, '"employees"."employee_code" ASC')}
+       ${orderBy(sort, AGGREGATE_SORTS['late-arrivals'], '"employees"."employee_code" ASC')}
        LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -442,7 +465,7 @@ export class ReportAggregateRepository {
               */
              count(*) OVER ()::int AS total_groups
        ${grouped}
-       ${orderBy(sort, ABSENTEEISM_SORTS, 'month DESC, "employees"."employee_code" ASC')}
+       ${orderBy(sort, AGGREGATE_SORTS.absenteeism, 'month DESC, "employees"."employee_code" ASC')}
        LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -543,7 +566,7 @@ export class ReportAggregateRepository {
              "vy_correction"."reason" AS regularization_reason
       ${joins}
        WHERE ${where}
-       ${orderBy(sort, MISSING_PUNCH_SORTS, '"attendance_days"."id" ASC')}
+       ${orderBy(sort, AGGREGATE_SORTS['missing-punch'], '"attendance_days"."id" ASC')}
        LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -643,7 +666,7 @@ export class ReportAggregateRepository {
              "leave_balances"."carried_forward"::float8 AS carried_forward,
              "leave_balances"."closing"::float8 AS closing
       ${body}
-      ${orderBy(sort, LEAVE_BALANCE_SORTS, '"employees"."employee_code" ASC, "leave_types"."code" ASC')}
+      ${orderBy(sort, AGGREGATE_SORTS['leave-balance'], '"employees"."employee_code" ASC, "leave_types"."code" ASC')}
       LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -732,7 +755,7 @@ export class ReportAggregateRepository {
              "leave_ledger"."period_key" AS period_key,
              "leave_ledger"."note"
       ${body}
-      ${orderBy(sort, LEAVE_LEDGER_SORTS, '"leave_ledger"."id" DESC')}
+      ${orderBy(sort, AGGREGATE_SORTS['leave-ledger'], '"leave_ledger"."id" DESC')}
       LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -826,7 +849,7 @@ export class ReportAggregateRepository {
              min("leave_request_days"."date")::text AS first_date,
              max("leave_request_days"."date")::text AS last_date
       ${body}
-      ${orderBy(sort, LEAVE_AVAILED_SORTS, '"employees"."employee_code" ASC, "leave_types"."code" ASC')}
+      ${orderBy(sort, AGGREGATE_SORTS['leave-availed'], '"employees"."employee_code" ASC, "leave_types"."code" ASC')}
       LIMIT ${limit} OFFSET ${offset}
     `);
 
@@ -915,7 +938,7 @@ export class ReportAggregateRepository {
                          >= ("vy_months"."month_start" + interval '1 month'))
              )::int AS closing
       ${body}
-      ${orderBy(sort, HEADCOUNT_SORTS, '"vy_months"."month_start" ASC')}
+      ${orderBy(sort, AGGREGATE_SORTS.headcount, '"vy_months"."month_start" ASC')}
       LIMIT ${limit} OFFSET ${offset}
     `);
 

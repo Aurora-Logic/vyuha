@@ -46,6 +46,8 @@ export interface DealFilters {
   companyId?: string;
   contactId?: string;
   status?: DealStatusFilter;
+  /** A term the server knows (DEAL_SORT_FIELDS), e.g. "-value" or "expectedCloseDate". The list carries it; the board never sets it. */
+  sort?: string;
 }
 
 function filterParams(filters: DealFilters): URLSearchParams {
@@ -57,6 +59,7 @@ function filterParams(filters: DealFilters): URLSearchParams {
   if (filters.companyId) params.set('companyId', filters.companyId);
   if (filters.contactId) params.set('contactId', filters.contactId);
   if (filters.status) params.set('status', filters.status);
+  if (filters.sort) params.set('sort', filters.sort);
   return params;
 }
 
