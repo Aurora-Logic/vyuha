@@ -50,6 +50,8 @@ export interface StockItemFilters {
   q?: string;
   parentGroup?: string;
   connectionId?: string;
+  /** A term the server knows (STOCK_ITEM_SORT_FIELDS), e.g. "-gstRate" or "name". */
+  sort?: string;
 }
 
 function stockItemsQuery(filters: StockItemFilters) {
@@ -57,6 +59,7 @@ function stockItemsQuery(filters: StockItemFilters) {
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   if (filters.connectionId) params.set('connectionId', filters.connectionId);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return {
     queryKey: ['masters', 'stock-items', key] as const,
@@ -84,7 +87,7 @@ export function useStockItems(
   // reads page one only and opts out.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, parentGroup, pageSize, connectionId } = filters;
+  const { page, q, parentGroup, pageSize, connectionId, sort } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
@@ -94,10 +97,11 @@ export function useStockItems(
         ...(parentGroup ? { parentGroup } : {}),
         ...(pageSize ? { pageSize } : {}),
         ...(connectionId ? { connectionId } : {}),
+        ...(sort ? { sort } : {}),
       }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, connectionId]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, connectionId, sort]);
 
   return query;
 }

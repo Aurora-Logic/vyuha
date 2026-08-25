@@ -5,6 +5,25 @@ stands on `phase-6a`, which is ahead of the brief in several places (the
 brief predates the Reports module, the module switcher and CRM/Sales/
 Purchase going live). Updated as work lands.
 
+## 25 Aug 2026 brief
+
+| ID | Item | Status |
+|----|------|--------|
+| B25-1 | Masters merges into Sales (Documents / Masters / Books); Logistics module for fulfilment (D-19) | Done |
+| B25-2 | Mobile bar: five slots, chosen from any module, one global preference (D-20) | Done |
+| B25-3 | Org date format applied everywhere + dd MMM yyyy option; bypassing renders routed through the formatter | Done |
+| B25-4 | Sales and Finance dashboards | Done -- preset boards on the dashboard page, rendered by the generic chart engine |
+| B25-5 | GST inputs summary (D-21 narrows REQ-AE-08; by-rate blocked on sync contract) | Done |
+| B25-6 | Customisable dashboards: tiles, chart form, parameters, per-user server-side layouts | Done -- dashboard_layouts + /reports/dashboards, customise sheet on every board |
+| B25-7 | Interest cost & cash cycle module (owner spec + D-22): daily-series interest on receivables and stock, three reports, finance-board tiles, settings + per-party overrides | Done -- 13 hand-worked math tests, 11 endpoint tests, migration 0065; full api suite 2252 green after |
+| B25-8 | Every shadcn chart family as a pickable tile form (area, stacked area, bar, stacked bar, radar, pie join the set), reference code via the shadcn MCP | Done -- 13-form union, wearability-gated picker |
+| B25-9 | The six overview KPI figures become customisable board tiles; customising Overview seeds from all six instead of dropping them | Done -- KPI registry + headline-figures section in Customise |
+| B25-10 | Reports module reorganised (owner: unorganised/confusing): hub catalogue with search + recently-used + category shelves, report identity header, two-row toolbar | Done -- hub chosen from three IA options |
+| B25-11 | Chart customisation previews: the form picker is a live gallery, every wearable form drawn with the report's real rows, unwearable ones dimmed with the reason | Done |
+| B25-12 | Virtual CFO module (owner master brief): prerequisites reported and cleared (framework + switcher already built; connector proceeds voucher-grain per D-23); fact_receivable_snapshot daily job building now; Parts M-Q of the brief awaited as docs/16-virtual-cfo.md before Phase 2 | In progress -- the irreversible clock first |
+
+## 21 Aug 2026 brief
+
 | ID | Item | Description | Area | Decision needed? | Status |
 |----|------|-------------|------|------------------|--------|
 | P-01 | Data analyst skill | `.claude/skills/data-analyst/SKILL.md`: metric dictionary, chart matrix, FY comparison rules, report spec template, drill rules | Skills | No | Done |
@@ -29,9 +48,9 @@ Purchase going live). Updated as work lands.
 | P-20 | Raw `__all__` in a select | The parties page's ledger-side select rendered its sentinel; every bare SelectValue audited, the others show real values | UI | No | Done |
 | P-21 | Tab-strip scrollbar | Scrolling tab lists (Settings) hide the bar itself via a no-scrollbar utility; data tables keep theirs | UI | No | Done |
 | P-22 | thumb-reach / emil audit of every screen | Source-level pass over every violation class both skills name (Chrome verification is off by owner instruction). Floors are systemic: every Button size carries a pointer-coarse 44px overlay; every Popover picker sheet-switches via useIsMobile; boards force list view on phones; tables card-collapse; tab strips hide their bar; no transition-all, no hover-gated controls, sheets pin edges with min-h-0 scroll. Fixed this pass: the report export menu was a four-row dropdown pinned to the top-right corner on phones — now a bottom sheet. Accepted with reasons: the Views menu (trigger sits mid-toolbar, not the corner) and centred-dialog footer stacking (mid-screen reach, guards long labels) | UI | No | Done |
-| P-23 | Code splitting | Owner's review 22 Aug: the web build is one ~3 MB chunk (805 kB gzip) over 63 routes, `React.lazy` unused. Split per module route at least; measure first-load on a phone | Web | No | Not started |
-| P-24 | Org scoping as enforcement | Owner's review 22 Aug: 14 of 30 repositories do not extend `ScopedRepository`; 131 hand-written `sql` blocks carry no literal `org_id` (mostly fragments that receive it). No leak found; the invariant is convention. Owner decided 22 Aug: an ESLint rule that fails any repository class not extending `ScopedRepository` and any raw `sql` block in a repository without an `org_id` parameter; migrate the 14 repositories over. The build fails, not the reviewer | Platform | Decided: lint rule + migration | Not started |
-| P-25 | Cross-org isolation coverage | Owner's review 22 Aug: 12 test files cover isolation for 283 routes. Add a per-module isolation test that walks every route as a second org | QA | No | Not started |
+| P-23 | Code splitting | Owner's review 22 Aug: the web build is one ~3 MB chunk (805 kB gzip) over 63 routes, `React.lazy` unused. Split per module route at least; measure first-load on a phone | Web | No | Done (66 lazy routes, build emits 330 chunks; measure first-load on a phone still owner-side) |
+| P-24 | Org scoping as enforcement | Owner's review 22 Aug: 14 of 30 repositories do not extend `ScopedRepository`; 131 hand-written `sql` blocks carry no literal `org_id` (mostly fragments that receive it). No leak found; the invariant is convention. Owner decided 22 Aug: an ESLint rule that fails any repository class not extending `ScopedRepository` and any raw `sql` block in a repository without an `org_id` parameter; migrate the 14 repositories over. The build fails, not the reviewer | Platform | Decided: lint rule + migration | Done (packages/config/eslint-org-scope.js + org-scope-rule.test.ts pins the table list both ways; all repositories org-bound) |
+| P-25 | Cross-org isolation coverage | Owner's review 22 Aug: 12 test files cover isolation for 283 routes. Add a per-module isolation test that walks every route as a second org | QA | No | Done (platform/rbac/cross-org-isolation.test.ts walks every list route as a second org) |
 | P-26 | Packing slip A5/A4 + barcode | Its own paper: ship-to large, Box i of N, write-in LR/transporter/vehicle, handling marks as glyphs switched on per organisation in the Design rail (fragile, this side up, keep dry, do not stack, heavy, open with care — owner 22 Aug), Code 128 of the slip number in header and foot; the delivery note prints on the same paper with its LR, transport and destination filled in; `paperSize` on the design (A5 default for the slip, chosen in the Design rail); the print route prints one sheet per box and sets @page to match. Encoder in shared, unit-tested. Verified in headless Chromium: A5 = 559×794 px, two barcodes, @page A5 | Documents | Decided | Done |
 | P-27 | Dispatch life | shipped → delivered: `POST /dispatches/:id/deliver` (receiver, note, photograph as a multipart part; 400 without, 409 twice), attachment kind `delivery`, audit `sales.dispatch.delivered`, notices carry their `event`; `GET /packs/by-slip/:number` resolves a scanned slip. Migration 0048. 'Ship' stays the existing create-dispatch step, reached from the scan | Sales | Decided | Done |
 | P-28 | Scan to ship | `/sales/scan` (Sales › Fulfilment, sales.document.create): camera with the native BarcodeDetector, @zxing/browser loaded only on iPhone Safari, typed-number fallback when the camera is refused; the slip resolves to its pack and order with Ship / Deliver locally opening the dispatch form; the dispatch page gains the door step (Mark delivered: receiver, note, photograph). The order shows the owner's four steps — Picked, Packed, Shipped, Delivered — with the one verb that moves it and Print slips beside it; the packed toast offers Print slips; Pick queue and Dispatches carry Scan a slip | Sales | Done | Done |
@@ -39,7 +58,7 @@ Purchase going live). Updated as work lands.
 | P-30 | WhatsApp click-to-send | 'Send on WhatsApp' on a pending WhatsApp notice opens wa.me with the message typed (Indian numbers get their country code) and marks it sent; the dispatched and delivered notices both get one | Sales | Decided | Done |
 | P-31 | Picking step | `picked_qty` per line (ordered → picked → packed → invoiced → dispatched, check chain); `pick_records`; Pick action on the pick queue; Pack limited to picked; four-step bar uses real Picked (D-48) | Sales | Decided | Done |
 | P-32 | Per-line fulfilment status | fully / partially (X of Y) / none per stage — on the order per line, the orders-list roll-up, the pick-queue and Packed lists (D-48) | Sales | Decided | Done |
-| P-33 | Per-order fulfilment report | Every order, its lines, where each sits; exportable (D-48). The per-line state is on the screens (P-32) and `order-fill-rate` reports it per customer, but there is no order-by-line report to export | Reports | Decided | Not started |
+| P-33 | Per-order fulfilment report | Every order, its lines, where each sits; exportable (D-48). The per-line state is on the screens (P-32) and `order-fill-rate` reports it per customer, but there is no order-by-line report to export | Reports | Decided | Done (order-fulfilment report: every order, line by line, with state; exportable) |
 | P-34 | Item / Customer / Vendor lifecycle | Item: orders, packs, dispatches, POs, GRNs; Customer: orders → packs → invoices → dispatches → payments; Vendor: POs → GRNs → items; reachable by clicking the entity anywhere (D-48) | Platform | Decided | Done |
 
 Notes:

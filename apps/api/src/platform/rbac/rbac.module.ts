@@ -10,6 +10,7 @@ import { RoleService } from './role.service.js';
 import { RoleSoftDeletes } from './role-soft-deletes.js';
 import { RoutePolicyAudit } from './route-policy.audit.js';
 import { ScopeService } from './scope.service.js';
+import { SystemRoleSyncService } from './system-role-sync.service.js';
 
 /**
  * Global for the same reason `DbModule` is: attendance, CRM, and ERP will all
@@ -28,6 +29,7 @@ import { ScopeService } from './scope.service.js';
   providers: [
     AccessGuard,
     AccessWindowService,
+    SystemRoleSyncService,
     PrincipalService,
     ScopeService,
     RbacAdminService,

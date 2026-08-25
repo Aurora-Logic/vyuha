@@ -160,7 +160,7 @@ function DepartmentsTab() {
   const resetPage = useResetPage();
   const [sheet, setSheet] = useState<DepartmentSummary | 'new' | null>(null);
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
-  const { sort, activeSort, onSortChange } = useUrlSort(MASTER_SORT_FIELDS);
+  const { sort } = useUrlSort(MASTER_SORT_FIELDS);
 
   const query = useDepartmentList({ q: search.trim(), page, ...(sort ? { sort } : {}) });
   const rows = query.data?.data ?? [];

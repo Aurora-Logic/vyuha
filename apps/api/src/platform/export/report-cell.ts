@@ -79,13 +79,31 @@ export function formatInstant(iso: string, timezone: string, withSeconds: boolea
   return withSeconds ? `${base}:${at('second')}` : base;
 }
 
+/*
+ * Hand-rolled rather than date-fns: it is not an api dependency, and five
+ * fixed formats do not justify adding one for twelve English abbreviations.
+ */
+const MONTH_ABBREVIATIONS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
 /**
  * A `YYYY-MM-DD` calendar date in the organisation's format (REQ-L-01).
  *
- * Two patterns are understood and anything else falls back to the stored form.
- * The alternative -- pulling in a formatting library on the server for one
- * column type -- is a dependency, and the two patterns are the two the product
- * offers.
+ * The five patterns are the five the org setting offers, and anything else
+ * falls back to the stored form. The alternative -- pulling in a formatting
+ * library on the server for one column type -- is a dependency.
  */
 export function formatCalendarDate(value: string, dateFormat: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
@@ -93,6 +111,13 @@ export function formatCalendarDate(value: string, dateFormat: string): string {
   const [, year = '', month = '', day = ''] = match;
   if (dateFormat === 'dd-MM-yyyy') return `${day}-${month}-${year}`;
   if (dateFormat === 'dd/MM/yyyy') return `${day}/${month}/${year}`;
+  if (dateFormat === 'yyyy-MM-dd') return value;
+  if (dateFormat === 'MM/dd/yyyy') return `${month}/${day}/${year}`;
+  if (dateFormat === 'dd MMM yyyy') {
+    const monthName = MONTH_ABBREVIATIONS[Number(month) - 1];
+    // A month outside 01-12 is not a calendar date; keep the stored form.
+    return monthName === undefined ? value : `${day} ${monthName} ${year}`;
+  }
   return value;
 }
 

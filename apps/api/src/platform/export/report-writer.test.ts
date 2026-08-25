@@ -39,6 +39,10 @@ describe('cell formatting', () => {
   it('writes a calendar date in the organisation format', () => {
     expect(formatCalendarDate('2026-08-12', 'dd-MM-yyyy')).toBe('12-08-2026');
     expect(formatCalendarDate('2026-08-12', 'dd/MM/yyyy')).toBe('12/08/2026');
+    expect(formatCalendarDate('2026-08-12', 'yyyy-MM-dd')).toBe('2026-08-12');
+    expect(formatCalendarDate('2026-08-12', 'MM/dd/yyyy')).toBe('08/12/2026');
+    // The day stays zero-padded so a column of dates keeps one width.
+    expect(formatCalendarDate('2026-08-01', 'dd MMM yyyy')).toBe('01 Aug 2026');
     // An unknown pattern keeps the unambiguous stored form rather than guessing.
     expect(formatCalendarDate('2026-08-12', 'MMMM do')).toBe('2026-08-12');
     expect(formatCalendarDate('rubbish', 'dd-MM-yyyy')).toBe('rubbish');

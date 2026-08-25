@@ -11,6 +11,12 @@ import { pageQuerySchema } from './pagination.js';
  * the accountant creates customers, and appears here on the next pull.
  */
 
+/** The relationship manager on a customer: the employee, named for display. */
+export interface PartyManager {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface PartyView {
   readonly id: string;
   readonly connectionId: string;
@@ -31,9 +37,15 @@ export interface PartyView {
   readonly absentInTally: boolean;
   /** REQ-Y-07's habit, started early: every projected figure says its age. */
   readonly lastPulledAt: string;
+  /** The relationship manager who owns this customer, when one is assigned. */
+  readonly manager: PartyManager | null;
   /** 15 REQ-AO-06: set when the record sits in an open duplicate cluster. */
   readonly duplicate: DuplicateFlag | null;
 }
+
+/** The columns the parties register orders by; a header and a `?sort=` term are the same word. */
+export const PARTY_SORT_FIELDS = ['name', 'creditLimit', 'creditDays'] as const;
+export const DEFAULT_PARTY_SORT = 'name';
 
 export const partyListQuerySchema = pageQuerySchema.extend({
   /** Free text over name, alias and GSTIN. */
@@ -42,9 +54,22 @@ export const partyListQuerySchema = pageQuerySchema.extend({
   parentGroup: z.string().trim().min(1).max(120).optional(),
   /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
   connectionId: z.string().uuid().optional(),
+  /** `field` or `-field` from PARTY_SORT_FIELDS; an unknown term is dropped, not a 400. */
+  sort: z.string().trim().max(60).optional(),
+  /** "My customers": scope to the parties the caller is the relationship manager on. */
+  mine: z.coerce.boolean().optional(),
+  /** Filter to one relationship manager's book (an employee id). */
+  managerId: z.string().uuid().optional(),
 });
 
 export type PartyListQuery = z.infer<typeof partyListQuerySchema>;
+
+/** Set or clear a customer's relationship manager (REQ: parties.rm.assign). */
+export const assignPartyManagerSchema = z.object({
+  /** The employee to make relationship manager, or null to clear it. */
+  managerId: z.string().uuid().nullable(),
+});
+export type AssignPartyManagerInput = z.infer<typeof assignPartyManagerSchema>;
 
 export interface StockItemView {
   readonly id: string;
@@ -65,6 +90,10 @@ export interface StockItemView {
   readonly duplicate: DuplicateFlag | null;
 }
 
+/** The columns the stock-items register orders by. */
+export const STOCK_ITEM_SORT_FIELDS = ['name', 'gstRate'] as const;
+export const DEFAULT_STOCK_ITEM_SORT = 'name';
+
 export const stockItemListQuerySchema = pageQuerySchema.extend({
   /** Free text over name and alias. */
   q: z.string().trim().min(1).max(80).optional(),
@@ -72,6 +101,8 @@ export const stockItemListQuerySchema = pageQuerySchema.extend({
   parentGroup: z.string().trim().min(1).max(120).optional(),
   /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
   connectionId: z.string().uuid().optional(),
+  /** `field` or `-field` from STOCK_ITEM_SORT_FIELDS; an unknown term is dropped, not a 400. */
+  sort: z.string().trim().max(60).optional(),
 });
 
 export type StockItemListQuery = z.infer<typeof stockItemListQuerySchema>;

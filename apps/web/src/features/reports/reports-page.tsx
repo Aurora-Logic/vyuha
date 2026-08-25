@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ArrowDownIcon,
+  ArrowLeftIcon,
   ArrowUpIcon,
   CalendarPlusIcon,
   CaretDownIcon,
@@ -95,12 +96,13 @@ import { useParties } from '@/features/masters/use-parties';
 
 import { useChartIntro } from '@/components/shared/use-chart-motion';
 
+import { CategoryChip } from './category-chip';
 import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
 import { GenericReportChart, ReportChart, type ChartDrill } from './report-charts';
 import { chartKindOf, primaryNumericColumn } from './report-series';
 import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from '@/lib/period-compare';
-import { ReportFilterBar, type ReportFilterState } from './filter-bar';
+import { PeriodField, ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf, toDateParam } from './period';
 import { ScheduleDialog } from './schedule-dialog';
 import { isNumericColumn, renderCell } from './format';
@@ -215,6 +217,65 @@ function ReportSwitcher({
         </Command>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The sort as a control, not only a column header. On a phone the headers are
+ * gone (PRD §6.5's stacked rows), and on a desk the toolbar's second row says
+ * how the table reads; both draw this one element, so the two surfaces cannot
+ * disagree about which fields may be sorted. Renders nothing when the report
+ * declares no sortable column, rather than a control that quietly does nothing.
+ */
+function SortControl({
+  definition,
+  sort,
+  onSortChange,
+  triggerClassName,
+}: {
+  definition: ReportDefinition | undefined;
+  sort: string;
+  onSortChange: (next: string) => void;
+  triggerClassName: string;
+}) {
+  if (definition === undefined || !definition.columns.some((column) => column.sortField !== undefined)) {
+    return null;
+  }
+  const field = sort.startsWith('-') ? sort.slice(1) : sort;
+  return (
+    <div className="flex items-center gap-1.5">
+      <Select
+        value={field}
+        onValueChange={(value: string | null) => {
+          if (value !== null) onSortChange(sort === `-${value}` ? `-${value}` : value);
+        }}
+      >
+        <SelectTrigger className={triggerClassName} aria-label="Sort by">
+          <SelectValue>
+            {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {definition.columns
+            .filter((column) => column.sortField !== undefined)
+            .map((column) => (
+              <SelectItem key={column.sortField} value={column.sortField ?? ''}>
+                {column.header}
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
+      <Button
+        variant="outline"
+        size="icon-sm"
+        aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
+        onClick={() => {
+          if (field) onSortChange(sort.startsWith('-') ? field : `-${field}`);
+        }}
+      >
+        {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
+      </Button>
+    </div>
   );
 }
 
@@ -391,6 +452,23 @@ export function ReportsPage() {
   function setSort(next: string) {
     patchParams((params) => {
       params.set('sort', next);
+    });
+  }
+
+  /**
+   * Back to the hub. The period survives the trip -- coming back to browse
+   * and opening the next report must not reset the dates the reader chose --
+   * while the rest of the query is this report's alone and is dropped for
+   * the reason `switchReport` gives.
+   */
+  function backToHub() {
+    setSearchParams((current) => {
+      const params = new URLSearchParams();
+      for (const key of ['from', 'to'] as const) {
+        const value = current.get(key);
+        if (value !== null) params.set(key, value);
+      }
+      return params;
     });
   }
 
@@ -730,7 +808,24 @@ export function ReportsPage() {
       : { [filters.partyId]: partyOptions.find((option) => option.id === filters.partyId)?.label ?? filters.partyId };
   const captions = describeFilters(exportFilters, filterNames, formatDate);
 
-  if (browsing) return <ReportCatalogue reports={catalogue.data ?? []} loading={catalogue.isPending} />;
+  if (browsing) {
+    return (
+      <ReportCatalogue
+        reports={catalogue.data ?? []}
+        loading={catalogue.isPending}
+        error={
+          catalogue.isError
+            ? {
+                message: catalogue.error.message,
+                retry: () => {
+                  void catalogue.refetch();
+                },
+              }
+            : null
+        }
+      />
+    );
+  }
 
   // Rendered in the phone row and in the desktop bar; one element each, so
   // the two surfaces cannot drift apart in what they offer.
@@ -769,34 +864,15 @@ export function ReportsPage() {
     />
   );
 
-  return (
-    <>
-      <PageHeader
-        eyebrow={definition?.category}
-        // The report's name is the title, and the title is the switcher:
-        // one element says what this is and lets you change it (Ctrl+G).
-        title={
-          <Button
-            variant="ghost"
-            className="-ml-2.5 h-auto gap-1.5 px-2.5 py-1 text-base font-semibold"
-            onClick={() => {
-              setSwitcherOpen(true);
-            }}
-          >
-            {definition?.label ?? 'Report'}
-            <CaretDownIcon className="text-muted-foreground" />
-            <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
-          </Button>
-        }
-        description={definition?.description ?? 'Every report shares one shell.'}
-        action={
-          <>
-            {/*
-              REQ-J-03 is titled "Excel export", so Excel is what the button
-              does and CSV is the alternative behind the caret -- rather than a
-              format Select the reader has to set before every export. Alt+E
-              takes the primary action, which is the whole point of a default.
-            */}
+  /*
+   * REQ-J-03 is titled "Excel export", so Excel is what the button does and
+   * CSV is the alternative behind the caret -- rather than a format Select
+   * the reader has to set before every export. Alt+E takes the primary
+   * action, which is the whole point of a default. One element -- the header
+   * on a phone, the end of the toolbar's second row on a desk -- so the two
+   * surfaces cannot drift in what they offer.
+   */
+  const exportControl = (
             <ButtonGroup>
               <Button
                 className="gap-2"
@@ -870,9 +946,54 @@ export function ReportsPage() {
               </DropdownMenu>
               )}
             </ButtonGroup>
-          </>
-        }
-      />
+  );
+
+  return (
+    <>
+      {/* The report's identity, above the toolbar (owner, 25 Aug): what it
+          is, which shelf it came from, what it answers -- and the way back to
+          the hub. One block, no card (CLAUDE.md §3). */}
+      <div className="flex flex-col gap-1">
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground -ml-2"
+            onClick={backToHub}
+          >
+            <ArrowLeftIcon data-icon="inline-start" />
+            All reports
+          </Button>
+        </div>
+        <PageHeader
+          // The report's name is the title, and the title is the switcher:
+          // one element says what this is and lets you change it (Ctrl+G).
+          title={
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <Button
+                variant="ghost"
+                className="-ml-2.5 h-auto gap-1.5 px-2.5 py-1 text-base font-semibold"
+                onClick={() => {
+                  setSwitcherOpen(true);
+                }}
+              >
+                {definition?.label ?? 'Report'}
+                <CaretDownIcon className="text-muted-foreground" />
+                <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
+              </Button>
+              {definition === undefined ? null : <CategoryChip category={definition.category} />}
+            </span>
+          }
+          // On a desk the export closes the toolbar's second row instead,
+          // beside the other controls that shape the reading.
+          action={isMobile ? exportControl : undefined}
+        />
+        {/* Not PageHeader's description: the identity block clamps it, so a
+            two-sentence gloss cannot push the toolbar below the fold. */}
+        <p className="text-muted-foreground line-clamp-2 max-w-prose text-sm">
+          {definition?.description ?? 'Every report shares one shell.'}
+        </p>
+      </div>
 
       <div className="flex flex-col gap-4">
         {!canExport ? (
@@ -1008,71 +1129,36 @@ export function ReportsPage() {
                     </Select>
                   </div>
                 ) : null}
-                {definition !== undefined && definition.columns.some((column) => column.sortField !== undefined) ? (
-                  <div className="flex items-center gap-1.5">
-                    <Select
-                      value={sort.startsWith('-') ? sort.slice(1) : sort}
-                      onValueChange={(value: string | null) => {
-                        if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
-                      }}
-                    >
-                      <SelectTrigger className="flex-1" aria-label="Sort by">
-                        <SelectValue>
-                          {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {definition.columns
-                          .filter((column) => column.sortField !== undefined)
-                          .map((column) => (
-                            <SelectItem key={column.sortField} value={column.sortField ?? ''}>
-                              {column.header}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
-                      onClick={() => {
-                        const field = sort.startsWith('-') ? sort.slice(1) : sort;
-                        if (field) setSort(sort.startsWith('-') ? field : `-${field}`);
-                      }}
-                    >
-                      {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
-                    </Button>
-                  </div>
-                ) : null}
+                <SortControl
+                  definition={definition}
+                  sort={sort}
+                  onSortChange={setSort}
+                  triggerClassName="flex-1"
+                />
               </div>
             </SheetContent>
           </Sheet>
         </div>
         ) : null}
 
-        {/* One control bar on a desk (PRD §6.2): the period and the report's
-            own filters on the left; what shapes the reading -- granularity,
-            comparison, saved views, columns and the table/chart choice -- on
-            the right. It used to be three rows before the first figure. */}
+        {/* Two quiet rows on a desk (owner, 25 Aug). The first says what the
+            data covers: the period, the comparison against another one, and
+            the saved views that name such coverages. The second says how it
+            reads: filters, sort, columns, table or chart, and the export that
+            carries the reading out. One row holding all of it at once was the
+            "unorganised" the owner named. */}
         {isMobile ? null : (
         <div className="hidden flex-col gap-2 md:flex">
           <div className="flex flex-wrap items-center gap-2">
-            <ReportFilterBar
-              available={definition?.filters ?? []}
-              periodMode={periodMode}
-              value={filters}
-              onChange={setFilters}
-              departments={departments.data ?? []}
-              locations={locations.data ?? []}
-              canReadParties={canReadParties}
-              periodOpen={periodOpen}
-              onPeriodOpenChange={setPeriodOpen}
-              onClear={clearFilters}
-              isFiltered={isFiltered}
-            />
-            <div className="ml-auto flex flex-wrap items-center gap-2">
               {hasPeriod ? (
                 <>
+                  <PeriodField
+                    mode={periodMode}
+                    value={filters.period}
+                    onChange={setFilters}
+                    open={periodOpen}
+                    onOpenChange={setPeriodOpen}
+                  />
                   <Select
                     value={granularity ?? 'custom'}
                     onValueChange={(value: string | null) => {
@@ -1120,7 +1206,32 @@ export function ReportsPage() {
                   </Select>
                 </>
               ) : null}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               {savedViewsControl}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportFilterBar
+              available={definition?.filters ?? []}
+              periodMode={periodMode}
+              value={filters}
+              onChange={setFilters}
+              departments={departments.data ?? []}
+              locations={locations.data ?? []}
+              canReadParties={canReadParties}
+              periodOpen={periodOpen}
+              onPeriodOpenChange={setPeriodOpen}
+              onClear={clearFilters}
+              isFiltered={isFiltered}
+              hidePeriod
+            />
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <SortControl
+                definition={definition}
+                sort={sort}
+                onSortChange={setSort}
+                triggerClassName="w-44"
+              />
               {columnChooserControl}
               {chartKind !== 'none' ? (
                 <ToggleGroup
@@ -1146,6 +1257,7 @@ export function ReportsPage() {
                   </ToggleGroupItem>
                 </ToggleGroup>
               ) : null}
+              {exportControl}
             </div>
           </div>
           {hasPeriod ? (

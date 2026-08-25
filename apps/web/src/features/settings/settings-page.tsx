@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { format } from 'date-fns';
 import {
   BuildingsIcon,
   ClockIcon,
@@ -52,7 +53,7 @@ import { PurchaseSettingsPanel } from '@/features/purchase/purchase-settings-pan
 import { SalesSettingsPanel } from '@/features/sales/sales-settings-panel';
 
 import { AppearancePanel } from './appearance-panel';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 
 import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField, ReturnReasonsField } from './policy-fields';
 import {
@@ -60,10 +61,16 @@ import {
   DEVICE_BINDING_LABELS,
   GEOFENCE_BEHAVIOURS,
   GEOFENCE_LABELS,
+  INTEREST_DAY_BASES,
+  INTEREST_RECEIVABLE_BASES,
+  INTEREST_RECEIVABLE_BASE_LABELS,
+  INTEREST_STOCK_CLOCK_LABELS,
+  INTEREST_STOCK_CLOCK_STARTS,
   MONTH_LABELS,
   TIMEZONE_OPTIONS,
   WEEKDAY_LABELS,
   type AttendancePolicy,
+  type InterestPolicy,
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
@@ -102,6 +109,7 @@ interface Draft {
   retention: RetentionPolicy;
   duplicates: DuplicatesPolicy;
   returns: ReturnReasonsPolicy;
+  interest: InterestPolicy;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -115,6 +123,7 @@ function draftOf(settings: OrgSettings): Draft {
     retention: settings.retention,
     duplicates: settings.duplicates,
     returns: settings.returns,
+    interest: settings.interest,
   };
 }
 
@@ -149,6 +158,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   if (!sameGroup(draft.retention, saved.retention)) patch.retention = draft.retention;
   if (!sameGroup(draft.duplicates, saved.duplicates)) patch.duplicates = draft.duplicates;
   if (!sameGroup(draft.returns, saved.returns)) patch.returns = draft.returns;
+  if (!sameGroup(draft.interest, saved.interest)) patch.interest = draft.interest;
 
   return patch;
 }
@@ -298,6 +308,9 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
   // more than the current value: "what is the retention now" is on the screen,
   // and "who shortened it, and when" is the question a purged photo raises.
   const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
+  // The per-party overrides screen needs its own key, so the link to it hides
+  // with the screen rather than leading to a refusal.
+  const canConfigureInterest = usePermission(PERMISSIONS.INTEREST_CONFIGURE);
 
   const patch = patchOf(draft, saved);
   const officeWrite = office.write;
@@ -384,6 +397,9 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
 
   function patchDuplicates(next: Partial<DuplicatesPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, duplicates: { ...current.duplicates, ...next } }));
+  }
+  function patchInterest(next: Partial<InterestPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, interest: { ...current.interest, ...next } }));
   }
   function patchSecurity(next: Partial<SecurityPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
@@ -578,7 +594,8 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 id="org-date-format"
                 label="Date format"
                 value={draft.organisation.dateFormat}
-                options={DATE_FORMATS.map((value) => ({ value, label: value }))}
+                // A rendered sample, not the pattern: a day past 12 shows the day/month order.
+                options={DATE_FORMATS.map((value) => ({ value, label: format(new Date(2026, 11, 31), value) }))}
                 help="How dates are written on screen and in exports."
                 onValueChange={(next) => {
                   patchOrganisation({ dateFormat: next });
@@ -688,6 +705,117 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 }}
               />
             </FieldGroup>
+          </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Interest cost" note="What blocked working capital costs, priced from the daily closing series (D-22). Receivables are voucher-grain until Tally bill marks arrive; stock is on a purchase cost basis." />
+            <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <PolicyNumberField
+                id="interest-annual-rate"
+                label="Annual rate"
+                unit="% per annum"
+                help="Applied to every rupee-day of blocked working capital. Seeded at 12.00; a party override beats it."
+                min={0}
+                max={100}
+                value={draft.interest.annualRatePct}
+                enforcedBy={saved.enforcement.interest.annualRatePct}
+                onValueChange={(next) => {
+                  patchInterest({ annualRatePct: next });
+                }}
+              />
+
+              <PolicyChoiceField
+                id="interest-day-basis"
+                label="Days in the interest year"
+                value={String(draft.interest.dayBasis)}
+                options={INTEREST_DAY_BASES.map((value) => ({
+                  value: String(value),
+                  label: value === 360 ? '360 (bank convention)' : '365',
+                }))}
+                enforcedBy={saved.enforcement.interest.dayBasis}
+                onValueChange={(next) => {
+                  patchInterest({ dayBasis: next === '360' ? 360 : 365 });
+                }}
+              />
+
+              <PolicyChoiceField
+                id="interest-receivable-base"
+                label="A receivable bill is"
+                value={draft.interest.receivableBase}
+                options={INTEREST_RECEIVABLE_BASES.map((value) => ({
+                  value,
+                  label: INTEREST_RECEIVABLE_BASE_LABELS[value],
+                }))}
+                help="Bill-wise marks have no writer yet, so vouchers settled oldest-first are the honest grain today."
+                enforcedBy={saved.enforcement.interest.receivableBase}
+                onValueChange={(next) => {
+                  patchInterest({ receivableBase: next });
+                }}
+              />
+
+              <PolicyChoiceField
+                id="interest-stock-clock"
+                label="Stock starts costing interest"
+                value={draft.interest.stockClockStart}
+                options={INTEREST_STOCK_CLOCK_STARTS.map((value) => ({
+                  value,
+                  label: INTEREST_STOCK_CLOCK_LABELS[value],
+                }))}
+                help="Until the vendor is due, their money funds the shelf, not yours."
+                enforcedBy={saved.enforcement.interest.stockClockStart}
+                onValueChange={(next) => {
+                  patchInterest({ stockClockStart: next });
+                }}
+              />
+
+              <PolicyToggleField
+                id="interest-include-gst"
+                label="Fund GST paid on purchases"
+                help="Off in v1 (D-22): interest is computed on the purchase value alone."
+                value={draft.interest.includeGstInStock}
+                enforcedBy={saved.enforcement.interest.includeGstInStock}
+                onValueChange={(next) => {
+                  patchInterest({ includeGstInStock: next });
+                }}
+              />
+
+              <PolicyNumberField
+                id="interest-recompute-window"
+                label="Recompute window"
+                unit="days back"
+                help="The nightly build recomputes this far back, so a backdated voucher is caught rather than trusted to a stale snapshot."
+                min={7}
+                max={365}
+                value={draft.interest.recomputeWindowDays}
+                enforcedBy={saved.enforcement.interest.recomputeWindowDays}
+                onValueChange={(next) => {
+                  patchInterest({ recomputeWindowDays: next });
+                }}
+              />
+
+              <PolicyNumberField
+                id="interest-non-moving"
+                label="Non-moving after"
+                unit="days"
+                help="Days without outward movement before an item is flagged non-moving in the stock interest report."
+                min={7}
+                max={365}
+                value={draft.interest.nonMovingDays}
+                enforcedBy={saved.enforcement.interest.nonMovingDays}
+                onValueChange={(next) => {
+                  patchInterest({ nonMovingDays: next });
+                }}
+              />
+            </FieldGroup>
+            {canConfigureInterest ? (
+              <p className="text-muted-foreground text-xs">
+                Per-party overrides — rate and credit days — live on{' '}
+                <Link to="/reports/interest-overrides" className="text-foreground font-medium underline-offset-4 hover:underline">
+                  their own screen
+                </Link>
+                , beside the parties whose credit terms are missing.
+              </p>
+            ) : null}
           </div>
           </div>
         </TabsContent>

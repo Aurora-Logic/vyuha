@@ -3,6 +3,18 @@ import type { Appearance } from '@vyuha/shared';
 import { sliceColours } from './slice-hues';
 
 /**
+ * System stacks for the workspace typeface, so a choice never fetches a font.
+ * `sans` keeps the app's own Inter ahead of the system fallback; the others
+ * are the same stacks the printed documents use, for one voice across both.
+ */
+const FONT_STACKS: Record<Appearance['font'], string> = {
+  sans: "'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  serif: "Georgia, 'Times New Roman', Times, serif",
+  humanist: "'Trebuchet MS', 'Gill Sans', Verdana, 'DejaVu Sans', sans-serif",
+  mono: "ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace",
+};
+
+/**
  * The workspace's appearance, applied to the document: four custom
  * properties and two data attributes on <html> that index.css derives
  * every accent and neutral from. This is the one place the product sets a
@@ -22,6 +34,7 @@ export function applyAppearance(root: HTMLElement, appearance: Appearance): void
       root.style.setProperty(`--slice-${mode}-${String(index + 1)}`, colour);
     }
   }
+  root.style.setProperty('--font-sans', FONT_STACKS[appearance.font]);
   root.dataset.base = appearance.base;
   root.dataset.density = appearance.density;
 }

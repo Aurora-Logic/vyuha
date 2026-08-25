@@ -74,6 +74,36 @@ export const collectorAssignments = pgTable(
   ],
 );
 
+/**
+ * The relationship manager who owns a customer end to end -- their sales and
+ * their collections. A Vyuha-owned assignment, deliberately not a column on the
+ * parties projection, which the Tally sync overwrites on every pull. One
+ * customer has one RM at a time; the RM is an employee who also holds a login,
+ * so their "my customers" views resolve from this table by their employee id.
+ * It sits beside collector_assignments rather than replacing it: a collector is
+ * a collections-only, period-and-target rotation; the RM is the standing owner.
+ */
+export const partyManagers = pgTable(
+  'party_managers',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id')
+      .notNull()
+      .references(() => parties.id, { onDelete: 'restrict' }),
+    managerId: uuid('manager_id')
+      .notNull()
+      .references(() => employees.id, { onDelete: 'restrict' }),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('party_managers_org_party_uq').on(t.orgId, t.partyId).where(ALIVE),
+    index('party_managers_org_manager_idx').on(t.orgId, t.managerId).where(ALIVE),
+  ],
+);
+
 export const reminderNotices = pgTable(
   'reminder_notices',
   {

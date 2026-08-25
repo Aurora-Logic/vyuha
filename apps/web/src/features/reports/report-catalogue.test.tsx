@@ -1,22 +1,28 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { REPORT_CATEGORIES, type ReportDefinition } from '@vyuha/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@/test-support/render-shell';
 
-import { CATEGORY_TONE } from './category-chip';
-import { useCatalogueViewStore } from './catalogue-view-store';
+import { CategoryChip, CATEGORY_TONE } from './category-chip';
 import { ReportCatalogue } from './report-catalogue';
 
+vi.mock('@/lib/api/client', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api/client')>('@/lib/api/client');
+  return { ...actual, apiRequest: vi.fn() };
+});
+
+const { apiRequest } = await import('@/lib/api/client');
+const request = vi.mocked(apiRequest);
+
 /**
- * Two views of one catalogue.
+ * The hub after the 25 Aug rebuild: shelves instead of a table.
  *
- * The property worth testing is not that each renders -- it is that they
- * render the *same* reports. A toggle where cards quietly show a different set
- * from the list is worse than having one view, because a person who cannot
- * find a report in cards has no reason to suspect the view rather than their
- * memory.
+ * What is worth pinning is the organisation itself — sections in the
+ * catalogue's order, search that narrows to a flat chip-labelled list, the
+ * sidebar's ?category= links landing on one shelf with a way back, and a
+ * "Recently used" row that exists exactly when there is history to show.
  */
 
 function report(key: string, label: string, category: ReportDefinition['category']): ReportDefinition {
@@ -31,73 +37,124 @@ function report(key: string, label: string, category: ReportDefinition['category
 
 const REPORTS = [
   report('daily-muster', 'Daily muster', 'Attendance'),
+  report('punch-audit', 'Punch audit', 'Attendance'),
   report('ageing', 'Ageing', 'Receivables'),
   report('low-stock', 'Below reorder level', 'Inventory'),
 ];
 
 beforeEach(() => {
-  useCatalogueViewStore.setState({ view: 'list' });
+  // No history unless a test says otherwise: the recent row must be earned.
+  request.mockResolvedValue({ data: [] });
 });
 
-describe('the report catalogue', () => {
-  it('shows every report in the list', () => {
+afterEach(() => {
+  request.mockReset();
+});
+
+describe('the report hub', () => {
+  it('shelves every report under its category heading, in catalogue order', () => {
     renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
+
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    // The catalogue's reading order, not the alphabet's -- and no empty
+    // shelf for a category this caller has no reports in.
+    expect(headings).toEqual(['Attendance', 'Receivables', 'Inventory']);
     for (const r of REPORTS) {
-      expect(screen.getAllByText(r.label).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: new RegExp(r.label, 'u') })).toBeTruthy();
     }
   });
 
-  it('shows the same reports as cards, each one a control', async () => {
-    renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
-
-    for (const r of REPORTS) {
-      // A card is a button, not a div with a handler: it takes focus, answers
-      // Enter, and announces what it opens.
-      const card = screen.getByRole('button', { name: new RegExp(r.label, 'u') });
-      expect(within(card).getByText(r.category)).toBeTruthy();
-    }
-  });
-
-  it('draws the same set in both views, so switching never hides a report', async () => {
-    renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
-    const inList = REPORTS.filter((r) => screen.getAllByText(r.label).length > 0).map((r) => r.key);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
-    const inCards = REPORTS.filter((r) => screen.queryAllByText(r.label).length > 0).map((r) => r.key);
-
-    expect(inCards).toEqual(inList);
-    expect(inCards).toHaveLength(REPORTS.length);
-  });
-
-  it('carries the search filter across a view change', async () => {
+  it('narrows to a flat list as you type, each match wearing its category chip', async () => {
     renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
     await userEvent.type(screen.getByLabelText('Search reports'), 'ageing');
-    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
 
-    // The filter belongs to the catalogue, not to a view. Losing it on toggle
-    // would send somebody back to a list of fifty.
-    expect(screen.getByRole('button', { name: /Ageing/u })).toBeTruthy();
+    const row = screen.getByRole('button', { name: /Ageing/u });
+    // No heading says Receivables in the flat results, so the row must.
+    expect(within(row).getByText('Receivables')).toBeTruthy();
     expect(screen.queryByText('Daily muster')).toBeNull();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
   });
 
-  it('says nothing matched, in whichever view is open', async () => {
+  it('finds a report by what it answers, not only by name', async () => {
     renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
+    await userEvent.type(screen.getByLabelText('Search reports'), 'what below reorder');
+
+    expect(screen.getByRole('button', { name: /Below reorder level/u })).toBeTruthy();
+    expect(screen.queryByText('Ageing')).toBeNull();
+  });
+
+  it('says nothing matched, rather than showing an empty surface', async () => {
+    renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
     await userEvent.type(screen.getByLabelText('Search reports'), 'zzzz');
 
-    // An empty grid with no words is indistinguishable from a broken filter.
     expect(screen.getByText('No report matches')).toBeTruthy();
   });
 
-  it('remembers the view, because re-picking it every visit is worse than no toggle', async () => {
-    const { unmount } = renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
-    expect(useCatalogueViewStore.getState().view).toBe('cards');
-    unmount();
+  it('honours the sidebar link to one category, with a way back to all', async () => {
+    renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />, {
+      route: '/reports?category=Receivables',
+    });
 
+    // One shelf, said out loud -- not a filter someone has to notice.
+    expect(screen.getByText('Showing Receivables only.')).toBeTruthy();
+    expect(screen.getByText('Ageing')).toBeTruthy();
+    expect(screen.queryByText('Daily muster')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show all reports' }));
+    expect(screen.getByText('Daily muster')).toBeTruthy();
+    expect(screen.queryByText('Showing Receivables only.')).toBeNull();
+  });
+
+  it('shows the recently used row when there is history, newest habit first', async () => {
+    request.mockResolvedValue({ data: ['ageing', 'daily-muster'] });
     renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
-    expect(screen.getByRole('button', { name: /Ageing/u })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.getByText('Recently used')).toBeTruthy();
+    });
+    const rowLabel = screen.getByText('Recently used');
+    const chips = within(rowLabel.parentElement as HTMLElement).getAllByRole('button');
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Ageing', 'Daily muster']);
+  });
+
+  it('drops a recent key the catalogue no longer serves, never a dead chip', async () => {
+    // A key this client has never heard of, or one whose permission was
+    // withdrawn, must not become a chip that opens "not available".
+    request.mockResolvedValue({ data: ['retired-report', 'punch-audit'] });
+    renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Recently used')).toBeTruthy();
+    });
+    const rowLabel = screen.getByText('Recently used');
+    const chips = within(rowLabel.parentElement as HTMLElement).getAllByRole('button');
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Punch audit']);
+  });
+
+  it('renders no recent row at all for a person with no history', () => {
+    renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
+    // Absent entirely -- a labelled empty shell would tell a first-time
+    // visitor the feature is broken.
+    expect(screen.queryByText('Recently used')).toBeNull();
+  });
+
+  it('shows the loading skeleton while the catalogue is on its way', () => {
+    renderWithProviders(<ReportCatalogue reports={[]} loading />);
+    expect(screen.getByRole('status', { name: 'Loading the catalogue' })).toBeTruthy();
+  });
+
+  it('states a failed load, never "no report matches"', async () => {
+    // The two are different problems: one is the network, the other reads as
+    // "your role sees nothing", and sending someone to ask about permissions
+    // over a dropped connection wastes two people's morning.
+    const retry = vi.fn();
+    renderWithProviders(
+      <ReportCatalogue reports={[]} loading={false} error={{ message: 'The server is unreachable.', retry }} />,
+    );
+    expect(screen.getByText('The report list could not be loaded')).toBeTruthy();
+    expect(screen.queryByText('No report matches')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retry).toHaveBeenCalledOnce();
   });
 });
 
@@ -115,18 +172,15 @@ describe('category chips', () => {
     }
   });
 
-  it('keeps a category on its own colour whatever else is on screen', () => {
-    // Colour follows the entity, never its position. Filtering must not
-    // repaint the survivors.
-    const { unmount } = renderWithProviders(<ReportCatalogue reports={REPORTS} loading={false} />);
-    // The badge itself, not its table cell -- `parentElement` walked one too
-    // far and read the cell's padding classes.
-    const before = screen.getAllByText('Receivables')[0]?.className ?? '';
+  it('keeps a category on its own colour wherever the chip renders', () => {
+    // Colour follows the entity, never its position -- the chip in the hub's
+    // search results and the one in the report header must agree.
+    const { unmount } = renderWithProviders(<CategoryChip category="Receivables" />);
+    const before = screen.getByText('Receivables').className;
     unmount();
 
-    renderWithProviders(<ReportCatalogue reports={REPORTS.slice(1, 2)} loading={false} />);
-    const alone = screen.getAllByText('Receivables')[0]?.className ?? '';
-    expect(alone).toBe(before);
+    renderWithProviders(<CategoryChip category="Receivables" />);
+    expect(screen.getByText('Receivables').className).toBe(before);
     expect(before).toContain('amber');
   });
 

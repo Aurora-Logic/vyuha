@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DEFAULT_PARTY_SORT,
+  DEFAULT_STOCK_ITEM_SORT,
   DEFAULT_VOUCHER_SORT,
   pageSlice,
   paginated,
   parseSort,
+  PARTY_SORT_FIELDS,
+  STOCK_ITEM_SORT_FIELDS,
   VOUCHER_SORT_FIELDS,
   type Paginated,
   type PartyListQuery,
@@ -17,15 +21,16 @@ import {
   type VoucherListQuery,
   type VoucherTypeFacet,
   type VoucherView, type DuplicateFlag } from '@vyuha/shared';
-import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { type PgColumn } from 'drizzle-orm/pg-core';
 
+import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { DuplicatesService } from './duplicates.service.js';
-import { parties, priceListEntries, stockItems, voucherLines, vouchers } from '../db/schema/index.js';
-import { masterSearch } from '../org/master-query.js';
-import { type Principal } from '../rbac/principal.js';
+import { employees, parties, partyManagers, priceListEntries, stockItems, voucherLines, vouchers } from '../db/schema/index.js';
+import { masterOrderBy, masterSearch } from '../org/master-query.js';
+import { orgContextOf, type Principal } from '../rbac/principal.js';
 
 /**
  * Reads over the parties projection (REQ-R-01). Reads only — the projection
@@ -41,6 +46,7 @@ export class MastersService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly duplicates: DuplicatesService,
+    private readonly auditContext: AuditContext,
   ) {}
 
   private attachPartyFlags(orgId: string, views: readonly PartyView[]): Promise<PartyView[]> {
@@ -62,13 +68,14 @@ export class MastersService {
         .select()
         .from(parties)
         .where(where)
-        .orderBy(asc(parties.name), asc(parties.id))
+        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays }, parties.name, parties.id))
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(parties).where(where),
     ]);
 
-    return paginated(await this.attachPartyFlags(principal.orgId, rows.map(toView)), query, total[0]?.value ?? 0);
+    const flagged = await this.attachPartyFlags(principal.orgId, rows.map(toView));
+    return paginated(await this.attachManagers(principal.orgId, flagged), query, total[0]?.value ?? 0);
   }
 
   async findParty(principal: Principal, id: string): Promise<PartyView> {
@@ -80,7 +87,56 @@ export class MastersService {
     const row = rows[0];
     // Cross-org and non-existent are one answer, as everywhere else.
     if (row === undefined) throw AppError.notFound('Party', id);
-    return (await this.attachPartyFlags(principal.orgId, [toView(row)]))[0] ?? toView(row);
+    const flagged = (await this.attachPartyFlags(principal.orgId, [toView(row)]))[0] ?? toView(row);
+    return (await this.attachManagers(principal.orgId, [flagged]))[0] ?? flagged;
+  }
+
+  /** The relationship manager on each party, in one query, so a page is one round trip. */
+  private async attachManagers(orgId: string, views: PartyView[]): Promise<PartyView[]> {
+    if (views.length === 0) return views;
+    const rows = await this.db
+      .select({ partyId: partyManagers.partyId, managerId: employees.id, first: employees.firstName, last: employees.lastName })
+      .from(partyManagers)
+      .innerJoin(employees, eq(employees.id, partyManagers.managerId))
+      .where(and(eq(partyManagers.orgId, orgId), isNull(partyManagers.deletedAt), inArray(partyManagers.partyId, views.map((v) => v.id))));
+    const byParty = new Map(rows.map((r) => [r.partyId, { id: r.managerId, name: [r.first, r.last].filter((p) => p !== null && p !== '').join(' ') }]));
+    return views.map((view) => ({ ...view, manager: byParty.get(view.id) ?? null }));
+  }
+
+  /**
+   * Set or clear a customer's relationship manager (parties.rm.assign). A
+   * Vyuha-owned assignment: soft-close the current one and open the new, so the
+   * one-RM-per-party rule holds and the change is audited before-and-after.
+   */
+  async assignManager(principal: Principal, partyId: string, managerId: string | null): Promise<PartyView> {
+    const ctx = orgContextOf(principal);
+    // The party must exist in this org; cross-org and missing are one answer.
+    await this.findParty(principal, partyId);
+    let previous: { manager_id: string } | undefined;
+    await this.db.transaction(async (tx) => {
+      const prev = await tx
+        .execute<{ id: string; manager_id: string }>(sql`SELECT id, manager_id FROM party_managers WHERE org_id = ${ctx.orgId} AND party_id = ${partyId} AND deleted_at IS NULL`)
+        .then((r) => r.rows[0]);
+      previous = prev;
+      if (prev !== undefined) {
+        await tx.execute(sql`UPDATE party_managers SET deleted_at = now(), updated_at = now(), updated_by = ${ctx.actorUserId} WHERE id = ${prev.id}`);
+      }
+      if (managerId !== null) {
+        const emp = await tx
+          .execute<{ id: string }>(sql`SELECT id FROM employees WHERE org_id = ${ctx.orgId} AND id = ${managerId} AND deleted_at IS NULL`)
+          .then((r) => r.rows[0]);
+        if (emp === undefined) throw AppError.notFound('Employee', managerId);
+        await tx.execute(sql`INSERT INTO party_managers (org_id, party_id, manager_id, created_by, updated_by) VALUES (${ctx.orgId}, ${partyId}, ${managerId}, ${ctx.actorUserId}, ${ctx.actorUserId})`);
+      }
+    });
+    this.auditContext.record({
+      action: 'parties.rm.assigned',
+      entityType: 'party_manager',
+      entityId: partyId,
+      before: previous === undefined ? null : { managerId: previous.manager_id },
+      after: managerId === null ? null : { managerId },
+    });
+    return this.findParty(principal, partyId);
   }
 
   /** REQ-R-02, read side: same shape as parties, columns per the PRD's list. */
@@ -110,7 +166,7 @@ export class MastersService {
         .select()
         .from(stockItems)
         .where(where)
-        .orderBy(asc(stockItems.name), asc(stockItems.id))
+        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_STOCK_ITEM_SORT, STOCK_ITEM_SORT_FIELDS), { name: stockItems.name, gstRate: stockItems.gstRate }, stockItems.name, stockItems.id))
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(stockItems).where(where),
@@ -335,6 +391,15 @@ export class MastersService {
       parts.push(masterSearch(query.q, [parties.name, parties.alias, parties.gstin]));
     }
 
+    // "My customers", or a manager reviewing one RM's book: the parties that RM
+    // is assigned on. `mine` with no employee behind the login is an empty book.
+    const managerId = query.mine === true ? principal.employeeId : query.managerId;
+    if (query.mine === true && principal.employeeId === null) {
+      parts.push(sql`false`);
+    } else if (managerId !== undefined && managerId !== null) {
+      parts.push(sql`EXISTS (SELECT 1 FROM party_managers pm WHERE pm.org_id = ${principal.orgId} AND pm.party_id = ${parties.id} AND pm.manager_id = ${managerId} AND pm.deleted_at IS NULL)`);
+    }
+
     const predicate = and(...parts);
     if (predicate === undefined) {
       throw new Error('Party predicate collapsed to undefined; refusing an unscoped query.');
@@ -397,6 +462,7 @@ function toView(row: typeof parties.$inferSelect): PartyView {
     openingBalance: row.openingBalance,
     absentInTally: row.absentInTally,
     lastPulledAt: row.lastPulledAt.toISOString(),
+    manager: null,
     duplicate: null,
   };
 }

@@ -125,6 +125,34 @@ export const savedViews = pgTable(
   ],
 );
 
+/**
+ * Customisable dashboards (owner, 25 Aug 2026): which report tiles a board
+ * shows, per person. One row per (user, dashboard); no row means the shipped
+ * preset renders, so a reset is a soft delete rather than a write of the
+ * default -- the default lives in code, not in data.
+ */
+export const dashboardLayouts = pgTable(
+  'dashboard_layouts',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    dashboard: text('dashboard').notNull(),
+    config: jsonb('config').notNull(),
+    ...standardColumns(),
+  },
+  (t) => [
+    index('dashboard_layouts_lookup_idx').on(t.orgId, t.userId),
+    uniqueIndex('dashboard_layouts_unique_idx')
+      .on(t.orgId, t.userId, t.dashboard)
+      .where(sql`deleted_at IS NULL`),
+  ],
+);
+
 export const reportScheduleCadenceEnum = pgEnum('report_schedule_cadence', [
   'DAILY',
   'WEEKLY',

@@ -15,10 +15,13 @@ import {
   APPEARANCE_BASE_LABELS,
   APPEARANCE_DENSITIES,
   APPEARANCE_DENSITY_LABELS,
+  APPEARANCE_FONTS,
+  APPEARANCE_FONT_LABELS,
   DEFAULT_APPEARANCE,
   presetFor,
   type Appearance,
   type AppearanceBase,
+  type AppearanceFont,
 } from '@vyuha/shared';
 
 import { BASE_SWATCH, SWATCH } from './appearance-swatches';
@@ -209,6 +212,26 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
             ))}
           </ToggleGroup>
           <FieldDescription>Compact tightens spacing by a fifth; type stays its size and touch targets stay 44px.</FieldDescription>
+        </Field>
+
+        <Field>
+          <FieldLabel>Typeface</FieldLabel>
+          <ToggleGroup
+            variant="outline"
+            aria-label="Typeface"
+            value={[value.font]}
+            onValueChange={(next: string[]) => {
+              const font = next[0];
+              if (APPEARANCE_FONTS.includes(font as AppearanceFont)) onChange({ font: font as AppearanceFont });
+            }}
+          >
+            {APPEARANCE_FONTS.map((font) => (
+              <ToggleGroupItem key={font} value={font}>
+                {APPEARANCE_FONT_LABELS[font].label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <FieldDescription>The interface face, applied everywhere. System fonts, so nothing is fetched; figures stay monospaced where columns line up.</FieldDescription>
         </Field>
       </FieldGroup>
 

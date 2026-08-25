@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { PortalLinkPanel } from '@/features/portal/portal-link-panel';
+import { RmPanel } from './rm-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -162,6 +163,8 @@ export function PartyPage() {
           <dd className="tabular-nums">{party.openingBalance ? formatMoney(party.openingBalance) : EMPTY_VALUE}</dd>
         </dl>
       </section>
+
+      <RmPanel partyId={party.id} />
 
       <PortalLinkPanel partyId={party.id} partyName={party.name} />
 

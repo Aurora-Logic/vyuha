@@ -9,11 +9,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
 import {
   PERMISSIONS,
+  assignPartyManagerSchema,
   partyListQuerySchema,
   priceListListQuerySchema,
   stockItemListQuerySchema,
@@ -43,6 +45,7 @@ import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
+class AssignPartyManagerDto extends createZodDto(assignPartyManagerSchema) {}
 class LifecycleAnalyticsQueryDto extends createZodDto(lifecycleAnalyticsQuerySchema) {}
 class DuplicateClustersQueryDto extends createZodDto(duplicateClustersQuerySchema) {}
 class DismissDuplicateDto extends createZodDto(dismissDuplicateSchema) {}
@@ -79,6 +82,16 @@ export class MastersController {
     @Query() query: PartyListQueryDto,
   ): Promise<Paginated<PartyView>> {
     return this.masters.listParties(principal, query);
+  }
+
+  @Put('parties/:id/manager')
+  @RequirePermission(PERMISSIONS.PARTIES_RM_ASSIGN)
+  assignPartyManager(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AssignPartyManagerDto,
+  ): Promise<PartyView> {
+    return this.masters.assignManager(principal, id, body.managerId);
   }
 
   @Get('parties/:id')

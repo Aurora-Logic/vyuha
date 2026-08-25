@@ -118,7 +118,7 @@ export function DateField({
           <SheetContent side="bottom" className="max-h-[85vh] gap-0">
             <SheetHeader className="shrink-0 border-b">
               <SheetTitle>{label}</SheetTitle>
-              <SheetDescription>Dates are shown as dd-MM-yyyy.</SheetDescription>
+              <SheetDescription>{`Dates are shown as ${formatDate('2026-12-31')}.`}</SheetDescription>
             </SheetHeader>
 
             {/* min-h-0 is load-bearing: a flex child will not shrink below its

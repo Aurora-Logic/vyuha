@@ -24,6 +24,7 @@ interface VoucherRow {
   readonly amount: string;
   readonly date: string;
   readonly voucherType: string;
+  readonly partyName: string | null;
 }
 
 interface VoucherPage {

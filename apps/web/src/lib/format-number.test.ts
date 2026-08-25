@@ -2,11 +2,14 @@ import { DEFAULT_LOCALE } from '@vyuha/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  DATE_FORMAT,
   currencySymbol,
   formatAmount,
   formatCount,
+  formatDate,
   formatMoney,
   formatMoneyShort,
+  setWorkspaceDateFormat,
   setWorkspaceLocale,
 } from './format';
 
@@ -85,5 +88,29 @@ describe('money', () => {
     setWorkspaceLocale({ numberFormat: 'international', currencySymbol: 'Rs' });
     expect(formatMoney('1234567.5')).toBe('Rs1,234,567.50');
     expect(formatMoneyShort(4200)).toBe('Rs4.2k');
+  });
+});
+
+// Every date on screen is written by `formatDate`, from the workspace's
+// setting; a change in Settings changes what a table cell says, the same
+// contract the number formatters keep above.
+describe('workspace date format', () => {
+  afterEach(() => {
+    setWorkspaceDateFormat(DATE_FORMAT);
+  });
+
+  it('writes the organisation default until told otherwise', () => {
+    expect(formatDate('2026-08-01')).toBe('01-08-2026');
+  });
+
+  it('follows the workspace setting rather than hardcoding the pattern', () => {
+    setWorkspaceDateFormat('dd MMM yyyy');
+    expect(formatDate('2026-08-01')).toBe('01 Aug 2026');
+  });
+
+  it('keeps the em dash for the unset and the unparseable', () => {
+    setWorkspaceDateFormat('dd MMM yyyy');
+    expect(formatDate(null)).toBe('—');
+    expect(formatDate('not-a-date')).toBe('—');
   });
 });

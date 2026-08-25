@@ -18,7 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, findModuleForPath, type ModuleDef, type NavItem } from '@/lib/nav';
+import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, findModuleForPath, moduleVisibleFor, type NavItem } from '@/lib/nav';
 import { BOTTOM_NAV_SLOTS, useNavPreferencesStore } from '@/lib/nav-preferences-store';
 import { usePermissions } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -42,15 +42,12 @@ export function MobileBottomNav() {
   const granted = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
-  const byModule = useNavPreferencesStore((s) => s.bottomNavByModule);
+  const chosen = useNavPreferencesStore((s) => s.bottomNavRoutes);
 
   const [moreOpen, setMoreOpen] = useState(false);
   const [customiseOpen, setCustomiseOpen] = useState(false);
 
-  // The bar belongs to the module the screen belongs to: switch module and
-  // the four tabs switch with it, each module keeping its own preference.
   const module = findModuleForPath(location.pathname);
-  const chosen = Object.prototype.hasOwnProperty.call(byModule, module.id) ? (byModule[module.id] ?? null) : null;
 
   const permits = (item: NavItem) => !item.permission || granted.has(item.permission);
   const moduleItems = useMemo(
@@ -58,7 +55,7 @@ export function MobileBottomNav() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- permits closes over granted, which is the real dependency
     [module, granted],
   );
-  const visibleModules = useMemo(() => MODULES.filter((m) => !m.permission || granted.has(m.permission)), [granted]);
+  const visibleModules = useMemo(() => MODULES.filter((m) => moduleVisibleFor(m, granted)), [granted]);
   const elsewhere = useMemo(() => {
     // Administration and the inbox sit beside the modules, not inside one;
     // one entry per pathname, however many doors lead to it.
@@ -72,25 +69,44 @@ export function MobileBottomNav() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- permits closes over granted
   }, [moduleItems, granted]);
 
-  // A stored route the person can no longer reach is dropped rather than
-  // rendered as a dead tab: permissions change, and a bar remembered from a
-  // wider role must not outlive the access that justified it.
-  const primary = useMemo(() => {
-    const permittedRoutes = new Set(moduleItems.map((i) => i.to));
-    const fromPreference = (chosen ?? [])
-      .filter((route) => permittedRoutes.has(route))
-      .map((route) => moduleItems.find((i) => i.to === route))
-      .filter((i): i is NavItem => Boolean(i));
+  // D-20: the picker spans everything this person can reach -- every module's
+  // destinations plus the administration and inbox doors -- one entry per
+  // pathname, however many doors lead to it.
+  const sections = useMemo(() => {
+    const seen = new Set<string>();
+    const claim = (item: NavItem) => {
+      const pathname = item.to.split('?')[0] ?? item.to;
+      if (seen.has(pathname) || !permits(item)) return false;
+      seen.add(pathname);
+      return true;
+    };
+    const ofModules = visibleModules
+      .map((m) => ({ label: m.label, items: m.groups.flatMap((g) => g.items).filter(claim) }))
+      .filter((section) => section.items.length > 0);
+    const admin = [...TOP_BAR_ITEMS, ...ADMIN_GROUPS.flatMap((g) => g.items)].filter(claim);
+    return admin.length > 0 ? [...ofModules, { label: 'Administration and inbox', items: admin }] : ofModules;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- claim closes over granted via permits
+  }, [visibleModules, granted]);
+  const allDestinations = useMemo(() => sections.flatMap((section) => section.items), [sections]);
 
-    if (chosen !== null) return fromPreference.slice(0, BOTTOM_NAV_SLOTS);
-    // The module's own phone default first (what a hand on the floor needs),
-    // filtered to what this person may reach, then the first screens fill in.
+  const primary = useMemo(() => {
+    if (chosen !== null) {
+      // A stored route the person can no longer reach is dropped rather than
+      // rendered as a dead tab: permissions change, and a bar remembered from
+      // a wider role must not outlive the access that justified it.
+      return chosen
+        .map((route) => allDestinations.find((i) => i.to === route))
+        .filter((i): i is NavItem => Boolean(i))
+        .slice(0, BOTTOM_NAV_SLOTS);
+    }
+    // Never chosen: the bar follows the module -- its phone default first
+    // (what a hand on the floor needs), then the first screens fill in.
     const preferred = (module.phoneBar ?? [])
       .map((route) => moduleItems.find((i) => i.to === route))
       .filter((i): i is NavItem => Boolean(i));
     const rest = moduleItems.filter((i) => !preferred.includes(i));
     return [...preferred, ...rest].slice(0, BOTTOM_NAV_SLOTS);
-  }, [chosen, moduleItems, module.phoneBar]);
+  }, [chosen, allDestinations, moduleItems, module.phoneBar]);
 
   const primaryRoutes = new Set(primary.map((i) => i.to));
   const overflow = moduleItems.filter((item) => !primaryRoutes.has(item.to));
@@ -290,8 +306,7 @@ export function MobileBottomNav() {
       <CustomiseSheet
         open={customiseOpen}
         onOpenChange={setCustomiseOpen}
-        module={module}
-        permitted={moduleItems}
+        sections={sections}
         current={primary.map((i) => i.to)}
         onNavigateHome={() => {
           void navigate(module.home);
@@ -304,8 +319,7 @@ export function MobileBottomNav() {
 interface CustomiseSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  module: ModuleDef;
-  permitted: NavItem[];
+  sections: readonly { label: string; items: NavItem[] }[];
   current: string[];
   onNavigateHome: () => void;
 }
@@ -313,8 +327,7 @@ interface CustomiseSheetProps {
 function CustomiseSheet({
   open,
   onOpenChange,
-  module,
-  permitted,
+  sections,
   current,
   onNavigateHome,
 }: CustomiseSheetProps) {
@@ -350,39 +363,52 @@ function CustomiseSheet({
         <SheetHeader className="shrink-0 border-b">
           <SheetTitle>Customise the bar</SheetTitle>
           <SheetDescription>
-            Pick up to {BOTTOM_NAV_SLOTS} {module.label} destinations for the bottom bar. Each module keeps its own bar; everything else stays under More.
+            Pick up to {BOTTOM_NAV_SLOTS} destinations from any module. The bar stays the same on every screen; everything else waits under More.
           </SheetDescription>
         </SheetHeader>
 
         {/* Only this band scrolls, so the title above and the three actions
-            below stay put while sixteen tiles move past. */}
+            below stay put while the tiles move past. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {/* Same grid, same tile size, same columns as the More sheet: this
-              chooser and the list it edits show the same destinations, so they
-              should not disagree about what a destination looks like. */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {permitted.map((item) => {
-              const checked = draft.includes(item.to);
-              // A full bar disables the unchosen tiles rather than silently
-              // ignoring the tap, so the limit is visible before it is hit.
-              const disabled = !checked && full;
-              return (
-                <Button
-                  key={item.to}
-                  type="button"
-                  variant={checked ? 'default' : 'outline'}
-                  aria-pressed={checked}
-                  disabled={disabled}
-                  onClick={() => {
-                    toggle(item.to, !checked);
-                  }}
-                  className="h-auto min-h-11 justify-start gap-2 px-2 py-1.5 text-left whitespace-normal"
-                >
-                  <item.icon aria-hidden className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1 text-[0.75rem] leading-tight">{item.label}</span>
-                </Button>
-              );
-            })}
+          <div className="flex flex-col gap-4">
+            {sections.map((section) => (
+              <div key={section.label} className="flex flex-col gap-2">
+                {/* One section per module, named, so "Dispatches" found under
+                    Logistics reads as the same screen the sidebar offers there. */}
+                {sections.length > 1 ? (
+                  <p className="text-muted-foreground text-xs font-medium">{section.label}</p>
+                ) : null}
+                {/* Same grid, same tile size, same columns as the More sheet:
+                    this chooser and the list it edits show the same
+                    destinations, so they should not disagree about what a
+                    destination looks like. */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {section.items.map((item) => {
+                    const checked = draft.includes(item.to);
+                    // A full bar disables the unchosen tiles rather than
+                    // silently ignoring the tap, so the limit is visible
+                    // before it is hit.
+                    const disabled = !checked && full;
+                    return (
+                      <Button
+                        key={item.to}
+                        type="button"
+                        variant={checked ? 'default' : 'outline'}
+                        aria-pressed={checked}
+                        disabled={disabled}
+                        onClick={() => {
+                          toggle(item.to, !checked);
+                        }}
+                        className="h-auto min-h-11 justify-start gap-2 px-2 py-1.5 text-left whitespace-normal"
+                      >
+                        <item.icon aria-hidden className="size-4 shrink-0" />
+                        <span className="min-w-0 flex-1 text-[0.75rem] leading-tight">{item.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -404,7 +430,7 @@ function CustomiseSheet({
             variant="ghost"
             className="flex-1 sm:flex-none"
             onClick={() => {
-              resetBottomNav(module.id);
+              resetBottomNav();
               onOpenChange(false);
             }}
           >
@@ -424,7 +450,7 @@ function CustomiseSheet({
           <Button
             className="flex-1 sm:flex-none"
             onClick={() => {
-              setBottomNavRoutes(module.id, draft);
+              setBottomNavRoutes(draft);
               onOpenChange(false);
               // If the current screen just left the bar entirely, the person is
               // standing somewhere they can no longer see; take them home.

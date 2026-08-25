@@ -1,5 +1,5 @@
 import { duplicateFlagSchema } from '@/components/shared/duplicate-flag';
-import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { z } from 'zod';
 
@@ -25,6 +25,8 @@ export const partySchema = z.object({
   openingBalance: z.string().nullable(),
   absentInTally: z.boolean(),
   lastPulledAt: z.string(),
+  /** The relationship manager who owns this customer, when one is assigned. */
+  manager: z.object({ id: z.string(), name: z.string() }).nullable().default(null),
   // 15 REQ-AO-06: set when the record sits in an open duplicate cluster.
   duplicate: duplicateFlagSchema.nullable().default(null),
 });
@@ -54,6 +56,10 @@ export interface PartiesFilters {
   /** A term the server knows (MASTER_SORT_FIELDS), e.g. "-name" or "code". */
   sort?: string;
   connectionId?: string;
+  /** "My customers": the parties the caller is relationship manager on. */
+  mine?: boolean;
+  /** One relationship manager's book (an employee id), for a manager reviewing it. */
+  managerId?: string;
 }
 
 function partiesQuery(filters: PartiesFilters) {
@@ -62,6 +68,8 @@ function partiesQuery(filters: PartiesFilters) {
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   if (filters.sort) params.set('sort', filters.sort);
   if (filters.connectionId) params.set('connectionId', filters.connectionId);
+  if (filters.mine) params.set('mine', 'true');
+  if (filters.managerId) params.set('managerId', filters.managerId);
   const key = params.toString();
   return {
     queryKey: ['masters', 'parties', key] as const,
@@ -92,7 +100,7 @@ export function useParties(
   // page one and must not spend a request pre-loading a page nobody scrolls to.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, parentGroup, pageSize, connectionId } = filters;
+  const { page, q, parentGroup, pageSize, sort, connectionId, mine, managerId } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
@@ -101,13 +109,31 @@ export function useParties(
         ...(q ? { q } : {}),
         ...(parentGroup ? { parentGroup } : {}),
         ...(pageSize ? { pageSize } : {}),
+        ...(sort ? { sort } : {}),
         ...(connectionId ? { connectionId } : {}),
+        ...(mine ? { mine } : {}),
+        ...(managerId ? { managerId } : {}),
       }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, connectionId]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, sort, connectionId, mine, managerId]);
 
   return query;
+}
+
+/** Set or clear a customer's relationship manager (parties.rm.assign). */
+export function useAssignPartyManager(): UseMutationResult<Party, Error, { partyId: string; managerId: string | null }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ partyId, managerId }) => {
+      const body = await apiRequest<unknown>(`/masters/parties/${partyId}/manager`, { method: 'PUT', body: { managerId } });
+      return parseOrThrow(partySchema, body, 'party');
+    },
+    onSuccess: (party) => {
+      client.setQueryData(['masters', 'party', party.id], party);
+      void client.invalidateQueries({ queryKey: ['masters', 'parties'] });
+    },
+  });
 }
 
 /** One party, for a page that prints its address and GSTIN under the buyer's name. */

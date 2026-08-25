@@ -84,6 +84,7 @@ const LandingPage = lazy(() => import('@/features/dashboard/landing').then((m) =
    lived at this address for months, so the address is what moved, not the
    people using it. */
 const ReportsDashboardPage = lazy(() => import('@/features/reports/dashboard-v2').then((m) => ({ default: m.ReportsDashboardV2 })));
+const InterestOverridesPage = lazy(() => import('@/features/interest/overrides-page').then((m) => ({ default: m.InterestOverridesPage })));
 const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
 const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
 const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
@@ -230,6 +231,9 @@ export default function App() {
               {/* The comparison is over and this one won; the old link still
                   works rather than answering "not found". */}
               <Route path="reports/dashboard/v2" element={<Navigate to="/reports/dashboard" replace />} />
+              {/* D-22's per-party overrides: reached from the Interest cost
+                  section of Settings, not from the sidebar. */}
+              <Route path="reports/interest-overrides" element={<InterestOverridesPage />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />

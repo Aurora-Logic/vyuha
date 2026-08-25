@@ -95,6 +95,13 @@ interface FilterBarProps {
   onPeriodOpenChange: (open: boolean) => void;
   onClear: () => void;
   isFiltered: boolean;
+  /**
+   * The desktop toolbar draws the period on its own row -- what the data
+   * covers, apart from how it reads -- so it renders `PeriodField` itself and
+   * asks this bar for only the narrowing filters. The phone sheet keeps
+   * everything together and leaves this unset.
+   */
+  hidePeriod?: boolean;
 }
 
 function OptionSelect({
@@ -150,6 +157,7 @@ export function ReportFilterBar({
   onPeriodOpenChange,
   onClear,
   isFiltered,
+  hidePeriod = false,
 }: FilterBarProps) {
   const shows = (name: ReportFilterName) => available.includes(name);
 
@@ -236,7 +244,7 @@ export function ReportFilterBar({
         </Select>
       ) : null}
 
-      {shows('period') ? <PeriodField
+      {!hidePeriod && shows('period') ? <PeriodField
         mode={periodMode}
         value={value.period}
         onChange={onChange}
@@ -369,7 +377,7 @@ export function ReportFilterBar({
  * attendance feature (CLAUDE.md rule 1) -- on a phone each opens as a bottom
  * Sheet, and none of them is a native date input.
  */
-function PeriodField({
+export function PeriodField({
   mode,
   value,
   onChange,

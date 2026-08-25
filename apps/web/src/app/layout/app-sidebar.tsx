@@ -21,15 +21,11 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
-import { MODULES, findModuleForPath, type ModuleDef, type NavItem } from '@/lib/nav';
+import { MODULES, findModuleForPath, moduleVisibleFor, type ModuleDef, type NavItem } from '@/lib/nav';
 import { usePermissions } from '@/lib/session/permissions';
 
 function isVisible(item: NavItem, granted: ReadonlySet<string>): boolean {
   return !item.permission || granted.has(item.permission);
-}
-
-function moduleVisible(module: ModuleDef, granted: ReadonlySet<string>): boolean {
-  return !module.permission || granted.has(module.permission);
 }
 
 /**
@@ -85,7 +81,7 @@ export function AppSidebar() {
   const location = useLocation();
 
   const module = findModuleForPath(location.pathname);
-  const visibleModules = MODULES.filter((candidate) => moduleVisible(candidate, granted));
+  const visibleModules = MODULES.filter((candidate) => moduleVisibleFor(candidate, granted));
 
   return (
     <Sidebar collapsible="icon">

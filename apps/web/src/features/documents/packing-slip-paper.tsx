@@ -4,6 +4,7 @@ import { HANDLING_MARK_LABELS, code128, type DocumentDesign, type DocumentProfil
 
 import { HANDLING_MARK_ICONS } from '@/components/shared/entity-icons';
 
+import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import type { PaperModel } from './paper';
@@ -49,7 +50,7 @@ function Barcode({ value, className, label }: { value: string; className?: strin
 function formatPacked(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}, ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${formatDate(iso)}, ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 function Fact({ label, write = false, children }: { label: string; write?: boolean; children?: ReactNode }) {
@@ -431,7 +432,7 @@ function DispatchedBox({ ctx, big = false }: { ctx: SlipContext; big?: boolean }
   return (
     <div className={cn('flex flex-col items-center justify-center border-2 border-[#111] px-[4mm] py-[2mm] text-center', big ? 'min-w-[38mm]' : 'min-w-[30mm]')}>
       <span className="text-[7pt] font-bold tracking-[0.14em] uppercase">Dispatched</span>
-      <span className={cn('leading-tight font-bold tabular-nums', big ? 'text-[18pt]' : 'text-[13pt]', a4 && (big ? 'text-[22pt]' : 'text-[16pt]'))}>{model.date.split('-').reverse().join('-')}</span>
+      <span className={cn('leading-tight font-bold tabular-nums', big ? 'text-[18pt]' : 'text-[13pt]', a4 && (big ? 'text-[22pt]' : 'text-[16pt]'))}>{formatDate(model.date)}</span>
       <span className="text-[8pt] text-[#444]">{model.statusLabel ?? ''}</span>
     </div>
   );
@@ -451,7 +452,7 @@ function FactRow({ ctx }: { ctx: SlipContext }) {
         </Fact>
         <Fact label="Dispatched through" write={!(model.details.dispatchedThrough ?? '').trim()}>{model.details.dispatchedThrough ?? ''}</Fact>
         <Fact label="Destination" write={!(model.details.destination ?? '').trim()}>{model.details.destination ?? ''}</Fact>
-        {model.validUntil ? <Fact label="Expected"><span className="tabular-nums">{model.validUntil.split('-').reverse().join('-')}</span></Fact> : a4 ? <Fact label="Expected" write /> : null}
+        {model.validUntil ? <Fact label="Expected"><span className="tabular-nums">{formatDate(model.validUntil)}</span></Fact> : a4 ? <Fact label="Expected" write /> : null}
       </>
     );
   }
