@@ -1,0 +1,1 @@
+ALTER TABLE "integration_connections" ADD CONSTRAINT "integration_connections_one_door" CHECK (agent_token_hash IS NULL OR webhook_secret_enc IS NULL);

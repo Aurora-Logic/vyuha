@@ -180,6 +180,7 @@ describe('guided tour length', () => {
     // so the tour they get is the shell plus whatever the masters key unlocks.
     Sales: { desktop: 24, phone: 23 },
     'Sales manager': { desktop: 29, phone: 28 },
+    'Relationship manager': { desktop: 24, phone: 23 },
     Purchase: { desktop: 14, phone: 13 },
     Accounts: { desktop: 29, phone: 28 },
   };

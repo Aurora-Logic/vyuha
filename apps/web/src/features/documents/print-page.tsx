@@ -131,7 +131,7 @@ export function DocumentPrintPage() {
       <div className="mx-auto flex max-w-[210mm] flex-col gap-6 overflow-x-auto pb-8 print:gap-0 print:overflow-visible print:pb-0">
         {slip
           ? boxes.map((box) => (
-              <PackingSlipPaper key={box} design={design} profile={settings.data.profile} orgName={branding.data.name} model={model} box={box} />
+              <PackingSlipPaper key={box} design={design} profile={settings.data.profile} orgName={branding.data.name} logoUrl={branding.data.logoUrl} model={model} box={box} />
             ))
           : null}
         {slip ? null : copies.map((copy) => (

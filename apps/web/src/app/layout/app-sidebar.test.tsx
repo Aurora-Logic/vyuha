@@ -31,7 +31,8 @@ describe('AppSidebar', () => {
     const switcher = await screen.findByRole('button', { name: 'Switch module' });
     await userEvent.click(switcher);
 
-    expect(await screen.findByRole('menuitem', { name: /Masters/ })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: /Sales/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /Logistics/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Attendance/ })).toBeTruthy();
   });
 

@@ -83,6 +83,48 @@ Last updated: 16 August 2026
 | **Confirmed** | 16 August 2026 |
 | **Reasoning** | A resolution rule for the common case is what produces a system nobody can audit six months later. The exception queue is a screen somebody checks daily, not a log somebody greps after a customer complains. |
 
+### D-19 — Masters and Sales merge; Logistics becomes a module
+
+| | |
+|---|---|
+| **Decision** | The Masters module folds into Sales as sidebar groups (Documents, Masters, Books). Fulfilment — pick queue, packed, awaiting invoice, dispatches, delivered, returns, scan — moves out into a new Logistics module. Purchase stays whole. |
+| **Confirmed** | 25 August 2026, owner. |
+| **Reasoning** | Masters and Sales are worked hand in hand: raising an invoice means touching parties, items and price lists in the same sitting, and the module switcher between them was a wall through one job. Fulfilment is the opposite case — a different person at a different bench, whose seven destinations were crowding the Sales sidebar toward the eleven-destination cap (D-16). |
+| **Consequence** | Item-level permission gates replace the merged module's single gate, so a masters-only user still sees their screens. Breadcrumbs, the Go To palette's section headings and the guided tour follow the registry and need no separate change, but their tests assert literal labels and move with it. |
+
+### D-20 — The mobile bar is the person's, five wide, from any module
+
+| | |
+|---|---|
+| **Decision** | The bottom bar carries five chosen destinations plus More. The picker offers every destination the person can reach across every module, not just the active module's. |
+| **Confirmed** | 25 August 2026, owner. |
+| **Reasoning** | Roles differ more than job titles suggest: the person who lives in Collections and the one who lives in the pick queue should not share a bar. A per-module bar also made the bar itself unstable — it changed under the thumb when a link crossed a module boundary. |
+| **Consequence** | The stored preference becomes one cross-module list (store version bump with migration from the per-module shape). A saved route the person can no longer reach is dropped silently, as today. |
+
+### D-21 — GST inputs summary, amending REQ-AE-08 narrowly
+
+| | |
+|---|---|
+| **Decision** | Vyuha shows a period GST summary — outward taxable value and tax by head (CGST, SGST, IGST, cess) from projected tax-ledger lines, sales net of credit notes — as working data for whoever files. No GSTR form layout, no filing, no by-rate table. Tally remains the filing system; the deep-link stays; the surface says plainly that it is not a return. |
+| **Confirmed** | 25 August 2026, owner, choosing "inputs summary" over 3B-shaped sections and over keeping the rule unchanged. |
+| **Reasoning** | The same stance the product takes on payroll: produce the inputs, never run the calculation that files. A cross-check figure beside Tally's own 3B saves the accountant a reconciliation walk; a second return would eventually disagree with the certified one by a rupee and cost more than it saves. |
+| **Consequence** | The by-rate split (3B table 3.1(a)'s shape) stays unbuilt until the sync contract carries per-line tax rates and a Duties & Taxes ledger master — the projection today has tax heads only as ledger-line names. Head classification from ledger names is stated as such on the surface, with the as-of stamp. `14 §1` stays in force for everything else it names. |
+
+### D-22 — Interest cost and cash cycle analytics, voucher-grain v1
+
+| | |
+|---|---|
+| **Decision** | An Interest Cost module quantifies working-capital interest on money blocked with customers and in stock, computed from daily closing balance series (never invoice-date arithmetic). Owner's seven scope answers, 25 Aug 2026: the annual rate is an editable org setting seeded at 12.00; vendor credit days read Tally's `credit_days` with a Vyuha-side editable override and a "credit terms missing" flag, never a silent 30; stock interest uses purchase value in v1, labelled "purchase cost basis"; GST on purchases carries no separate interest line in v1; receipts follow Tally's bill-wise marks with FIFO for on-account, the applied rule shown; the series builds from the earliest voucher the projection holds; and receivables run voucher-grain in v1 — each Sales voucher a bill, due at voucher date plus credit days — because `bill_allocations` has readers but no production writer yet. |
+| **Consequence** | Surfaces say their own approximations out loud ("voucher-grain until Tally bill marks arrive"). Bill-wise data arriving later upgrades the split in place without a schema change. The spec's §8 export-framework migration was already done (P-10): sources register per module and permission keys are parameterised, so the module only registers its three report sources. This is money *analytics* over projected Tally data — the no-payroll rule stands untouched. |
+
+### D-23 — The Virtual CFO module begins with its clock
+
+| | |
+|---|---|
+| **Decision** | The CFO master brief's prerequisites resolve as: the approvals/export framework and the module switcher already exist (no work); the Tally read connector proceeds on its gaps with the voucher-grain fallback. The irreversible daily `fact_receivable_snapshot` starts immediately at voucher grain — each Sales voucher a bill, receipts settling oldest-first, due at voucher date plus credit days — upgraded in place by true bill-wise rows wherever `bill_allocations` carries them, every row flagged with its source. Valuation follows Tally's weighted average (agreeing with D-46 by construction). Salesperson attribution is a Vyuha-maintained dated customer-to-owner map resolved as of voucher date, House for house accounts — the live feed carries no cost centre. |
+| **Confirmed** | 25 August 2026, owner, four popups. |
+| **Consequence** | Daily receivables history accrues from tonight; the day the connector delivers bill-wise data the snapshots simply improve, and no history is lost waiting. The voucher-grain bill mathematics lifts from the interest module to `platform/receivables/` because two modules may not import each other. Parts M–Q of the brief arrive as `docs/16-virtual-cfo.md` before Phase 2. |
+
 ---
 
 ## Still open

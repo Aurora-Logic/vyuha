@@ -1,6 +1,7 @@
+import { REPORT_DEFINITIONS } from '@vyuha/shared';
 import { describe, expect, it } from 'vitest';
 
-import { ageingSeries, formSeries, genericSeries, heatmapGrid, heatmapStep, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
+import { REPORT_FORM_OVERRIDES, ageingSeries, formDraws, formSeries, genericSeries, heatmapGrid, heatmapStep, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
 
 /** The builders behind the report charts: thresholds named and proven (vyuha-charts §3, §5). */
 
@@ -159,5 +160,52 @@ describe('formSeries radials', () => {
     const points = formSeries({ form: 'radials', category: 'department', series: ['onTimePct'] }, rows);
     expect(points).toHaveLength(5);
     expect(points[0]).toMatchObject({ category: 'Dept 0', onTimePct: 90, __rowId: 'd0' });
+  });
+});
+
+describe('interest report form overrides (D-22)', () => {
+  const PARTY_ROWS: ChartRow[] = [
+    { id: 'p1', cells: { partyName: 'Asha Traders', effectiveRatePct: 12, plannedCost: '310.50', interestLoss: '1240.00', avgDaysOutstanding: 41, avgOverdueDays: 11, lossPctOfTurnover: 1.2, creditTerms: 'TALLY', settlementRule: 'FIFO oldest-first', asOf: '2026-08-25T00:00:00.000Z' } },
+    { id: 'p2', cells: { partyName: 'Behar Metals', effectiveRatePct: 14, plannedCost: '90.00', interestLoss: '820.00', avgDaysOutstanding: 62, avgOverdueDays: 30, lossPctOfTurnover: 2.4, creditTerms: 'CREDIT TERMS MISSING', settlementRule: 'FIFO oldest-first', asOf: '2026-08-25T00:00:00.000Z' } },
+  ];
+  const STOCK_ROWS: ChartRow[] = [
+    { id: 's1', cells: { item: 'Copper Wire 4mm', closingValue: '50000.00', fundedValue: '32000.00', interest: '410.000', daysSinceOutward: 12, nonMoving: 'MOVING', asOf: '2026-08-25T00:00:00.000Z' } },
+    { id: 's2', cells: { item: 'MCB 32A', closingValue: '9000.00', fundedValue: '9000.00', interest: '120.000', daysSinceOutward: 120, nonMoving: 'NON-MOVING', asOf: '2026-08-25T00:00:00.000Z' } },
+  ];
+  const CYCLE_ROWS: ChartRow[] = [
+    { id: '2026-07', cells: { month: '2026-07', inventoryDays: 44, receivableDays: 38, payableDays: 25, cashCycleDays: 57, totalInterest: '5100.00', asOf: '2026-08-25T00:00:00.000Z' } },
+    { id: '2026-08', cells: { month: '2026-08', inventoryDays: 40, receivableDays: 41, payableDays: 22, cashCycleDays: 59, totalInterest: '5400.00', asOf: '2026-08-25T00:00:00.000Z' } },
+  ];
+  const CASES = [
+    ['party-interest-cost', PARTY_ROWS],
+    ['stock-interest-cost', STOCK_ROWS],
+    ['cash-cycle', CYCLE_ROWS],
+  ] as const;
+
+  it('names only real column keys, so a renamed column cannot leave a silent blank chart', () => {
+    for (const [key] of CASES) {
+      const spec = REPORT_FORM_OVERRIDES[key];
+      expect(spec, key).toBeDefined();
+      if (spec === undefined) continue;
+      const columns = new Set(REPORT_DEFINITIONS[key].columns.map((column) => column.key));
+      expect(columns.has(spec.category), `${key}: ${spec.category}`).toBe(true);
+      for (const series of spec.series) expect(columns.has(series), `${key}: ${series}`).toBe(true);
+    }
+  });
+
+  it('draws over representative rows', () => {
+    for (const [key, rows] of CASES) {
+      const spec = REPORT_FORM_OVERRIDES[key];
+      if (spec === undefined) throw new Error(`No override for "${key}".`);
+      expect(formDraws(spec, REPORT_DEFINITIONS[key], rows), key).toBe(true);
+    }
+  });
+
+  it('walks the cash cycle chronologically with all three day components', () => {
+    const spec = REPORT_FORM_OVERRIDES['cash-cycle'];
+    if (spec === undefined) throw new Error('No override for "cash-cycle".');
+    const points = formSeries(spec, [...CYCLE_ROWS].reverse());
+    expect(points.map((point) => point.category)).toEqual(['2026-07', '2026-08']);
+    expect(points[0]).toMatchObject({ inventoryDays: 44, receivableDays: 38, payableDays: 25 });
   });
 });

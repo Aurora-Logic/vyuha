@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -15,6 +16,7 @@ import {
   isReportKey,
   pageSlice,
   paginated,
+  type DashboardLayoutView,
   type ExportDownload,
   type ExportJobSummary,
   type Paginated,
@@ -30,8 +32,11 @@ import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
+import { DashboardLayoutService } from './dashboard-layout.service.js';
 import { ExportService } from './export.service.js';
 import {
+  DashboardLayoutInputDto,
+  DashboardParamDto,
   ExportListQueryDto,
   ExportRequestDto,
   ReportRowQueryDto,
@@ -72,6 +77,7 @@ export class ReportController {
     private readonly exports: ExportService,
     private readonly views: SavedViewService,
     private readonly schedules: ScheduleService,
+    private readonly dashboards: DashboardLayoutService,
   ) {}
 
   /**
@@ -84,6 +90,34 @@ export class ReportController {
   @RequirePermission(PERMISSIONS.REPORT_VIEW)
   catalogue(@CurrentUser() principal: Principal): { data: readonly ReportDefinition[] } {
     return { data: this.sources.catalogue(principal) };
+  }
+
+  /**
+   * The caller's own last eight distinct reports, most recent open first, for
+   * the hub's "Recently used" row (REQ-AD-09's read side). Narrowed through
+   * the same catalogue the shell serves, so a key whose permission has since
+   * been withdrawn is dropped rather than offered as a door that will not
+   * open. Declared before `:reportKey/rows` for the reason `views` gives.
+   */
+  @Get('usage/recent')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  async recentUsage(@CurrentUser() principal: Principal): Promise<{ data: ReportKey[] }> {
+    const opened = await this.db.execute<{ report_key: string }>(
+      sql`SELECT report_key
+            FROM report_usage
+           WHERE org_id = ${principal.orgId} AND user_id = ${principal.userId}
+           GROUP BY report_key
+           ORDER BY max(opened_at) DESC`,
+    );
+    const allowed = new Set(this.sources.catalogue(principal).map((definition) => definition.key));
+    // The cap of eight applies after the narrowing, not in the query: a role
+    // that shrank still fills its row from deeper history, and the grouped
+    // read is already bounded by how many report keys exist at all.
+    const data = opened.rows
+      .map((row) => row.report_key)
+      .filter((key): key is ReportKey => isReportKey(key) && allowed.has(key))
+      .slice(0, 8);
+    return { data };
   }
 
   // ------------------------------------------------------------ saved views
@@ -118,6 +152,43 @@ export class ReportController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.views.remove(principal, id);
+  }
+
+  // ------------------------------------------------------------- dashboards
+
+  /*
+   * Customisable dashboards (owner, 25 Aug 2026). Guarded on `report.view`:
+   * a layout only chooses which report tiles a board renders, and every
+   * tile's rows still arrive through the row route under its own key.
+   * Declared before `:reportKey/rows` -- Nest matches in declaration order,
+   * and `dashboards` would otherwise be read as a report key.
+   */
+  @Get('dashboards')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  async listDashboards(
+    @CurrentUser() principal: Principal,
+  ): Promise<{ data: DashboardLayoutView[] }> {
+    return { data: await this.dashboards.listFor(principal) };
+  }
+
+  @Put('dashboards/:dashboard')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  putDashboard(
+    @CurrentUser() principal: Principal,
+    @Param() params: DashboardParamDto,
+    @Body() body: DashboardLayoutInputDto,
+  ): Promise<DashboardLayoutView> {
+    return this.dashboards.put(principal, params.dashboard, body);
+  }
+
+  @Delete('dashboards/:dashboard')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  resetDashboard(
+    @CurrentUser() principal: Principal,
+    @Param() params: DashboardParamDto,
+  ): Promise<void> {
+    return this.dashboards.reset(principal, params.dashboard);
   }
 
   // --------------------------------------------------------------- exports
@@ -220,7 +291,7 @@ export class ReportController {
     // narrowed. Attendance happens to re-assert inside page(); the first
     // source written to the interface literally would otherwise serve
     // un-narrowed reads while the export path correctly refused them.
-    const filters = source.assertFiltersUsable(key, query);
+    const filters = this.sources.usableFilters(key, query);
     const { limit, offset } = pageSlice(query);
     const page = await source.page(principal, key, { ...filters, sort: query.sort }, limit, offset);
     // REQ-AD-09: the first page of a report is an "open"; later pages and

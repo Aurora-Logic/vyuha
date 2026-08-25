@@ -5,8 +5,9 @@ import { DEFAULT_LOCALE, groupDigits, type WorkspaceLocale } from '@vyuha/shared
 /**
  * How dates are written on screen.
  *
- * REQ-L-01 makes dd-MM-yyyy the organisation default, and it will become a
- * setting. Putting it here rather than inlining the pattern means the change is
+ * REQ-L-01 makes dd-MM-yyyy the organisation default; the stored setting
+ * overrides it through `setWorkspaceDateFormat` below. Putting it here rather
+ * than inlining the pattern means the change is
  * one edit, and — more usefully — it means no screen can render a raw
  * `2026-04-01` by forgetting to format at all, because there is an obvious
  * thing to call instead.
@@ -28,6 +29,19 @@ let locale: WorkspaceLocale = DEFAULT_LOCALE;
 
 export function setWorkspaceLocale(next: WorkspaceLocale): void {
   locale = next;
+}
+
+/**
+ * The workspace's date pattern, delivered the same way. The setting existed
+ * -- stored, validated and audited since REQ-L-01 -- but nothing on screen
+ * ever read it back, so every date rendered as the default no matter what
+ * Settings said. Delivery rides the branding payload because that is the one
+ * read every signed-in client already mounts.
+ */
+let workspaceDateFormat = DATE_FORMAT;
+
+export function setWorkspaceDateFormat(next: string): void {
+  workspaceDateFormat = next;
 }
 
 export function currencySymbol(): string {
@@ -128,7 +142,7 @@ export function formatDate(value: string | null | undefined): string {
   // A malformed date from the API is a data problem, not a reason to render
   // "Invalid Date" into a table cell.
   if (Number.isNaN(parsed.getTime())) return EMPTY_VALUE;
-  return format(parsed, DATE_FORMAT);
+  return format(parsed, workspaceDateFormat);
 }
 
 /** `ON_NOTICE` -> `On notice`. Sentence case, per PRD §6.6. */

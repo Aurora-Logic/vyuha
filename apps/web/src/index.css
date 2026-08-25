@@ -1,9 +1,34 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./typeset.css";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
+
+/* shadcn/typeset: rendered markdown, styled by a container rather than by
+   classes on the content. Only what sits inside a `.typeset` element is
+   affected, so nothing already built changes by this being imported.
+
+   Geist rather than the Inter the product chrome wears: long-form prose and
+   a dense register are different reading jobs, and the app's own font stays
+   `--font-sans`. Both faces are self-hosted through fontsource, like Inter,
+   because the CSP forbids a font request to a third party. */
+:root {
+    --font-geist: 'Geist Variable', sans-serif;
+    --font-geist-mono: 'Geist Mono Variable', monospace;
+}
+
+.typeset-docs {
+    --typeset-font-body: var(--font-geist);
+    --typeset-font-heading: var(--font-geist);
+    --typeset-font-mono: var(--font-geist-mono);
+    --typeset-size: 15px;
+    --typeset-leading: 1.75;
+    --typeset-flow: 1.25em;
+}
 
 /* Accessibility preferences Tailwind has no built-in variant for. Translucent
    chrome and spring-like motion are both things a reader can ask us to stop
@@ -334,6 +359,19 @@
     --info: oklch(0.567 0.183 259.052);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
+/* The four fulfilment steps.
+       Their own colours rather than borrowed semantic ones: --info, --warning
+       and --success are muted on purpose, being warnings, and four steps at
+       three opacities of the accent said only "some of this is done". These
+       are picked to be told apart at a glance and checked against the data-viz
+       validator in both modes -- lightness band, chroma floor, colour-blind
+       separation, contrast -- rather than chosen by eye. No green: cyan closes
+       the run instead. */
+    --step-picked: oklch(0.55 0.22 270);
+    --step-packed: oklch(0.6 0.23 350);
+    --step-shipped: oklch(0.72 0.17 70);
+    --step-delivered: oklch(0.66 0.14 215);
+
     --flag-late: oklch(0.58 0.17 71);
     --flag-early-exit: oklch(0.58 0.17 50);
     --flag-missing-punch: oklch(0.58 0.17 27);
@@ -440,6 +478,13 @@
     --info: oklch(0.707 0.165 254.624);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
+    /* Chosen for the dark ground, not lightened from the light set: the band a
+       mark stays a mark in is narrower here. */
+    --step-picked: oklch(0.62 0.2 270);
+    --step-packed: oklch(0.64 0.21 350);
+    --step-shipped: oklch(0.66 0.16 70);
+    --step-delivered: oklch(0.58 0.14 215);
+
     --flag-late: oklch(0.74 0.16 71);
     --flag-early-exit: oklch(0.74 0.16 50);
     --flag-missing-punch: oklch(0.74 0.16 27);
@@ -495,6 +540,14 @@
     }
   html {
     @apply font-sans;
+    /* Reserve the scrollbar's width always, so a page that grows past the
+       viewport -- or navigating from a short screen to a tall one -- does not
+       make the bar appear and shove the whole layout left by its width. That
+       sideways shove on load and on every navigation is the "jitter" the eye
+       catches; a stable gutter is the one thing that removes it. Honours
+       scrollbar-width (thin above), so the reserved strip is only as wide as
+       the bar actually is. */
+    scrollbar-gutter: stable;
     /* Owner, 22 Aug 2026: no zoom of any kind on a phone. pan-x pan-y is
        every touch gesture except pinch and double-tap zoom; the viewport
        meta (maximum-scale=1) stops iOS zooming into a focused field; the
@@ -537,6 +590,12 @@
   color: #111;
   background: #fff;
 }
+/* The stock. #E8D3BE is the owner's colour and the default; white is what a
+   laser printer on plain stock actually produces, so it stays available. */
+.a4-paper[data-paper='sand'] { background: #e8d3be; }
+.a4-paper[data-paper='ivory'] { background: #faf6ee; }
+.a4-paper[data-paper='white'] { background: #fff; }
+
 .a4-paper[data-accent='blue'] { --paper-accent: #1d4ed8; --paper-accent-soft: #eff6ff; }
 .a4-paper[data-accent='teal'] { --paper-accent: #0f766e; --paper-accent-soft: #f0fdfa; }
 .a4-paper[data-accent='green'] { --paper-accent: #15803d; --paper-accent-soft: #f0fdf4; }

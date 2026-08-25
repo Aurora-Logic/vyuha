@@ -59,6 +59,12 @@ export const PERMISSIONS = {
   MASTERS_TALLY_VIEW: 'masters.tally.view',
   RECEIVABLES_VIEW: 'receivables.view',
   /**
+   * Assign or change the relationship manager on a customer (party). The RM
+   * owns that customer's sales and collections; changing who is responsible is
+   * a manager's call, so it is its own key rather than folded into masters view.
+   */
+  PARTIES_RM_ASSIGN: 'parties.rm.assign',
+  /**
    * D-46: the daily exception sweep writes to whoever holds this, seeded to
    * Admin and Accounts. A permission rather than a role name because roles
    * are not hardcoded into logic — an org can hand the digest to anyone.
@@ -114,6 +120,15 @@ export const PERMISSIONS = {
   PURCHASE_DOCUMENT_CREATE: 'purchase.document.create',
   PURCHASE_DOCUMENT_APPROVE: 'purchase.document.approve',
 
+  /**
+   * D-22: working-capital interest on money blocked with customers and in
+   * stock. Viewing is Accounts' and Admin's; configuring — the rate, the
+   * per-party overrides, the recompute — is a separate key because a changed
+   * rate silently re-prices every figure the viewers act on.
+   */
+  INTEREST_VIEW: 'interest_cost.view',
+  INTEREST_CONFIGURE: 'interest_cost.configure',
+
   /** 12 REQ-AB-03: exempt from the sign-in window. Admin only by default. */
   ACCESS_OUTSIDE_WINDOW: 'access.outside_window',
 } as const;
@@ -145,6 +160,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'audit.view': 'View the audit log',
   'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
   'receivables.view': 'View vouchers and receivables pulled from Tally: invoices, receipts, statements, ageing',
+  'parties.rm.assign': 'Assign or change the relationship manager on a customer',
   'reports.exceptions.notify': 'Receive the daily exception-report digest',
   'reports.margin.view': 'View the gross margin proxy report',
   'crm.contact.view.self': 'View the contacts and companies you own',
@@ -177,6 +193,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
+  'interest_cost.view': 'View interest cost on receivables and stock, and the cash cycle',
+  'interest_cost.configure': 'Set the interest rate and per-party overrides, and trigger a recompute',
   'access.outside_window': 'Sign in and work outside the access window (19:30 to 09:00 by default)',
   'integration.manage': 'Manage integration connections',
 };
@@ -203,6 +221,13 @@ export const SYSTEM_ROLES = {
    */
   SALES: 'Sales',
   SALES_MANAGER: 'Sales manager',
+  /**
+   * The person who owns a book of customers end to end -- their sales and
+   * their collections. Held alongside Employee like the other sales roles; the
+   * customers they own are the parties they are assigned as RM on, and the
+   * self-scoped keys below read against that assignment.
+   */
+  RELATIONSHIP_MANAGER: 'Relationship manager',
   PURCHASE: 'Purchase',
   ACCOUNTS: 'Accounts',
 } as const;
@@ -281,6 +306,7 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.CRM_DEAL_VIEW_ALL,
   PERMISSIONS.CRM_PIPELINE_MANAGE,
   PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  PERMISSIONS.PARTIES_RM_ASSIGN,
   PERMISSIONS.RECEIVABLES_VIEW,
   PERMISSIONS.REPORTS_MARGIN_VIEW,
   PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
@@ -294,6 +320,20 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.COLLECTIONS_VIEW_ALL,
   PERMISSIONS.COLLECTIONS_MANAGE,
   PERMISSIONS.RETURNS_MANAGE,
+] as const satisfies readonly PermissionKey[];
+
+/**
+ * The relationship manager owns a book of customers: their sales at self scope,
+ * their collections (and the right to record intent), and the receivables
+ * behind them. It is the Sales set plus the collections-for-own-parties keys --
+ * not Sales manager, which sees everyone's. The book is the parties they are
+ * assigned as RM on; the self-scoped reads resolve against that assignment.
+ */
+const RELATIONSHIP_MANAGER_PERMISSIONS = [
+  ...SALES_PERMISSIONS,
+  PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.COLLECTIONS_VIEW_SELF,
+  PERMISSIONS.COLLECTIONS_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
@@ -337,6 +377,10 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.RETURNS_MANAGE,
   PERMISSIONS.RETURNS_DISPOSITION,
   PERMISSIONS.PORTAL_MANAGE,
+  // D-22: the working-capital interest figures are the accountant's lens,
+  // and the rate and overrides are theirs to keep honest.
+  PERMISSIONS.INTEREST_VIEW,
+  PERMISSIONS.INTEREST_CONFIGURE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
@@ -346,6 +390,7 @@ export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionK
   Admin: ADMIN_PERMISSIONS,
   Sales: SALES_PERMISSIONS,
   'Sales manager': SALES_MANAGER_PERMISSIONS,
+  'Relationship manager': RELATIONSHIP_MANAGER_PERMISSIONS,
   Purchase: PURCHASE_PERMISSIONS,
   Accounts: ACCOUNTS_PERMISSIONS,
 };

@@ -17,6 +17,16 @@ export const NUMBER_FORMAT_LABELS: Record<NumberFormat, string> = {
 export const CURRENCY_SYMBOLS = ['₹', 'INR', 'Rs'] as const;
 export type CurrencySymbol = (typeof CURRENCY_SYMBOLS)[number];
 
+/**
+ * The date formats the clients can actually render -- not a free date-fns
+ * pattern: `DD-MM-YYYY`, the Moment spelling, reads as day-of-year and era,
+ * and nothing would report the mangling. The API DTO and the web contract
+ * each kept a hand-synced copy and the two drifted a comment apart; the set
+ * lives here once.
+ */
+export const DATE_FORMATS = ['dd-MM-yyyy', 'dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy', 'dd MMM yyyy'] as const;
+export type DateFormat = (typeof DATE_FORMATS)[number];
+
 export const localeSchema = z.object({
   numberFormat: z.enum(NUMBER_FORMATS),
   currencySymbol: z.enum(CURRENCY_SYMBOLS),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { creditBlockSchema, estimateSchema, lineBalances, orderWaitingOnSchema, salesLineSchema, trimZeros, type SalesLine } from './types';
+import { creditBlockSchema, estimateSchema, lineBalances, orderWaitingOnSchema, salesLineSchema, trimZeros, type SalesLine, previewTotals, newLine, type LineDraft } from './types';
 
 /**
  * The boundary schemas mirror `@vyuha/shared`; these pin the two things a
@@ -169,5 +169,37 @@ describe('trimZeros', () => {
     expect(trimZeros('10.000')).toBe('10');
     expect(trimZeros('2.500')).toBe('2.5');
     expect(trimZeros('7')).toBe('7');
+  });
+});
+
+describe('the totals shown while a document is typed (audit 15)', () => {
+  const line = (over: Partial<LineDraft>): LineDraft => ({ ...newLine(), quantity: '1', rate: '100', discountPct: '0', taxPct: '0', ...over });
+
+  it('states the subtotal gross, the way both servers store it', () => {
+    // The editors defined subtotal as the net, so the same document showed
+    // one Subtotal while it was being typed and a larger one the moment it
+    // was saved -- with the Discount line beneath it already taken off.
+    const totals = previewTotals([line({ quantity: '10', rate: '100', discountPct: '10', taxPct: '18' })]);
+    expect(totals.subtotal).toBe('1000.00');
+    expect(totals.discountTotal).toBe('100.00');
+    expect(totals.taxTotal).toBe('162.00');
+    expect(totals.grandTotal).toBe('1062.00');
+    // The four figures reconcile, which is the whole point of showing them.
+    expect(Number(totals.subtotal) - Number(totals.discountTotal) + Number(totals.taxTotal)).toBeCloseTo(Number(totals.grandTotal), 2);
+  });
+
+  it('rounds each line before summing, as the servers do', () => {
+    // Three-decimal quantity against a two-decimal rate: summing the raw
+    // products drifts a paisa against sum(round(quantity * rate, 2)).
+    const totals = previewTotals([
+      line({ quantity: '1.005', rate: '10.10' }),
+      line({ quantity: '1.005', rate: '10.10' }),
+    ]);
+    expect(totals.subtotal).toBe('20.30');
+  });
+
+  it('ignores a line that is not yet a line', () => {
+    expect(previewTotals([line({ quantity: '', rate: '' })]).grandTotal).toBe('0.00');
+    expect(previewTotals([]).subtotal).toBe('0.00');
   });
 });

@@ -381,13 +381,107 @@ const ATTENDANCE_MODULE: ModuleDef = {
 export const MODULES: ModuleDef[] = [
   ATTENDANCE_MODULE,
   {
-    id: 'masters',
-    label: 'Masters',
-    icon: BooksIcon,
-    home: '/masters/parties',
-    // 08 SS2.2's key: financial-adjacent data, not for every signed-in eye.
-    permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+    id: 'crm',
+    label: 'CRM',
+    icon: HandshakeIcon,
+    // REQ-V-07: My tasks is the CRM landing screen.
+    home: '/tasks',
+    // 08 §2.2 gives view.self to everyone who holds view.all, so the narrower
+    // key is the module gate: whoever may see any contact may open the module.
+    permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
     groups: [
+      {
+        label: 'Work',
+        items: [
+          {
+            to: '/tasks',
+            label: 'My tasks',
+            shortLabel: 'Tasks',
+            icon: CheckSquareIcon,
+            permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-V-01, REQ-V-03, REQ-V-05, REQ-V-07',
+          },
+        ],
+      },
+      {
+        label: 'Sales',
+        items: [
+          {
+            to: '/crm/deals',
+            label: 'Deals',
+            icon: HandshakeIcon,
+            permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-04, REQ-U-05, REQ-U-06',
+          },
+        ],
+      },
+      {
+        label: 'People',
+        items: [
+          {
+            to: '/crm/contacts',
+            label: 'Contacts',
+            icon: AddressBookIcon,
+            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-01, REQ-U-08',
+          },
+          {
+            to: '/crm/companies',
+            label: 'Companies',
+            icon: BuildingsIcon,
+            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-02, REQ-U-03',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'sales',
+    label: 'Sales',
+    icon: FileTextIcon,
+    home: '/sales/estimates',
+    // The desk's bar: the documents raised at it, and the masters they are
+    // raised against. The floor's bar lives on Logistics.
+    phoneBar: ['/sales/orders', '/sales/invoices', '/masters/parties', '/collections'],
+    // D-19: no module-level key. Documents, Masters and Books answer to
+    // different permissions, and a masters-only account must still see its
+    // screens -- the module shows when any item inside it does.
+    groups: [
+      {
+        label: 'Documents',
+        items: [
+          {
+            to: '/sales/estimates',
+            label: 'Estimates',
+            icon: FileTextIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-W-01, REQ-W-02',
+          },
+          {
+            to: '/sales/orders',
+            label: 'Sales orders',
+            shortLabel: 'Orders',
+            icon: ClipboardIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-W-03, REQ-W-06, REQ-W-07',
+          },
+          {
+            to: '/sales/invoices',
+            label: 'Invoices',
+            icon: ReceiptIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-11, D-38',
+          },
+        ],
+      },
       {
         label: 'Masters',
         items: [
@@ -478,107 +572,20 @@ export const MODULES: ModuleDef[] = [
           },
         ],
       },
+
     ],
   },
   {
-    id: 'crm',
-    label: 'CRM',
-    icon: HandshakeIcon,
-    // REQ-V-07: My tasks is the CRM landing screen.
-    home: '/tasks',
-    // 08 §2.2 gives view.self to everyone who holds view.all, so the narrower
-    // key is the module gate: whoever may see any contact may open the module.
-    permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
-    groups: [
-      {
-        label: 'Work',
-        items: [
-          {
-            to: '/tasks',
-            label: 'My tasks',
-            shortLabel: 'Tasks',
-            icon: CheckSquareIcon,
-            permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
-            phase: 7,
-            reqs: 'REQ-V-01, REQ-V-03, REQ-V-05, REQ-V-07',
-          },
-        ],
-      },
-      {
-        label: 'Sales',
-        items: [
-          {
-            to: '/crm/deals',
-            label: 'Deals',
-            icon: HandshakeIcon,
-            permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
-            phase: 7,
-            reqs: 'REQ-U-04, REQ-U-05, REQ-U-06',
-          },
-        ],
-      },
-      {
-        label: 'People',
-        items: [
-          {
-            to: '/crm/contacts',
-            label: 'Contacts',
-            icon: AddressBookIcon,
-            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
-            phase: 7,
-            reqs: 'REQ-U-01, REQ-U-08',
-          },
-          {
-            to: '/crm/companies',
-            label: 'Companies',
-            icon: BuildingsIcon,
-            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
-            phase: 7,
-            reqs: 'REQ-U-02, REQ-U-03',
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'sales',
-    label: 'Sales',
-    icon: FileTextIcon,
-    home: '/sales/estimates',
+    id: 'logistics',
+    label: 'Logistics',
+    icon: TruckIcon,
+    home: '/sales/pick-queue',
     // Owner, 22 Aug: the phone is the floor's device - the process is what it carries.
     phoneBar: ['/sales/pick-queue', '/sales/packed', '/sales/scan', '/sales/dispatches'],
-    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    // D-19: fulfilment is a different person at a different bench, and its
+    // seven destinations were crowding the Sales sidebar toward D-16's cap.
+    // The group keeps its name so every breadcrumb under it stays put.
     groups: [
-      {
-        label: 'Documents',
-        items: [
-          {
-            to: '/sales/estimates',
-            label: 'Estimates',
-            icon: FileTextIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-            phase: 8,
-            reqs: 'REQ-W-01, REQ-W-02',
-          },
-          {
-            to: '/sales/orders',
-            label: 'Sales orders',
-            shortLabel: 'Orders',
-            icon: ClipboardIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-            phase: 8,
-            reqs: 'REQ-W-03, REQ-W-06, REQ-W-07',
-          },
-          {
-            to: '/sales/invoices',
-            label: 'Invoices',
-            icon: ReceiptIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-            phase: 8,
-            reqs: 'REQ-AA-11, D-38',
-          },
-        ],
-      },
       {
         label: 'Fulfilment',
         items: [
@@ -651,6 +658,7 @@ export const MODULES: ModuleDef[] = [
           },
         ],
       },
+
     ],
   },
   {
@@ -720,15 +728,9 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Catalogue',
         items: [
-          {
-            to: '/reports',
-            label: 'All reports',
-            shortLabel: 'Reports',
-            icon: ChartBarIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 3,
-            reqs: 'REQ-J-01, REQ-AD-03',
-          },
+          // Owner, 25 Aug: the shelves only. The hub at /reports is where every
+          // category door and every report's back button lands, so a separate
+          // "All reports" row was the same door twice.
           {
             to: '/reports?category=Books',
             label: 'Books',
@@ -807,6 +809,17 @@ export const MODULES: ModuleDef[] = [
 ];
 
 /**
+ * Whether a module belongs in this person's switcher and bar. A module that
+ * declares its own key answers to it; one that does not (Sales and Logistics
+ * after D-19 span several keys) shows when any destination inside it does --
+ * a module whose every screen would be refused is furniture.
+ */
+export function moduleVisibleFor(module: ModuleDef, granted: ReadonlySet<string>): boolean {
+  if (module.permission) return granted.has(module.permission);
+  return module.groups.some((group) => group.items.some((item) => !item.permission || granted.has(item.permission)));
+}
+
+/**
  * The module that owns a route, so the sidebar can render that module's
  * groups rather than always attendance's (REQ-O-01 — without this, a second
  * module's screens exist in the palette and nowhere a mouse can find them).
@@ -820,9 +833,12 @@ export function findModuleForPath(pathname: string): ModuleDef {
   return (
     MODULES.find((module) =>
       module.groups.some((group) =>
-        group.items.some(
-          (item) => item.to === pathname || (item.to !== '/' && pathname.startsWith(`${item.to}/`)),
-        ),
+        group.items.some((item) => {
+          // Query doors (the report categories) still claim their pathname:
+          // /reports belongs to the reports module even with no bare item.
+          const base = item.to.split('?')[0] ?? item.to;
+          return base === pathname || (base !== '/' && pathname.startsWith(`${base}/`));
+        }),
       ),
     ) ?? ATTENDANCE_MODULE
   );
@@ -881,6 +897,10 @@ const OFF_NAV_LABELS: Record<string, string> = {
      being a destination inside a module, so it needs a name here for the same
      reason the three below do -- without it the header announced the page as
      "Not found" above a screen that was rendering perfectly. */
+  /* The reports hub. Its sidebar rows are the category doors (owner, 25 Aug),
+     each carrying a query -- so no nav item owns the bare pathname, and the
+     breadcrumb needs the name here. */
+  '/reports': 'All reports',
   '/administration': 'Administration',
   /* Same reasoning as /profile: PRD §6.1 fixes the sidebar to Work, Records,
      Reports and Setup, and a changelog belongs to none of them. Reached from
@@ -891,6 +911,11 @@ const OFF_NAV_LABELS: Record<string, string> = {
      Named here for the same reason the two above are: the breadcrumb would
      otherwise announce the page as "Not found". */
   '/notifications': 'Notifications',
+  /* D-22's per-party interest overrides. Reached from the Interest cost
+     section of Settings rather than the sidebar: a configuration surface is
+     not a report, and the reports group is at its cap. Named here so the
+     header does not say "Not found" above it. */
+  '/reports/interest-overrides': 'Interest cost overrides',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 

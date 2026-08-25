@@ -2,48 +2,52 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 /**
- * Which routes the phone's bottom bar shows — per module, because the bar
- * follows the active module: a warehouse thumb wants Pick queue and GRNs in
- * Purchase, and Punch in Attendance, and neither choice should overwrite
- * the other.
+ * Which routes the phone's bottom bar shows.
  *
- * A UI preference, so localStorage is the right home for it — it belongs to
- * this person on this device, and losing it costs nothing. An absent entry
- * means "never chosen", which resolves to the module's own first
- * destinations; an empty array is a state a person asked for.
+ * One list for the whole app (D-20): the bar is the person's, not the
+ * module's, so it stays put under the thumb when a link crosses a module
+ * boundary. Null means "never chosen", which lets the bar follow the active
+ * module's defaults; an empty array is a state a person asked for.
+ *
+ * A UI preference, so localStorage is the right home for it -- it belongs to
+ * this person on this device, and losing it costs nothing.
  */
 interface NavPreferencesState {
-  bottomNavByModule: Record<string, string[]>;
-  setBottomNavRoutes: (moduleId: string, routes: string[]) => void;
-  resetBottomNav: (moduleId: string) => void;
+  bottomNavRoutes: string[] | null;
+  setBottomNavRoutes: (routes: string[]) => void;
+  resetBottomNav: () => void;
 }
 
-/** Four plus More is what fits at 360px without the labels truncating. */
-export const BOTTOM_NAV_SLOTS = 4;
+/** Five plus More is the owner's ask (D-20); the short labels keep it honest at 360px. */
+export const BOTTOM_NAV_SLOTS = 5;
 
 export const useNavPreferencesStore = create<NavPreferencesState>()(
   persist(
     (set) => ({
-      bottomNavByModule: {},
-      setBottomNavRoutes: (moduleId, routes) => {
-        set((state) => ({ bottomNavByModule: { ...state.bottomNavByModule, [moduleId]: routes.slice(0, BOTTOM_NAV_SLOTS) } }));
+      bottomNavRoutes: null,
+      setBottomNavRoutes: (routes) => {
+        set({ bottomNavRoutes: routes.slice(0, BOTTOM_NAV_SLOTS) });
       },
-      resetBottomNav: (moduleId) => {
-        set((state) => {
-          const { [moduleId]: _dropped, ...rest } = state.bottomNavByModule;
-          return { bottomNavByModule: rest };
-        });
+      resetBottomNav: () => {
+        set({ bottomNavRoutes: null });
       },
     }),
     {
       name: 'vyuha.nav-preferences',
-      version: 2,
-      // v1 stored one flat array for the whole app; it was chosen while the
-      // bar was attendance-only, so that is the module it belonged to.
+      version: 3,
+      // v1 stored one flat array, v2 one list per module, v3 is flat again
+      // (D-20). A v1 list carries over as-is; from v2 the first non-empty
+      // list survives -- it is the one bar the person demonstrably chose.
       migrate: (persisted: unknown, version) => {
-        if (version < 2 && typeof persisted === 'object' && persisted !== null) {
+        if (typeof persisted !== 'object' || persisted === null) return { bottomNavRoutes: null };
+        if (version < 2) {
           const old = (persisted as { bottomNavRoutes?: string[] | null }).bottomNavRoutes;
-          return { bottomNavByModule: Array.isArray(old) ? { attendance: old } : {} };
+          return { bottomNavRoutes: Array.isArray(old) ? old : null };
+        }
+        if (version < 3) {
+          const byModule = (persisted as { bottomNavByModule?: Record<string, string[]> }).bottomNavByModule ?? {};
+          const first = Object.values(byModule).find((routes) => routes.length > 0);
+          return { bottomNavRoutes: first ?? null };
         }
         return persisted as NavPreferencesState;
       },

@@ -167,7 +167,14 @@ export const attendancePeriodLocks = pgTable(
      * CHECKs, so every lock and unlock from here on carries a real sentence
      * while the rows written before the rule existed are left as they are.
      */
-    lockReason: text('lock_reason'),
+    /**
+     * Why the period was closed. REQ-E-09 requires one, so the column does
+     * too: it was nullable, and the CHECK beside it compares
+     * char_length(btrim(lock_reason)) >= 10 -- which is NULL when the reason
+     * is NULL, and a CHECK only refuses on FALSE. The rule the slice was
+     * written for passed anything that simply left the reason out.
+     */
+    lockReason: text('lock_reason').notNull(),
     unlockReason: text('unlock_reason'),
     ...standardColumns(),
   },
@@ -185,5 +192,17 @@ export const attendancePeriodLocks = pgTable(
       .where(sql`deleted_at IS NULL AND unlocked_at IS NULL`),
     index('attendance_period_locks_period_idx').on(t.orgId, t.year, t.month).where(ALIVE),
     check('attendance_period_locks_month_valid', sql`month BETWEEN 1 AND 12`),
+    /*
+     * Declared here as well as in migration 0011, so drizzle's snapshot
+     * records them and the next generate does not propose adding them again.
+     * The unlock rule names the null explicitly: without that clause an
+     * unlock with no reason at all satisfied it, which is the one thing
+     * REQ-E-09 asks the database to prevent.
+     */
+    check('attendance_period_locks_lock_has_reason', sql`char_length(btrim(lock_reason)) >= 10`),
+    check(
+      'attendance_period_locks_unlock_has_reason',
+      sql`unlocked_at IS NULL OR (unlock_reason IS NOT NULL AND char_length(btrim(unlock_reason)) >= 10)`,
+    ),
   ],
 );

@@ -190,10 +190,18 @@ export class SyncAgentService {
        )
        RETURNING id, direction, entity_type, payload, attempts,
          -- The server's watermark rides on the claim: the agent pulls above
-         -- this, and after a full re-pull (cursor deleted) it is zero.
-         (SELECT COALESCE(sc.last_alter_id, 0) FROM sync_cursors sc
-           WHERE sc.connection_id = sync_jobs.connection_id
-             AND sc.entity_type = sync_jobs.entity_type) AS from_alter_id
+         -- this. A job asking for a full pull reads from zero whatever the
+         -- cursor says, rather than relying on the cursor having been deleted
+         -- before the claim -- the cursor is committed per chunk, so an
+         -- interrupted full pull left it partway and the retry claimed a
+         -- narrowed window. markAbsentees then marked rows absent on the
+         -- strength of a pull that had not seen everything, which is the one
+         -- premise it cannot do without. Now a full job re-reads the world by
+         -- construction.
+         CASE WHEN sync_jobs.payload->>'full' = 'true' THEN 0
+              ELSE (SELECT COALESCE(sc.last_alter_id, 0) FROM sync_cursors sc
+                     WHERE sc.connection_id = sync_jobs.connection_id
+                       AND sc.entity_type = sync_jobs.entity_type) END AS from_alter_id
     `);
 
     // The claim is the audit trail here: sync_jobs carries claimed_by and

@@ -6,6 +6,7 @@ import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +17,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { COMPANY_SORT_FIELDS, PERMISSIONS } from '@vyuha/shared';
 
 import { CompanySheet } from './company-sheet';
 import { companyToDraft, emptyCompanyDraft, type Company, type CompanyDraft } from './types';
@@ -31,6 +32,7 @@ const COLUMNS: RecordColumn<Company>[] = [
   {
     key: 'name',
     header: 'Company',
+    sortField: 'name',
     cell: (row) => (
       <span className="flex items-center gap-2">
         <span className="font-medium">{row.name}</span>
@@ -67,6 +69,7 @@ export function CompaniesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
+  const { sort, activeSort, onSortChange } = useUrlSort(COMPANY_SORT_FIELDS);
 
   const q = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
@@ -99,7 +102,7 @@ export function CompaniesPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useCompanies({ page, ...(q ? { q } : {}) }, { enabled: canView });
+  const query = useCompanies({ page, ...(q ? { q } : {}), ...(sort ? { sort } : {}) }, { enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
   const open = useCompany(canView ? openId : null);
@@ -226,6 +229,8 @@ export function CompaniesPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
+              sort={activeSort}
+              onSortChange={onSortChange}
               mobilePrimary={(row) => row.name}
               mobileStatus={(row) =>
                 row.contactCount === 0 ? null : (

@@ -9,13 +9,40 @@ import { useEffect, useRef, useState } from 'react';
  * than local storage on purpose: this is crash insurance, not a drafts
  * feature — the server's draft is the real one the moment Save works.
  */
+/**
+ * "Reopening in the same tab" means after a page load, not after walking to
+ * the screen again. Every stored blob is stamped with an id made once per
+ * JavaScript context, and a blob stamped with this one is discarded rather
+ * than offered: it can only have been written by this same load, which is an
+ * in-app navigation and not a crash.
+ *
+ * Without it, opening a new document for one customer, going back, and
+ * opening one for another silently replaced the second with the first -- the
+ * presets the screen had just been given were overwritten by an abandoned
+ * draft the person had already walked away from. It also makes the sentence
+ * above ("leaving through the app clears it") true, which it was not.
+ */
+const LOAD_ID = Math.random().toString(36).slice(2);
+
+interface StoredDraft<T> {
+  readonly loadId: string;
+  readonly draft: T;
+}
+
 export function useDraftBackup<T>(key: string, draft: T, enabled: boolean): { restored: T | null; clear: () => void } {
   const storageKey = `vyuha.draft-backup.${key}`;
   const [restored] = useState<T | null>(() => {
     if (!enabled) return null;
     try {
       const raw = window.sessionStorage.getItem(storageKey);
-      return raw === null ? null : (JSON.parse(raw) as T);
+      if (raw === null) return null;
+      const stored = JSON.parse(raw) as StoredDraft<T>;
+      if (stored.loadId === LOAD_ID) {
+        // Written by this same load: an in-app navigation, not a crash.
+        window.sessionStorage.removeItem(storageKey);
+        return null;
+      }
+      return stored.draft;
     } catch {
       return null;
     }
@@ -27,7 +54,7 @@ export function useDraftBackup<T>(key: string, draft: T, enabled: boolean): { re
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       try {
-        window.sessionStorage.setItem(storageKey, JSON.stringify(draft));
+        window.sessionStorage.setItem(storageKey, JSON.stringify({ loadId: LOAD_ID, draft } satisfies StoredDraft<T>));
       } catch {
         // Quota or privacy mode: the backup silently does not exist.
       }

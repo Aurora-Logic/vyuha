@@ -20,7 +20,15 @@ export interface ChangelogEntry {
   kind: ChangeKind;
   title: string;
   body: string;
-  /** REQ IDs from the PRD, as they appear in the commit message. */
+  /**
+   * REQ IDs from the PRD, as they appear in the commit message.
+   *
+   * Traceability for whoever reads this file, not for the reader of the
+   * screen -- "REQ-G-01, REQ-G-03, REQ-G-06" under a release note means
+   * nothing to the person using the product, and the updates page used to
+   * print it. Kept here because the link from a release back to its
+   * requirement is worth having; simply not rendered.
+   */
   reqs?: string[];
   /** Offers "Take me there". Must be a route that exists. */
   route?: string;

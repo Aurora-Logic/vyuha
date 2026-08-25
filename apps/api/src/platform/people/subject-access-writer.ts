@@ -20,6 +20,8 @@
  * inverts the dependency graph.
  */
 
+import { formatCalendarDate } from '../export/report-cell.js';
+
 /**
  * The shapes `formatSubjectCell` renders deliberately. It accepts `unknown`
  * rather than this union because the value arrives from a database driver,
@@ -46,20 +48,13 @@ export interface SubjectAccessColumn {
   readonly header: string;
 }
 
-/**
- * A `YYYY-MM-DD` calendar date in the organisation's format (REQ-L-01).
- *
- * Anything that is not a plain calendar date falls through unchanged, so a
- * column that turns out to hold something else is visible rather than blanked.
+/*
+ * Re-exported because this writer's tests pin the calendar formats. The
+ * definition itself was a byte-identical copy of the one in
+ * `platform/export/report-cell.ts` until the format list grew; one list of
+ * month names beats two that can drift.
  */
-export function formatCalendarDate(value: string, dateFormat: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
-  if (match === null) return value;
-  const [, year = '', month = '', day = ''] = match;
-  if (dateFormat === 'dd-MM-yyyy') return `${day}-${month}-${year}`;
-  if (dateFormat === 'dd/MM/yyyy') return `${day}/${month}/${year}`;
-  return value;
-}
+export { formatCalendarDate };
 
 /**
  * An instant on the organisation's wall clock, date and time.

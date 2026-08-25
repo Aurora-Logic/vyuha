@@ -33,7 +33,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { ItemHistoryAffordance } from './item-history-popover';
-import { emptyEstimateDraft, estimateToDraft, newLine, previewLine, type Estimate, type EstimateDraft, type LineDraft } from './types';
+import { emptyEstimateDraft, estimateToDraft, newLine, previewLine, previewTotals, type Estimate, type EstimateDraft, type LineDraft } from './types';
 import { useConvertEstimate, useDeleteEstimate, useEstimate, useSaveEstimate, useSetEstimateStatus } from './use-estimates';
 
 /**
@@ -171,17 +171,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   });
   const totals = (() => {
     if (serverLines !== null && record !== null) return { subtotal: record.subtotal, discountTotal: record.discountTotal, taxTotal: record.taxTotal, grandTotal: record.grandTotal, preview: false };
-    let gross = 0;
-    let net = 0;
-    let tax = 0;
-    for (const line of draft.lines) {
-      const p = previewLine(line);
-      if (p === null) continue;
-      gross += Number(line.quantity) * Number(line.rate);
-      net += p.amount;
-      tax += p.tax;
-    }
-    return { subtotal: net.toFixed(2), discountTotal: Math.max(0, gross - net).toFixed(2), taxTotal: tax.toFixed(2), grandTotal: (net + tax).toFixed(2), preview: true };
+    return previewTotals(draft.lines);
   })();
 
   // The buyer's state code: what was typed, else the two digits a GSTIN starts with.

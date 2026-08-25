@@ -43,6 +43,8 @@ export interface ContactFilters {
   page: number;
   q?: string;
   companyId?: string;
+  /** A term the server knows (CONTACT_SORT_FIELDS), e.g. "-name" or "name". */
+  sort?: string;
 }
 
 export function useContacts(
@@ -52,6 +54,7 @@ export function useContacts(
   const params = new URLSearchParams({ page: String(filters.page), pageSize: PAGE_SIZE });
   if (filters.q) params.set('q', filters.q);
   if (filters.companyId) params.set('companyId', filters.companyId);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
 
   return useQuery({
@@ -79,6 +82,8 @@ export function useContact(id: string | null): UseQueryResult<Contact, Error> {
 export interface CompanyFilters {
   page: number;
   q?: string;
+  /** A term the server knows (COMPANY_SORT_FIELDS), e.g. "-name" or "name". */
+  sort?: string;
 }
 
 export function useCompanies(
@@ -87,6 +92,7 @@ export function useCompanies(
 ): UseQueryResult<CompaniesResponse, Error> {
   const params = new URLSearchParams({ page: String(filters.page), pageSize: PAGE_SIZE });
   if (filters.q) params.set('q', filters.q);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
 
   return useQuery({

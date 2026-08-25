@@ -19,6 +19,7 @@ import {
   type ReportSource,
   type ReportSourcePage,
 } from '../../../platform/export/report-source.registry.js';
+import { orderBy } from '../../../platform/export/report-order.js';
 import { hasPermission, type Principal } from '../../../platform/rbac/principal.js';
 
 /**
@@ -48,16 +49,6 @@ const DEFAULT_ORDER: Record<(typeof ATTENDANCE_ANALYTICS_REPORT_KEYS)[number], s
   'on-time-rate': '"onTimePct"::numeric ASC, department ASC',
 };
 
-function orderBy(sort: string | undefined, fields: Record<string, string>, fallback: string): SQL {
-  if (sort !== undefined) {
-    const descending = sort.startsWith('-');
-    const field = descending ? sort.slice(1) : sort;
-    const column = fields[field];
-    if (column !== undefined) return sql.raw(`${column} ${descending ? 'DESC' : 'ASC'} NULLS LAST`);
-  }
-  return sql.raw(fallback);
-}
-
 @Injectable()
 export class AttendanceAnalyticsReportSource implements ReportSource, OnModuleInit {
   readonly keys: readonly ReportKey[] = ATTENDANCE_ANALYTICS_REPORT_KEYS;
@@ -86,6 +77,10 @@ export class AttendanceAnalyticsReportSource implements ReportSource, OnModuleIn
       ...(filters.employeeId === undefined ? {} : { employeeId: filters.employeeId }),
       ...(filters.departmentId === undefined ? {} : { departmentId: filters.departmentId }),
     };
+  }
+
+  sortableFields(key: ReportKey): readonly string[] {
+    return Object.keys(SORTABLE[key] ?? {});
   }
 
   async count(principal: Principal, key: ReportKey, filters: ReportFilters): Promise<number> {

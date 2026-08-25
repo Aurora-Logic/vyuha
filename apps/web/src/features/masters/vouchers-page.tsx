@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowsClockwiseIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
+import type { DateRange } from 'react-day-picker';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -15,18 +16,29 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { DASHBOARD_PRESETS } from '@/features/reports/dashboard-v2.presets';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatCount, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PERMISSIONS, VOUCHER_SORT_FIELDS } from '@vyuha/shared';
 
-import { useVoucher, useVouchers, type Voucher } from './use-vouchers';
+import { magnitudeOf } from './voucher-amount';
+import { useVoucher, useVouchers, useVoucherTypes, type Voucher } from './use-vouchers';
 import { VoucherPaperPreview } from './voucher-paper-preview';
+import { CompanyFilter } from './company-filter';
 
 /**
  * The books (Phase 6c): every voucher pulled from Tally, newest first, and
@@ -35,9 +47,16 @@ import { VoucherPaperPreview } from './voucher-paper-preview';
  * directly, which is where Go To lands (09 §6).
  */
 
+/**
+ * The register's columns. Every `sortField` is a key the server knows
+ * (VOUCHER_SORT_FIELDS): the register pages at twenty-five, so a header that
+ * reordered the rows in hand would sort a twenty-fifth of the books and read
+ * as wrong. "As of" carries no sort because every row on a page was pulled by
+ * the same sync and would order arbitrarily.
+ */
 const COLUMNS: RecordColumn<Voucher>[] = [
-  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
-  { key: 'type', header: 'Type', cell: (row) => row.voucherType },
+  { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums', sortField: 'date' },
+  { key: 'type', header: 'Type', cell: (row) => row.voucherType, sortField: 'type' },
   {
     key: 'number',
     header: 'Number',
@@ -47,10 +66,11 @@ const COLUMNS: RecordColumn<Voucher>[] = [
         {row.isCancelled ? <Badge variant="outline">Cancelled</Badge> : null}
       </span>
     ),
+    sortField: 'number',
   },
-  { key: 'party', header: 'Party', cell: (row) => row.partyName || EMPTY_VALUE, secondary: true },
+  { key: 'party', header: 'Party', cell: (row) => row.partyName || EMPTY_VALUE, secondary: true, sortField: 'party' },
   // Tally's figure verbatim; this application never does arithmetic on it.
-  { key: 'amount', header: 'Amount', cell: (row) => formatMoney(row.amount), numeric: true },
+  { key: 'amount', header: 'Amount', cell: (row) => formatMoney(row.amount), numeric: true, sortField: 'amount' },
   {
     key: 'pulled',
     header: 'As of',
@@ -59,6 +79,24 @@ const COLUMNS: RecordColumn<Voucher>[] = [
     secondary: true,
   },
 ];
+
+/** The type filter's "no type chosen" value; Select has no empty option. */
+const ALL_TYPES = '\u0000all';
+
+/** A YYYY-MM-DD search param, parsed as a local date the calendar can hold. */
+function fromDateParam(value: string | null): Date | undefined {
+  if (value === null || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return undefined;
+  const [year, month, day] = value.split('-').map(Number);
+  if (year === undefined || month === undefined || day === undefined) return undefined;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function toDateParam(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${String(date.getFullYear())}-${month}-${day}`;
+}
 
 function ListSkeleton() {
   return (
@@ -157,7 +195,13 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
                         </>
                       )}
                     </span>
-                    <span className="shrink-0 tabular-nums">{formatMoney(line.amount)}</span>
+                    {/* The magnitude, because the Dr/Cr beside the name already
+                        says the direction. Tally writes a credit negative, and
+                        printing both read as "Cr minus four thousand" -- the
+                        sign twice, once as a word and once as a symbol. The
+                        printed voucher has always shown the magnitude; this is
+                        the same voucher agreeing with itself. */}
+                    <span className="shrink-0 tabular-nums">{formatMoney(magnitudeOf(line.amount))}</span>
                   </li>
                 ))}
               </ul>
@@ -178,6 +222,32 @@ export function VouchersPage() {
   const q = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const includeCancelled = searchParams.get('cancelled') === '1';
+  const voucherType = searchParams.get('type') ?? '';
+  const company = searchParams.get('company') ?? '';
+  const from = searchParams.get('from') ?? '';
+  const to = searchParams.get('to') ?? '';
+  const sort = searchParams.get('sort') ?? '';
+  const sortField = sort.startsWith('-') ? sort.slice(1) : sort;
+  // A hand-edited or stale `?sort=` must not paint an arrow on a header the
+  // server will not honour, so the control only shows a term the API accepts.
+  const activeSort = (VOUCHER_SORT_FIELDS as readonly string[]).includes(sortField)
+    ? { field: sortField, descending: sort.startsWith('-') }
+    : null;
+  const period: DateRange = { from: fromDateParam(from || null), to: fromDateParam(to || null) };
+  const hasFilters = q !== '' || voucherType !== '' || company !== '' || from !== '' || to !== '' || includeCancelled;
+
+  /** Every filter writes through here: one page reset, one replace, one place to read. */
+  function setParams(edit: (next: URLSearchParams) => void) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        edit(next);
+        next.delete('page');
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   const [draft, setDraft] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
@@ -200,15 +270,33 @@ export function VouchersPage() {
         { replace: true },
       );
     }, 300);
+
     return () => {
       window.clearTimeout(timer);
     };
   }, [draft, q, setSearchParams]);
 
   const query = useVouchers(
-    { page, ...(q ? { q } : {}), ...(includeCancelled ? { includeCancelled: true } : {}) },
+    {
+      page,
+      ...(q ? { q } : {}),
+      ...(voucherType ? { voucherType } : {}),
+      ...(company ? { connectionId: company } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      ...(includeCancelled ? { includeCancelled: true } : {}),
+      ...(activeSort ? { sort } : {}),
+    },
     { enabled: canView, prefetchNext: true },
   );
+
+  // Proactively re-evaluate and refetch when company or filter changes
+  useEffect(() => {
+    if (canView) {
+      void query.refetch();
+    }
+  }, [company, voucherType, includeCancelled, canView]);
+  const types = useVoucherTypes({ enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
   const openId = params.id ?? null;
@@ -253,7 +341,19 @@ export function VouchersPage() {
       />
 
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-4">
+        {/* One row of filters above the register, wrapping on a phone rather
+            than scrolling: search, then the two narrowings an accountant
+            reaches for first -- which book, and over what period. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <CompanyFilter
+            value={company}
+            onValueChange={(cid) => {
+              setParams((next) => {
+                if (cid) next.set('company', cid);
+                else next.delete('company');
+              });
+            }}
+          />
           <SearchField
             id="voucher-search"
             label="Search vouchers"
@@ -261,27 +361,81 @@ export function VouchersPage() {
             onValueChange={setDraft}
             placeholder="Number, party or narration"
           />
-          <div className="flex items-center gap-2">
+          <Select
+            value={voucherType === '' ? ALL_TYPES : voucherType}
+            onValueChange={(value) => {
+              setParams((next) => {
+                if (value === null || value === ALL_TYPES) next.delete('type');
+                else next.set('type', String(value));
+              });
+            }}
+          >
+            <SelectTrigger className="w-44" aria-label="Voucher type">
+              <SelectValue>{(value: string) => (value === ALL_TYPES ? 'All types' : value)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TYPES}>All types</SelectItem>
+              {(types.data ?? []).map((facet) => (
+                <SelectItem key={facet.voucherType} value={facet.voucherType}>
+                  <span className="flex w-full items-center justify-between gap-4">
+                    <span>{facet.voucherType}</span>
+                    <span className="text-muted-foreground tabular-nums">{formatCount(facet.count)}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DateRangeField
+            label="Period"
+            value={period}
+            presets={DASHBOARD_PRESETS}
+            onValueChange={(next) => {
+              setParams((params) => {
+                if (next.from) params.set('from', toDateParam(next.from));
+                else params.delete('from');
+                if (next.to) params.set('to', toDateParam(next.to));
+                else params.delete('to');
+              });
+            }}
+          />
+          <div className="flex min-h-9 items-center gap-2">
             <Switch
               id="show-cancelled"
               checked={includeCancelled}
               onCheckedChange={(checked) => {
-                setSearchParams(
-                  (current) => {
-                    const next = new URLSearchParams(current);
-                    if (checked) next.set('cancelled', '1');
-                    else next.delete('cancelled');
-                    next.delete('page');
-                    return next;
-                  },
-                  { replace: true },
-                );
+                setParams((next) => {
+                  if (checked) next.set('cancelled', '1');
+                  else next.delete('cancelled');
+                });
               }}
             />
             <Label htmlFor="show-cancelled" className="text-sm">
               Show cancelled
             </Label>
           </div>
+          {/* Only once something is narrowed: a permanent Clear on an unfiltered
+              register is a control that does nothing, which teaches the reader
+              to stop trusting the row. The sort is deliberately not cleared --
+              it is how the register is being read, not what it is showing. */}
+          {hasFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDraft('');
+                setParams((next) => {
+                  next.delete('q');
+                  next.delete('type');
+                  next.delete('from');
+                  next.delete('to');
+                  next.delete('cancelled');
+                });
+              }}
+            >
+              <FunnelSimpleXIcon data-icon="inline-start" />
+              Clear filters
+            </Button>
+          ) : null}
         </div>
 
         {query.isPending ? <ListSkeleton /> : null}
@@ -302,10 +456,10 @@ export function VouchersPage() {
               <EmptyMedia variant="icon">
                 <ReceiptIcon />
               </EmptyMedia>
-              <EmptyTitle>{q ? 'No voucher matches that' : 'No vouchers yet'}</EmptyTitle>
+              <EmptyTitle>{hasFilters ? 'No voucher matches these filters' : 'No vouchers yet'}</EmptyTitle>
               <EmptyDescription>
-                {q
-                  ? 'Try a voucher number, a party name, or a word from the narration.'
+                {hasFilters
+                  ? 'Widen the period, choose another type, or clear the filters. A cancelled voucher stays hidden until the switch is on.'
                   : 'Vouchers arrive as Tally changes — OpsTally delivers each one as it is written. Nothing has been delivered for this organisation yet.'}
               </EmptyDescription>
             </EmptyHeader>
@@ -316,6 +470,12 @@ export function VouchersPage() {
           <>
             <RecordTable
               columns={COLUMNS}
+              sort={activeSort}
+              onSortChange={(next) => {
+                setParams((params) => {
+                  params.set('sort', next.descending ? `-${next.field}` : next.field);
+                });
+              }}
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => `${row.voucherType} ${row.voucherNumber}`.trim()}

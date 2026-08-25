@@ -123,7 +123,11 @@ export class SalesOrderService implements OnModuleInit {
     `);
     if (mirror.isCancelled && current.status === 'CONFIRMED') {
       await tx.execute(sql`UPDATE sales_documents SET status = 'CANCELLED', updated_at = now() WHERE id = ${documentId}`);
-      this.auditContext.record({ action: 'sales.order.cancelled_in_tally', entityType: 'sales_document', entityId: documentId, before: { status: current.status }, after: { number: current.number, remoteGuid: mirror.remoteGuid } });
+      // The order is gone from Tally, so nothing is owed on it any more. The
+      // shortages it raised used to stay open, and the buyer went on
+      // purchasing for an order that no longer existed.
+      const released = await this.requirements.closeForSalesOrder(tx, orgId, documentId, `Order ${current.number} cancelled in Tally`);
+      this.auditContext.record({ action: 'sales.order.cancelled_in_tally', entityType: 'sales_document', entityId: documentId, before: { status: current.status }, after: { number: current.number, remoteGuid: mirror.remoteGuid, requirementsClosed: released } });
     }
   }
 

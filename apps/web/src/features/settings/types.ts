@@ -1,6 +1,8 @@
 import {
+  DATE_FORMATS,
+  type DateFormat,
   DEVICE_BINDING_MODES,
-  type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy, duplicatesPolicySchema, type DuplicatesPolicy, returnReasonsPolicySchema, type ReturnReasonsPolicy } from '@vyuha/shared';
+  type DeviceBindingMode, INTEREST_DAY_BASES, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy, duplicatesPolicySchema, type DuplicatesPolicy, returnReasonsPolicySchema, type ReturnReasonsPolicy } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -16,9 +18,9 @@ import { z } from 'zod';
  * boot the whole application.
  */
 
-/** Must match the API's `DATE_FORMATS`; a format outside this set will not render. */
-export const DATE_FORMATS = ['dd-MM-yyyy', 'dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'] as const;
-export type DateFormat = (typeof DATE_FORMATS)[number];
+/** Single-sourced in @vyuha/shared; a format outside this set will not render. */
+export { DATE_FORMATS };
+export type { DateFormat };
 
 /** REQ-L-02 lists geofence behaviour; the three outcomes are the punch-window three. */
 export const GEOFENCE_BEHAVIOURS = ['BLOCK', 'ALLOW_WITH_REASON', 'ALLOW_AND_FLAG'] as const;
@@ -89,6 +91,45 @@ export type { WorkspaceLocale, RetentionPolicy };
 
 export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
 
+/**
+ * D-22: the interest cost module's rate, basis and windows. The two enums are
+ * declared here rather than imported: they live in the API's settings
+ * catalogue, and this file states the shape the screen needs (see the header).
+ * `rateSource` stays a loose string for the dateFormat reason — FIXED is the
+ * only source today, and a screen that refused a future one could not offer
+ * the reader a way to correct it.
+ */
+export const INTEREST_RECEIVABLE_BASES = ['VOUCHER', 'BILL'] as const;
+export type InterestReceivableBase = (typeof INTEREST_RECEIVABLE_BASES)[number];
+
+export const INTEREST_STOCK_CLOCK_STARTS = ['AFTER_CREDIT_DAYS', 'INWARD'] as const;
+export type InterestStockClockStart = (typeof INTEREST_STOCK_CLOCK_STARTS)[number];
+
+export { INTEREST_DAY_BASES };
+
+export const interestPolicySchema = z.object({
+  annualRatePct: z.number(),
+  dayBasis: z.union([z.literal(365), z.literal(360)]),
+  rateSource: z.string(),
+  receivableBase: z.enum(INTEREST_RECEIVABLE_BASES),
+  stockClockStart: z.enum(INTEREST_STOCK_CLOCK_STARTS),
+  includeGstInStock: z.boolean(),
+  recomputeWindowDays: z.number().int(),
+  nonMovingDays: z.number().int(),
+});
+
+export type InterestPolicy = z.infer<typeof interestPolicySchema>;
+
+export const INTEREST_RECEIVABLE_BASE_LABELS: Record<InterestReceivableBase, string> = {
+  VOUCHER: 'Each Sales voucher is a bill',
+  BILL: 'Tally bill marks (when they arrive)',
+};
+
+export const INTEREST_STOCK_CLOCK_LABELS: Record<InterestStockClockStart, string> = {
+  AFTER_CREDIT_DAYS: 'After the vendor credit days pass',
+  INWARD: 'From the inward date',
+};
+
 /** Field name to the feature that reads it today, or null when nothing does. */
 const enforcementSchema = z.record(z.string(), z.string().nullable());
 
@@ -102,6 +143,7 @@ export const orgSettingsSchema = z.object({
   retention: retentionSchema,
   duplicates: duplicatesPolicySchema,
   returns: returnReasonsPolicySchema,
+  interest: interestPolicySchema,
   email: emailSettingsSchema,
   enforcement: z.object({
     attendance: enforcementSchema,
@@ -112,6 +154,7 @@ export const orgSettingsSchema = z.object({
     retention: enforcementSchema,
     duplicates: enforcementSchema,
     returns: enforcementSchema,
+    interest: enforcementSchema,
   }),
   unreadableKeys: z.array(z.string()),
 });
@@ -136,6 +179,7 @@ export interface SettingsPatch {
   retention?: Partial<RetentionPolicy>;
   duplicates?: Partial<DuplicatesPolicy>;
   returns?: Partial<ReturnReasonsPolicy>;
+  interest?: Partial<InterestPolicy>;
 }
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {

@@ -24,10 +24,12 @@ export interface EmployeeListParams {
   page: number;
   pageSize: number;
   /** Free text over employee code and name. Empty means unfiltered. */
-  q: string;
-  status: EmployeeStatus | null;
+  q?: string;
+  status?: EmployeeStatus | null;
   /** Department id, or null for every department. */
-  departmentId: string | null;
+  departmentId?: string | null;
+  /** A term the server knows (EMPLOYEE_SORT_FIELDS), e.g. "-dateOfJoining" or "status". */
+  sort?: string;
 }
 
 const namedRefSchema = z.object({ id: z.string(), name: z.string() });
@@ -82,13 +84,16 @@ function toSearch(params: EmployeeListParams): string {
   if (params.q) search.set('q', params.q);
   if (params.status) search.set('status', params.status);
   if (params.departmentId) search.set('departmentId', params.departmentId);
+  if (params.sort) search.set('sort', params.sort);
   return search.toString();
 }
 
 export function useEmployees(
   params: EmployeeListParams,
+  options: { enabled?: boolean } = {},
 ): UseQueryResult<Paginated<EmployeeListItem>, Error> {
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: ['employees', 'list', params],
     queryFn: async ({ signal }) => {
       const body = await apiRequest<unknown>(`/employees?${toSearch(params)}`, { signal });

@@ -34,14 +34,24 @@ export interface KpiTileProps {
   onOpen?: () => void;
   /** The glyph the figure's subject wears elsewhere (the flag). */
   icon?: ReactNode;
+  /**
+   * A deliberate emphasis for a figure that is a standing warning -- money
+   * leaking, not merely a number. Status colour, so it is never free
+   * decoration: the one tone maps to the theme's warning tokens in both
+   * modes.
+   */
+  tone?: 'warning';
 }
 
-export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4; className?: string }) {
+export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 6; className?: string }) {
   return (
     <dl
       className={cn(
-        'grid grid-cols-2 gap-3 sm:grid-cols-2',
-        columns === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3',
+        // Six is the dashboard strip: a full set of headline figures in one
+        // band on a wide screen, stepping down through three to the phone's
+        // two without any tile dropping below a readable width.
+        'grid grid-cols-2 gap-3',
+        columns === 6 ? 'sm:grid-cols-3 xl:grid-cols-6' : columns === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3',
         className,
       )}
     >
@@ -52,13 +62,14 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
   );
 }
 
-export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon }: KpiTileProps) {
+export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon, tone }: KpiTileProps) {
   const delta = current !== undefined && previous !== undefined && previous !== null ? deltaOf(current, previous) : null;
   const good = delta === null ? null : delta.direction === 'flat' ? null : (delta.direction === 'up') !== lowerIsBetter;
   return (
     <Card
       className={cn(
         'min-w-0 gap-1 px-4 py-3.5',
+        tone === 'warning' && 'border-warning/60 bg-warning/15',
         onOpen !== undefined && 'hover:bg-accent/40 focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2',
       )}
       {...(onOpen === undefined

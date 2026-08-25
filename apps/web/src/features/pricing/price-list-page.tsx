@@ -186,7 +186,7 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
             ) : null}
           </span>
         }
-        description={detail === null ? 'A name, the dates it runs, the lines, and who it applies to.' : detail.state === 'active' ? `In force since ${formatDate((detail.approvedAt ?? detail.createdAt).slice(0, 10))}${detail.approvedByName ? ` · approved by ${detail.approvedByName}` : ''}. An active list does not change: draft a new version.` : detail.state === 'pending_approval' ? 'Awaiting the approvals inbox. Nothing here changes until it is decided.' : detail.state === 'superseded' ? `Replaced on ${formatDate((detail.supersededAt ?? detail.createdAt).slice(0, 10))}; kept so documents from its time stay explainable.` : 'A draft: edit freely, then submit.'}
+        description={detail === null ? 'A name, the dates it runs, the lines, and who it applies to.' : detail.state === 'active' ? `In force since ${formatDate((detail.approvedAt ?? detail.createdAt).slice(0, 10))}${detail.approvedByName ? ` · approved by ${detail.approvedByName}` : ''}. An active list does not change: draft a new version.` : detail.state === 'pending_approval' ? 'Awaiting the approvals inbox. Nothing here changes until it is decided.' : detail.state === 'superseded' ? `Replaced on ${formatDate((detail.supersededAt ?? detail.createdAt).slice(0, 10))}; kept so documents from its time stay explainable.` : detail.state === 'expired' ? `Ran until ${formatDate((detail.effectiveTo ?? detail.createdAt).slice(0, 10))} and no longer applies. Draft a new version to carry its prices forward.` : 'A draft: edit freely, then submit.'}
         action={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/masters/price-lists" />}>
@@ -205,7 +205,10 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
                 {canApprove ? 'Activate' : 'Submit for approval'}
               </Button>
             ) : null}
-            {canManage && detail?.state === 'active' ? (
+            {/* An expired list is versioned too: carrying last season's prices
+                forward is what the lineage is for, and the API allows it --
+                without this the button was simply missing. */}
+            {canManage && (detail?.state === 'active' || detail?.state === 'expired') ? (
               <Button size="sm" variant="outline" disabled={busy} onClick={branch}>
                 {version.isPending ? <Spinner data-icon="inline-start" /> : <GitBranchIcon data-icon="inline-start" />}
                 New version

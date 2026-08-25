@@ -27,6 +27,7 @@ function lastFinancialYear(): { from: Date; to: Date } {
 }
 
 const PRESETS: readonly RangePreset[] = [
+  { label: 'Today', range: () => ({ from: new Date(), to: new Date() }) },
   { label: 'This month', range: () => toDates(periodForGranularity('month', today())) },
   { label: 'This quarter', range: () => toDates(periodForGranularity('quarter', today())) },
   { label: 'This financial year', range: () => toDates(periodForGranularity('year', today())) },

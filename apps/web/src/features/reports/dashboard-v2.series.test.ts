@@ -133,6 +133,18 @@ describe('ageingByBucket', () => {
     expect(series.insight).toBe('80% of what is owed is already past thirty days.');
   });
 
+  it('keeps bills the API could not age (audit 34)', () => {
+    // Tally may send a bill with no date, and the API keeps those on purpose
+    // rather than guessing an age. The bucket list did not have UNDATED, so
+    // they were dropped: the donut and the figure beside it showed less money
+    // outstanding than the table underneath, with nothing to say why.
+    const withUndated = ageingByBucket([...rows, row({ bucket: 'UNDATED', outstanding: '250' })]);
+    expect(withUndated.points.map((p) => p.bucket)).toEqual(['0-30', '90+', 'UNDATED']);
+    expect(withUndated.total).toBe(750);
+    // Undated is not overdue: nothing is known about when it was due.
+    expect(withUndated.overdue).toBe(400);
+  });
+
   it('says the good news too', () => {
     expect(ageingByBucket([row({ bucket: '0-30', outstanding: '100' })]).insight).toBe(
       'Everything owed is inside thirty days.',

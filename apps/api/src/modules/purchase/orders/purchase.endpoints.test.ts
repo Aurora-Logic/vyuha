@@ -2,6 +2,7 @@ import { PERMISSIONS, SYSTEM_ROLES, type ApprovalRequestSummary, type GrnView, t
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { PushOutcomeRegistry } from '../../../platform/sync/push-outcome.registry.js';
@@ -266,6 +267,63 @@ describe('the nightly reorder sweep (13 REQ-X-09)', () => {
     const second = await requirements.raiseReorderBreaches(ORG_ID);
     expect(second).toBe(0);
     await harness.post(`/purchase/requirements/${reorder?.id ?? ''}/close`, { token: adminToken, body: { reason: 'test: reorder level restored' } });
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
+  });
+
+  it('refuses a minimum order quantity of nought (audit 5)', async () => {
+    // Stored as zero it reaches the sweep, where it is the floor of a
+    // GREATEST: an item sitting exactly on its reorder level then produced a
+    // requirement to buy nought, which the buyer sees as a job to do and can
+    // do nothing with. Empty is how "no minimum" is said.
+    const refused = await harness.put<ErrorBody>(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '20', minimumOrderQty: '0' },
+    });
+    expect(refused.status).toBe(400);
+    const alsoRefused = await harness.put<ErrorBody>(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '20', minimumOrderQty: '0.000' },
+    });
+    expect(alsoRefused.status).toBe(400);
+    // Clearing it still means "no minimum".
+    const cleared = await harness.put(`/purchase/items/${cableId}/settings`, {
+      token: adminToken,
+      body: { reorderLevel: '20', minimumOrderQty: null },
+    });
+    expect(cleared.status).toBe(200);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
+  });
+
+  it('does not reorder an item whose receipt has not come back from Tally (audit 6)', async () => {
+    const requirements = harness.resolve(RequirementsService);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '1000', minimumOrderQty: '5' } });
+    const raised = await requirements.raiseReorderBreaches(ORG_ID);
+    expect(raised).toBe(1);
+    const open = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
+    const mine = open.body.find((r) => r.stockItemId === cableId && r.source === 'reorder');
+    expect(mine).toBeDefined();
+
+    // The goods arrive: the requirement is received, but closing_qty is
+    // Tally's figure and Tally has not been pulled since. The guard only
+    // looked at open and ordered, so the sweep raised the same reorder again
+    // -- every night, until Tally caught up.
+    await harness.db.execute(sql`
+      UPDATE procurement_requirements SET state = 'received', received_qty = quantity, updated_at = now()
+       WHERE id = ${mine?.id ?? ''}
+    `);
+    await harness.db.execute(sql`UPDATE stock_items SET last_pulled_at = now() - interval '1 hour' WHERE id = ${cableId}`);
+
+    expect(await requirements.raiseReorderBreaches(ORG_ID)).toBe(0);
+
+    // Once Tally has been pulled since, its closing quantity knows about the
+    // receipt -- and if the item is still short, it is short for real.
+    await harness.db.execute(sql`UPDATE stock_items SET last_pulled_at = now() WHERE id = ${cableId}`);
+    expect(await requirements.raiseReorderBreaches(ORG_ID)).toBe(1);
+
+    await harness.db.execute(sql`
+      UPDATE procurement_requirements SET state = 'closed', closed_at = now()
+       WHERE org_id = ${ORG_ID} AND stock_item_id = ${cableId} AND source = 'reorder' AND state <> 'closed'
+    `);
     await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
   });
 });
@@ -612,6 +670,115 @@ describe('an order that stops being a promise of goods (audits 3, 4, 8, 12)', ()
       });
     });
     expect(await orderedQty(requirementId)).toBe('0.000');
+  });
+
+  it('refuses the confirm that would double-order what another PO already took (P3 lead 7)', async () => {
+    const req = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO procurement_requirements (org_id, stock_item_id, quantity, source, state)
+      VALUES (${ORG_ID}, ${cableId}, 10, 'shortage', 'open')
+      RETURNING id
+    `);
+    const requirementId = req.rows[0]?.id ?? '';
+
+    // Two drafts, both born from the same shortage: nothing claims a
+    // requirement until its order confirms, so both see the same ten open.
+    const draftOf = async (): Promise<string> => {
+      const created = await harness.post<PurchaseOrderView>('/purchase/orders/from-requirements', { token: adminToken, body: { partyId: vendorId, requirementIds: [requirementId] } });
+      expect(created.status).toBe(201);
+      await harness.patch<PurchaseOrderView>(`/purchase/orders/${created.body.id}`, {
+        token: adminToken,
+        body: { lines: [{ stockItemId: cableId, description: 'Cat6 cable 305m', quantity: '10', rate: '3800', taxPct: '18', requirementIds: [requirementId] }] },
+      });
+      return created.body.id;
+    };
+    const first = await draftOf();
+    const second = await draftOf();
+
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${first}/confirm`, { token: adminToken });
+    expect(confirmed.body.status).toBe('CONFIRMED');
+    expect(await orderedQty(requirementId)).toBe('10.000');
+
+    // The second confirm used to go through as well: ordered_qty reached
+    // twenty on a ten-unit requirement and the vendor got two copies of one
+    // shortage.
+    const refused = await harness.post<ErrorBody>(`/purchase/orders/${second}/confirm`, { token: adminToken });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('still open');
+    expect(await orderedQty(requirementId)).toBe('10.000');
+    const held = await harness.get<PurchaseOrderView>(`/purchase/orders/${second}`, { token: adminToken });
+    expect(held.body.status).toBe('DRAFT');
+
+    // The refusal names the repair. Unlinked, the same draft confirms, and
+    // the requirement still shows the first order's ten and nothing more.
+    await harness.patch<PurchaseOrderView>(`/purchase/orders/${second}`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, description: 'Cat6 cable 305m', quantity: '10', rate: '3800', taxPct: '18', requirementIds: [] }] },
+    });
+    const secondConfirm = await harness.post<PurchaseOrderView>(`/purchase/orders/${second}/confirm`, { token: adminToken });
+    expect(secondConfirm.body.status).toBe('CONFIRMED');
+    expect(await orderedQty(requirementId)).toBe('10.000');
+  });
+
+  it('writes one audit entry when a receipt note is voided in Tally, and none on the repeat (P3 lead 9)', async () => {
+    const { poId } = await buildOrder('PO-VOID-GRN', 3);
+    const grn = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO grns (org_id, number, purchase_order_id) VALUES (${ORG_ID}, 'GRN-VOID-1', ${poId}) RETURNING id
+    `);
+    const grnId = grn.rows[0]?.id ?? '';
+    const handler = harness.resolve(PushOutcomeRegistry).find('RECEIPT_NOTE');
+    const onMirror = handler?.onMirror?.bind(handler);
+    expect(onMirror).toBeDefined();
+    const audit = harness.resolve(AuditContext);
+
+    // The handler records through the request-scoped audit channel, so the
+    // test provides one and reads back what landed in it.
+    const mirrorOnce = (alterId: number) =>
+      audit.run(async (store) => {
+        await harness.db.transaction(async (tx) => {
+          await onMirror?.(tx, ORG_ID, grnId, { remoteGuid: 'guid-grn-void', remoteVoucherNumber: '77', isCancelled: true, alterId });
+        });
+        return store.entries.filter((entry) => entry.action === 'purchase.grn.cancelled_in_tally');
+      });
+
+    const firstEntries = await mirrorOnce(2);
+    expect(firstEntries).toHaveLength(1);
+    expect(firstEntries[0]?.entityId).toBe(grnId);
+    const noted = await harness.db.execute<{ last_error: string | null }>(sql`SELECT last_error FROM grns WHERE id = ${grnId}`);
+    expect(noted.rows[0]?.last_error).toBe('Cancelled in Tally');
+
+    // The mirror arrives on every pull; the audit row must not.
+    expect(await mirrorOnce(3)).toHaveLength(0);
+  });
+
+  it('writes one audit entry when a delivery note is voided in Tally, and none on the repeat (P3 lead 9)', async () => {
+    const doc = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sales_documents (org_id, doc_type, number, status, date, customer_name)
+      VALUES (${ORG_ID}, 'SALES_ORDER', 'SO-VOID-1', 'CONFIRMED', CURRENT_DATE, 'Asha Traders')
+      RETURNING id
+    `);
+    const dispatch = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO dispatches (org_id, document_id, number, mode)
+      VALUES (${ORG_ID}, ${doc.rows[0]?.id ?? ''}, 'DSP-VOID-1', 'outstation')
+      RETURNING id
+    `);
+    const dispatchId = dispatch.rows[0]?.id ?? '';
+    const handler = harness.resolve(PushOutcomeRegistry).find('DELIVERY_NOTE');
+    const onMirror = handler?.onMirror?.bind(handler);
+    expect(onMirror).toBeDefined();
+    const audit = harness.resolve(AuditContext);
+
+    const mirrorOnce = (alterId: number) =>
+      audit.run(async (store) => {
+        await harness.db.transaction(async (tx) => {
+          await onMirror?.(tx, ORG_ID, dispatchId, { remoteGuid: 'guid-dsp-void', remoteVoucherNumber: '78', isCancelled: true, alterId });
+        });
+        return store.entries.filter((entry) => entry.action === 'sales.dispatch.cancelled_in_tally');
+      });
+
+    const firstEntries = await mirrorOnce(2);
+    expect(firstEntries).toHaveLength(1);
+    expect(firstEntries[0]?.entityId).toBe(dispatchId);
+    expect(await mirrorOnce(3)).toHaveLength(0);
   });
 
   it('does not release twice when an order is short-closed and then cancelled in Tally (audits 3, 4)', async () => {

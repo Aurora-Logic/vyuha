@@ -271,7 +271,7 @@ export function primaryNumericColumn(definition: Pick<ReportDefinition, 'columns
 
 // ---------------------------------------------------------------- chart forms
 
-export type GenericChartForm = 'hbar' | 'line' | 'donut' | 'scatter' | 'heatmap' | 'radials' | 'pareto';
+export type GenericChartForm = 'hbar' | 'bar' | 'stacked-bar' | 'line' | 'area' | 'stacked-area' | 'donut' | 'pie' | 'scatter' | 'heatmap' | 'radials' | 'radar' | 'pareto';
 
 export interface ChartFormSpec {
   readonly form: GenericChartForm;
@@ -331,6 +331,12 @@ export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = 
   'margin-proxy': { form: 'hbar', category: 'item', series: ['margin'] },
   // The dense grid: customer down the side, month across, value in the cell.
   'sales-heatmap': { form: 'heatmap', category: 'partyName', series: ['value'] },
+  // D-22: the interest module. The two cost reports rank where the money
+  // sits; the cash cycle is its three day-components walking month by month,
+  // on one axis because all three are days of the same cycle.
+  'party-interest-cost': { form: 'hbar', category: 'partyName', series: ['interestLoss'] },
+  'stock-interest-cost': { form: 'hbar', category: 'item', series: ['interest'] },
+  'cash-cycle': { form: 'line', category: 'month', series: ['inventoryDays', 'receivableDays', 'payableDays'] },
 };
 
 const TIME_CATEGORY = /^\d{4}-\d{2}(?:-\d{2})?$/u;
@@ -353,9 +359,10 @@ export interface FormPoint extends Record<string, string | number> {
 }
 
 /**
- * Rows shaped for the resolved form. A line aggregates duplicate categories
- * and walks chronologically; a donut aggregates into the top five slices
- * plus Other; bars keep the report's own order, top rows only.
+ * Rows shaped for the resolved form. A line or an area aggregates duplicate
+ * categories and walks chronologically; a donut or a pie aggregates into the
+ * top five slices plus Other; bars, columns and the radar keep the report's
+ * own order, top rows only.
  */
 export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): FormPoint[] {
   if (spec.form === 'heatmap') {
@@ -399,9 +406,13 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
       return point as FormPoint;
     });
   }
-  if (spec.form === 'hbar') {
+  if (spec.form === 'hbar' || spec.form === 'bar' || spec.form === 'stacked-bar' || spec.form === 'radar') {
+    // One point per row in the report's own order, top rows only -- MAX_BARS
+    // is also the most categories a radar stays readable at, so the radar
+    // slices here the way the radials slice to five, silently and honestly:
+    // the table has the rest.
     return rows.slice(0, MAX_BARS).map((row) => {
-      const point: Record<string, string | number> = { category: text(row.cells[spec.category]) || '—' };
+      const point: Record<string, string | number> = { category: text(row.cells[spec.category]) || '—', __rowId: row.id ?? '' };
       for (const key of spec.series) point[key] = num(row.cells[key]);
       return point as FormPoint;
     });
@@ -414,7 +425,7 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
     for (const key of spec.series) entry[key] = (entry[key] ?? 0) + num(row.cells[key]);
     byCategory.set(category, entry);
   }
-  if (spec.form === 'line') {
+  if (spec.form === 'line' || spec.form === 'area' || spec.form === 'stacked-area') {
     // A running balance is a last-value series, not a sum; the last row of a
     // date already carries the day's closing figure.
     const isBalance = spec.series.length === 1 && spec.series[0] === 'balance';
@@ -428,7 +439,7 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
     }
     return [...byCategory.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([category, entry]) => ({ category, ...entry }));
   }
-  // donut: top five slices of the first series, everything else as Other
+  // donut and pie: top five slices of the first series, everything else as Other
   const key = spec.series[0] ?? '';
   const slices = [...byCategory.entries()].map(([category, entry]) => ({ category, value: entry[key] ?? 0 })).filter((p) => p.value > 0);
   slices.sort((a, b) => b.value - a.value);
@@ -445,6 +456,50 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
  * July whatever order the rows arrived in; categories keep the report's
  * order (its sort is the ranking the reader asked for).
  */
+/**
+ * Whether a form, once drawn, would put any mark on the page for these rows.
+ * The tile renderer heals a pinned form that cannot draw back to the
+ * automatic one, and the customise sheet never offers a form the report's
+ * columns cannot wear -- both ask here, so the two answers cannot drift.
+ */
+export function formDraws(spec: ChartFormSpec, definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>, rows: readonly ChartRow[]): boolean {
+  if (rows.length === 0) return false;
+  if (spec.form === 'hbar') return genericSeries(definition, rows) !== null;
+  if (spec.form === 'bar' || spec.form === 'stacked-bar' || spec.form === 'radar') {
+    // The hbar rule for the other per-row forms: bars of nothing but zeros
+    // draw an empty plot that reads as a rendering failure, not a chart.
+    return formSeries(spec, rows).some((point) => spec.series.some((key) => Number(point[key] ?? 0) !== 0));
+  }
+  if (spec.form === 'pareto') return paretoSeries(rows, spec.category).length > 0;
+  if (spec.form === 'heatmap') {
+    const grid = heatmapGrid(formSeries(spec, rows), spec.series[0] ?? 'value');
+    return grid.months.length > 0 && grid.rows.length > 0;
+  }
+  return formSeries(spec, rows).length > 0;
+}
+
+/** The forms this report's columns can wear at all, before any rows arrive. */
+export function wearableForms(definition: Pick<ReportDefinition, 'columns'>): GenericChartForm[] {
+  const numeric = definition.columns.filter((c) => c.type === 'number' || c.type === 'money');
+  const texty = definition.columns.filter((c) => (c.type === 'text' || c.type === 'code') && c.key !== 'asOf');
+  const keys = new Set(definition.columns.map((c) => c.key));
+  // resolveChartForm decides "time-shaped" from the rows; before any rows
+  // arrive the columns-level mirror of that test is a `month` or `date` key,
+  // the same key the heatmap rule below already leans on. An area over
+  // ranked categories is a line wearing a fill, so it is never offered.
+  const timeShaped = keys.has('month') || keys.has('date');
+  const forms: GenericChartForm[] = ['hbar', 'bar', 'line', 'donut', 'pie'];
+  if (timeShaped && numeric.length > 0) forms.push('area');
+  if (numeric.length >= 2) forms.push('stacked-bar');
+  if (timeShaped && numeric.length >= 2) forms.push('stacked-area');
+  if (texty.length > 0 && numeric.length > 0) forms.push('radar');
+  if (keys.has('month') && texty.some((c) => c.key !== 'month') && numeric.length > 0) forms.push('heatmap');
+  if (numeric.length >= 2) forms.push('scatter');
+  if (definition.columns.some((c) => /pct$/iu.test(c.key))) forms.push('radials');
+  if (keys.has('sharePct') && keys.has('cumulativePct')) forms.push('pareto');
+  return forms;
+}
+
 export function heatmapGrid(points: readonly FormPoint[], valueKey: string): HeatGrid {
   return heatGridOf(points.map((point) => ({ category: String(point.category), month: String(point.month), value: Number(point[valueKey] ?? 0), rowId: String(point.__rowId ?? '') })));
 }

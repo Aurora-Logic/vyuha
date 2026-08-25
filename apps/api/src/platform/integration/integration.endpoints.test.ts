@@ -1,5 +1,6 @@
 import { SYSTEM_ROLES, type IntegrationListResponse } from '@vyuha/shared';
 import { inArray } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
@@ -223,5 +224,44 @@ describe('what a connection is reported as', () => {
       first.body.data.map((item) => item.name),
     );
     expect(first.body.data.length).toBeGreaterThan(1);
+  });
+});
+
+describe('one company, one connection, one door (audit 11)', () => {
+  /**
+   * A connection's transport is the agent token or the webhook secret, never
+   * both -- the schema has said so in prose since it was written. The service
+   * checked it by reading the row first, outside any lock, so two
+   * administrators acting at once both read "no other credential" and both
+   * wrote. Which transport the connection then used depended on which lookup
+   * ran. The database keeps the rule now, so the loser of the race is told
+   * rather than obeyed.
+   */
+  it('refuses a second credential on the same connection', async () => {
+    const connection = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO integration_connections (org_id, system, name, company_guid, agent_token_hash)
+      VALUES (${ORG_ID}, 'TALLY', 'One Door Co', 'guid-one-door', 'hash-one-door')
+      RETURNING id
+    `);
+    const id = connection.rows[0]?.id ?? '';
+
+    await expect(
+      harness.db.execute(sql`UPDATE integration_connections SET webhook_secret_enc = 'sealed' WHERE id = ${id}`),
+    ).rejects.toThrow();
+
+    // The row is untouched, and either credential alone is still allowed.
+    const after = await harness.db.execute<{ webhook_secret_enc: string | null }>(sql`
+      SELECT webhook_secret_enc FROM integration_connections WHERE id = ${id}
+    `);
+    expect(after.rows[0]?.webhook_secret_enc).toBeNull();
+
+    await harness.db.execute(sql`UPDATE integration_connections SET agent_token_hash = NULL, webhook_secret_enc = 'sealed' WHERE id = ${id}`);
+    const swapped = await harness.db.execute<{ agent_token_hash: string | null; webhook_secret_enc: string | null }>(sql`
+      SELECT agent_token_hash, webhook_secret_enc FROM integration_connections WHERE id = ${id}
+    `);
+    expect(swapped.rows[0]?.agent_token_hash).toBeNull();
+    expect(swapped.rows[0]?.webhook_secret_enc).toBe('sealed');
+
+    await harness.db.execute(sql`DELETE FROM integration_connections WHERE id = ${id}`);
   });
 });

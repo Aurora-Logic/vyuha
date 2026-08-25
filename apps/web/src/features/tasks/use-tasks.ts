@@ -46,6 +46,8 @@ export interface TaskFilters {
   subjectType?: string;
   subjectId?: string;
   includeClosed?: boolean;
+  /** A term the server knows (TASK_SORT_FIELDS), e.g. "-dueDate" or "priority". The board ignores it. */
+  sort?: string;
 }
 
 function filterParams(filters: TaskFilters): URLSearchParams {
@@ -59,6 +61,7 @@ function filterParams(filters: TaskFilters): URLSearchParams {
   if (filters.subjectType) params.set('subjectType', filters.subjectType);
   if (filters.subjectId) params.set('subjectId', filters.subjectId);
   if (filters.includeClosed) params.set('includeClosed', 'true');
+  if (filters.sort) params.set('sort', filters.sort);
   return params;
 }
 

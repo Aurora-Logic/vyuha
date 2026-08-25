@@ -13,6 +13,7 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SearchField } from '@/components/shared/search-field';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { TabsToolbar, TabsToolbarAction } from '@/components/shared/tabs-toolbar';
 import { Badge } from '@/components/ui/badge';
@@ -31,7 +32,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { MASTER_SORT_FIELDS, PERMISSIONS } from '@vyuha/shared';
 
 import { DeleteMasterDialog, type DeleteTarget } from './delete-master-dialog';
 import { DepartmentSheet, DesignationSheet, LocationSheet } from './master-sheets';
@@ -159,8 +160,9 @@ function DepartmentsTab() {
   const resetPage = useResetPage();
   const [sheet, setSheet] = useState<DepartmentSummary | 'new' | null>(null);
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  const { sort } = useUrlSort(MASTER_SORT_FIELDS);
 
-  const query = useDepartmentList({ q: search.trim(), page });
+  const query = useDepartmentList({ q: search.trim(), page, ...(sort ? { sort } : {}) });
   const rows = query.data?.data ?? [];
 
   // PRD §6.4: Alt+C creates a master on the fly.
@@ -179,9 +181,10 @@ function DepartmentsTab() {
     {
       key: 'name',
       header: 'Department',
+      sortField: 'name',
       cell: (row) => <span className="font-medium">{row.name}</span>,
     },
-    { key: 'code', header: 'Code', cell: (row) => row.code, className: 'tabular-nums' },
+    { key: 'code', header: 'Code', sortField: 'code', cell: (row) => row.code, className: 'tabular-nums' },
     { key: 'parent', header: 'Parent', cell: (row) => row.parent?.name ?? 'Top level' },
     {
       key: 'head',

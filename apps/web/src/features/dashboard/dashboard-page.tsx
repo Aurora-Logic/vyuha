@@ -268,7 +268,7 @@ export function DashboardPage() {
 
             <ChartCard
               title="Late arrivals"
-              description="Line. People arriving after their rostered start"
+              description="Area. People arriving after their rostered start"
               wide
               pending={orgRange.isPending}
               empty={!hasValues(latePoints, ['late'])}

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { primaryId } from '../columns.js';
@@ -46,7 +47,16 @@ export const duplicateClusters = pgTable(
   },
   (t) => [
     index('duplicate_clusters_org_type_state_idx').on(t.orgId, t.entityType, t.state),
-    uniqueIndex('duplicate_clusters_org_signature_uq').on(t.orgId, t.signature),
+    /*
+     * The signature is member ids joined together and grows with the cluster;
+     * a btree index row caps at ~2.7KB, so a cluster of about seventy-five
+     * real (incompressible) uuids crashed the detector's insert. The index
+     * dedupes on the hash; the service still compares full signatures in
+     * memory, so a collision cannot merge two different clusters silently --
+     * it would only refuse the second insert, which is the failure we can
+     * live with.
+     */
+    uniqueIndex('duplicate_clusters_org_signature_md5_uq').on(t.orgId, sql`md5(${t.signature})`),
   ],
 );
 

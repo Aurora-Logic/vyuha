@@ -20,6 +20,8 @@ export interface InvoiceFilters {
   syncState?: DocumentSyncState;
   partyId?: string;
   sourceDocumentId?: string;
+  /** A term the server knows (ESTIMATE_SORT_FIELDS), e.g. "-date" or "grandTotal". */
+  sort?: string;
 }
 
 export function useInvoices(filters: InvoiceFilters, options: { enabled?: boolean } = {}): UseQueryResult<EstimatesResponse, Error> {
@@ -29,6 +31,7 @@ export function useInvoices(filters: InvoiceFilters, options: { enabled?: boolea
   if (filters.syncState) params.set('syncState', filters.syncState);
   if (filters.partyId) params.set('partyId', filters.partyId);
   if (filters.sourceDocumentId) params.set('sourceDocumentId', filters.sourceDocumentId);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return useQuery({
     enabled: options.enabled ?? true,

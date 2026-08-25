@@ -70,11 +70,20 @@ export class DispatchService implements OnModuleInit {
    * and no quantity here is undone by an accountant's void.
    */
   private async applyMirror(tx: Transaction, orgId: string, documentId: string, mirror: PushMirror): Promise<void> {
+    const before = await tx.execute<{ last_error: string | null; number: string }>(sql`
+      SELECT last_error, number FROM dispatches WHERE org_id = ${orgId} AND id = ${documentId}
+    `);
     await tx.execute(sql`
       UPDATE dispatches SET remote_voucher_number = COALESCE(${mirror.remoteVoucherNumber}, remote_voucher_number), remote_guid = ${mirror.remoteGuid},
                             last_error = ${mirror.isCancelled ? 'Cancelled in Tally' : null}, updated_at = now()
        WHERE org_id = ${orgId} AND id = ${documentId}
     `);
+    // The goods left the door either way; the void is Tally's word about the
+    // books, and it used to arrive silently. One audit row, on the pull that
+    // learned of it, not on every pull that repeats it.
+    if (mirror.isCancelled && before.rows[0] !== undefined && before.rows[0].last_error !== 'Cancelled in Tally') {
+      this.auditContext.record({ action: 'sales.dispatch.cancelled_in_tally', entityType: 'dispatch', entityId: documentId, before: null, after: { number: before.rows[0].number, remoteGuid: mirror.remoteGuid } });
+    }
   }
 
   async list(principal: Principal, query: DispatchListQuery & { delivered?: 'yes' | 'no' }): Promise<Paginated<DispatchView>> {

@@ -21,6 +21,13 @@ import {
 import { ArrowDownIcon, ArrowUpIcon, ArrowsDownUpIcon } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import { cn } from '@/lib/utils';
 
@@ -93,6 +100,10 @@ export function RecordTable<T>({
   if (rows.length === 0 && emptyState) {
     return <div className="border">{emptyState}</div>;
   }
+
+  // Both branches sort by the same set, so it is worked out once rather than
+  // filtered again inside the phone control.
+  const sortableColumns = onSortChange === undefined ? [] : columns.filter((column) => column.sortField !== undefined);
 
   return (
     <>
@@ -195,6 +206,62 @@ export function RecordTable<T>({
           markup — the registry already models exactly this shape, and a
           bespoke version would drift from it the first time the theme moves
           (CLAUDE.md §3 rule 1). */}
+      {/*
+        Sorting on a phone.
+
+        Below md the header row is not rendered at all, so the control the
+        desktop sorts with does not exist -- a register that can be ordered on
+        one screen and not the other is not the same screen twice. The column
+        goes in a Select and the direction in the button beside it, rather than
+        two options per column, which doubles the list for no added meaning.
+
+        There is deliberately no way back to the unsorted order: the header
+        cannot clear a sort either, and offering it on one branch only would be
+        the asymmetry this whole block exists to remove.
+      */}
+      {sortableColumns.length > 0 && onSortChange !== undefined ? (
+        <div className="flex items-center gap-2 border border-b-0 px-3 py-2 md:hidden">
+          <span className="text-muted-foreground shrink-0 text-xs">Sort</span>
+          <Select
+            value={sort?.field ?? ''}
+            onValueChange={(value) => {
+              const field = String(value);
+              if (field === '') return;
+              // A newly chosen column starts ascending, the same as a first
+              // press on its header; only the button beside this flips it.
+              onSortChange({ field, descending: false });
+            }}
+          >
+            <SelectTrigger className="min-w-0 flex-1" aria-label="Sort by">
+              <SelectValue>
+                {(value: string) =>
+                  sortableColumns.find((column) => column.sortField === value)?.header ?? 'Default order'
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {sortableColumns.map((column) => (
+                <SelectItem key={column.key} value={column.sortField ?? ''}>
+                  {column.header}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sort == null}
+            aria-label={sort?.descending ? 'Sort ascending' : 'Sort descending'}
+            onClick={() => {
+              if (sort == null) return;
+              onSortChange({ field: sort.field, descending: !sort.descending });
+            }}
+          >
+            {sort?.descending ? <ArrowDownIcon /> : <ArrowUpIcon />}
+          </Button>
+        </div>
+      ) : null}
+
       {/* role="presentation" overrides ItemGroup's built-in role="list". A list
           whose children are all role="button" has no listitem in it, so a
           screen reader announces an empty list — worse than the plain container

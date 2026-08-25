@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowsClockwiseIcon, BooksIcon, LockKeyIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BooksIcon, LockKeyIcon, UserFocusIcon } from '@phosphor-icons/react';
 import { useSearchParams, useNavigate } from 'react-router';
 
 import { DuplicateBadge } from '@/components/shared/duplicate-badge';
@@ -7,6 +7,7 @@ import { DUPLICATE_ROW_CLASS } from '@/components/shared/duplicate-flag';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,9 +29,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PARTY_SORT_FIELDS, PERMISSIONS } from '@vyuha/shared';
 
 import { useParties, type Party } from './use-parties';
+import { CompanyFilter } from './company-filter';
 
 /**
  * REQ-R-01: the parties projection, read-only end to end. There is no create
@@ -51,6 +53,7 @@ const COLUMNS: RecordColumn<Party>[] = [
   {
     key: 'name',
     header: 'Party',
+    sortField: 'name',
     cell: (row) => (
       <span className="flex items-center gap-2">
         <span className="font-medium">{row.name}</span>
@@ -63,6 +66,7 @@ const COLUMNS: RecordColumn<Party>[] = [
   {
     key: 'credit',
     header: 'Credit limit',
+    sortField: 'creditLimit',
     // Tally's figure verbatim; this application never does arithmetic on it.
     cell: (row) => formatMoney(row.creditLimit),
     numeric: true,
@@ -70,10 +74,12 @@ const COLUMNS: RecordColumn<Party>[] = [
   {
     key: 'creditDays',
     header: 'Credit days',
+    sortField: 'creditDays',
     cell: (row) => (row.creditDays === null ? EMPTY_VALUE : String(row.creditDays)),
     numeric: true,
     secondary: true,
   },
+  { key: 'manager', header: 'Relationship manager', cell: (row) => row.manager?.name ?? EMPTY_VALUE, secondary: true },
   {
     key: 'pulled',
     header: 'As of',
@@ -108,6 +114,8 @@ export function PartiesPage() {
 
   const q = searchParams.get('q') ?? '';
   const parentGroup = searchParams.get('group') ?? '';
+  const company = searchParams.get('company') ?? '';
+  const mine = searchParams.get('mine') === '1';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
   const [draft, setDraft] = useState(q);
@@ -140,10 +148,24 @@ export function PartiesPage() {
     };
   }, [draft, q, setSearchParams]);
 
+  const { sort, activeSort, onSortChange } = useUrlSort(PARTY_SORT_FIELDS);
   const query = useParties(
-    { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}) },
+    {
+      page,
+      ...(q ? { q } : {}),
+      ...(parentGroup ? { parentGroup } : {}),
+      ...(company ? { connectionId: company } : {}),
+      ...(sort ? { sort } : {}),
+      ...(mine ? { mine: true } : {}),
+    },
     { enabled: canView, prefetchNext: true },
   );
+
+  useEffect(() => {
+    if (canView) {
+      void query.refetch();
+    }
+  }, [company, parentGroup, canView]);
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
 
@@ -188,6 +210,21 @@ export function PartiesPage() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
+          <CompanyFilter
+            value={company}
+            onValueChange={(cid) => {
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (cid) next.set('company', cid);
+                  else next.delete('company');
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          />
           <SearchField
             id="party-search"
             label="Search parties"
@@ -222,6 +259,27 @@ export function PartiesPage() {
               ))}
             </SelectContent>
           </Select>
+          {/* The relationship manager's own book, one toggle: the parties they own. */}
+          <Button
+            variant={mine ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={mine}
+            onClick={() => {
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (mine) next.delete('mine');
+                  else next.set('mine', '1');
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          >
+            <UserFocusIcon data-icon="inline-start" />
+            My customers
+          </Button>
         </div>
 
         {query.isPending ? <ListSkeleton /> : null}
@@ -258,7 +316,8 @@ export function PartiesPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
-
+              sort={activeSort}
+              onSortChange={onSortChange}
               rowClassName={(row) => (row.duplicate ? DUPLICATE_ROW_CLASS : undefined)}
 
               rowLeading={(row) => (row.duplicate ? <DuplicateBadge flag={row.duplicate} /> : null)}

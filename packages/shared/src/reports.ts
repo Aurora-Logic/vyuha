@@ -98,6 +98,12 @@ export const REPORT_KEYS = [
   'stock-out-frequency',
   'margin-proxy',
   'sales-heatmap',
+  // D-21: the GST inputs summary that amends REQ-AE-08 narrowly.
+  'gst-summary',
+  // D-22: interest on blocked working capital, from the daily closing series.
+  'party-interest-cost',
+  'stock-interest-cost',
+  'cash-cycle',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -142,6 +148,7 @@ export const ANALYTICS_REPORT_KEYS = [
   'stock-out-frequency',
   'margin-proxy',
   'sales-heatmap',
+  'gst-summary',
 ] as const satisfies readonly ReportKey[];
 /**
  * Owner, 22 Aug 2026: attendance's own analytics - reviews, approvals, early
@@ -162,6 +169,9 @@ export const COLLECTIONS_REPORT_KEYS = ['promised-vs-collected', 'broken-promise
 
 /** 15 REQ-AK-10: the return rate, read three ways. Feeds REQ-AG-21. */
 export const RETURNS_REPORT_KEYS = ['return-rate-by-item', 'return-rate-by-customer', 'returns-by-reason'] as const satisfies readonly ReportKey[];
+
+/** D-22: interest on money blocked with customers and in stock, and the cash cycle it adds up to. */
+export const INTEREST_REPORT_KEYS = ['party-interest-cost', 'stock-interest-cost', 'cash-cycle'] as const satisfies readonly ReportKey[];
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
@@ -1101,6 +1111,17 @@ const AOV_TREND_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+const GST_SUMMARY_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'taxableValue', header: 'Outward goods value', type: 'money', width: 18 },
+  { key: 'cgst', header: 'CGST', type: 'money', width: 14 },
+  { key: 'sgst', header: 'SGST', type: 'money', width: 14 },
+  { key: 'igst', header: 'IGST', type: 'money', width: 14 },
+  { key: 'cess', header: 'Cess', type: 'money', width: 12, secondary: true },
+  { key: 'otherTax', header: 'Other tax heads', type: 'money', width: 16, secondary: true },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 const PARTIAL_SHIPMENTS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'ordersDispatched', header: 'Orders dispatched', type: 'number', width: 12 },
@@ -1137,6 +1158,45 @@ const SALES_HEATMAP_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
   { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 16 },
+];
+
+/**
+ * D-22: interest on receivables per customer. `interestLoss` is the headline
+ * — overdue rupee-days priced at the effective rate; `plannedCost` is the
+ * same arithmetic over the days still inside credit terms. Both come from
+ * the daily closing series, never from invoice-date arithmetic.
+ */
+const PARTY_INTEREST_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'effectiveRatePct', header: 'Rate %', type: 'number', width: 10 },
+  { key: 'plannedCost', header: 'Planned cost', type: 'money', sortField: 'plannedCost', width: 14 },
+  { key: 'interestLoss', header: 'Interest loss', type: 'money', sortField: 'interestLoss', width: 14 },
+  { key: 'avgDaysOutstanding', header: 'Avg days outstanding', type: 'number', width: 16 },
+  { key: 'avgOverdueDays', header: 'Avg overdue days', type: 'number', width: 14 },
+  { key: 'lossPctOfTurnover', header: 'Loss % of turnover', type: 'number', sortField: 'lossPctOfTurnover', width: 14 },
+  { key: 'creditTerms', header: 'Credit terms', type: 'status', width: 14, secondary: true },
+  { key: 'settlementRule', header: 'Settlement rule', type: 'text', width: 18, secondary: true },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+const STOCK_INTEREST_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'closingValue', header: 'Closing value', type: 'money', sortField: 'closingValue', width: 14 },
+  { key: 'fundedValue', header: 'Funded value', type: 'money', width: 14 },
+  { key: 'interest', header: 'Interest', type: 'money', sortField: 'interest', width: 14 },
+  { key: 'daysSinceOutward', header: 'Days since outward', type: 'number', sortField: 'daysSinceOutward', width: 16 },
+  { key: 'nonMoving', header: 'Movement', type: 'status', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+const CASH_CYCLE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'inventoryDays', header: 'Inventory days', type: 'number', width: 14 },
+  { key: 'receivableDays', header: 'Receivable days', type: 'number', width: 14 },
+  { key: 'payableDays', header: 'Payable days', type: 'number', width: 14 },
+  { key: 'cashCycleDays', header: 'Cash cycle days', type: 'number', sortField: 'cashCycleDays', width: 14 },
+  { key: 'totalInterest', header: 'Interest for the month', type: 'money', sortField: 'totalInterest', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
@@ -1695,6 +1755,15 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: 'month',
     filters: ['period'],
   },
+  'gst-summary': {
+    key: 'gst-summary',
+    category: 'Books',
+    label: 'GST summary',
+    description: 'Outward goods value and tax by head, month by month, from the tax ledger lines on projected Sales vouchers net of Credit Notes. Working data for whoever files - this is not a return, and Tally remains the filing system. Heads are read from ledger names, so a tax ledger named away from its head lands under Other.',
+    columns: GST_SUMMARY_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
   'partial-shipments': {
     key: 'partial-shipments',
     category: 'Fulfilment',
@@ -1749,6 +1818,33 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-valueLocked',
     filters: ['itemName'],
   },
+  'party-interest-cost': {
+    key: 'party-interest-cost',
+    category: 'Customers',
+    label: 'Interest cost by customer',
+    description: 'What each customer\u2019s outstanding costs in interest, from the daily closing balance split into within-credit and overdue days \u2014 planned cost beside interest loss, the effective rate shown per row. Voucher-grain until Tally bill marks arrive: each Sales voucher is a bill, settled oldest-first unless Tally names the bill. A customer in advance earns negative loss.',
+    columns: PARTY_INTEREST_COLUMNS,
+    defaultSort: '-interestLoss',
+    filters: ['period', 'partyId'],
+  },
+  'stock-interest-cost': {
+    key: 'stock-interest-cost',
+    category: 'Inventory',
+    label: 'Interest cost of stock',
+    description: 'What holding each item costs in interest, on a purchase cost basis \u2014 each day, the stock value whose age has outrun the vendor\u2019s credit days is the value being funded. Items with no outward movement inside the configured window are flagged non-moving.',
+    columns: STOCK_INTEREST_COLUMNS,
+    defaultSort: '-interest',
+    filters: ['period', 'itemName'],
+  },
+  'cash-cycle': {
+    key: 'cash-cycle',
+    category: 'Books',
+    label: 'Cash cycle',
+    description: 'Inventory days plus receivable days minus payable days, month by month, with the interest the cycle cost. Every term reads the same daily closing series the interest reports do; stock is valued on a purchase cost basis.',
+    columns: CASH_CYCLE_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
 };
 
 /**
@@ -1764,6 +1860,7 @@ export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filte
     !(SALES_REPORT_KEYS as readonly string[]).includes(key) &&
     !(COLLECTIONS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(RETURNS_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(INTEREST_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ATTENDANCE_ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
@@ -1778,6 +1875,8 @@ export const COLLECTIONS_REPORTS: readonly ReportDefinition[] = COLLECTIONS_REPO
 
 export const RETURNS_REPORTS: readonly ReportDefinition[] = RETURNS_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
+export const INTEREST_REPORTS: readonly ReportDefinition[] = INTEREST_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
 /** The Tally module's reports (Phase 6c onward). */
 export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
   (key) => REPORT_DEFINITIONS[key],
@@ -1788,7 +1887,7 @@ export const ANALYTICS_REPORTS: readonly ReportDefinition[] = ANALYTICS_REPORT_K
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...COLLECTIONS_REPORTS, ...RETURNS_REPORTS, ...ANALYTICS_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...COLLECTIONS_REPORTS, ...RETURNS_REPORTS, ...INTEREST_REPORTS, ...ANALYTICS_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -1855,6 +1954,44 @@ export const reportFilterSchema = z.object({
 });
 
 export type ReportFilters = z.infer<typeof reportFilterSchema>;
+
+/** Which `ReportFilters` keys each declared filter control owns. */
+const FILTER_KEYS: Readonly<Record<ReportFilterName, readonly (keyof ReportFilters)[]>> = {
+  period: ['from', 'to'],
+  employeeId: ['employeeId'],
+  departmentId: ['departmentId'],
+  locationId: ['locationId'],
+  status: ['status'],
+  flags: ['flags'],
+  punchType: ['punchType'],
+  partyId: ['partyId'],
+  groupBy: ['groupBy'],
+  voucherType: ['voucherType'],
+  ledgerName: ['ledgerName'],
+  itemName: ['itemName'],
+};
+
+/**
+ * The filters this report actually answers for, from the ones a caller sent.
+ *
+ * Twenty reports declare no period -- current stock, open clusters, a
+ * receivables ageing as of the last pull -- and their queries ignore `from`
+ * and `to` accordingly. The reports screen sends the period anyway, because
+ * one range lives in the URL for every report, and an export carried it into
+ * the file: "Period 01-08-2026 to 31-08-2026" printed above rows that cover
+ * all of history, on a page somebody then acts on. Dropping the undeclared
+ * families here means the stored request, the header block and the rows are
+ * the same set of filters rather than three readings of it.
+ */
+export function narrowToDeclaredFilters(reportKey: ReportKey, filters: ReportFilters): ReportFilters {
+  const kept: Record<string, unknown> = {};
+  for (const name of REPORT_DEFINITIONS[reportKey].filters) {
+    for (const key of FILTER_KEYS[name]) {
+      if (filters[key] !== undefined) kept[key] = filters[key];
+    }
+  }
+  return kept;
+}
 
 /**
  * NFR-03 sizes the export job at "a full month for 500 employees". A year is
@@ -2069,6 +2206,7 @@ const ROW_JOIN_KEYS: Partial<Record<ReportKey, { fields: readonly string[]; mode
   'customer-concentration': { fields: ['partyId'], mode: 'first' },
   'order-fill-rate': { fields: ['partyId'], mode: 'first' },
   'new-vs-repeat': { fields: ['month'], mode: 'first' },
+  'gst-summary': { fields: ['month'], mode: 'first' },
   'approvals-turnaround': { fields: ['type'], mode: 'first' },
   'early-arrival-leaderboard': { fields: ['employeeId'], mode: 'first' },
   'on-time-rate': { fields: ['departmentId'], mode: 'first' },
@@ -2078,6 +2216,9 @@ const ROW_JOIN_KEYS: Partial<Record<ReportKey, { fields: readonly string[]; mode
   'stock-out-frequency': { fields: ['stockItemId', 'month'], mode: 'join' },
   'margin-proxy': { fields: ['stockItemId'], mode: 'first' },
   'sales-heatmap': { fields: ['partyId', 'month'], mode: 'join' },
+  'party-interest-cost': { fields: ['partyId'], mode: 'first' },
+  'stock-interest-cost': { fields: ['stockItemId'], mode: 'first' },
+  'cash-cycle': { fields: ['month'], mode: 'first' },
 };
 
 function joinKeyPart(value: unknown): string | null {
@@ -3692,4 +3833,88 @@ export interface StockAgeingSource extends Record<string, unknown> {
   readonly bucket90: string;
   readonly valueLocked: string | null;
   readonly asOf: string | null;
+}
+
+/**
+ * D-22: one customer's interest position for the period. Money figures are
+ * strings rounded at 2dp on the way out of SQL \u2014 the daily series is
+ * summed at full numeric precision and rounded only here, at display.
+ * `interestLoss` goes negative for a customer in advance, never clamped.
+ */
+export interface PartyInterestSource {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly effectiveRatePct: number;
+  readonly plannedCost: string;
+  readonly interestLoss: string;
+  readonly avgDaysOutstanding: number | null;
+  readonly avgOverdueDays: number | null;
+  readonly lossPctOfTurnover: number | null;
+  readonly creditTerms: 'TALLY' | 'OVERRIDE' | 'MISSING';
+  /** D-22: the applied settlement rule is shown, never implied. */
+  readonly settlementRule: string;
+  readonly asOf: string | null;
+}
+
+export function partyInterestCell(row: PartyInterestSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName': return row.partyName;
+    case 'effectiveRatePct': return row.effectiveRatePct;
+    case 'plannedCost': return row.plannedCost;
+    case 'interestLoss': return row.interestLoss;
+    case 'avgDaysOutstanding': return row.avgDaysOutstanding;
+    case 'avgOverdueDays': return row.avgOverdueDays;
+    case 'lossPctOfTurnover': return row.lossPctOfTurnover;
+    case 'creditTerms': return row.creditTerms === 'MISSING' ? 'CREDIT TERMS MISSING' : row.creditTerms;
+    case 'settlementRule': return row.settlementRule;
+    case 'asOf': return row.asOf;
+    default: return null;
+  }
+}
+
+export interface StockInterestSource {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly closingValue: string;
+  readonly fundedValue: string;
+  readonly interest: string;
+  readonly daysSinceOutward: number | null;
+  readonly nonMoving: boolean;
+  readonly asOf: string | null;
+}
+
+export function stockInterestCell(row: StockInterestSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'item': return row.item;
+    case 'closingValue': return row.closingValue;
+    case 'fundedValue': return row.fundedValue;
+    case 'interest': return row.interest;
+    case 'daysSinceOutward': return row.daysSinceOutward;
+    case 'nonMoving': return row.nonMoving ? 'NON-MOVING' : 'MOVING';
+    case 'asOf': return row.asOf;
+    default: return null;
+  }
+}
+
+export interface CashCycleSource {
+  readonly month: string;
+  readonly inventoryDays: number | null;
+  readonly receivableDays: number | null;
+  readonly payableDays: number | null;
+  readonly cashCycleDays: number | null;
+  readonly totalInterest: string;
+  readonly asOf: string | null;
+}
+
+export function cashCycleCell(row: CashCycleSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'month': return row.month;
+    case 'inventoryDays': return row.inventoryDays;
+    case 'receivableDays': return row.receivableDays;
+    case 'payableDays': return row.payableDays;
+    case 'cashCycleDays': return row.cashCycleDays;
+    case 'totalInterest': return row.totalInterest;
+    case 'asOf': return row.asOf;
+    default: return null;
+  }
 }

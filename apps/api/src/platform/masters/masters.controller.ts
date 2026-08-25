@@ -9,11 +9,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
 import {
   PERMISSIONS,
+  assignPartyManagerSchema,
   partyListQuerySchema,
   priceListListQuerySchema,
   stockItemListQuerySchema,
@@ -23,6 +25,7 @@ import {
   type PriceListEntryView,
   type StockItemView,
   type VoucherDetailView,
+  type VoucherTypeFacet,
   type VoucherView,
   type ItemLifecycle,
   type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics, voucherPaper, duplicateClustersQuerySchema, dismissDuplicateSchema, detectDuplicatesSchema, DUPLICATE_ENTITY_TYPES, type DuplicateClusterView, type DuplicateDetectionResult } from '@vyuha/shared';
@@ -42,6 +45,7 @@ import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
+class AssignPartyManagerDto extends createZodDto(assignPartyManagerSchema) {}
 class LifecycleAnalyticsQueryDto extends createZodDto(lifecycleAnalyticsQuerySchema) {}
 class DuplicateClustersQueryDto extends createZodDto(duplicateClustersQuerySchema) {}
 class DismissDuplicateDto extends createZodDto(dismissDuplicateSchema) {}
@@ -78,6 +82,16 @@ export class MastersController {
     @Query() query: PartyListQueryDto,
   ): Promise<Paginated<PartyView>> {
     return this.masters.listParties(principal, query);
+  }
+
+  @Put('parties/:id/manager')
+  @RequirePermission(PERMISSIONS.PARTIES_RM_ASSIGN)
+  assignPartyManager(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AssignPartyManagerDto,
+  ): Promise<PartyView> {
+    return this.masters.assignManager(principal, id, body.managerId);
   }
 
   @Get('parties/:id')
@@ -196,6 +210,18 @@ export class MastersController {
     @Query() query: VoucherListQueryDto,
   ): Promise<Paginated<VoucherView>> {
     return this.masters.listVouchers(principal, query);
+  }
+
+  /**
+   * The options for the register's type filter. Declared before
+   * `vouchers/:id` so Nest matches this literal path first -- registered
+   * after it, "voucher-types" would be read as a voucher id and 400 on the
+   * UUID pipe.
+   */
+  @Get('voucher-types')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  listVoucherTypes(@CurrentUser() principal: Principal): Promise<VoucherTypeFacet[]> {
+    return this.masters.listVoucherTypes(principal);
   }
 
   /** A Tally voucher as a workbook on the organisation's own paper (owner, 22 Aug 2026); the print route draws the same reading. */

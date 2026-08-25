@@ -8,6 +8,39 @@ import { lineBalances, type Dispatch, type Estimate, type PackRecord } from './t
 
 export type FulfilmentStep = 'picked' | 'packed' | 'shipped' | 'delivered';
 
+/**
+ * A colour per step, so the bar says where the order is without being read.
+ *
+ * All four steps were the same accent at three opacities, which told the eye
+ * only "some of this is done" -- the difference between packed and shipped is
+ * the thing anyone is actually looking for, and it was carried by position
+ * alone.
+ *
+ * Composed from tokens that already have a light and a dark value rather than
+ * four new hues: picked and shipped borrow the meaning they already have in
+ * this product (something has started, something needs watching), delivered is
+ * the green every screen here uses for done, and packed takes the identity
+ * violet so it is not mistaken for either neighbour.
+ *
+ * Written as whole class strings because Tailwind cannot see a class name
+ * assembled at runtime -- the same reason `appearance-swatches.ts` spells its
+ * swatches out.
+ */
+export const STEP_BAR: Record<FulfilmentStep, { done: string; current: string }> = {
+  picked: { done: 'bg-[var(--step-picked)]', current: 'bg-[var(--step-picked)]/45' },
+  packed: { done: 'bg-[var(--step-packed)]', current: 'bg-[var(--step-packed)]/45' },
+  shipped: { done: 'bg-[var(--step-shipped)]', current: 'bg-[var(--step-shipped)]/45' },
+  delivered: { done: 'bg-[var(--step-delivered)]', current: 'bg-[var(--step-delivered)]/45' },
+};
+
+/** The tick beside a finished step, in that step's own colour. */
+export const STEP_TICK: Record<FulfilmentStep, string> = {
+  picked: 'text-[var(--step-picked)]',
+  packed: 'text-[var(--step-packed)]',
+  shipped: 'text-[var(--step-shipped)]',
+  delivered: 'text-[var(--step-delivered)]',
+};
+
 export const STEPS: readonly { key: FulfilmentStep; label: string }[] = [
   { key: 'picked', label: 'Picked' },
   { key: 'packed', label: 'Packed' },

@@ -117,9 +117,25 @@ export const ACCENT_PRESETS: readonly AccentPreset[] = [
   { id: 'slate', label: 'Slate', hue: 257.3, chroma: 0.044 },
 ];
 
+/**
+ * The workspace typeface, as system stacks so nothing is fetched at runtime.
+ * The same four the printed documents already offer, applied to the app font
+ * token rather than the paper's, so a workspace reads in one voice.
+ */
+export const APPEARANCE_FONTS = ['sans', 'serif', 'humanist', 'mono'] as const;
+export type AppearanceFont = (typeof APPEARANCE_FONTS)[number];
+export const APPEARANCE_FONT_LABELS: Record<AppearanceFont, { label: string; note: string }> = {
+  sans: { label: 'Sans', note: 'The default interface face.' },
+  serif: { label: 'Serif', note: 'Georgia; a warmer, editorial feel.' },
+  humanist: { label: 'Humanist', note: 'Trebuchet or Verdana; open and friendly.' },
+  mono: { label: 'Typewriter', note: 'Monospaced throughout.' },
+};
+
 export const appearanceSchema = z.object({
   accentHue: z.number().min(0).max(360),
   accentChroma: z.number().min(0.02).max(0.3),
+  /** Defaulted, so a settings row written before the typeface existed still parses. */
+  font: z.enum(APPEARANCE_FONTS).default('sans'),
   /*
    * Preprocessed rather than a bare enum, so a base written by an older build
    * resolves instead of failing the whole object. Putting it here rather than
@@ -139,7 +155,7 @@ export const appearanceSchema = z.object({
 });
 export type Appearance = z.infer<typeof appearanceSchema>;
 
-export const DEFAULT_APPEARANCE: Appearance = { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable' };
+export const DEFAULT_APPEARANCE: Appearance = { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable', font: 'sans' };
 
 /** The preset a hue and chroma correspond to, if any; a custom hue has none. */
 export function presetFor(appearance: Pick<Appearance, 'accentHue' | 'accentChroma'>): AccentPreset | null {
