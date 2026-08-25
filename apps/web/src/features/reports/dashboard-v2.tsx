@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { ArrowRightIcon } from '@phosphor-icons/react';
-import { isReportKey, PERMISSIONS, type ReportKey } from '@vyuha/shared';
+import { ArrowRightIcon, SlidersHorizontalIcon } from '@phosphor-icons/react';
+import { DASHBOARD_KEYS, isDashboardKey, isReportKey, PERMISSIONS, type ReportKey } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   Area,
   AreaChart,
@@ -41,6 +41,7 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { formatCount, formatMoney, formatMoneyShort } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -50,6 +51,10 @@ import { useReportRows } from './api';
 import { monthLabel } from './dashboard-v2.format';
 import { asApiDate, DASHBOARD_PRESETS, defaultRange } from './dashboard-v2.presets';
 import * as series from './dashboard-v2.series';
+import { boardFromParam, boardToParam, FINANCE_PRESET, SALES_PRESET } from './dashboard-boards';
+import { DashboardCustomiseSheet } from './dashboard-customise';
+import { TileGrid } from './dashboard-tiles';
+import { useDashboardLayouts } from './use-dashboard-layouts';
 
 /**
  * Every chart shape shadcn ships, over the receivables data, on one page.
@@ -233,10 +238,119 @@ const RISK_CONFIG = {
   atRisk: { label: 'At risk', color: 'var(--slice-3)' },
 } satisfies ChartConfig;
 
+const BOARD_LABELS: Record<(typeof DASHBOARD_KEYS)[number], string> = {
+  overview: 'Overview',
+  sales: 'Sales',
+  finance: 'Finance',
+};
+
+const BOARD_DESCRIPTIONS: Record<(typeof DASHBOARD_KEYS)[number], string> = {
+  overview:
+    'Every chart shape shadcn ships, over the receivables data. One card per question, the figure on the mark, the sentence underneath.',
+  sales: 'The sales story over one period: what was invoiced, to whom, and how the order book moved.',
+  finance: 'The money story: what is owed, how old it is, who pays late, and where the risk sits.',
+};
+
 export function ReportsDashboardV2() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const board = boardFromParam(searchParams.get('board'));
+  // The overview keeps its receivables gate; the sales and finance boards are
+  // built from report tiles, and the catalogue and rows endpoints already
+  // answer per permission -- so `report.view` is their whole ticket.
+  const canOverview = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
+  const canBoards = usePermission(PERMISSIONS.REPORT_VIEW);
+  const [range, setRange] = useState<DateRange>(defaultRange);
+  const [customising, setCustomising] = useState(false);
+  const layouts = useDashboardLayouts(canBoards);
+
+  const stored = layouts.data?.find((view) => view.dashboard === board)?.config ?? null;
+  const preset = board === 'sales' ? SALES_PRESET : board === 'finance' ? FINANCE_PRESET : null;
+  const layout = stored ?? preset;
+  const refused = board === 'overview' ? !canOverview : !canBoards;
+
+  const switchBoard = (next: string): void => {
+    if (!isDashboardKey(next)) return;
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      const value = boardToParam(next);
+      if (value === null) params.delete('board');
+      else params.set('board', value);
+      return params;
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader description={BOARD_DESCRIPTIONS[board]} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Tabs
+          value={board}
+          onValueChange={(value) => {
+            switchBoard(String(value));
+          }}
+        >
+          <TabsList>
+            {DASHBOARD_KEYS.map((key) => (
+              <TabsTrigger key={key} value={key} className="px-3">
+                {BOARD_LABELS[key]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <DateRangeField
+          value={range}
+          onValueChange={setRange}
+          label="Period"
+          presets={DASHBOARD_PRESETS}
+          className="w-full sm:w-auto"
+        />
+        {canBoards ? (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setCustomising(true);
+            }}
+          >
+            <SlidersHorizontalIcon data-icon="inline-start" />
+            Customise
+          </Button>
+        ) : null}
+      </div>
+
+      {refused ? (
+        <p className="text-muted-foreground text-sm">
+          {board === 'overview'
+            ? 'This dashboard needs permission to see receivables.'
+            : 'This board needs permission to view reports.'}
+        </p>
+      ) : canBoards && layouts.isLoading ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Skeleton className="aspect-video w-full" />
+          <Skeleton className="aspect-video w-full" />
+        </div>
+      ) : layout !== null ? (
+        <TileGrid layout={layout} range={range} />
+      ) : board === 'overview' ? (
+        <OverviewCharts range={range} />
+      ) : null}
+
+      {canBoards && !refused ? (
+        <DashboardCustomiseSheet
+          board={board}
+          open={customising}
+          onOpenChange={setCustomising}
+          current={layout}
+          hasStored={stored !== null}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function OverviewCharts({ range }: { range: DateRange }) {
   const navigate = useNavigate();
   const canView = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
-  const [range, setRange] = useState<DateRange>(defaultRange);
   const [basketMeasure, setBasketMeasure] = useState<'revenue' | 'aov'>('revenue');
 
   const from = range.from === undefined ? undefined : asApiDate(range.from);
@@ -337,18 +451,6 @@ export function ReportsDashboardV2() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader description="Every chart shape shadcn ships, over the receivables data. One card per question, the figure on the mark, the sentence underneath." />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <DateRangeField
-          value={range}
-          onValueChange={setRange}
-          label="Period"
-          presets={DASHBOARD_PRESETS}
-          className="w-full sm:w-auto"
-        />
-      </div>
-
       {/* Three across, not six. Six in a row made a wall of figures nobody
           reads left to right, and each tile was too narrow for a rupee amount
           without wrapping. */}
