@@ -57,4 +57,46 @@ describe('report row shapes', () => {
     const [unknown] = toRowViews('payment-analysis', [{ ...row, slippage: null, avgDaysToPay: null, billsPaid: 0 }]);
     expect(unknown?.cells.onTime).toBe('NOT YET KNOWN');
   });
+
+  it('renders the interest reports\' derived words the way the exporter does (D-22)', () => {
+    // Same trap as the payment verdict: the API sends MISSING and a boolean,
+    // and the shared cell functions turn both into words. The generic record
+    // shape would have shown the raw values on screen while the exported file
+    // showed the words.
+    const partyRow = {
+      partyId: 'p1',
+      partyName: 'Asha Traders',
+      effectiveRatePct: 12,
+      plannedCost: '310.50',
+      interestLoss: '1240.00',
+      avgDaysOutstanding: 41,
+      avgOverdueDays: 11,
+      lossPctOfTurnover: 1.2,
+      creditTerms: 'MISSING',
+      settlementRule: 'FIFO oldest-first',
+      asOf: '2026-08-25T00:00:00.000Z',
+    };
+    const [party] = toRowViews('party-interest-cost', [partyRow]);
+    expect(party?.cells.creditTerms).toBe('CREDIT TERMS MISSING');
+    expect(party?.status).toBe('CREDIT TERMS MISSING');
+    const [settled] = toRowViews('party-interest-cost', [{ ...partyRow, creditTerms: 'TALLY' }]);
+    expect(settled?.status).toBeNull();
+
+    const stockRow = {
+      stockItemId: 's1',
+      item: 'MCB 32A',
+      closingValue: '9000.00',
+      fundedValue: '9000.00',
+      interest: '120.000',
+      daysSinceOutward: 120,
+      nonMoving: true,
+      asOf: '2026-08-25T00:00:00.000Z',
+    };
+    const [stock] = toRowViews('stock-interest-cost', [stockRow]);
+    expect(stock?.cells.nonMoving).toBe('NON-MOVING');
+    expect(stock?.status).toBe('NON-MOVING');
+    const [moving] = toRowViews('stock-interest-cost', [{ ...stockRow, nonMoving: false }]);
+    expect(moving?.cells.nonMoving).toBe('MOVING');
+    expect(moving?.status).toBeNull();
+  });
 });

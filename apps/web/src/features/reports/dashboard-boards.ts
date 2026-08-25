@@ -46,6 +46,13 @@ export const FINANCE_PRESET: DashboardLayout = {
     { reportKey: 'customer-concentration', form: 'auto', wide: true, filters: {} },
     { reportKey: 'credit-breaches', form: 'auto', wide: false, filters: {} },
     { reportKey: 'gst-summary', form: 'auto', wide: false, filters: {} },
+    // D-22: what the receivables actually cost, and the cycle that costs it.
+    // Pinned rather than auto: the ranking of interest loss and the
+    // three-day-series line are this board's point, and they must survive the
+    // report's own default form learning a different answer. The cycle line
+    // carries three series, so like the Pareto it takes the full row.
+    { reportKey: 'party-interest-cost', form: 'hbar', wide: false, filters: {} },
+    { reportKey: 'cash-cycle', form: 'line', wide: true, filters: {} },
   ],
 };
 

@@ -13,7 +13,10 @@ import {
   attendanceExceptionCell,
   attendanceRegisterCell,
   headcountCell,
+  cashCycleCell,
   creditCycleCell,
+  partyInterestCell,
+  stockInterestCell,
   paymentAnalysisCell,
   customerLapseCell,
   customerStatementCell,
@@ -485,6 +488,52 @@ export const lowStockRowSchema = z.object({
 });
 export type LowStockRow = z.infer<typeof lowStockRowSchema>;
 
+/**
+ * D-22: the three interest reports, declared rather than routed through the
+ * generic record shape for the payment-analysis reason: `creditTerms` and
+ * `nonMoving` are derived words -- MISSING renders as "CREDIT TERMS MISSING",
+ * a boolean as a movement word -- and the exported file runs the same shared
+ * cell functions on the server. `recordCell` would have shown the raw values
+ * on screen while the file showed the words.
+ */
+export const partyInterestRowSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  effectiveRatePct: z.number(),
+  plannedCost: z.string(),
+  interestLoss: z.string(),
+  avgDaysOutstanding: z.number().nullable(),
+  avgOverdueDays: z.number().nullable(),
+  lossPctOfTurnover: z.number().nullable(),
+  creditTerms: z.enum(['TALLY', 'OVERRIDE', 'MISSING']),
+  settlementRule: z.string(),
+  asOf: z.string().nullable(),
+});
+export type PartyInterestRow = z.infer<typeof partyInterestRowSchema>;
+
+export const stockInterestRowSchema = z.object({
+  stockItemId: z.string(),
+  item: z.string(),
+  closingValue: z.string(),
+  fundedValue: z.string(),
+  interest: z.string(),
+  daysSinceOutward: z.number().nullable(),
+  nonMoving: z.boolean(),
+  asOf: z.string().nullable(),
+});
+export type StockInterestRow = z.infer<typeof stockInterestRowSchema>;
+
+export const cashCycleRowSchema = z.object({
+  month: z.string(),
+  inventoryDays: z.number().nullable(),
+  receivableDays: z.number().nullable(),
+  payableDays: z.number().nullable(),
+  cashCycleDays: z.number().nullable(),
+  totalInterest: z.string(),
+  asOf: z.string().nullable(),
+});
+export type CashCycleRow = z.infer<typeof cashCycleRowSchema>;
+
 // --------------------------------------------------------------- the row view
 
 /**
@@ -693,6 +742,32 @@ const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
   status: () => null,
 };
 
+const PARTY_INTEREST_SHAPE: RowViewShape<PartyInterestRow> = {
+  schema: partyInterestRowSchema,
+  cell: partyInterestCell,
+  id: (row) => row.partyId,
+  primary: (row) => row.partyName,
+  // Only the exception is a pill: settled terms are the normal case, and a
+  // page of TALLY badges would bury the one party accruing from day zero.
+  status: (row) => (row.creditTerms === 'MISSING' ? 'CREDIT TERMS MISSING' : null),
+};
+
+const STOCK_INTEREST_SHAPE: RowViewShape<StockInterestRow> = {
+  schema: stockInterestRowSchema,
+  cell: stockInterestCell,
+  id: (row) => row.stockItemId,
+  primary: (row) => row.item,
+  status: (row) => (row.nonMoving ? 'NON-MOVING' : null),
+};
+
+const CASH_CYCLE_SHAPE: RowViewShape<CashCycleRow> = {
+  schema: cashCycleRowSchema,
+  cell: cashCycleCell,
+  id: (row) => row.month,
+  primary: (row) => row.month,
+  status: () => null,
+};
+
 /**
  * The Tier 1 analytics rows (D-46) are flat records whose keys are the
  * column keys; one loose shape serves all fifteen, with the id and the
@@ -860,6 +935,12 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(DAY_BOOK_SHAPE, reportKey, rows);
     case 'customer-lapse':
       return build(CUSTOMER_LAPSE_SHAPE, reportKey, rows);
+    case 'party-interest-cost':
+      return build(PARTY_INTEREST_SHAPE, reportKey, rows);
+    case 'stock-interest-cost':
+      return build(STOCK_INTEREST_SHAPE, reportKey, rows);
+    case 'cash-cycle':
+      return build(CASH_CYCLE_SHAPE, reportKey, rows);
     default: {
       const shape = ANALYTICS_SHAPES[reportKey];
       if (shape === undefined) throw new Error(`No row shape for "${reportKey}".`);

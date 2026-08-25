@@ -910,6 +910,11 @@ const OFF_NAV_LABELS: Record<string, string> = {
      Named here for the same reason the two above are: the breadcrumb would
      otherwise announce the page as "Not found". */
   '/notifications': 'Notifications',
+  /* D-22's per-party interest overrides. Reached from the Interest cost
+     section of Settings rather than the sidebar: a configuration surface is
+     not a report, and the reports group is at its cap. Named here so the
+     header does not say "Not found" above it. */
+  '/reports/interest-overrides': 'Interest cost overrides',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 

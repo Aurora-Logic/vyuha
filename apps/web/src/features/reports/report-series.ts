@@ -331,6 +331,12 @@ export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = 
   'margin-proxy': { form: 'hbar', category: 'item', series: ['margin'] },
   // The dense grid: customer down the side, month across, value in the cell.
   'sales-heatmap': { form: 'heatmap', category: 'partyName', series: ['value'] },
+  // D-22: the interest module. The two cost reports rank where the money
+  // sits; the cash cycle is its three day-components walking month by month,
+  // on one axis because all three are days of the same cycle.
+  'party-interest-cost': { form: 'hbar', category: 'partyName', series: ['interestLoss'] },
+  'stock-interest-cost': { form: 'hbar', category: 'item', series: ['interest'] },
+  'cash-cycle': { form: 'line', category: 'month', series: ['inventoryDays', 'receivableDays', 'payableDays'] },
 };
 
 const TIME_CATEGORY = /^\d{4}-\d{2}(?:-\d{2})?$/u;
