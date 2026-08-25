@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { BooksIcon, LockKeyIcon, PercentIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { BooksIcon, LockKeyIcon, PercentIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -271,7 +270,7 @@ function OverridesBody() {
     <>
       <PageHeader description="A rate or credit days set here beats what the Tally sync carries, per party. The organisation rate and day basis live under Settings." />
 
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         <div className="flex flex-col gap-4 border p-4">
           <SectionHeading
             title="Set an override"
@@ -359,14 +358,21 @@ function OverridesBody() {
         </div>
 
         {upsert.isError || remove.isError ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>The override was not saved</AlertTitle>
-            <AlertDescription>
-              {(upsert.error ?? remove.error)?.message ??
-                'Nothing was sent to the server, so nothing changed.'}
-            </AlertDescription>
-          </Alert>
+          <QueryErrorAlert
+            error={upsert.error ?? remove.error}
+            subject="the override"
+            onRetry={() => {
+              // Retry re-runs the mutation that failed: the form still holds
+              // a failed save's values, and the remove keeps its party id in
+              // the mutation's own variables.
+              if (upsert.isError) {
+                save();
+                return;
+              }
+              const failed = settings.find((setting) => setting.partyId === remove.variables);
+              if (failed !== undefined) removeOverride(failed);
+            }}
+          />
         ) : null}
 
         {query.isPending ? <ListSkeleton /> : null}
@@ -425,7 +431,7 @@ function OverridesBody() {
               note="Neither Tally nor an override names credit days, so overdue interest accrues from the voucher date (D-22)."
             />
             {missing.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
+              <p className="text-muted-foreground border px-3 py-2.5 text-xs">
                 Every debtor and creditor has credit terms, from Tally or from an override.
               </p>
             ) : (

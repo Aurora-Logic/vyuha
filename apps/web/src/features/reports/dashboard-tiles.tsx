@@ -1,17 +1,19 @@
-import { ArrowRightIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, ChartBarIcon } from '@phosphor-icons/react';
 import { REPORT_DEFINITIONS, type DashboardKpiMetric, type DashboardLayout, type DashboardTile, type Paginated } from '@vyuha/shared';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { DateRange } from 'react-day-picker';
 import { useNavigate } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ChartCard } from '@/components/shared/chart-card';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
 import { useChartIntro } from '@/components/shared/use-chart-motion';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { CardAction } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
 
 import { useReportCatalogue, useReportRows } from './api';
@@ -46,10 +48,16 @@ export function TileGrid({
 
   if (catalogue.isPending) {
     return (
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label="Loading the board"
+        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+      >
         {layout.tiles.map((tile, index) => (
           <Skeleton
             key={`${String(index)}-${tile.reportKey}`}
+            aria-hidden
             className={tile.wide ? 'aspect-video w-full lg:col-span-2' : 'aspect-video w-full'}
           />
         ))}
@@ -59,23 +67,13 @@ export function TileGrid({
 
   if (catalogue.isError) {
     return (
-      <Alert variant="destructive">
-        <WarningCircleIcon />
-        <AlertTitle>The report list could not be loaded</AlertTitle>
-        <AlertDescription>
-          {catalogue.error.message}
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => {
-              void catalogue.refetch();
-            }}
-          >
-            Try again
-          </Button>
-        </AlertDescription>
-      </Alert>
+      <QueryErrorAlert
+        error={catalogue.error}
+        subject="the report list"
+        onRetry={() => {
+          void catalogue.refetch();
+        }}
+      />
     );
   }
 
@@ -90,10 +88,17 @@ export function TileGrid({
 
   if (visible.length === 0 && kpis.length === 0) {
     return (
-      <p className="text-muted-foreground py-8 text-sm">
-        Nothing on this board is visible to you. Customise it, or ask an administrator to widen
-        your reports.
-      </p>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <ChartBarIcon />
+          </EmptyMedia>
+          <EmptyTitle>Nothing on this board is visible to you</EmptyTitle>
+          <EmptyDescription>
+            Customise it, or ask an administrator to widen your reports.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -164,11 +169,24 @@ function KpiStrip({ tiles, range }: { tiles: readonly DashboardTile[]; range: Da
   };
 
   if (tiles.some((tile) => tile.metric !== undefined && readings[tile.metric].isPending)) {
+    // KpiGrid itself, with the labels already known and a skeleton where each
+    // figure will land: the loading strip and the loaded strip share one grid
+    // definition, so the columns cannot drift apart.
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        {tiles.map((tile) => (
-          <Skeleton key={tile.metric} className="h-24 w-full" />
-        ))}
+      <div role="status" aria-busy="true" aria-label="Loading the headline figures">
+        <KpiGrid
+          columns={6}
+          tiles={tiles.flatMap((tile): KpiTileProps[] =>
+            tile.metric === undefined
+              ? []
+              : [
+                  {
+                    label: tile.label ?? DASHBOARD_KPIS[tile.metric].label,
+                    value: <Skeleton className="h-6 w-20" />,
+                  },
+                ],
+          )}
+        />
       </div>
     );
   }
@@ -266,25 +284,29 @@ function DashboardTileCard({
   }
 
   if (rows.isError) {
+    // One muted line and a retry in the card's own action slot -- an Alert
+    // inside a Card would be a box in a box, and the failure of one tile is
+    // card-sized news, not page-sized.
     return (
-      <ChartCard title={title} action={action} wide={tile.wide}>
-        <Alert variant="destructive">
-          <WarningCircleIcon />
-          <AlertTitle>This tile could not be loaded</AlertTitle>
-          <AlertDescription>
-            {rows.error.message}
+      <ChartCard
+        title={title}
+        action={
+          <CardAction>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="mt-2"
               onClick={() => {
                 void rows.refetch();
               }}
             >
+              <ACTION_ICONS.retry data-icon="inline-start" />
               Try again
             </Button>
-          </AlertDescription>
-        </Alert>
+          </CardAction>
+        }
+        wide={tile.wide}
+      >
+        <p className="text-muted-foreground py-8 text-xs">This tile could not be loaded.</p>
       </ChartCard>
     );
   }
@@ -302,7 +324,7 @@ function DashboardTileCard({
   if (spec === null) {
     return (
       <ChartCard title={title} action={action} wide={tile.wide}>
-        <p className="text-muted-foreground py-8 text-sm">
+        <p className="text-muted-foreground py-8 text-xs">
           This report reads as a table. Open it to see the rows.
         </p>
       </ChartCard>

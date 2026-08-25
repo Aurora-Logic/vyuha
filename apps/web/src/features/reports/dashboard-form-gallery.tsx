@@ -1,11 +1,11 @@
-import { WarningCircleIcon } from '@phosphor-icons/react';
 import type { DashboardTileForm, ReportDefinition, ReportKey } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { cn } from '@/lib/utils';
 
 import { useReportRows } from './api';
 import { FORM_LABELS } from './dashboard-form-labels';
@@ -93,9 +93,11 @@ export function FormGalleryView({
   return (
     <div className="flex flex-col gap-2">
       {hasRows ? null : (
-        <p className="text-muted-foreground text-xs">No rows in this period to preview.</p>
+        <p className="text-muted-foreground border px-3 py-2.5 text-xs">
+          No rows in this period to preview.
+        </p>
       )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {entries.map((entry) => (
           <Button
             key={entry.form}
@@ -110,26 +112,23 @@ export function FormGalleryView({
             {hasRows ? (
               <span
                 aria-hidden
-                className={
-                  entry.dimmed
-                    ? 'bg-muted/30 pointer-events-none block h-36 w-full overflow-hidden border-b opacity-50'
-                    : 'pointer-events-none block h-36 w-full overflow-hidden border-b'
-                }
+                className={cn(
+                  'pointer-events-none block h-40 w-full min-w-0 overflow-hidden border-b',
+                  // The chart's own container is forced to the frame's house
+                  // height, so the preview is the real chart drawn small
+                  // rather than a full-size chart scaled or cropped.
+                  '[&_[data-slot=chart]]:aspect-auto [&_[data-slot=chart]]:h-40 [&_[data-slot=chart]]:w-full',
+                  entry.dimmed && 'bg-muted/30 opacity-50',
+                )}
               >
                 {entry.preview ? (
-                  // Drawn at double width and scaled to half, so the preview
-                  // is the chart's own layout shrunk rather than its top-left
-                  // corner cropped: h-80 of chart lands as 160px of picture
-                  // against the 144px window.
-                  <span className="block w-[200%] origin-top-left scale-50">
-                    <GenericReportChart
-                      reportKey={reportKey}
-                      definition={definition}
-                      rows={rows}
-                      animate={false}
-                      {...(entry.form === 'auto' ? {} : { form: entry.form })}
-                    />
-                  </span>
+                  <GenericReportChart
+                    reportKey={reportKey}
+                    definition={definition}
+                    rows={rows}
+                    animate={false}
+                    {...(entry.form === 'auto' ? {} : { form: entry.form })}
+                  />
                 ) : null}
               </span>
             ) : null}
@@ -179,10 +178,22 @@ export function FormGallery({
   });
 
   if (rows.isPending) {
+    // Each placeholder mirrors a real tile -- preview frame over caption
+    // strip -- so the grid holds its height when the charts arrive.
     return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label="Loading chart previews"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+      >
         {['auto', ...wearableForms(definition)].map((form) => (
-          <Skeleton key={form} className="h-48 w-full" />
+          <div key={form} aria-hidden className="flex flex-col border">
+            <Skeleton className="h-40 w-full rounded-none" />
+            <span className="flex min-h-11 items-center border-t px-2 py-1.5">
+              <Skeleton className="h-3 w-16" />
+            </span>
+          </div>
         ))}
       </div>
     );
@@ -190,23 +201,13 @@ export function FormGallery({
 
   if (rows.isError) {
     return (
-      <Alert variant="destructive">
-        <WarningCircleIcon />
-        <AlertTitle>The previews could not be loaded</AlertTitle>
-        <AlertDescription>
-          {rows.error.message}
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => {
-              void rows.refetch();
-            }}
-          >
-            Try again
-          </Button>
-        </AlertDescription>
-      </Alert>
+      <QueryErrorAlert
+        error={rows.error}
+        subject="the chart previews"
+        onRetry={() => {
+          void rows.refetch();
+        }}
+      />
     );
   }
 

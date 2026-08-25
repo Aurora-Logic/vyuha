@@ -1,11 +1,5 @@
-import { useState } from 'react';
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CaretDownIcon,
-  CaretUpIcon,
-  WarningCircleIcon,
-} from '@phosphor-icons/react';
+import { Fragment, useState } from 'react';
+import { ArrowDownIcon, ArrowUpIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
 import {
   DASHBOARD_KPI_METRICS,
   REPORT_DEFINITIONS,
@@ -25,9 +19,17 @@ import {
 import type { DateRange } from 'react-day-picker';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemSeparator,
+  ItemTitle,
+} from '@/components/ui/item';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -49,7 +51,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
-import { actionErrorCopy } from '@/features/leave/api-error-copy';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 import { useReportCatalogue } from './api';
@@ -196,7 +198,6 @@ function CustomiseBody({
   const reset = useResetDashboardLayout();
   const busy = save.isPending || reset.isPending;
   const failure = save.error ?? reset.error;
-  const copy = actionErrorCopy(failure, 'Changing the board');
 
   const byCategory = new Map<string, ReportDefinition[]>();
   for (const definition of catalogue.data ?? []) {
@@ -287,15 +288,18 @@ function CustomiseBody({
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {failure ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>{copy.title}</AlertTitle>
-            <AlertDescription>{copy.description}</AlertDescription>
-          </Alert>
+          <QueryErrorAlert
+            error={failure}
+            subject="the board"
+            onRetry={save.error !== null ? handleSave : handleReset}
+          />
         ) : null}
 
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium">Headline figures</span>
+        <section className="flex flex-col gap-3">
+          <SectionHeading
+            title="Headline figures"
+            note="The strip above the charts, in the order below."
+          />
           {/* The same toggle-tile grid the bottom-nav chooser uses: a figure
               is on the board or it is not, and the grid says which without a
               second list to cross-read. */}
@@ -315,7 +319,7 @@ function CustomiseBody({
                   }}
                   className="h-auto min-h-11 flex-col items-start justify-center gap-0.5 px-2 py-1.5 text-left whitespace-normal"
                 >
-                  <span className="min-w-0 text-[0.75rem] leading-tight">
+                  <span className="min-w-0 text-xs leading-tight">
                     {DASHBOARD_KPIS[metric].label}
                   </span>
                   {reachable ? null : (
@@ -328,80 +332,94 @@ function CustomiseBody({
             })}
           </div>
           {kpis.length > 1 ? (
-            <ul className="divide-y border">
+            <ItemGroup role="presentation" className="gap-0 border">
               {kpis.map((draft, index) => {
                 const label = draft.metric === undefined ? '' : DASHBOARD_KPIS[draft.metric].label;
                 return (
-                  <li key={draft.metric} className="flex items-center gap-2 px-3 py-1.5">
-                    <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Move ${label} up`}
-                      disabled={busy || index === 0}
-                      onClick={() => {
-                        moveMetric(index, -1);
-                      }}
-                    >
-                      <ArrowUpIcon />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Move ${label} down`}
-                      disabled={busy || index === kpis.length - 1}
-                      onClick={() => {
-                        moveMetric(index, 1);
-                      }}
-                    >
-                      <ArrowDownIcon />
-                    </Button>
-                  </li>
+                  <Fragment key={draft.metric}>
+                    {index > 0 ? <ItemSeparator className="my-0" /> : null}
+                    <Item size="sm" className="min-h-11 rounded-none">
+                      <ItemContent className="min-w-0">
+                        <ItemTitle className="w-full min-w-0">
+                          <span className="min-w-0 truncate">{label}</span>
+                        </ItemTitle>
+                      </ItemContent>
+                      <ItemActions className="gap-0">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Move ${label} up`}
+                          disabled={busy || index === 0}
+                          onClick={() => {
+                            moveMetric(index, -1);
+                          }}
+                        >
+                          <ArrowUpIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Move ${label} down`}
+                          disabled={busy || index === kpis.length - 1}
+                          onClick={() => {
+                            moveMetric(index, 1);
+                          }}
+                        >
+                          <ArrowDownIcon />
+                        </Button>
+                      </ItemActions>
+                    </Item>
+                  </Fragment>
                 );
               })}
-            </ul>
+            </ItemGroup>
           ) : null}
-        </div>
+        </section>
 
         {tiles.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground border px-3 py-2.5 text-xs">
             No chart tiles yet. Add a report below; the board needs at least one tile or figure to
             save.
           </p>
         ) : (
-          <ul className="divide-y border">
+          <ItemGroup role="presentation" className="gap-0 border">
             {tiles.map((draft, index) => (
-              <TileRow
-                key={`${String(index)}-${draft.reportKey}`}
-                index={index}
-                draft={draft}
-                first={index === 0}
-                last={index === tiles.length - 1}
-                busy={busy}
-                range={range}
-                galleryOpen={galleryAt === index}
-                onToggleGallery={() => {
-                  setGalleryAt((at) => (at === index ? null : index));
-                }}
-                onChange={(patch) => {
-                  update(index, patch);
-                }}
-                onUp={() => {
-                  move(index, -1);
-                }}
-                onDown={() => {
-                  move(index, 1);
-                }}
-                onRemove={() => {
-                  remove(index);
-                }}
-              />
+              <Fragment key={`${String(index)}-${draft.reportKey}`}>
+                {index > 0 ? <ItemSeparator className="my-0" /> : null}
+                <TileRow
+                  index={index}
+                  draft={draft}
+                  first={index === 0}
+                  last={index === tiles.length - 1}
+                  busy={busy}
+                  range={range}
+                  galleryOpen={galleryAt === index}
+                  onToggleGallery={() => {
+                    setGalleryAt((at) => (at === index ? null : index));
+                  }}
+                  onChange={(patch) => {
+                    update(index, patch);
+                  }}
+                  onUp={() => {
+                    move(index, -1);
+                  }}
+                  onDown={() => {
+                    move(index, 1);
+                  }}
+                  onRemove={() => {
+                    remove(index);
+                  }}
+                />
+              </Fragment>
             ))}
-          </ul>
+          </ItemGroup>
         )}
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">Add a report</span>
+        <section className="flex flex-col gap-3">
+          <SectionHeading
+            title="Add a report"
+            note="Only reports your permissions can open are offered."
+          />
           <Select
             value={null}
             onValueChange={(next: string | null) => {
@@ -437,9 +455,15 @@ function CustomiseBody({
             </SelectContent>
           </Select>
           {catalogue.isError ? (
-            <p className="text-destructive text-xs">The report list could not be loaded.</p>
+            <QueryErrorAlert
+              error={catalogue.error}
+              subject="the report list"
+              onRetry={() => {
+                void catalogue.refetch();
+              }}
+            />
           ) : null}
-        </div>
+        </section>
       </div>
 
       <SheetFooter className="shrink-0 flex-row items-center gap-2 border-t">
@@ -502,39 +526,41 @@ function TileRow({
   const wideId = `tile-wide-${String(index)}`;
 
   return (
-    <li className="flex flex-col gap-2 px-3 py-3">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{definition.label}</span>
-        <span className="flex items-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Move ${definition.label} up`}
-            disabled={busy || first}
-            onClick={onUp}
-          >
-            <ArrowUpIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Move ${definition.label} down`}
-            disabled={busy || last}
-            onClick={onDown}
-          >
-            <ArrowDownIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Remove ${definition.label}`}
-            disabled={busy}
-            onClick={onRemove}
-          >
-            <ACTION_ICONS.remove />
-          </Button>
-        </span>
-      </div>
+    <Item size="sm" className="min-h-11 flex-col items-stretch gap-2 rounded-none">
+      <SectionHeading
+        title={definition.label}
+        action={
+          <span className="flex items-center">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Move ${definition.label} up`}
+              disabled={busy || first}
+              onClick={onUp}
+            >
+              <ArrowUpIcon />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Move ${definition.label} down`}
+              disabled={busy || last}
+              onClick={onDown}
+            >
+              <ArrowDownIcon />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove ${definition.label}`}
+              disabled={busy}
+              onClick={onRemove}
+            >
+              <ACTION_ICONS.remove />
+            </Button>
+          </span>
+        }
+      />
 
       <Input
         aria-label={`Label for ${definition.label}`}
@@ -645,6 +671,6 @@ function TileRow({
           }}
         />
       ) : null}
-    </li>
+    </Item>
   );
 }

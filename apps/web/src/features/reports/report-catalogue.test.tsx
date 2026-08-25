@@ -151,7 +151,7 @@ describe('the report hub', () => {
     renderWithProviders(
       <ReportCatalogue reports={[]} loading={false} error={{ message: 'The server is unreachable.', retry }} />,
     );
-    expect(screen.getByText('The report list could not be loaded')).toBeTruthy();
+    expect(screen.getByText('Could not load the report list')).toBeTruthy();
     expect(screen.queryByText('No report matches')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(retry).toHaveBeenCalledOnce();

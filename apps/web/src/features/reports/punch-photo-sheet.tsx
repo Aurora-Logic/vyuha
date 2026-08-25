@@ -2,12 +2,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { flagClasses, flagLabel } from '@/features/attendance/status';
-import {
-  ArrowsOutIcon,
-  DeviceMobileIcon,
-  ImageBrokenIcon,
-  MapPinIcon,
-  } from '@phosphor-icons/react';
+import { ArrowsOutIcon, DeviceMobileIcon, MapPinIcon } from '@phosphor-icons/react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +16,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
 import { formatCoordinates } from '@vyuha/shared';
 
@@ -73,16 +69,16 @@ function PhotoFrame({
   }
 
   if (photo.isError) {
+    // A punch photo past its retention window is deleted by design and comes
+    // back NOT_FOUND; the punch record survives without it.
     return (
-      <Alert variant="destructive">
-        <ImageBrokenIcon />
-        <AlertTitle>The photo could not be loaded</AlertTitle>
-        <AlertDescription>
-          {/* A punch photo past its retention window is deleted by design
-; the punch record survives without it. */}
-          It may have passed its retention window, or you may not have permission to view it.
-        </AlertDescription>
-      </Alert>
+      <QueryErrorAlert
+        error={photo.error}
+        subject="the punch photo"
+        onRetry={() => {
+          void photo.refetch();
+        }}
+      />
     );
   }
 

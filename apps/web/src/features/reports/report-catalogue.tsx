@@ -1,15 +1,23 @@
-import { useEffect, useState } from 'react';
-import { ChartBarIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { Fragment, useEffect, useState, type KeyboardEvent } from 'react';
+import { ChartBarIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { REPORT_CATEGORY_ICONS } from '@/components/shared/entity-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { SearchField } from '@/components/shared/search-field';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemSeparator,
+  ItemTitle,
+} from '@/components/ui/item';
 import { Skeleton } from '@/components/ui/skeleton';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { REPORT_CATEGORIES, type ReportCategory, type ReportDefinition } from '@vyuha/shared';
 
 import { useRecentReports } from './api';
@@ -47,10 +55,10 @@ const CATEGORY_BLURBS: Record<ReportCategory, string> = {
 };
 
 /**
- * One report as one row: a button, not a div with a handler, so it takes
- * focus in order, answers Enter and Space, and announces what it opens. The
- * whole row is the target — a row whose title alone is clickable teaches
- * people to aim.
+ * One report as one row, in the same Item composition RecordTable's mobile
+ * cards use, so the hub's rows and every table's phone rows are one pattern.
+ * role="button" with Enter and Space because the whole row is the target — a
+ * row whose title alone is clickable teaches people to aim.
  *
  * The chip appears only in search results. Inside a section the heading
  * already names the category, and a chip on every row would say the same
@@ -66,19 +74,65 @@ function ReportRow({
   onOpen: () => void;
 }) {
   return (
-    <Button
-      variant="ghost"
+    <Item
+      size="sm"
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="hover:bg-accent/40 h-auto min-h-11 w-full min-w-0 flex-col items-start gap-0.5 rounded-none whitespace-normal border-b px-3 py-2 text-left font-normal last:border-b-0"
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        // The row advertises role="button", and a control that claims that
+        // role has to honour both keys.
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="hover:bg-muted/50 active:bg-muted min-h-11 cursor-pointer rounded-none"
     >
-      <span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-sm font-medium">{report.label}</span>
-        {withChip ? <CategoryChip category={report.category} /> : null}
-      </span>
-      <span className="text-muted-foreground line-clamp-1 w-full text-xs">
-        {report.description}
-      </span>
-    </Button>
+      <ItemContent className="min-w-0 gap-0.5">
+        <ItemTitle className="flex w-full min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate">{report.label}</span>
+          {withChip ? <CategoryChip category={report.category} className="shrink-0" /> : null}
+        </ItemTitle>
+        <ItemDescription className="w-full min-w-0 truncate text-xs">
+          {report.description}
+        </ItemDescription>
+      </ItemContent>
+    </Item>
+  );
+}
+
+/**
+ * The rows share their ItemGroup wrapper wherever a list of them renders.
+ * role="presentation" overrides ItemGroup's built-in role="list": rows that
+ * are all role="button" leave no listitem, so a screen reader would announce
+ * an empty list. gap-0 because ItemGroup spaces its children by default,
+ * which would float the separators in space instead of dividing flush rows.
+ */
+function ReportRowGroup({
+  reports,
+  withChip,
+  onOpen,
+}: {
+  reports: readonly ReportDefinition[];
+  withChip: boolean;
+  onOpen: (report: ReportDefinition) => void;
+}) {
+  return (
+    <ItemGroup role="presentation" className="gap-0 border">
+      {reports.map((report, index) => (
+        <Fragment key={report.key}>
+          {index > 0 ? <ItemSeparator className="my-0" /> : null}
+          <ReportRow
+            report={report}
+            withChip={withChip}
+            onOpen={() => {
+              onOpen(report);
+            }}
+          />
+        </Fragment>
+      ))}
+    </ItemGroup>
   );
 }
 
@@ -104,7 +158,7 @@ function HubSkeleton() {
 
 function NoMatches({ narrowed }: { narrowed: boolean }) {
   return (
-    <Empty>
+    <Empty className="border">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <ChartBarIcon />
@@ -127,8 +181,12 @@ export function ReportCatalogue({
 }: {
   reports: readonly ReportDefinition[];
   loading: boolean;
-  /** A failed catalogue read. Without it an errored load renders as "no report matches", which reads as a permissions problem. */
-  error?: { message: string; retry: () => void } | null;
+  /**
+   * A failed catalogue read. Without it an errored load renders as "no report
+   * matches", which reads as a permissions problem. `cause` carries the raw
+   * failure so the shared alert can map its code and print the request id.
+   */
+  error?: { message: string; cause?: unknown; retry: () => void } | null;
 }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -242,16 +300,7 @@ export function ReportCatalogue({
         {loading ? <HubSkeleton /> : null}
 
         {!loading && error !== null ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>The report list could not be loaded</AlertTitle>
-            <AlertDescription>
-              {error.message}
-              <Button variant="outline" size="sm" className="mt-2" onClick={error.retry}>
-                Try again
-              </Button>
-            </AlertDescription>
-          </Alert>
+          <QueryErrorAlert error={error.cause} subject="the report list" onRetry={error.retry} />
         ) : null}
 
         {!loading && error === null && results.length === 0 ? <NoMatches narrowed={category !== null} /> : null}
@@ -259,18 +308,7 @@ export function ReportCatalogue({
         {/* Search flattens the shelves: a match in Vendors beside a match in
             Leave, each wearing its chip because no heading says it. */}
         {!loading && searching && results.length > 0 ? (
-          <div className="border">
-            {results.map((report) => (
-              <ReportRow
-                key={report.key}
-                report={report}
-                withChip
-                onOpen={() => {
-                  open(report);
-                }}
-              />
-            ))}
-          </div>
+          <ReportRowGroup reports={results} withChip onOpen={open} />
         ) : null}
 
         {!loading && !searching && results.length > 0 ? (
@@ -278,22 +316,13 @@ export function ReportCatalogue({
             {sections.map((c) => {
               const Glyph = REPORT_CATEGORY_ICONS[c];
               return (
-                <section key={c} className="flex flex-col gap-2">
+                <section key={c} className="flex flex-col gap-3">
                   <SectionHeading icon={<Glyph />} title={c} note={CATEGORY_BLURBS[c]} />
-                  <div className="border">
-                    {results
-                      .filter((report) => report.category === c)
-                      .map((report) => (
-                        <ReportRow
-                          key={report.key}
-                          report={report}
-                          withChip={false}
-                          onOpen={() => {
-                            open(report);
-                          }}
-                        />
-                      ))}
-                  </div>
+                  <ReportRowGroup
+                    reports={results.filter((report) => report.category === c)}
+                    withChip={false}
+                    onOpen={open}
+                  />
                 </section>
               );
             })}
