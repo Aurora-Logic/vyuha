@@ -16,6 +16,8 @@ Purchase going live). Updated as work lands.
 | B25-5 | GST inputs summary (D-21 narrows REQ-AE-08; by-rate blocked on sync contract) | Done |
 | B25-6 | Customisable dashboards: tiles, chart form, parameters, per-user server-side layouts | Done -- dashboard_layouts + /reports/dashboards, customise sheet on every board |
 | B25-7 | Interest cost & cash cycle module (owner spec + D-22): daily-series interest on receivables and stock, three reports, finance-board tiles, settings + per-party overrides | Done -- 13 hand-worked math tests, 11 endpoint tests, migration 0065; full api suite 2252 green after |
+| B25-8 | Every shadcn chart family as a pickable tile form (area, stacked area, bar, stacked bar, radar, pie join the set), reference code via the shadcn MCP | Done -- 13-form union, wearability-gated picker |
+| B25-9 | The six overview KPI figures become customisable board tiles; customising Overview seeds from all six instead of dropping them | Done -- KPI registry + headline-figures section in Customise |
 
 ## 21 Aug 2026 brief
 
