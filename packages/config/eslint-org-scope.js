@@ -35,6 +35,7 @@ export const ORG_SCOPED_TABLES = [
   'crm_pipeline_stages',
   'crm_pipelines',
   'deletion_records',
+  'dashboard_layouts',
   'departments',
   'designations',
   'devices',
