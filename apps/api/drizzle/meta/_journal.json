@@ -449,6 +449,13 @@
       "when": 1787638584959,
       "tag": "0063_dashboard_layouts",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1787638669669,
+      "tag": "0064_cluster_signature_md5",
+      "breakpoints": true
     }
   ]
 }
