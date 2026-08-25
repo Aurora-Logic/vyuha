@@ -103,32 +103,30 @@ describe('dead-stock-value', () => {
   });
 });
 
-describe('the interest-lost figure', () => {
-  const spec = DASHBOARD_KPIS['interest-lost'];
+describe('the two interest cards', () => {
   const rowsOf = (key: string, values: number[]) =>
     values.map((value, index) => ({ id: `r${String(index)}`, cells: { [key]: String(value) } }) as unknown as ReportRowView);
   const meta = (totals?: Record<string, string>): PageMeta => ({ total: 2, page: 1, pageSize: 200, ...(totals === undefined ? {} : { totals }) });
 
-  it('sums both leaks and names the split', () => {
-    const reading = spec.computeCombined?.(
-      { rows: rowsOf('interestLoss', [100, 50]), meta: meta() },
-      { rows: rowsOf('interest', [30]), meta: meta() },
-    );
-    expect(reading?.value).toContain('180');
-    expect(reading?.note).toContain('receivables');
-    expect(reading?.note).toContain('stock');
+  it('receivables states its own leak from its own report', () => {
+    const spec = DASHBOARD_KPIS['receivables-interest'];
+    expect(spec.reportKey).toBe('party-interest-cost');
+    const reading = spec.compute(rowsOf('interestLoss', [100, 50]), meta());
+    expect(reading.value).toContain('150');
   });
 
-  it('prefers the server totals over the page sum, per the house rule', () => {
-    const reading = spec.computeCombined?.(
-      { rows: rowsOf('interestLoss', [1]), meta: meta({ interestLoss: '999' }) },
-      { rows: rowsOf('interest', [1]), meta: meta({ interest: '1' }) },
-    );
-    expect(reading?.value).toContain('1,000');
+  it('stock states its own leak from its own report', () => {
+    const spec = DASHBOARD_KPIS['stock-interest'];
+    expect(spec.reportKey).toBe('stock-interest-cost');
+    const reading = spec.compute(rowsOf('interest', [30, 12]), meta());
+    expect(reading.value).toContain('42');
   });
 
-  it('wears the warning tone: it is a standing leak, not a neutral figure', () => {
-    expect(spec.tone).toBe('warning');
-    expect(spec.secondary?.reportKey).toBe('stock-interest-cost');
+  it('both prefer the server totals and both wear the warning', () => {
+    const receivables = DASHBOARD_KPIS['receivables-interest'].compute(rowsOf('interestLoss', [1]), meta({ interestLoss: '999' }));
+    expect(receivables.value).toContain('999');
+    expect(DASHBOARD_KPIS['receivables-interest'].tone).toBe('warning');
+    expect(DASHBOARD_KPIS['stock-interest'].tone).toBe('warning');
+    expect(DASHBOARD_KPIS['receivables-interest'].drillQuery.report).not.toBe(DASHBOARD_KPIS['stock-interest'].drillQuery.report);
   });
 });

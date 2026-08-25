@@ -40,7 +40,8 @@ export const SALES_PRESET: DashboardLayout = {
 
 export const FINANCE_PRESET: DashboardLayout = {
   tiles: [
-    kpiTileOf('interest-lost'),
+    kpiTileOf('receivables-interest'),
+    kpiTileOf('stock-interest'),
     kpiTileOf('receivables-exposure'),
     kpiTileOf('credit-breaches'),
     { reportKey: 'ageing', kind: 'chart', form: 'auto', wide: false, filters: {} },

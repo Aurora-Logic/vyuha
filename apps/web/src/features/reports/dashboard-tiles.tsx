@@ -142,7 +142,8 @@ function KpiStrip({ tiles, range }: { tiles: readonly DashboardTile[]; range: Da
   const navigate = useNavigate();
   const chosen = new Set(tiles.map((tile) => tile.metric));
   const readings: Record<DashboardKpiMetric, KpiRows> = {
-    'interest-lost': useKpiRows('interest-lost', range, chosen.has('interest-lost')),
+    'receivables-interest': useKpiRows('receivables-interest', range, chosen.has('receivables-interest')),
+    'stock-interest': useKpiRows('stock-interest', range, chosen.has('stock-interest')),
     'invoiced-period': useKpiRows('invoiced-period', range, chosen.has('invoiced-period')),
     'receivables-exposure': useKpiRows('receivables-exposure', range, chosen.has('receivables-exposure')),
     'credit-breaches': useKpiRows('credit-breaches', range, chosen.has('credit-breaches')),
@@ -150,14 +151,7 @@ function KpiStrip({ tiles, range }: { tiles: readonly DashboardTile[]; range: Da
     'dead-stock-value': useKpiRows('dead-stock-value', range, chosen.has('dead-stock-value')),
     'below-reorder': useKpiRows('below-reorder', range, chosen.has('below-reorder')),
   };
-  // The one combined metric's second report, as its own static hook: the
-  // metric set is closed, so the hook count stays fixed however many tiles
-  // are chosen. A second combined metric adds its own hook here.
-  const interestSecondary = useReportRows(
-    'stock-interest-cost',
-    { page: 1, pageSize: 200, ...periodParams('stock-interest-cost', range) },
-    { enabled: chosen.has('interest-lost') },
-  );
+
 
   const open = (spec: KpiMetricSpec): void => {
     // The figure's period travels with the drill, bent into what the target
@@ -169,7 +163,7 @@ function KpiStrip({ tiles, range }: { tiles: readonly DashboardTile[]; range: Da
     void navigate(`/reports?${params.toString()}`);
   };
 
-  if (tiles.some((tile) => tile.metric !== undefined && readings[tile.metric].isPending) || (chosen.has('interest-lost') && interestSecondary.isPending)) {
+  if (tiles.some((tile) => tile.metric !== undefined && readings[tile.metric].isPending)) {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {tiles.map((tile) => (
@@ -184,20 +178,12 @@ function KpiStrip({ tiles, range }: { tiles: readonly DashboardTile[]; range: Da
     const spec = DASHBOARD_KPIS[tile.metric];
     const query = readings[tile.metric];
     const label = tile.label ?? spec.label;
-    if (query.isError || (spec.secondary !== undefined && interestSecondary.isError)) {
+    if (query.isError) {
       // The tile stands with an honest dash: a figure that silently vanishes
       // reads as a board the person never chose.
       return [{ label, value: EMPTY_VALUE, note: 'This figure could not be loaded.', tone: spec.tone, onOpen: () => { open(spec); } }];
     }
     if (query.data === undefined) return [];
-    if (spec.computeCombined !== undefined && spec.secondary !== undefined) {
-      if (interestSecondary.data === undefined) return [];
-      const combined = spec.computeCombined(
-        { rows: query.data.data, meta: query.data.meta },
-        { rows: interestSecondary.data.data, meta: interestSecondary.data.meta },
-      );
-      return [{ label, value: combined.value, note: combined.note, tone: spec.tone, onOpen: () => { open(spec); } }];
-    }
     const reading = spec.compute(query.data.data, query.data.meta);
     return [{ label, value: reading.value, note: reading.note, tone: spec.tone, onOpen: () => { open(spec); } }];
   });

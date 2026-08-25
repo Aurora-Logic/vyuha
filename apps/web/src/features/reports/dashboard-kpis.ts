@@ -1,6 +1,6 @@
 import type { DashboardKpiMetric, DashboardTile, PageMeta, ReportFilters, ReportKey } from '@vyuha/shared';
 
-import { formatCount, formatMoney, formatMoneyShort } from '@/lib/format';
+import { formatCount, formatMoney } from '@/lib/format';
 
 import { quietRevenue, sumColumn } from './dashboard-v2.series';
 import type { ReportRowView } from './types';
@@ -34,17 +34,6 @@ export interface KpiMetricSpec {
   readonly drillQuery: Readonly<Record<string, string>>;
   /** The one emphasis a figure may carry; see KpiTileProps.tone. */
   readonly tone?: 'warning';
-  /**
-   * A second report whose rows join the first in computeCombined. Interest
-   * lost is the one figure that is honestly two reports -- the receivables
-   * leak and the stock leak are the same rupee cost in two places -- and the
-   * spec's tile names the split.
-   */
-  readonly secondary?: { readonly reportKey: ReportKey; readonly params: ReportFilters };
-  readonly computeCombined?: (
-    primary: { readonly rows: readonly ReportRowView[]; readonly meta: PageMeta },
-    secondary: { readonly rows: readonly ReportRowView[]; readonly meta: PageMeta },
-  ) => KpiReading;
 }
 
 function stated(meta: PageMeta, key: string, fallback: number): number {
@@ -53,27 +42,28 @@ function stated(meta: PageMeta, key: string, fallback: number): number {
 }
 
 export const DASHBOARD_KPIS: Record<DashboardKpiMetric, KpiMetricSpec> = {
-  'interest-lost': {
-    metric: 'interest-lost',
-    label: 'Interest lost this period',
+  'receivables-interest': {
+    metric: 'receivables-interest',
+    label: 'Receivables interest lost',
     reportKey: 'party-interest-cost',
     params: {},
-    // The single-report fallback states the receivables half honestly if the
-    // strip ever renders without the stock reading.
     compute: (rows, meta) => ({
       value: formatMoney(stated(meta, 'interestLoss', sumColumn(rows, 'interestLoss'))),
-      note: 'Receivables interest on overdue balances',
+      note: 'Interest on overdue customer balances',
     }),
-    secondary: { reportKey: 'stock-interest-cost', params: {} },
-    computeCombined: (primary, secondary) => {
-      const receivables = stated(primary.meta, 'interestLoss', sumColumn(primary.rows, 'interestLoss'));
-      const stock = stated(secondary.meta, 'interest', sumColumn(secondary.rows, 'interest'));
-      return {
-        value: formatMoney(receivables + stock),
-        note: `${formatMoneyShort(receivables)} receivables + ${formatMoneyShort(stock)} stock`,
-      };
-    },
     drillQuery: { report: 'party-interest-cost' },
+    tone: 'warning',
+  },
+  'stock-interest': {
+    metric: 'stock-interest',
+    label: 'Stock interest cost',
+    reportKey: 'stock-interest-cost',
+    params: {},
+    compute: (rows, meta) => ({
+      value: formatMoney(stated(meta, 'interest', sumColumn(rows, 'interest'))),
+      note: 'Funding stock past vendor credit days',
+    }),
+    drillQuery: { report: 'stock-interest-cost' },
     tone: 'warning',
   },
   'invoiced-period': {
