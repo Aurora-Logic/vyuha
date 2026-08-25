@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { CheckIcon, PlusIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
 import { toast } from '@/components/ui/toast';
 
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -165,6 +166,13 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               )}
             </Field>
 
+            {/* The rest folds into sections so the rail is not one long scroll;
+                the template is the one choice that stays open above them. */}
+            <Accordion openMultiple defaultValue={['look']} className="border-t">
+              <AccordionItem value="look">
+                <AccordionTrigger>Layout and type</AccordionTrigger>
+                <AccordionContent>
+                  <FieldGroup className="gap-5">
             {onSlipStock ? null : (
             <Field>
               <FieldLabel>Paper</FieldLabel>
@@ -302,9 +310,13 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               </Select>
               <FieldDescription>System typefaces, so the page prints the same on every machine. Figures are always monospaced so columns line up.</FieldDescription>
             </Field>
-
+                  </FieldGroup>
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="page">
+                <AccordionTrigger>What shows on the page</AccordionTrigger>
+                <AccordionContent>
             <Field>
-              <FieldLabel>On the page</FieldLabel>
               <div className="flex flex-col divide-y border">
                 <ToggleRow id="design-amounts" label="Rates, amounts and totals (off: quantities only, as on a delivery note)" checked={design.showAmounts} onChange={(v) => { setDesign({ showAmounts: v }); }} />
                 <ToggleRow id="design-hsn" label="HSN/SAC column and tax summary" checked={design.showHsn} onChange={(v) => { setDesign({ showHsn: v }); }} />
@@ -321,7 +333,12 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                 <ToggleRow id="design-einvoice" label="e-Invoice (IRN, Ack No., Ack Date)" checked={design.showEInvoice} onChange={(v) => { setDesign({ showEInvoice: v }); }} />
               </div>
             </Field>
-
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="footer">
+                <AccordionTrigger>Footer and terms</AccordionTrigger>
+                <AccordionContent>
+                  <FieldGroup className="gap-5">
             <Field>
               <FieldLabel htmlFor="design-footer">Footer line</FieldLabel>
               <Input id="design-footer" value={design.footerNote} placeholder="Thank you for your business" onChange={(e) => { setDesign({ footerNote: e.target.value }); }} />
@@ -330,6 +347,10 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               <FieldLabel htmlFor="design-terms-default">Default terms</FieldLabel>
               <Textarea id="design-terms-default" rows={3} value={design.defaultTerms} placeholder="Prefills a new document; each may still say its own." onChange={(e) => { setDesign({ defaultTerms: e.target.value }); }} />
             </Field>
+                  </FieldGroup>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </FieldGroup>
         </TabsContent>
 
