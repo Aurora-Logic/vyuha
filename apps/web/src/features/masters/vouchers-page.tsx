@@ -38,6 +38,7 @@ import { PERMISSIONS, VOUCHER_SORT_FIELDS } from '@vyuha/shared';
 import { magnitudeOf } from './voucher-amount';
 import { useVoucher, useVouchers, useVoucherTypes, type Voucher } from './use-vouchers';
 import { VoucherPaperPreview } from './voucher-paper-preview';
+import { CompanyFilter } from './company-filter';
 
 /**
  * The books (Phase 6c): every voucher pulled from Tally, newest first, and
@@ -222,6 +223,7 @@ export function VouchersPage() {
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const includeCancelled = searchParams.get('cancelled') === '1';
   const voucherType = searchParams.get('type') ?? '';
+  const company = searchParams.get('company') ?? '';
   const from = searchParams.get('from') ?? '';
   const to = searchParams.get('to') ?? '';
   const sort = searchParams.get('sort') ?? '';
@@ -232,7 +234,7 @@ export function VouchersPage() {
     ? { field: sortField, descending: sort.startsWith('-') }
     : null;
   const period: DateRange = { from: fromDateParam(from || null), to: fromDateParam(to || null) };
-  const hasFilters = q !== '' || voucherType !== '' || from !== '' || to !== '' || includeCancelled;
+  const hasFilters = q !== '' || voucherType !== '' || company !== '' || from !== '' || to !== '' || includeCancelled;
 
   /** Every filter writes through here: one page reset, one replace, one place to read. */
   function setParams(edit: (next: URLSearchParams) => void) {
@@ -279,6 +281,7 @@ export function VouchersPage() {
       page,
       ...(q ? { q } : {}),
       ...(voucherType ? { voucherType } : {}),
+      ...(company ? { connectionId: company } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       ...(includeCancelled ? { includeCancelled: true } : {}),
@@ -286,6 +289,13 @@ export function VouchersPage() {
     },
     { enabled: canView, prefetchNext: true },
   );
+
+  // Proactively re-evaluate and refetch when company or filter changes
+  useEffect(() => {
+    if (canView) {
+      void query.refetch();
+    }
+  }, [company, voucherType, includeCancelled, canView]);
   const types = useVoucherTypes({ enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
@@ -335,6 +345,15 @@ export function VouchersPage() {
             than scrolling: search, then the two narrowings an accountant
             reaches for first -- which book, and over what period. */}
         <div className="flex flex-wrap items-center gap-2">
+          <CompanyFilter
+            value={company}
+            onValueChange={(cid) => {
+              setParams((next) => {
+                if (cid) next.set('company', cid);
+                else next.delete('company');
+              });
+            }}
+          />
           <SearchField
             id="voucher-search"
             label="Search vouchers"

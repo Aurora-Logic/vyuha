@@ -31,6 +31,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { useParties, type Party } from './use-parties';
+import { CompanyFilter } from './company-filter';
 
 /**
  * REQ-R-01: the parties projection, read-only end to end. There is no create
@@ -108,6 +109,7 @@ export function PartiesPage() {
 
   const q = searchParams.get('q') ?? '';
   const parentGroup = searchParams.get('group') ?? '';
+  const company = searchParams.get('company') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
   const [draft, setDraft] = useState(q);
@@ -141,9 +143,15 @@ export function PartiesPage() {
   }, [draft, q, setSearchParams]);
 
   const query = useParties(
-    { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}) },
+    { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(company ? { connectionId: company } : {}) },
     { enabled: canView, prefetchNext: true },
   );
+
+  useEffect(() => {
+    if (canView) {
+      void query.refetch();
+    }
+  }, [company, parentGroup, canView]);
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
 
@@ -188,6 +196,21 @@ export function PartiesPage() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
+          <CompanyFilter
+            value={company}
+            onValueChange={(cid) => {
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (cid) next.set('company', cid);
+                  else next.delete('company');
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          />
           <SearchField
             id="party-search"
             label="Search parties"

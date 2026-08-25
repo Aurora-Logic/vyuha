@@ -87,6 +87,7 @@ export interface VoucherFilters {
   includeCancelled?: boolean;
   /** `field` or `-field` from VOUCHER_SORT_FIELDS; omitted means newest first. */
   sort?: string;
+  connectionId?: string;
 }
 
 function vouchersQuery(filters: VoucherFilters) {
@@ -98,6 +99,7 @@ function vouchersQuery(filters: VoucherFilters) {
   if (filters.to) params.set('to', filters.to);
   if (filters.includeCancelled) params.set('includeCancelled', 'true');
   if (filters.sort) params.set('sort', filters.sort);
+  if (filters.connectionId) params.set('connectionId', filters.connectionId);
   const key = params.toString();
   return {
     queryKey: ['masters', 'vouchers', key] as const,
@@ -124,7 +126,7 @@ export function useVouchers(
   // See useParties: the register pre-loads the next page so paging is instant.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, voucherType, partyId, from, to, includeCancelled, sort } = filters;
+  const { page, q, voucherType, partyId, from, to, includeCancelled, sort, connectionId } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
@@ -137,10 +139,11 @@ export function useVouchers(
         ...(to ? { to } : {}),
         ...(includeCancelled ? { includeCancelled } : {}),
         ...(sort ? { sort } : {}),
+        ...(connectionId ? { connectionId } : {}),
       }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled, sort]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled, sort, connectionId]);
 
   return query;
 }

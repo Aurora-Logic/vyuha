@@ -28,13 +28,12 @@ export const pgPoolProvider: Provider = {
   useFactory: (): Pool => {
     const pool = new Pool({
       connectionString: env.DATABASE_URL,
-      max: 10,
+      max: env.NODE_ENV === 'production' ? 20 : 15,
       idleTimeoutMillis: 30_000,
-      // Without a bound, a Postgres that is up but not accepting connections
-      // turns every request into a hang instead of a 503 from /ready.
-      connectionTimeoutMillis: 5_000,
-      // Shows up in pg_stat_activity, which is the difference between "some
-      // connection is holding a lock" and "the API is holding a lock".
+      // Increased from 5s to 20s to accommodate network roundtrips & TLS handshakes with remote PostgreSQL
+      connectionTimeoutMillis: 20_000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
       application_name: 'vyuha-api',
     });
 
@@ -51,7 +50,14 @@ export const pgPoolProvider: Provider = {
     });
 
     // Auto-terminate orphaned transactions if they remain idle in transaction for >30s
+    // Attach client-level error handler so dropped/timed-out remote sockets don't crash the Node.js process
     pool.on('connect', (client) => {
+      client.on('error', (err: Error) => {
+        logger.warn({
+          msg: 'Postgres client socket dropped or connection terminated; pool will replace client.',
+          err: { name: err.name, message: err.message },
+        });
+      });
       client.query("SET idle_in_transaction_session_timeout = '30000'").catch(() => {});
       client.query("SET statement_timeout = '120000'").catch(() => {});
     });

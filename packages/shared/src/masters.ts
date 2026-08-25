@@ -40,6 +40,8 @@ export const partyListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
   /** Filter to one side of the ledger: Sundry Debtors or Sundry Creditors. */
   parentGroup: z.string().trim().min(1).max(120).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
 });
 
 export type PartyListQuery = z.infer<typeof partyListQuerySchema>;
@@ -68,6 +70,8 @@ export const stockItemListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
   /** Filter to one stock group, verbatim. */
   parentGroup: z.string().trim().min(1).max(120).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
 });
 
 export type StockItemListQuery = z.infer<typeof stockItemListQuerySchema>;
@@ -89,6 +93,8 @@ export const priceListListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
   /** One price level — the per-party-group list REQ-R-03 names. */
   priceLevel: z.string().trim().min(1).max(120).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
 });
 
 export type PriceListListQuery = z.infer<typeof priceListListQuerySchema>;
@@ -177,6 +183,8 @@ export const voucherListQuerySchema = pageQuerySchema.extend({
   includeCancelled: z.coerce.boolean().optional(),
   /** `field` or `-field` from VOUCHER_SORT_FIELDS; an unknown term is dropped, not a 400. */
   sort: z.string().trim().max(60).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
 });
 
 export type VoucherListQuery = z.infer<typeof voucherListQuerySchema>;

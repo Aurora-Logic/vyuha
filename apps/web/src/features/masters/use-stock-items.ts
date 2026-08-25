@@ -49,12 +49,14 @@ export interface StockItemFilters {
   pageSize?: number;
   q?: string;
   parentGroup?: string;
+  connectionId?: string;
 }
 
 function stockItemsQuery(filters: StockItemFilters) {
   const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
+  if (filters.connectionId) params.set('connectionId', filters.connectionId);
   const key = params.toString();
   return {
     queryKey: ['masters', 'stock-items', key] as const,
@@ -82,14 +84,20 @@ export function useStockItems(
   // reads page one only and opts out.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, parentGroup, pageSize } = filters;
+  const { page, q, parentGroup, pageSize, connectionId } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
-      ...stockItemsQuery({ page: page + 1, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(pageSize ? { pageSize } : {}) }),
+      ...stockItemsQuery({
+        page: page + 1,
+        ...(q ? { q } : {}),
+        ...(parentGroup ? { parentGroup } : {}),
+        ...(pageSize ? { pageSize } : {}),
+        ...(connectionId ? { connectionId } : {}),
+      }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, connectionId]);
 
   return query;
 }

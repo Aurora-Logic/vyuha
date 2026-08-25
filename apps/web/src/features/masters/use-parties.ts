@@ -53,6 +53,7 @@ export interface PartiesFilters {
   parentGroup?: string;
   /** A term the server knows (MASTER_SORT_FIELDS), e.g. "-name" or "code". */
   sort?: string;
+  connectionId?: string;
 }
 
 function partiesQuery(filters: PartiesFilters) {
@@ -60,6 +61,7 @@ function partiesQuery(filters: PartiesFilters) {
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   if (filters.sort) params.set('sort', filters.sort);
+  if (filters.connectionId) params.set('connectionId', filters.connectionId);
   const key = params.toString();
   return {
     queryKey: ['masters', 'parties', key] as const,
@@ -90,14 +92,20 @@ export function useParties(
   // page one and must not spend a request pre-loading a page nobody scrolls to.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, parentGroup, pageSize } = filters;
+  const { page, q, parentGroup, pageSize, connectionId } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
-      ...partiesQuery({ page: page + 1, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(pageSize ? { pageSize } : {}) }),
+      ...partiesQuery({
+        page: page + 1,
+        ...(q ? { q } : {}),
+        ...(parentGroup ? { parentGroup } : {}),
+        ...(pageSize ? { pageSize } : {}),
+        ...(connectionId ? { connectionId } : {}),
+      }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, connectionId]);
 
   return query;
 }

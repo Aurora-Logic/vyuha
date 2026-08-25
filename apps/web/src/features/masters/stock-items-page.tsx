@@ -24,6 +24,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { useStockItems, type StockItem } from './use-stock-items';
+import { CompanyFilter } from './company-filter';
 
 /**
  * REQ-R-02, the same contract as the parties screen: read-only end to end,
@@ -82,6 +83,7 @@ export function StockItemsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const q = searchParams.get('q') ?? '';
+  const company = searchParams.get('company') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
   const [draft, setDraft] = useState(q);
@@ -112,7 +114,16 @@ export function StockItemsPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useStockItems({ page, ...(q ? { q } : {}) }, { enabled: canView, prefetchNext: true });
+  const query = useStockItems(
+    { page, ...(q ? { q } : {}), ...(company ? { connectionId: company } : {}) },
+    { enabled: canView, prefetchNext: true },
+  );
+
+  useEffect(() => {
+    if (canView) {
+      void query.refetch();
+    }
+  }, [company, canView]);
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
 
@@ -157,6 +168,21 @@ export function StockItemsPage() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
+          <CompanyFilter
+            value={company}
+            onValueChange={(cid) => {
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (cid) next.set('company', cid);
+                  else next.delete('company');
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          />
           <SearchField
             id="stock-item-search"
             label="Search stock items"
