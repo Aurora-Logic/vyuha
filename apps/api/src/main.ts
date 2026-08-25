@@ -82,7 +82,7 @@ async function bootstrap(): Promise<void> {
 
   const logger = app.get(Logger);
   logger.log({
-    msg: `🚀 API server is listening on ${env.API_BASE_URL}/${API_PREFIX}`,
+    msg: `API server is listening on ${env.API_BASE_URL}/${API_PREFIX}`,
     port: env.PORT,
     storage: env.STORAGE_DRIVER,
   });
