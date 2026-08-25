@@ -14,7 +14,7 @@ import {
   TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
-  WarningCircleIcon,
+  InfoIcon,
 } from '@phosphor-icons/react';
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { useSearchParams } from 'react-router';
@@ -24,6 +24,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import type { PickerOption } from '@/components/shared/record-picker';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -58,6 +59,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { ApiError } from '@/lib/api/client';
 import { usePermission } from '@/lib/session/permissions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useShortcut } from '@/lib/keyboard/registry';
@@ -817,6 +820,7 @@ export function ReportsPage() {
           catalogue.isError
             ? {
                 message: catalogue.error.message,
+                cause: catalogue.error,
                 retry: () => {
                   void catalogue.refetch();
                 },
@@ -948,269 +952,284 @@ export function ReportsPage() {
             </ButtonGroup>
   );
 
+  const hasSortable =
+    definition !== undefined && definition.columns.some((column) => column.sortField !== undefined);
+  const hasNarrowing = (definition?.filters ?? []).some((name) => name !== 'period');
+
+  // The phone sheet's description promises exactly the groups it renders, so
+  // the two cannot drift apart when a report declares fewer of them.
+  const sheetGroups = [
+    ...(hasPeriod ? ['period'] : []),
+    ...(hasNarrowing ? ['filters'] : []),
+    ...(hasSortable ? ['sort'] : []),
+  ];
+  const sheetPromise =
+    sheetGroups.length > 1
+      ? `${sheetGroups.slice(0, -1).join(', ')} and ${sheetGroups[sheetGroups.length - 1] ?? ''}`
+      : (sheetGroups[0] ?? 'filters');
+
+  // One Select drawn by the phone sheet and the desktop toolbar, so the two
+  // surfaces cannot drift in what they offer to compare against.
+  const compareSelect = (triggerClassName: string) => (
+    <Select
+      value={compare}
+      onValueChange={(value: string | null) => {
+        if (value === null) return;
+        patchParams((params) => {
+          if (value === 'previous' || value === 'lastYear') params.set('compare', value);
+          else params.delete('compare');
+        });
+      }}
+    >
+      <SelectTrigger className={triggerClassName} aria-label="Compare against">
+        <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="off">No comparison</SelectItem>
+        <SelectItem value="previous">vs previous period</SelectItem>
+        <SelectItem value="lastYear">vs same period last FY</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+
   return (
     <>
-      {/* The report's identity, above the toolbar (owner, 25 Aug): what it
-          is, which shelf it came from, what it answers -- and the way back to
-          the hub. One block, no card (CLAUDE.md §3). */}
-      <div className="flex flex-col gap-1">
-        <div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground -ml-2"
-            onClick={backToHub}
-          >
-            <ArrowLeftIcon data-icon="inline-start" />
-            All reports
-          </Button>
-        </div>
-        <PageHeader
-          // The report's name is the title, and the title is the switcher:
-          // one element says what this is and lets you change it (Ctrl+G).
-          title={
-            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <Button
-                variant="ghost"
-                className="-ml-2.5 h-auto gap-1.5 px-2.5 py-1 text-base font-semibold"
-                onClick={() => {
-                  setSwitcherOpen(true);
-                }}
-              >
-                {definition?.label ?? 'Report'}
-                <CaretDownIcon className="text-muted-foreground" />
-                <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
-              </Button>
-              {definition === undefined ? null : <CategoryChip category={definition.category} />}
-            </span>
-          }
-          // On a desk the export closes the toolbar's second row instead,
-          // beside the other controls that shape the reading.
-          action={isMobile ? exportControl : undefined}
-        />
-        {/* Not PageHeader's description: the identity block clamps it, so a
-            two-sentence gloss cannot push the toolbar below the fold. */}
-        <p className="text-muted-foreground line-clamp-2 max-w-prose text-sm">
-          {definition?.description ?? 'Every report shares one shell.'}
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-4">
-        {!canExport ? (
-          <p className="text-muted-foreground text-xs">
-            Export is disabled: it needs the report export permission.
-          </p>
-        ) : null}
-
-        {/* Toolbar (PRD §6.2). On a phone the filters live in a bottom sheet
-            (REQ-AD-15, thumb-reach): one Filters button instead of a wall of
-            full-width controls before any data. */}
-        {/*
-          Mounted, not merely hidden: `md:hidden` alone left both this row and
-          the desktop bar in the document, so the two ColumnChoosers below
-          shared one `open` state and both opened at once — and the hidden
-          one, having no box to anchor to, put its popover in the top-left
-          corner of the window, over the sidebar. Two copies of the same
-          controls also meant two elements with the same id, so a label could
-          toggle the checkbox nobody could see. One row exists at a time.
-        */}
-        {isMobile ? (
-        <div className="md:hidden">
-          <div className="flex items-center gap-2">
+      {/* One PageHeader, a sibling of the body column, like every screen in
+          the app: the switcher is the title, the definition's gloss is the
+          description, and the way back to the hub is the action. */}
+      <PageHeader
+        // The report's name is the title, and the title is the switcher:
+        // one element says what this is and lets you change it (Ctrl+G).
+        title={
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <Button
-              variant={isFiltered ? 'default' : 'outline'}
+              variant="ghost"
+              // [font:inherit] rather than restating the slot's text-base
+              // font-semibold here: the slot styles the title, whatever
+              // element happens to render it.
+              className="h-auto gap-1.5 px-2.5 py-1 [font:inherit]"
               onClick={() => {
-                setMobileFiltersOpen(true);
+                setSwitcherOpen(true);
               }}
             >
-              <FunnelIcon data-icon="inline-start" />
-              Filters
-              {isFiltered ? <Badge variant="secondary" className="ml-1">on</Badge> : null}
+              {definition?.label ?? 'Report'}
+              <CaretDownIcon className="text-muted-foreground" />
+              <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
             </Button>
-            {savedViewsControl}
-            {columnChooserControl}
-            {chartKind !== 'none' ? (
-              <ToggleGroup
-                variant="outline"
-                aria-label="How the report shows"
-                className="ml-auto"
-                value={[viewMode]}
-                onValueChange={(value: string[]) => {
-                  const next = value[0];
-                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+            {definition === undefined ? null : <CategoryChip category={definition.category} />}
+          </span>
+        }
+        description={definition?.description ?? 'Every report shares one shell.'}
+        action={
+          <>
+            {/* On a desk the export closes the toolbar instead, beside the
+                other controls that shape the reading. */}
+            {isMobile ? exportControl : null}
+            <Button variant="outline" size="sm" onClick={backToHub}>
+              <ArrowLeftIcon data-icon="inline-start" />
+              All reports
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-4">
+          {!canExport ? (
+            <p className="text-muted-foreground border px-3 py-2.5 text-xs">
+              Export is disabled: it needs the report export permission.
+            </p>
+          ) : null}
+
+          {/* Toolbar (PRD §6.2). On a phone the filters live in a bottom sheet
+              (REQ-AD-15, thumb-reach): one Filters button instead of a wall of
+              full-width controls before any data. */}
+          {/*
+            Mounted, not merely hidden: `md:hidden` alone left both this row and
+            the desktop bar in the document, so the two ColumnChoosers below
+            shared one `open` state and both opened at once — and the hidden
+            one, having no box to anchor to, put its popover in the top-left
+            corner of the window, over the sidebar. Two copies of the same
+            controls also meant two elements with the same id, so a label could
+            toggle the checkbox nobody could see. One row exists at a time.
+          */}
+          {isMobile ? (
+          <div className="md:hidden">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={isFiltered ? 'default' : 'outline'}
+                onClick={() => {
+                  setMobileFiltersOpen(true);
                 }}
               >
-                <ToggleGroupItem value="table" aria-label="Table view">
-                  <TableIcon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="chart" aria-label="Chart view">
-                  <ChartBarIcon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="both" aria-label="Both views">
-                  <SquareSplitVerticalIcon />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            ) : null}
-          </div>
-          {/* Thumb-reach: a four-row menu on a phone arrives from the bottom
-              edge, not from the top-right corner the dropdown would pin to. */}
-          <Sheet open={exportSheetOpen} onOpenChange={setExportSheetOpen}>
-            <SheetContent side="bottom" className="gap-0 p-0">
-              <SheetHeader className="border-b">
-                <SheetTitle>Export</SheetTitle>
-                <SheetDescription>{definition?.label ?? 'This report'}, with the filters as they stand.</SheetDescription>
-              </SheetHeader>
-              <div className="flex flex-col p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-                {(
-                  [
-                    { label: 'Excel workbook (.xlsx)', icon: <FileXlsIcon data-icon="inline-start" />, run: () => { startExport('XLSX'); } },
-                    { label: 'Comma-separated (.csv)', icon: <FileCsvIcon data-icon="inline-start" />, run: () => { startExport('CSV'); } },
-                    { label: 'Schedule this report', icon: <CalendarPlusIcon data-icon="inline-start" />, run: () => { setScheduleOpen(true); } },
-                    { label: 'Print / save as PDF', icon: <PrinterIcon data-icon="inline-start" />, run: () => { window.print(); } },
-                  ] as const
-                ).map((action) => (
-                  <Button
-                    key={action.label}
-                    variant="ghost"
-                    className="justify-start"
-                    onClick={() => {
-                      setExportSheetOpen(false);
-                      action.run();
-                    }}
-                  >
-                    {action.icon}
-                    {action.label}
-                  </Button>
-                ))}
-              </div>
-            </SheetContent>
-          </Sheet>
-
-          <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
-            <SheetContent side="bottom" className="max-h-[88vh] gap-0 p-0">
-              <SheetHeader className="border-b">
-                <SheetTitle>Filters</SheetTitle>
-                <SheetDescription>{definition?.label ?? 'This report'} — period, filters, sort and columns.</SheetDescription>
-              </SheetHeader>
-              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                <ReportFilterBar
-                  available={definition?.filters ?? []}
-                  periodMode={periodMode}
-                  value={filters}
-                  onChange={setFilters}
-                  departments={departments.data ?? []}
-                  locations={locations.data ?? []}
-                  canReadParties={canReadParties}
-                  periodOpen={periodOpen}
-                  onPeriodOpenChange={setPeriodOpen}
-                  onClear={clearFilters}
-                  isFiltered={isFiltered}
-                />
-                {hasPeriod ? (
-                  <div className="flex flex-col gap-2">
-                    <Select
-                      value={compare}
-                      onValueChange={(value: string | null) => {
-                        if (value === null) return;
-                        patchParams((params) => {
-                          if (value === 'previous' || value === 'lastYear') params.set('compare', value);
-                          else params.delete('compare');
-                        });
+                <FunnelIcon data-icon="inline-start" />
+                Filters
+                {isFiltered ? <Badge variant="secondary" className="ml-1">on</Badge> : null}
+              </Button>
+              {savedViewsControl}
+              {columnChooserControl}
+              {chartKind !== 'none' ? (
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="How the report shows"
+                  className="ml-auto"
+                  value={[viewMode]}
+                  onValueChange={(value: string[]) => {
+                    const next = value[0];
+                    if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                  }}
+                >
+                  <ToggleGroupItem value="table" aria-label="Table view">
+                    <TableIcon />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="chart" aria-label="Chart view">
+                    <ChartBarIcon />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="both" aria-label="Both views">
+                    <SquareSplitVerticalIcon />
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              ) : null}
+            </div>
+            {/* Thumb-reach: a four-row menu on a phone arrives from the bottom
+                edge, not from the top-right corner the dropdown would pin to. */}
+            <Sheet open={exportSheetOpen} onOpenChange={setExportSheetOpen}>
+              <SheetContent side="bottom" className="gap-0 p-0">
+                <SheetHeader className="border-b">
+                  <SheetTitle>Export</SheetTitle>
+                  <SheetDescription>{definition?.label ?? 'This report'}, with the filters as they stand.</SheetDescription>
+                </SheetHeader>
+                <div className="flex flex-col p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                  {(
+                    [
+                      { label: 'Excel workbook (.xlsx)', icon: <FileXlsIcon data-icon="inline-start" />, run: () => { startExport('XLSX'); } },
+                      { label: 'Comma-separated (.csv)', icon: <FileCsvIcon data-icon="inline-start" />, run: () => { startExport('CSV'); } },
+                      { label: 'Schedule this report', icon: <CalendarPlusIcon data-icon="inline-start" />, run: () => { setScheduleOpen(true); } },
+                      { label: 'Print / save as PDF', icon: <PrinterIcon data-icon="inline-start" />, run: () => { window.print(); } },
+                    ] as const
+                  ).map((action) => (
+                    <Button
+                      key={action.label}
+                      variant="ghost"
+                      className="justify-start"
+                      onClick={() => {
+                        setExportSheetOpen(false);
+                        action.run();
                       }}
                     >
-                      <SelectTrigger className="w-full" aria-label="Compare against">
-                        <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="off">No comparison</SelectItem>
-                        <SelectItem value="previous">vs previous period</SelectItem>
-                        <SelectItem value="lastYear">vs same period last FY</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
-                <SortControl
-                  definition={definition}
-                  sort={sort}
-                  onSortChange={setSort}
-                  triggerClassName="flex-1"
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
-        </div>
-        ) : null}
+                      {action.icon}
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+              </SheetContent>
+            </Sheet>
 
-        {/* Two quiet rows on a desk (owner, 25 Aug). The first says what the
-            data covers: the period, the comparison against another one, and
-            the saved views that name such coverages. The second says how it
-            reads: filters, sort, columns, table or chart, and the export that
-            carries the reading out. One row holding all of it at once was the
-            "unorganised" the owner named. */}
-        {isMobile ? null : (
-        <div className="hidden flex-col gap-2 md:flex">
-          <div className="flex flex-wrap items-center gap-2">
-              {hasPeriod ? (
-                <>
-                  <PeriodField
-                    mode={periodMode}
-                    value={filters.period}
-                    onChange={setFilters}
-                    open={periodOpen}
-                    onOpenChange={setPeriodOpen}
-                  />
-                  <Select
-                    value={granularity ?? 'custom'}
-                    onValueChange={(value: string | null) => {
-                      if (value === null) return;
-                      patchParams((params) => {
-                        if (value === 'month' || value === 'quarter' || value === 'year') {
-                          const range = periodForGranularity(value, new Date().toLocaleDateString('en-CA'));
-                          params.set('granularity', value);
-                          params.set('from', range.from);
-                          params.set('to', range.to);
-                        } else {
-                          params.delete('granularity');
-                        }
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="w-36" aria-label="Period granularity">
-                      <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="custom">Custom period</SelectItem>
-                      <SelectItem value="month">This month</SelectItem>
-                      <SelectItem value="quarter">This quarter</SelectItem>
-                      <SelectItem value="year">This FY (Apr–Mar)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={compare}
-                    onValueChange={(value: string | null) => {
-                      if (value === null) return;
-                      patchParams((params) => {
-                        if (value === 'previous' || value === 'lastYear') params.set('compare', value);
-                        else params.delete('compare');
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="w-44" aria-label="Compare against">
-                      <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="off">No comparison</SelectItem>
-                      <SelectItem value="previous">vs previous period</SelectItem>
-                      <SelectItem value="lastYear">vs same period last FY</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </>
-              ) : null}
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {savedViewsControl}
-            </div>
+            <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+              <SheetContent side="bottom" className="max-h-[88vh] gap-0 p-0">
+                <SheetHeader className="border-b">
+                  <SheetTitle>Filters</SheetTitle>
+                  <SheetDescription>{`${definition?.label ?? 'This report'} — ${sheetPromise}.`}</SheetDescription>
+                </SheetHeader>
+                <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                  {hasPeriod ? (
+                    <section className="flex flex-col gap-3">
+                      <SectionHeading
+                        title="Period"
+                        note="What the report covers, and what it is measured against."
+                      />
+                      <PeriodField
+                        mode={periodMode}
+                        value={filters.period}
+                        onChange={setFilters}
+                        open={periodOpen}
+                        onOpenChange={setPeriodOpen}
+                      />
+                      {compareSelect('w-full')}
+                    </section>
+                  ) : null}
+                  {/* isFiltered as well: a stale parameter on a report that
+                      declares no narrowing filter must still offer the Clear
+                      that removes it. */}
+                  {hasNarrowing || isFiltered ? (
+                    <section className="flex flex-col gap-3">
+                      <SectionHeading title="Filters" />
+                      <ReportFilterBar
+                        available={definition?.filters ?? []}
+                        periodMode={periodMode}
+                        value={filters}
+                        onChange={setFilters}
+                        departments={departments.data ?? []}
+                        locations={locations.data ?? []}
+                        canReadParties={canReadParties}
+                        periodOpen={periodOpen}
+                        onPeriodOpenChange={setPeriodOpen}
+                        onClear={clearFilters}
+                        isFiltered={isFiltered}
+                        hidePeriod
+                      />
+                    </section>
+                  ) : null}
+                  {hasSortable ? (
+                    <section className="flex flex-col gap-3">
+                      <SectionHeading title="Sort" />
+                      <SortControl
+                        definition={definition}
+                        sort={sort}
+                        onSortChange={setSort}
+                        triggerClassName="flex-1"
+                      />
+                    </section>
+                  ) : null}
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          ) : null}
+
+          {/* One wrapping row on a desk, ordered the way the app's toolbars
+              read everywhere: what the data covers first, then what narrows
+              it, then how it reads, and the export at the far end. */}
+          {isMobile ? null : (
+          <div className="hidden flex-wrap items-center gap-2 md:flex">
+            {hasPeriod ? (
+              <>
+                <PeriodField
+                  mode={periodMode}
+                  value={filters.period}
+                  onChange={setFilters}
+                  open={periodOpen}
+                  onOpenChange={setPeriodOpen}
+                />
+                <Select
+                  value={granularity ?? 'custom'}
+                  onValueChange={(value: string | null) => {
+                    if (value === null) return;
+                    patchParams((params) => {
+                      if (value === 'month' || value === 'quarter' || value === 'year') {
+                        const range = periodForGranularity(value, new Date().toLocaleDateString('en-CA'));
+                        params.set('granularity', value);
+                        params.set('from', range.from);
+                        params.set('to', range.to);
+                      } else {
+                        params.delete('granularity');
+                      }
+                    });
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Period granularity">
+                    <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom">Custom period</SelectItem>
+                    <SelectItem value="month">This month</SelectItem>
+                    <SelectItem value="quarter">This quarter</SelectItem>
+                    <SelectItem value="year">This FY (Apr–Mar)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {compareSelect('w-full sm:w-44')}
+              </>
+            ) : null}
             <ReportFilterBar
               available={definition?.filters ?? []}
               periodMode={periodMode}
@@ -1224,48 +1243,140 @@ export function ReportsPage() {
               onClear={clearFilters}
               isFiltered={isFiltered}
               hidePeriod
+              bare
             />
+            <SortControl
+              definition={definition}
+              sort={sort}
+              onSortChange={setSort}
+              triggerClassName="w-full sm:w-44"
+            />
+            {columnChooserControl}
+            {chartKind !== 'none' ? (
+              <ToggleGroup
+                variant="outline"
+                aria-label="How the report shows"
+                value={[viewMode]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                }}
+              >
+                <ToggleGroupItem value="table">
+                  <TableIcon data-icon="inline-start" />
+                  Table
+                </ToggleGroupItem>
+                <ToggleGroupItem value="chart">
+                  <ChartBarIcon data-icon="inline-start" />
+                  Chart
+                </ToggleGroupItem>
+                <ToggleGroupItem value="both">
+                  <SquareSplitVerticalIcon data-icon="inline-start" />
+                  Both
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <SortControl
-                definition={definition}
-                sort={sort}
-                onSortChange={setSort}
-                triggerClassName="w-44"
-              />
-              {columnChooserControl}
-              {chartKind !== 'none' ? (
-                <ToggleGroup
-                  variant="outline"
-                  aria-label="How the report shows"
-                  value={[viewMode]}
-                  onValueChange={(value: string[]) => {
-                    const next = value[0];
-                    if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
-                  }}
-                >
-                  <ToggleGroupItem value="table">
-                    <TableIcon data-icon="inline-start" />
-                    Table
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="chart">
-                    <ChartBarIcon data-icon="inline-start" />
-                    Chart
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="both">
-                    <SquareSplitVerticalIcon data-icon="inline-start" />
-                    Both
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              ) : null}
+              {savedViewsControl}
               {exportControl}
             </div>
           </div>
-          {hasPeriod ? (
-            <p className="text-muted-foreground text-xs tabular-nums">
+          )}
+
+          {unknownReport ? (
+            <QueryErrorAlert
+              // Found by this screen rather than fetched: the catalogue
+              // answered and this key is not in it. It still wears the
+              // module's one error surface, built here as the ApiError a
+              // request for it would have raised.
+              error={
+                new ApiError({
+                  code: 'VALIDATION_FAILED',
+                  status: 404,
+                  message: `"${reportKey}" is not in the catalogue this server offers you — either this build does not have it, or your role holds no permission over what it reports on. Pick another with Ctrl+G.`,
+                })
+              }
+              subject="this report"
+              onRetry={() => void catalogue.refetch()}
+            />
+          ) : null}
+
+          {catalogue.isError ? (
+            <QueryErrorAlert
+              error={catalogue.error}
+              subject="the report list"
+              onRetry={() => void catalogue.refetch()}
+            />
+          ) : null}
+
+          {active.isError ? (
+            <QueryErrorAlert
+              error={active.error}
+              subject="this report"
+              onRetry={() => void active.refetch()}
+            />
+          ) : null}
+
+          {missingRequired.length > 0 ? (
+            <Empty className="border">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ChartBarIcon />
+                </EmptyMedia>
+                <EmptyTitle>{missingRequired.includes('partyId') ? 'Choose a party' : 'Choose a period'}</EmptyTitle>
+                <EmptyDescription>
+                  {missingRequired.includes('partyId')
+                    ? 'A customer statement is for one party. Pick one in the filter bar to see every voucher and the running balance.'
+                    : 'This report needs a period.'}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : null}
+
+          {active.isSuccess && rows.length === 0 ? (
+            <Empty className="border">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ChartBarIcon />
+                </EmptyMedia>
+                <EmptyTitle>Nothing in this period</EmptyTitle>
+                <EmptyDescription>
+                  {isFiltered
+                    ? 'No row matches these filters. Widen them, or move the period.'
+                    : 'This report has no rows for the dates selected. Try a different period.'}
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (isFiltered) clearFilters();
+                    else setFilters({ period: { from: subDays(new Date(), 30), to: new Date() } });
+                  }}
+                >
+                  {isFiltered ? 'Clear filters' : 'Show the last 30 days'}
+                </Button>
+              </EmptyContent>
+            </Empty>
+          ) : null}
+
+          {/* What this report is showing, in words, so a shared link explains
+              itself and matches the header block of the exported file. */}
+          {!unknownReport && captions.length > 0 ? (
+            <ul
+              aria-label="What this report is showing"
+              className="flex flex-wrap items-center gap-x-4 gap-y-2 border p-3"
+            >
+              {captions.map((caption) => (
+                <li key={caption.label} className="flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground">{caption.label}</span>
+                  <span className="font-medium tabular-nums">{caption.value}</span>
+                </li>
+              ))}
               {compare !== 'off' && compareRange !== null ? (
-                <span>
-                  against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}
-                  {currentRange !== null ? ', to date' : ''}
+                <li className="text-muted-foreground text-xs tabular-nums">
+                  against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}, to date
                   {/* The party filter above scopes both periods, which is what
                       lets one customer or vendor be compared across them. */}
                   {definition?.filters.includes('partyId')
@@ -1273,123 +1384,53 @@ export function ReportsPage() {
                       ? `, for ${partyOptions.find((option) => option.id === filters.partyId)?.label ?? 'one party'}`
                       : ' · whole business — filter by party to compare one'
                     : ''}
-                </span>
+                </li>
               ) : null}
-            </p>
+            </ul>
           ) : null}
+
+          {active.isPending && !unknownReport && missingRequired.length === 0 ? <TableSkeleton /> : null}
         </div>
-        )}
 
-        {/* What this report is showing, in words, so a shared link explains
-            itself and matches the block at the top of the exported file. */}
-        <p className="text-muted-foreground text-xs">
-          {captions.map((caption) => `${caption.label}: ${caption.value}`).join('  ·  ')}
-        </p>
-
-        {unknownReport ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>That report is not available to you</AlertTitle>
-            <AlertDescription>
-              {`"${reportKey}" is not in the catalogue this server offers you — either this build does not have it, or your role holds no permission over what it reports on. Pick another with Ctrl+G.`}
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        {catalogue.isError ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>The report list could not be loaded</AlertTitle>
-            <AlertDescription>
-              {catalogue.error.message}
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => {
-                  void catalogue.refetch();
-                }}
-              >
-                Try again
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        {missingRequired.length > 0 ? (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <ChartBarIcon />
-              </EmptyMedia>
-              <EmptyTitle>{missingRequired.includes('partyId') ? 'Choose a party' : 'Choose a period'}</EmptyTitle>
-              <EmptyDescription>
-                {missingRequired.includes('partyId')
-                  ? 'A customer statement is for one party. Pick one in the filter bar to see every voucher and the running balance.'
-                  : 'This report needs a period.'}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : null}
-
-        {active.isPending && !unknownReport && missingRequired.length === 0 ? <TableSkeleton /> : null}
-
-        {active.isError ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>This report could not be loaded</AlertTitle>
-            <AlertDescription>
-              {active.error.message}
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => {
-                  void active.refetch();
-                }}
-              >
-                Try again
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        {active.isSuccess && rows.length === 0 ? (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <ChartBarIcon />
-              </EmptyMedia>
-              <EmptyTitle>Nothing in this period</EmptyTitle>
-              <EmptyDescription>
-                {isFiltered
-                  ? 'No row matches these filters. Widen them, or move the period.'
-                  : 'This report has no rows for the dates selected. Try a different period.'}
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (isFiltered) clearFilters();
-                  else setFilters({ period: { from: subDays(new Date(), 30), to: new Date() } });
-                }}
-              >
-                {isFiltered ? 'Clear filters' : 'Show the last 30 days'}
-              </Button>
-            </EmptyContent>
-          </Empty>
-        ) : null}
-
-        {rows.length > 0 ? (
-          <>
-            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} /> : null}
-            {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
-              <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} onDrill={drillToSegment} />
+        {rows.length > 0 && viewMode !== 'table' && chartKind !== 'none' ? (
+          <section className="flex flex-col gap-3">
+            <SectionHeading
+              title="Chart"
+              note="Drawn from the full filtered set, not only this page of the table."
+            />
+            {chartKind === 'bespoke' ? (
+              <ReportChart
+                reportKey={reportKey}
+                rows={chartRows}
+                animate={chartIntro}
+                compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }}
+              />
             ) : null}
-            {viewMode !== 'table' && chartSource.isSuccess && total > 200 ? <p className="text-muted-foreground text-xs">The chart reads the top 200 rows by the current sort; the table has all {String(total)}.</p> : null}
-            {viewMode === 'chart' ? null : (
+            {chartKind === 'generic' && definition !== undefined ? (
+              <GenericReportChart
+                reportKey={reportKey}
+                definition={definition}
+                rows={chartRows}
+                animate={chartIntro}
+                compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }}
+                onDrill={drillToSegment}
+              />
+            ) : null}
+            {chartSource.isSuccess && total > 200 ? (
+              <Alert>
+                <InfoIcon aria-hidden />
+                <AlertTitle>Charting the top 200 rows</AlertTitle>
+                <AlertDescription>
+                  {`The chart reads the top 200 rows by the current sort; the table has all ${String(total)}. Narrow the filters to chart every matching row.`}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </section>
+        ) : null}
+
+        {rows.length > 0 && viewMode !== 'chart' ? (
+          <section className="flex flex-col gap-3">
+            <SectionHeading title="Rows" />
             <RecordTable
               columns={tableColumns}
               sort={sort === '' ? null : { field: sort.startsWith('-') ? sort.slice(1) : sort, descending: sort.startsWith('-') }}
@@ -1426,9 +1467,8 @@ export function ReportsPage() {
                   : undefined
               }
             />
-            )}
-            {viewMode === 'chart' ? null : <RecordPagination page={page} pageSize={pageSize} total={total} />}
-          </>
+            <RecordPagination page={page} pageSize={pageSize} total={total} />
+          </section>
         ) : null}
       </div>
 

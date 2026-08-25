@@ -96,12 +96,19 @@ interface FilterBarProps {
   onClear: () => void;
   isFiltered: boolean;
   /**
-   * The desktop toolbar draws the period on its own row -- what the data
-   * covers, apart from how it reads -- so it renders `PeriodField` itself and
-   * asks this bar for only the narrowing filters. The phone sheet keeps
+   * The desktop toolbar draws the period first -- what the data covers,
+   * before how it narrows -- so it renders `PeriodField` itself and asks
+   * this bar for only the narrowing filters. The phone sheet keeps
    * everything together and leaves this unset.
    */
   hidePeriod?: boolean;
+  /**
+   * Render the controls without the wrapping row. The desktop toolbar is one
+   * wrapping row; a row of our own inside it would wrap these controls as a
+   * single block and break the shared gap rhythm, so the toolbar asks for
+   * the bare controls and lays them out itself.
+   */
+  bare?: boolean;
 }
 
 function OptionSelect({
@@ -158,11 +165,12 @@ export function ReportFilterBar({
   onClear,
   isFiltered,
   hidePeriod = false,
+  bare = false,
 }: FilterBarProps) {
   const shows = (name: ReportFilterName) => available.includes(name);
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
+  const controls = (
+    <>
       {shows('partyId') ? (
         <div className="w-full sm:w-64">
           <PartyPicker
@@ -366,8 +374,11 @@ export function ReportFilterBar({
           Clear filters
         </Button>
       ) : null}
-    </div>
+    </>
   );
+
+  if (bare) return controls;
+  return <div className="flex flex-wrap items-center gap-2">{controls}</div>;
 }
 
 /**
