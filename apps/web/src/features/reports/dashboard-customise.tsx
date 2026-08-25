@@ -45,6 +45,7 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 import { useReportCatalogue } from './api';
+import { wearableForms } from './report-series';
 import { useResetDashboardLayout, useSaveDashboardLayout } from './use-dashboard-layouts';
 
 /**
@@ -429,7 +430,7 @@ function TileRow({
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              {DASHBOARD_TILE_FORMS.map((form) => (
+              {(['auto', ...wearableForms(definition)] as DashboardTileForm[]).map((form) => (
                 <SelectItem key={form} value={form}>
                   {FORM_LABELS[form]}
                 </SelectItem>

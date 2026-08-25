@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useReportCatalogue, useReportRows } from './api';
 import { periodParams } from './period';
 import { GenericReportChart, type ChartDrill } from './report-charts';
+import { healTileForm } from './dashboard-heal';
 import { resolveChartForm } from './report-series';
 
 /**
@@ -206,6 +207,7 @@ function DashboardTileCard({
   }
 
   const spec = resolveChartForm(tile.reportKey, definition, points);
+  const healed = healTileForm(tile, definition, points);
   if (spec === null) {
     return (
       <ChartCard title={title} action={action} wide={tile.wide}>
@@ -223,7 +225,8 @@ function DashboardTileCard({
       rows={points}
       animate={animate && intro}
       onDrill={drill}
-      form={tile.form === 'auto' ? undefined : tile.form}
+      form={healed.form}
+      footnote={healed.footnote}
       title={title}
       action={action}
       wide={tile.wide}

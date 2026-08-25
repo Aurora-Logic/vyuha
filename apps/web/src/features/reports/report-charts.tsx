@@ -412,7 +412,7 @@ export interface ChartDrill {
   readonly rowId: string | null;
 }
 
-export function GenericReportChart({ reportKey, definition, rows, animate, compare, onDrill, form, title, action, wide }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; form?: GenericChartForm; title?: string; action?: ReactNode; wide?: boolean }) {
+export function GenericReportChart({ reportKey, definition, rows, animate, compare, onDrill, form, title, action, wide, footnote }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; form?: GenericChartForm; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode }) {
   // A dashboard tile may pin a form. The resolved spec keeps the category and
   // series keys the resolver worked out; only the shape of the drawing moves.
   const resolved = resolveChartForm(reportKey, definition, rows);
@@ -422,16 +422,16 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
     // title and keeps its bare null -- its table is already on the screen.
     if (title === undefined) return null;
     return (
-      <ChartCard title={title} action={action} wide={wide}>
+      <ChartCard title={title} action={action} wide={wide} footnote={footnote}>
         <p className="text-muted-foreground py-8 text-sm">
           This report reads as a table. Open it to see the rows.
         </p>
       </ChartCard>
     );
   }
-  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} />;
+  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} footnote={footnote} footnote={footnote} />;
   const series = genericSeries(definition, rows);
-  if (series === null) return cannotWear('bar', title, action, wide);
+  if (series === null) return cannotWear('bar', title, action, wide, footnote);
   const first = series.series[0];
   // The comparison series joins by category and renders muted beside the
   // current one — current solid, past quiet (data-analyst skill §3).
@@ -447,7 +447,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
     ...(withPrev ? [['compare', { label: compare.label, color: 'var(--muted-foreground)' }]] : []),
   ]) as ChartConfig;
   return (
-    <ChartCard title={title ?? `Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} action={action} wide={wide} insight={null}>
+    <ChartCard title={title ?? `Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
       <ChartContainer config={config} className="h-80 w-full overflow-hidden">
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
@@ -499,10 +499,10 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
  * pinned form the rows could not wear. Bare null is reserved for the report
  * shell, which draws its table beside the chart and loses nothing.
  */
-function cannotWear(form: string, title: string | undefined, action: ReactNode, wide: boolean | undefined): ReactNode {
+function cannotWear(form: string, title: string | undefined, action: ReactNode, wide: boolean | undefined, footnote?: ReactNode): ReactNode {
   if (title === undefined) return null;
   return (
-    <ChartCard title={title} action={action} wide={wide}>
+    <ChartCard title={title} action={action} wide={wide} footnote={footnote}>
       <p className="text-muted-foreground py-8 text-sm">
         These rows cannot wear the {form} chart. Open the report to see them, or set the tile back to Automatic.
       </p>
@@ -511,14 +511,14 @@ function cannotWear(form: string, title: string | undefined, action: ReactNode, 
 }
 
 /** The non-bar generic forms: a line through time, or a donut of composition. */
-function FormChart({ spec, definition, rows, animate, compare, onDrill, title, action, wide }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; title?: string; action?: ReactNode; wide?: boolean }) {
+function FormChart({ spec, definition, rows, animate, compare, onDrill, title, action, wide, footnote }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode }) {
   const points = formSeries(spec, rows);
-  if (points.length === 0) return cannotWear(spec.form, title, action, wide);
+  if (points.length === 0) return cannotWear(spec.form, title, action, wide, footnote);
   const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
 
   if (spec.form === 'pareto') {
     const points = paretoSeries(rows, spec.category);
-    if (points.length === 0) return cannotWear('pareto', title, action, wide);
+    if (points.length === 0) return cannotWear('pareto', title, action, wide, footnote);
     const noun = spec.noun ?? 'rows';
     const measure = spec.measure ?? 'total';
     const config = {
@@ -526,7 +526,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
       cumulativePct: { label: 'Running total', color: 'var(--chart-2)' },
     } satisfies ChartConfig;
     return (
-      <ChartCard title={title ?? 'Concentration'} action={action} wide={wide} insight={paretoInsight(points, noun, measure)}>
+      <ChartCard title={title ?? 'Concentration'} action={action} wide={wide} footnote={footnote} insight={paretoInsight(points, noun, measure)}>
         <ChartContainer config={config} className="h-80 w-full overflow-hidden">
           {/* One axis, in per cent, for both series. A Pareto is classically
               drawn with value on the left and per cent on the right; two
@@ -559,7 +559,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     // The comparison walks the same span shifted, so it joins by position, not by date.
     const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
     return (
-      <ChartCard title={title ?? `${headers.get(firstKey) ?? 'Value'} over time`} action={action} wide={wide} insight={null}>
+      <ChartCard title={title ?? `${headers.get(firstKey) ?? 'Value'} over time`} action={action} wide={wide} footnote={footnote} insight={null}>
         <ChartContainer config={config} className="h-72 w-full overflow-hidden">
           <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
@@ -581,7 +581,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const [xKey = 'x', yKey = 'y'] = spec.series;
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--chart-1)' } } as ChartConfig;
     return (
-      <ChartCard title={title ?? `${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} action={action} wide={wide} insight={null}>
+      <ChartCard title={title ?? `${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
         <ChartContainer config={config} className="h-80 w-full overflow-hidden">
           <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
             <CartesianGrid />
@@ -610,7 +610,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   if (spec.form === 'radials') {
     const [rateKey = 'rate'] = spec.series;
     return (
-      <ChartCard title={title ?? `${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} insight={null}>
+      <ChartCard title={title ?? `${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {points.map((point) => (
             <Button
@@ -633,9 +633,9 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   if (spec.form === 'heatmap') {
     const [valueKey = 'value'] = spec.series;
     const grid = heatmapGrid(points, valueKey);
-    if (grid.months.length === 0 || grid.rows.length === 0) return cannotWear('heatmap', title, action, wide);
+    if (grid.months.length === 0 || grid.rows.length === 0) return cannotWear('heatmap', title, action, wide, footnote);
     return (
-      <ChartCard title={title ?? `${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} action={action} wide={wide} insight={null}>
+      <ChartCard title={title ?? `${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} action={action} wide={wide} footnote={footnote} insight={null}>
         <div className="overflow-x-auto">
           <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
             <TableHeader>
@@ -685,7 +685,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <ChartCard title={title ?? 'Composition'} action={action} wide={wide} insight={null}>
+    <ChartCard title={title ?? 'Composition'} action={action} wide={wide} footnote={footnote} insight={null}>
       <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />

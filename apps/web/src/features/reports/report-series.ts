@@ -445,6 +445,36 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
  * July whatever order the rows arrived in; categories keep the report's
  * order (its sort is the ranking the reader asked for).
  */
+/**
+ * Whether a form, once drawn, would put any mark on the page for these rows.
+ * The tile renderer heals a pinned form that cannot draw back to the
+ * automatic one, and the customise sheet never offers a form the report's
+ * columns cannot wear -- both ask here, so the two answers cannot drift.
+ */
+export function formDraws(spec: ChartFormSpec, definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>, rows: readonly ChartRow[]): boolean {
+  if (rows.length === 0) return false;
+  if (spec.form === 'hbar') return genericSeries(definition, rows) !== null;
+  if (spec.form === 'pareto') return paretoSeries(rows, spec.category).length > 0;
+  if (spec.form === 'heatmap') {
+    const grid = heatmapGrid(formSeries(spec, rows), spec.series[0] ?? 'value');
+    return grid.months.length > 0 && grid.rows.length > 0;
+  }
+  return formSeries(spec, rows).length > 0;
+}
+
+/** The forms this report's columns can wear at all, before any rows arrive. */
+export function wearableForms(definition: Pick<ReportDefinition, 'columns'>): GenericChartForm[] {
+  const numeric = definition.columns.filter((c) => c.type === 'number' || c.type === 'money');
+  const texty = definition.columns.filter((c) => (c.type === 'text' || c.type === 'code') && c.key !== 'asOf');
+  const keys = new Set(definition.columns.map((c) => c.key));
+  const forms: GenericChartForm[] = ['hbar', 'line', 'donut'];
+  if (keys.has('month') && texty.some((c) => c.key !== 'month') && numeric.length > 0) forms.push('heatmap');
+  if (numeric.length >= 2) forms.push('scatter');
+  if (definition.columns.some((c) => /pct$/iu.test(c.key))) forms.push('radials');
+  if (keys.has('sharePct') && keys.has('cumulativePct')) forms.push('pareto');
+  return forms;
+}
+
 export function heatmapGrid(points: readonly FormPoint[], valueKey: string): HeatGrid {
   return heatGridOf(points.map((point) => ({ category: String(point.category), month: String(point.month), value: Number(point[valueKey] ?? 0), rowId: String(point.__rowId ?? '') })));
 }
