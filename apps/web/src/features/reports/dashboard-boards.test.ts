@@ -2,28 +2,37 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DASHBOARD_KEYS,
+  DASHBOARD_KPI_METRICS,
   REPORT_DEFINITIONS,
   dashboardTileSchema,
   type DashboardLayout,
   type DashboardTile,
 } from '@vyuha/shared';
 
-import { FINANCE_PRESET, SALES_PRESET, boardFromParam, boardToParam } from './dashboard-boards';
+import { FINANCE_PRESET, OVERVIEW_SEED, SALES_PRESET, boardFromParam, boardToParam } from './dashboard-boards';
+import { DASHBOARD_KPIS } from './dashboard-kpis';
 import type { GenericChartForm } from './report-series';
 
 const BOARDS: readonly [string, DashboardLayout][] = [
   ['sales', SALES_PRESET],
   ['finance', FINANCE_PRESET],
+  ['overview seed', OVERVIEW_SEED],
 ];
 
-/** The seven drawable forms; `auto` is the absence of a choice, not a form. */
+/** The thirteen drawable forms; `auto` is the absence of a choice, not a form. */
 const GENERIC_FORMS = [
   'hbar',
+  'bar',
+  'stacked-bar',
   'line',
+  'area',
+  'stacked-area',
   'donut',
+  'pie',
   'scatter',
   'heatmap',
   'radials',
+  'radar',
   'pareto',
 ] as const satisfies readonly GenericChartForm[];
 
@@ -82,6 +91,46 @@ describe('shipped board presets', () => {
       expect(preset.tiles.length, board).toBeGreaterThanOrEqual(1);
       expect(preset.tiles.length, board).toBeLessThanOrEqual(24);
     }
+  });
+});
+
+describe('the KPI tiles', () => {
+  it('names a registered metric on every kpi tile, and none on a chart tile', () => {
+    for (const [board, preset] of BOARDS) {
+      for (const tile of preset.tiles) {
+        if (tile.kind === 'kpi') {
+          expect(tile.metric, `${board}: ${tile.reportKey}`).toBeDefined();
+          if (tile.metric === undefined) continue;
+          // The stored reportKey must be the registry's, or the visibility
+          // gate and the fetch would answer for two different reports.
+          expect(DASHBOARD_KPIS[tile.metric].reportKey, `${board}: ${tile.metric}`).toBe(tile.reportKey);
+        } else {
+          expect(tile.metric, `${board}: ${tile.reportKey}`).toBeUndefined();
+        }
+      }
+    }
+  });
+
+  it('leads sales with the invoiced figure and finance with the exposure figures', () => {
+    expect(SALES_PRESET.tiles[0]?.metric).toBe('invoiced-period');
+    expect(FINANCE_PRESET.tiles[0]?.metric).toBe('receivables-exposure');
+    expect(FINANCE_PRESET.tiles[1]?.metric).toBe('credit-breaches');
+  });
+
+  it('seeds the overview customise draft with all six figures', () => {
+    expect(OVERVIEW_SEED.tiles.map((tile) => tile.metric)).toEqual([...DASHBOARD_KPI_METRICS]);
+    expect(OVERVIEW_SEED.tiles.every((tile) => tile.kind === 'kpi')).toBe(true);
+  });
+
+  it('parses a layout stored before KPI tiles existed, as a chart tile', () => {
+    const legacy = dashboardTileSchema.parse({ reportKey: 'ageing', form: 'hbar' });
+    expect(legacy.kind).toBe('chart');
+    expect(legacy.metric).toBeUndefined();
+  });
+
+  it('refuses a kpi tile that names no metric', () => {
+    const result = dashboardTileSchema.safeParse({ reportKey: 'ageing', kind: 'kpi' });
+    expect(result.success).toBe(false);
   });
 });
 

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import {
+  DASHBOARD_KPI_METRICS,
   DASHBOARD_TILE_FORMS,
   REPORT_DEFINITIONS,
   SALES_ANALYSIS_DIMENSIONS,
   SALES_ANALYSIS_DIMENSION_LABELS,
   isReportKey,
   type DashboardKey,
+  type DashboardKpiMetric,
   type DashboardLayout,
   type DashboardTile,
   type DashboardTileForm,
@@ -45,6 +47,7 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 import { useReportCatalogue } from './api';
+import { DASHBOARD_KPIS, kpiTileOf } from './dashboard-kpis';
 import { wearableForms } from './report-series';
 import { useResetDashboardLayout, useSaveDashboardLayout } from './use-dashboard-layouts';
 
@@ -55,14 +58,22 @@ import { useResetDashboardLayout, useSaveDashboardLayout } from './use-dashboard
  * of keys -- so nobody can add a tile their permissions cannot render.
  */
 
+// `hbar` reads "Horizontal bars" because plain "Bars" now names the vertical
+// family: two entries wearing the same word would be an unanswerable choice.
 const FORM_LABELS: Record<DashboardTileForm, string> = {
   auto: 'Automatic',
-  hbar: 'Bars',
+  hbar: 'Horizontal bars',
+  bar: 'Bars',
+  'stacked-bar': 'Stacked bars',
   line: 'Line',
+  area: 'Area',
+  'stacked-area': 'Stacked area',
   donut: 'Donut',
+  pie: 'Pie',
   scatter: 'Scatter',
   heatmap: 'Heatmap',
   radials: 'Radials',
+  radar: 'Radar',
   pareto: 'Pareto',
 };
 
@@ -71,6 +82,8 @@ interface DraftTile {
   readonly reportKey: ReportKey;
   readonly label: string;
   readonly form: DashboardTileForm;
+  readonly kind: 'chart' | 'kpi';
+  readonly metric?: DashboardKpiMetric;
   readonly wide: boolean;
   readonly filters: ReportFilters;
 }
@@ -80,6 +93,8 @@ function fromTile(tile: DashboardTile): DraftTile {
     reportKey: tile.reportKey,
     label: tile.label ?? '',
     form: tile.form,
+    kind: tile.kind,
+    ...(tile.metric === undefined ? {} : { metric: tile.metric }),
     wide: tile.wide,
     filters: tile.filters,
   };
@@ -98,6 +113,8 @@ function toTile(draft: DraftTile): DashboardTile {
   return {
     reportKey: draft.reportKey,
     form: draft.form,
+    kind: draft.kind,
+    ...(draft.metric === undefined ? {} : { metric: draft.metric }),
     wide: draft.wide,
     filters: cleanedFilters(draft.filters),
     ...(label === '' ? {} : { label }),
@@ -122,7 +139,7 @@ export function DashboardCustomiseSheet({
   board: DashboardKey;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** What the board shows right now: the stored layout, the preset, or null for the bespoke overview. */
+  /** The draft's starting point: the stored layout, the preset, or the overview's KPI seed. */
   current: DashboardLayout | null;
   hasStored: boolean;
 }) {
@@ -167,7 +184,16 @@ function CustomiseBody({
   hasStored: boolean;
   onClose: () => void;
 }) {
-  const [tiles, setTiles] = useState<DraftTile[]>(() => (current?.tiles ?? []).map(fromTile));
+  // Two drafts, one save: the headline figures keep their own order among
+  // themselves and always precede the charts in the stored list, which is
+  // also how the board renders them.
+  const [kpis, setKpis] = useState<DraftTile[]>(() =>
+    (current?.tiles ?? []).filter((tile) => tile.kind === 'kpi').map(fromTile),
+  );
+  const [tiles, setTiles] = useState<DraftTile[]>(() =>
+    (current?.tiles ?? []).filter((tile) => tile.kind === 'chart').map(fromTile),
+  );
+  const count = kpis.length + tiles.length;
   const catalogue = useReportCatalogue();
   const save = useSaveDashboardLayout();
   const reset = useResetDashboardLayout();
@@ -204,17 +230,35 @@ function CustomiseBody({
   }
 
   function add(reportKey: ReportKey): void {
-    setTiles((list) =>
-      list.length >= 24
-        ? list
-        : [...list, { reportKey, label: '', form: 'auto', wide: false, filters: {} }],
-    );
+    if (count >= 24) return;
+    setTiles((list) => [...list, { reportKey, label: '', form: 'auto', kind: 'chart', wide: false, filters: {} }]);
+  }
+
+  function toggleMetric(metric: DashboardKpiMetric): void {
+    setKpis((list) => {
+      const at = list.findIndex((tile) => tile.metric === metric);
+      if (at !== -1) return list.filter((_, index) => index !== at);
+      if (count >= 24) return list;
+      return [...list, fromTile(kpiTileOf(metric))];
+    });
+  }
+
+  function moveMetric(index: number, delta: -1 | 1): void {
+    setKpis((list) => {
+      const target = index + delta;
+      if (target < 0 || target >= list.length) return list;
+      const next = [...list];
+      const [item] = next.splice(index, 1);
+      if (item === undefined) return list;
+      next.splice(target, 0, item);
+      return next;
+    });
   }
 
   function handleSave(): void {
-    if (tiles.length === 0 || busy) return;
+    if (count === 0 || busy) return;
     save.mutate(
-      { dashboard: board, config: { tiles: tiles.map(toTile) } },
+      { dashboard: board, config: { tiles: [...kpis, ...tiles].map(toTile) } },
       {
         onSuccess: () => {
           toast.add({ type: 'success', title: 'Board saved' });
@@ -248,9 +292,73 @@ function CustomiseBody({
           </Alert>
         ) : null}
 
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">Headline figures</span>
+          {/* The same toggle-tile grid the bottom-nav chooser uses: a figure
+              is on the board or it is not, and the grid says which without a
+              second list to cross-read. */}
+          <div className="grid grid-cols-2 gap-2">
+            {DASHBOARD_KPI_METRICS.map((metric) => {
+              const chosen = kpis.some((tile) => tile.metric === metric);
+              return (
+                <Button
+                  key={metric}
+                  type="button"
+                  variant={chosen ? 'default' : 'outline'}
+                  aria-pressed={chosen}
+                  disabled={busy || (!chosen && count >= 24)}
+                  onClick={() => {
+                    toggleMetric(metric);
+                  }}
+                  className="h-auto min-h-11 justify-start px-2 py-1.5 text-left whitespace-normal"
+                >
+                  <span className="min-w-0 flex-1 text-[0.75rem] leading-tight">
+                    {DASHBOARD_KPIS[metric].label}
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+          {kpis.length > 1 ? (
+            <ul className="divide-y border">
+              {kpis.map((draft, index) => {
+                const label = draft.metric === undefined ? '' : DASHBOARD_KPIS[draft.metric].label;
+                return (
+                  <li key={draft.metric} className="flex items-center gap-2 px-3 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Move ${label} up`}
+                      disabled={busy || index === 0}
+                      onClick={() => {
+                        moveMetric(index, -1);
+                      }}
+                    >
+                      <ArrowUpIcon />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Move ${label} down`}
+                      disabled={busy || index === kpis.length - 1}
+                      onClick={() => {
+                        moveMetric(index, 1);
+                      }}
+                    >
+                      <ArrowDownIcon />
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+
         {tiles.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No tiles yet. Add a report below; the board needs at least one to save.
+            No chart tiles yet. Add a report below; the board needs at least one tile or figure to
+            save.
           </p>
         ) : (
           <ul className="divide-y border">
@@ -290,11 +398,11 @@ function CustomiseBody({
             <SelectTrigger
               aria-label="Add a report"
               className="w-full"
-              disabled={catalogue.isPending || tiles.length >= 24}
+              disabled={catalogue.isPending || count >= 24}
             >
               <SelectValue>
                 {(value: string | null) =>
-                  tiles.length >= 24
+                  count >= 24
                     ? 'This board is full'
                     : value !== null && isReportKey(value)
                       ? REPORT_DEFINITIONS[value].label
@@ -335,7 +443,7 @@ function CustomiseBody({
             <ACTION_ICONS.cancel data-icon="inline-start" />
             Cancel
           </Button>
-          <Button disabled={tiles.length === 0 || busy} onClick={handleSave}>
+          <Button disabled={count === 0 || busy} onClick={handleSave}>
             {save.isPending ? (
               <Spinner data-icon="inline-start" />
             ) : (

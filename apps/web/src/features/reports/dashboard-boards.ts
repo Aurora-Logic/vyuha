@@ -1,4 +1,6 @@
-import { isDashboardKey, type DashboardKey, type DashboardLayout } from '@vyuha/shared';
+import { DASHBOARD_KPI_METRICS, isDashboardKey, type DashboardKey, type DashboardLayout } from '@vyuha/shared';
+
+import { kpiTileOf } from './dashboard-kpis';
 
 /**
  * The shipped boards, as code (owner, 25 Aug 2026).
@@ -21,39 +23,54 @@ import { isDashboardKey, type DashboardKey, type DashboardLayout } from '@vyuha/
 
 export const SALES_PRESET: DashboardLayout = {
   tiles: [
+    // The board opens on its headline figure; the charts argue the detail.
+    kpiTileOf('invoiced-period'),
     // Two cuts of the same report need their own names, or the board shows
     // "Sales analysis" twice and the reader cannot tell which is which.
-    { reportKey: 'sales-analysis', label: 'Invoiced by month', form: 'auto', wide: true, filters: { groupBy: 'month' } },
-    { reportKey: 'sales-analysis', label: 'Revenue by customer', form: 'auto', wide: false, filters: { groupBy: 'party' } },
-    { reportKey: 'aov-trend', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'order-pipeline', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'order-fill-rate', form: 'radials', wide: false, filters: {} },
-    { reportKey: 'dispatch-performance', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'new-vs-repeat', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'return-rate-by-customer', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'sales-analysis', label: 'Invoiced by month', kind: 'chart', form: 'auto', wide: true, filters: { groupBy: 'month' } },
+    { reportKey: 'sales-analysis', label: 'Revenue by customer', kind: 'chart', form: 'auto', wide: false, filters: { groupBy: 'party' } },
+    { reportKey: 'aov-trend', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'order-pipeline', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'order-fill-rate', kind: 'chart', form: 'radials', wide: false, filters: {} },
+    { reportKey: 'dispatch-performance', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'new-vs-repeat', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'return-rate-by-customer', kind: 'chart', form: 'auto', wide: false, filters: {} },
   ],
 };
 
 export const FINANCE_PRESET: DashboardLayout = {
   tiles: [
-    { reportKey: 'ageing', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'credit-cycle', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'payment-analysis', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'broken-promises', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'promised-vs-collected', form: 'auto', wide: false, filters: {} },
+    kpiTileOf('receivables-exposure'),
+    kpiTileOf('credit-breaches'),
+    { reportKey: 'ageing', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'credit-cycle', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'payment-analysis', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'broken-promises', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'promised-vs-collected', kind: 'chart', form: 'auto', wide: false, filters: {} },
     // The Pareto carries a curve and a bar series; half a row squeezes its
     // axis labels into a smear, so it takes the full one.
-    { reportKey: 'customer-concentration', form: 'auto', wide: true, filters: {} },
-    { reportKey: 'credit-breaches', form: 'auto', wide: false, filters: {} },
-    { reportKey: 'gst-summary', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'customer-concentration', kind: 'chart', form: 'auto', wide: true, filters: {} },
+    { reportKey: 'credit-breaches', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'gst-summary', kind: 'chart', form: 'auto', wide: false, filters: {} },
     // D-22: what the receivables actually cost, and the cycle that costs it.
     // Pinned rather than auto: the ranking of interest loss and the
     // three-day-series line are this board's point, and they must survive the
     // report's own default form learning a different answer. The cycle line
     // carries three series, so like the Pareto it takes the full row.
-    { reportKey: 'party-interest-cost', form: 'hbar', wide: false, filters: {} },
-    { reportKey: 'cash-cycle', form: 'line', wide: true, filters: {} },
+    { reportKey: 'party-interest-cost', kind: 'chart', form: 'hbar', wide: false, filters: {} },
+    { reportKey: 'cash-cycle', kind: 'chart', form: 'line', wide: true, filters: {} },
   ],
+};
+
+/**
+ * The overview stores no preset -- its default render is the bespoke page --
+ * but its customise sheet must not start from nothing: a person who opened
+ * the sheet and saved would silently lose the six headline figures the page
+ * had been showing them. The sheet seeds from this instead, so customising
+ * begins with the figures on the board and dropping one is a visible act.
+ */
+export const OVERVIEW_SEED: DashboardLayout = {
+  tiles: DASHBOARD_KPI_METRICS.map(kpiTileOf),
 };
 
 /**

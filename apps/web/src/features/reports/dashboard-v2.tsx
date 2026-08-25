@@ -51,7 +51,7 @@ import { useReportRows } from './api';
 import { monthLabel } from './dashboard-v2.format';
 import { asApiDate, DASHBOARD_PRESETS, defaultRange } from './dashboard-v2.presets';
 import * as series from './dashboard-v2.series';
-import { boardFromParam, boardToParam, FINANCE_PRESET, SALES_PRESET } from './dashboard-boards';
+import { boardFromParam, boardToParam, FINANCE_PRESET, OVERVIEW_SEED, SALES_PRESET } from './dashboard-boards';
 import { DashboardCustomiseSheet } from './dashboard-customise';
 import { TileGrid } from './dashboard-tiles';
 import { useDashboardLayouts } from './use-dashboard-layouts';
@@ -340,7 +340,10 @@ export function ReportsDashboardV2() {
           board={board}
           open={customising}
           onOpenChange={setCustomising}
-          current={layout}
+          // Only the overview's layout can be null (its default render is the
+          // bespoke page); its sheet drafts from the seed of all six headline
+          // figures, so customising never silently drops them.
+          current={layout ?? OVERVIEW_SEED}
           hasStored={stored !== null}
         />
       ) : null}

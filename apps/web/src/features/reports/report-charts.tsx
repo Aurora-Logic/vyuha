@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { compactCount, compactIndian, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
-import { Bar, BarChart, CartesianGrid, ComposedChart, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Label, Line, LineChart, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
 import { Button } from '@/components/ui/button';
@@ -396,7 +396,10 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
   );
 }
 
-const GENERIC_FILLS = ['var(--chart-1)', 'var(--chart-2)'] as const;
+/* Five, not two: the stacked forms may carry three named series (the cash
+   cycle's three day-components), and cycling two hues would dress two of
+   them as the same thing. */
+const GENERIC_FILLS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'] as const;
 /** The heatmap's six shades: nothing, then the theme's sequential ramp light to dark. */
 const HEAT_STEPS = ['bg-muted', 'bg-[var(--chart-1)]', 'bg-[var(--chart-2)]', 'bg-[var(--chart-3)]', 'bg-[var(--chart-4)]', 'bg-[var(--chart-5)]'] as const;
 
@@ -429,7 +432,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
       </ChartCard>
     );
   }
-  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} footnote={footnote} footnote={footnote} />;
+  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} footnote={footnote} />;
   const series = genericSeries(definition, rows);
   if (series === null) return cannotWear('bar', title, action, wide, footnote);
   const first = series.series[0];
@@ -577,6 +580,113 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     );
   }
 
+  if (spec.form === 'bar' || spec.form === 'stacked-bar') {
+    // The shadcn bar-multiple and bar-stacked patterns (via the MCP
+    // examples), on the house geometry: square caps, slim bars, angled
+    // category names, values on the caps -- a stack carries its total once
+    // rather than an illegible number per segment.
+    const stacked = spec.form === 'stacked-bar';
+    const config = Object.fromEntries(
+      spec.series.map((key, index) => [key, { label: headers.get(key) ?? key, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
+    ) as ChartConfig;
+    const lastKey = spec.series.at(-1);
+    return (
+      <ChartCard title={title ?? `${headers.get(spec.series[0] ?? '') ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
+          <BarChart data={points} margin={AXIS_MARGIN_ANGLED}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="category" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
+            <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={compactIndian} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            {spec.series.length > 1 ? <ChartLegend content={<ChartLegendContent />} /> : null}
+            {spec.series.map((key) => (
+              <Bar
+                key={key}
+                dataKey={key}
+                stackId={stacked ? 'a' : undefined}
+                fill={`var(--color-${key})`}
+                radius={0}
+                maxBarSize={16}
+                isAnimationActive={animate}
+                animationDuration={CHART_INTRO_MS}
+                className={onDrill === undefined ? undefined : 'cursor-pointer'}
+                onClick={(entry: { payload?: Record<string, unknown> }) => {
+                  const payload = entry.payload ?? {};
+                  if (typeof payload.category !== 'string' || payload.category === '') return;
+                  onDrill?.({
+                    categoryKey: spec.category,
+                    category: payload.category,
+                    rowId: typeof payload.__rowId === 'string' && payload.__rowId !== '' ? payload.__rowId : null,
+                  });
+                }}
+              >
+                {stacked ? (key === lastKey ? <LabelList {...stackTotal(points, spec.series, compactIndian)} /> : null) : <LabelList {...valueCaps(key, compactIndian)} />}
+              </Bar>
+            ))}
+          </BarChart>
+        </ChartContainer>
+      </ChartCard>
+    );
+  }
+
+  if (spec.form === 'area' || spec.form === 'stacked-area') {
+    // The shadcn area-default and area-stacked patterns: a line wearing its
+    // volume. The plain area keeps one series -- volume under a trend is one
+    // question -- while the stack composes every named series on one clock.
+    const keys = spec.form === 'area' ? spec.series.slice(0, 1) : spec.series;
+    const config = Object.fromEntries(
+      keys.map((key, index) => [key, { label: headers.get(key) ?? key, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
+    ) as ChartConfig;
+    return (
+      <ChartCard title={title ?? `${headers.get(keys[0] ?? '') ?? 'Value'} over time`} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
+          <AreaChart data={points} margin={{ left: 0, right: 24, top: 4 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="category" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={compactIndian} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            {keys.length > 1 ? <ChartLegend content={<ChartLegendContent />} /> : null}
+            {keys.map((key) => (
+              <Area
+                key={key}
+                dataKey={key}
+                type="natural"
+                stackId={spec.form === 'stacked-area' ? 'a' : undefined}
+                fill={`var(--color-${key})`}
+                fillOpacity={0.4}
+                stroke={`var(--color-${key})`}
+                strokeWidth={2}
+                isAnimationActive={animate}
+                animationDuration={CHART_INTRO_MS}
+              />
+            ))}
+          </AreaChart>
+        </ChartContainer>
+      </ChartCard>
+    );
+  }
+
+  if (spec.form === 'radar') {
+    // The shadcn radar-default pattern. One series only: a radar already
+    // asks the eye to compare wedge areas, and layering a second series on
+    // that is a legend puzzle, not a chart. formSeries has sliced to eight
+    // categories, the most the ring stays readable at.
+    const [key = 'value'] = spec.series;
+    const config = { [key]: { label: headers.get(key) ?? key, color: 'var(--chart-1)' } } as ChartConfig;
+    return (
+      <ChartCard title={title ?? `${headers.get(key) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="mx-auto aspect-square max-h-72 w-full">
+          <RadarChart data={points}>
+            <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+            <PolarAngleAxis dataKey="category" tickFormatter={truncateTight} />
+            <PolarGrid />
+            <Radar dataKey={key} fill={`var(--color-${key})`} fillOpacity={0.6} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          </RadarChart>
+        </ChartContainer>
+      </ChartCard>
+    );
+  }
+
   if (spec.form === 'scatter') {
     const [xKey = 'x', yKey = 'y'] = spec.series;
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--chart-1)' } } as ChartConfig;
@@ -678,7 +788,10 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     );
   }
 
-  // donut: five slices plus Other, the fixed ramp in order, labels in the legend
+  // donut and pie: five slices plus Other, the fixed ramp in order, labels in
+  // the legend. The pie (the shadcn pie-label pattern) is the same drawing
+  // with the hole closed -- same slices, same palette, same leader-line
+  // labels -- so the two forms cannot drift apart.
   const config = Object.fromEntries([
     ['value', { label: headers.get(spec.series[0] ?? '') ?? 'Value' }],
     ...points.map((p, index) => [`slice${String(index)}`, { label: String(p.category), color: index < 5 ? SHARE_FILLS[index] : 'var(--muted-foreground)' }]),
@@ -693,7 +806,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
             data={data}
             dataKey="value"
             nameKey="name"
-            innerRadius={56}
+            innerRadius={spec.form === 'pie' ? 0 : 56}
             strokeWidth={2}
             label={pieLabel}
             labelLine={{ stroke: 'var(--border)' }}

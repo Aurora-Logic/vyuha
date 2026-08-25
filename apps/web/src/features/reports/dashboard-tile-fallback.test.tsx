@@ -86,3 +86,49 @@ describe('a tile whose rows cannot wear the pinned form', () => {
     expect(container.innerHTML).toBe('');
   });
 });
+
+describe('every shadcn chart family renders as a standing card', () => {
+  // jsdom gives Recharts no room to measure, so nothing asserts on marks;
+  // what a tile must prove is that a pinned form over rows that fit it keeps
+  // the card and its title on the board.
+  const RANKED_ROWS = [
+    row({ partyName: 'Asha Traders', outstanding: '1200.00', ageDays: 12 }),
+    row({ partyName: 'Behar Metals', outstanding: '800.00', ageDays: 30 }),
+  ];
+  const MONTH_ROWS = [
+    row({ month: '2026-07', invoices: 3, revenue: '300.00', aov: '100.00' }),
+    row({ month: '2026-08', invoices: 2, revenue: '400.00', aov: '200.00' }),
+  ];
+
+  it.each(['bar', 'stacked-bar', 'radar', 'pie'] as const)('%s over ranked rows', (form) => {
+    render(
+      <GenericReportChart
+        reportKey="ageing"
+        definition={AGEING}
+        rows={RANKED_ROWS}
+        animate={false}
+        form={form}
+        title="Receivables ageing"
+        wide={false}
+      />,
+    );
+    expect(screen.getByText('Receivables ageing')).toBeTruthy();
+    expect(screen.queryByText(/cannot wear/)).toBeNull();
+  });
+
+  it.each(['area', 'stacked-area'] as const)('%s over month-shaped rows', (form) => {
+    render(
+      <GenericReportChart
+        reportKey="aov-trend"
+        definition={REPORT_DEFINITIONS['aov-trend']}
+        rows={MONTH_ROWS}
+        animate={false}
+        form={form}
+        title="Order value"
+        wide={false}
+      />,
+    );
+    expect(screen.getByText('Order value')).toBeTruthy();
+    expect(screen.queryByText(/cannot wear/)).toBeNull();
+  });
+});
