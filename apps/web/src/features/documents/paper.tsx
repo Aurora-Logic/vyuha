@@ -23,6 +23,7 @@ import {
 
 import { hsnHalves, hsnSummary, taxHalves } from './paper-hsn';
 import { DETAIL_LABELS, DETAIL_ORDER, E_INVOICE_KEYS, useEnterMoves } from './paper-support';
+import { displayDate } from './paper-record';
 import { moneyToIndianWords } from './words';
 
 /**
@@ -264,7 +265,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
       {editable ? (
         <PaperField label={label} value={details[key] ?? ''} placeholder={placeholder} onChange={(value) => { editing.updateDetails({ [key]: value }); }} className="min-h-[1.4em] text-[0.95em]" />
       ) : (
-        <span className="min-h-[1.4em] text-[0.95em] font-medium">{details[key] ?? ''}</span>
+        <span className="min-h-[1.4em] text-[0.95em] font-medium">{displayDate(details[key] ?? '')}</span>
       )}
     </div>
   );
@@ -964,7 +965,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               ) : null}
               {design.showDetailsGrid
                 ? (editable ? DETAIL_ORDER : filledDetails.map(([k]) => k).filter((k) => !E_INVOICE_KEYS.has(k))).map((key) => (
-                    <DetailPair key={key} label={DETAIL_LABELS[key]} value={details[key] ?? ''} editable={editable} labelClass={t.metaLabel} onChange={(v) => { editing?.updateDetails({ [key]: v }); }} />
+                    <DetailPair key={key} label={DETAIL_LABELS[key]} value={editable ? (details[key] ?? '') : displayDate(details[key] ?? '')} editable={editable} labelClass={t.metaLabel} onChange={(v) => { editing?.updateDetails({ [key]: v }); }} />
                   ))
                 : null}
             </div>

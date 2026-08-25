@@ -76,7 +76,7 @@ export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, par
  * hand. Only the ISO shape is ours to format; anything else prints exactly
  * as it was written.
  */
-function displayDate(value: string): string {
+export function displayDate(value: string): string {
   return /^\d{4}-\d{2}-\d{2}$/u.test(value) ? formatDate(value) : value;
 }
 

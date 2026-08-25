@@ -188,6 +188,10 @@ function CustomiseBody({
   // dozen live previews per open gallery is the budget, not per tile.
   const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const catalogue = useReportCatalogue();
+  // One set of the report keys this person may open, for the figure grid:
+  // a figure whose report the catalogue lacks would save fine and then never
+  // render, so the sheet disables it and says why instead.
+  const catalogueKeys = new Set((catalogue.data ?? []).map((definition) => definition.key));
   const save = useSaveDashboardLayout();
   const reset = useResetDashboardLayout();
   const busy = save.isPending || reset.isPending;
@@ -298,21 +302,27 @@ function CustomiseBody({
           <div className="grid grid-cols-2 gap-2">
             {DASHBOARD_KPI_METRICS.map((metric) => {
               const chosen = kpis.some((tile) => tile.metric === metric);
+              const reachable = catalogueKeys.has(DASHBOARD_KPIS[metric].reportKey);
               return (
                 <Button
                   key={metric}
                   type="button"
                   variant={chosen ? 'default' : 'outline'}
                   aria-pressed={chosen}
-                  disabled={busy || (!chosen && count >= 24)}
+                  disabled={busy || !reachable || (!chosen && count >= 24)}
                   onClick={() => {
                     toggleMetric(metric);
                   }}
-                  className="h-auto min-h-11 justify-start px-2 py-1.5 text-left whitespace-normal"
+                  className="h-auto min-h-11 flex-col items-start justify-center gap-0.5 px-2 py-1.5 text-left whitespace-normal"
                 >
-                  <span className="min-w-0 flex-1 text-[0.75rem] leading-tight">
+                  <span className="min-w-0 text-[0.75rem] leading-tight">
                     {DASHBOARD_KPIS[metric].label}
                   </span>
+                  {reachable ? null : (
+                    <span className="text-muted-foreground min-w-0 text-[0.6875rem] leading-tight">
+                      Needs access to {REPORT_DEFINITIONS[DASHBOARD_KPIS[metric].reportKey].label}
+                    </span>
+                  )}
                 </Button>
               );
             })}
