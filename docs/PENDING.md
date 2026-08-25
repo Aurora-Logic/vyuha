@@ -15,7 +15,7 @@ Purchase going live). Updated as work lands.
 | B25-4 | Sales and Finance dashboards | Done -- preset boards on the dashboard page, rendered by the generic chart engine |
 | B25-5 | GST inputs summary (D-21 narrows REQ-AE-08; by-rate blocked on sync contract) | Done |
 | B25-6 | Customisable dashboards: tiles, chart form, parameters, per-user server-side layouts | Done -- dashboard_layouts + /reports/dashboards, customise sheet on every board |
-| B25-7 | Interest cost & cash cycle module (owner spec + D-22): daily-series interest on receivables and stock, three reports, finance-board tiles, settings + per-party overrides | In progress -- API vertical and web building |
+| B25-7 | Interest cost & cash cycle module (owner spec + D-22): daily-series interest on receivables and stock, three reports, finance-board tiles, settings + per-party overrides | Done -- 13 hand-worked math tests, 11 endpoint tests, migration 0065; full api suite 2252 green after |
 
 ## 21 Aug 2026 brief
 
