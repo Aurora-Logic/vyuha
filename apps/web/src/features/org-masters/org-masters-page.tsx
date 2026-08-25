@@ -303,6 +303,8 @@ function DepartmentsTab() {
             rows={rows}
             rowKey={(row) => row.id}
             mobilePrimary={(row) => row.name}
+            sort={activeSort}
+            onSortChange={onSortChange}
             mobileStatus={(row) => (
               <RowActions
                 label={`Actions for ${row.name}`}
