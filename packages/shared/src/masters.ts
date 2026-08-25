@@ -11,6 +11,12 @@ import { pageQuerySchema } from './pagination.js';
  * the accountant creates customers, and appears here on the next pull.
  */
 
+/** The relationship manager on a customer: the employee, named for display. */
+export interface PartyManager {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface PartyView {
   readonly id: string;
   readonly connectionId: string;
@@ -31,6 +37,8 @@ export interface PartyView {
   readonly absentInTally: boolean;
   /** REQ-Y-07's habit, started early: every projected figure says its age. */
   readonly lastPulledAt: string;
+  /** The relationship manager who owns this customer, when one is assigned. */
+  readonly manager: PartyManager | null;
   /** 15 REQ-AO-06: set when the record sits in an open duplicate cluster. */
   readonly duplicate: DuplicateFlag | null;
 }
@@ -46,9 +54,20 @@ export const partyListQuerySchema = pageQuerySchema.extend({
   parentGroup: z.string().trim().min(1).max(120).optional(),
   /** `field` or `-field` from PARTY_SORT_FIELDS; an unknown term is dropped, not a 400. */
   sort: z.string().trim().max(60).optional(),
+  /** "My customers": scope to the parties the caller is the relationship manager on. */
+  mine: z.coerce.boolean().optional(),
+  /** Filter to one relationship manager's book (an employee id). */
+  managerId: z.string().uuid().optional(),
 });
 
 export type PartyListQuery = z.infer<typeof partyListQuerySchema>;
+
+/** Set or clear a customer's relationship manager (REQ: parties.rm.assign). */
+export const assignPartyManagerSchema = z.object({
+  /** The employee to make relationship manager, or null to clear it. */
+  managerId: z.string().uuid().nullable(),
+});
+export type AssignPartyManagerInput = z.infer<typeof assignPartyManagerSchema>;
 
 export interface StockItemView {
   readonly id: string;
