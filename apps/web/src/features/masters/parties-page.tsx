@@ -157,6 +157,7 @@ export function PartiesPage() {
       ...(company ? { connectionId: company } : {}),
       ...(sort ? { sort } : {}),
       ...(mine ? { mine: true } : {}),
+    },
     { enabled: canView, prefetchNext: true },
   );
 

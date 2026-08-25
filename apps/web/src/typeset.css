@@ -1,0 +1,4 @@
+/* shadcn/typeset: container typography rules */
+.typeset {
+  max-width: 65ch;
+}
