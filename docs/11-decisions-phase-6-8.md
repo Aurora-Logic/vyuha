@@ -117,6 +117,14 @@ Last updated: 16 August 2026
 | **Decision** | An Interest Cost module quantifies working-capital interest on money blocked with customers and in stock, computed from daily closing balance series (never invoice-date arithmetic). Owner's seven scope answers, 25 Aug 2026: the annual rate is an editable org setting seeded at 12.00; vendor credit days read Tally's `credit_days` with a Vyuha-side editable override and a "credit terms missing" flag, never a silent 30; stock interest uses purchase value in v1, labelled "purchase cost basis"; GST on purchases carries no separate interest line in v1; receipts follow Tally's bill-wise marks with FIFO for on-account, the applied rule shown; the series builds from the earliest voucher the projection holds; and receivables run voucher-grain in v1 — each Sales voucher a bill, due at voucher date plus credit days — because `bill_allocations` has readers but no production writer yet. |
 | **Consequence** | Surfaces say their own approximations out loud ("voucher-grain until Tally bill marks arrive"). Bill-wise data arriving later upgrades the split in place without a schema change. The spec's §8 export-framework migration was already done (P-10): sources register per module and permission keys are parameterised, so the module only registers its three report sources. This is money *analytics* over projected Tally data — the no-payroll rule stands untouched. |
 
+### D-23 — The Virtual CFO module begins with its clock
+
+| | |
+|---|---|
+| **Decision** | The CFO master brief's prerequisites resolve as: the approvals/export framework and the module switcher already exist (no work); the Tally read connector proceeds on its gaps with the voucher-grain fallback. The irreversible daily `fact_receivable_snapshot` starts immediately at voucher grain — each Sales voucher a bill, receipts settling oldest-first, due at voucher date plus credit days — upgraded in place by true bill-wise rows wherever `bill_allocations` carries them, every row flagged with its source. Valuation follows Tally's weighted average (agreeing with D-46 by construction). Salesperson attribution is a Vyuha-maintained dated customer-to-owner map resolved as of voucher date, House for house accounts — the live feed carries no cost centre. |
+| **Confirmed** | 25 August 2026, owner, four popups. |
+| **Consequence** | Daily receivables history accrues from tonight; the day the connector delivers bill-wise data the snapshots simply improve, and no history is lost waiting. The voucher-grain bill mathematics lifts from the interest module to `platform/receivables/` because two modules may not import each other. Parts M–Q of the brief arrive as `docs/16-virtual-cfo.md` before Phase 2. |
+
 ---
 
 ## Still open
