@@ -171,13 +171,19 @@ export class SettingsService {
     const appearance = resolveGroup(appearancePolicySchema, APPEARANCE_SETTINGS, DEFAULT_APPEARANCE_POLICY, rows);
     const locale = resolveGroup(localePolicySchema, LOCALE_SETTINGS, DEFAULT_LOCALE_POLICY, rows);
 
-    return {
+    // The date pattern rides along for the same reason: stored and audited
+    // since REQ-L-01 shipped, it was never delivered anywhere a screen could
+    // read it. The intersection folds into `OrgBranding` once the shared
+    // contract carries `dateFormat` itself.
+    const view: OrgBranding & { readonly dateFormat: string } = {
       name: profile.name,
       logoUrl: link?.url ?? null,
       logoUrlExpiresInSeconds: link?.expiresInSeconds ?? null,
       appearance: appearance.value,
       locale: locale.value,
+      dateFormat: profile.dateFormat,
     };
+    return view;
   }
 
   /**

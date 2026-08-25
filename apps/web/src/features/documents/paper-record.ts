@@ -1,5 +1,6 @@
 import type { PurchaseOrder, Grn } from '@/features/purchase/types';
 import type { Dispatch, Estimate, PackRecord } from '@/features/sales/types';
+import { formatDate } from '@/lib/format';
 import { DISPATCH_MODE_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS, voucherPaper, type PrintedDocumentType, type VoucherDetailView } from '@vyuha/shared';
 
 import type { PaperModel, PaperSlipFacts } from './paper';
@@ -69,6 +70,16 @@ export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, par
   };
 }
 
+/**
+ * A details date may be three things: an ISO date the API now stores, a
+ * pre-formatted display string an older row saved, or text a user typed by
+ * hand. Only the ISO shape is ours to format; anything else prints exactly
+ * as it was written.
+ */
+function displayDate(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/u.test(value) ? formatDate(value) : value;
+}
+
 export function salesDocumentAsPaper(doc: Estimate): PaperRecord {
   return { ...doc, statusLabel: SALES_DOCUMENT_STATUS_LABELS[doc.status], reference: null };
 }
@@ -114,7 +125,7 @@ export function dispatchAsPaper(dispatch: Dispatch, order: Estimate): PaperRecor
     details: {
       ...(order.details ?? {}),
       buyersOrderNo: order.details?.buyersOrderNo ?? order.number,
-      buyersOrderDate: order.details?.buyersOrderDate ?? order.date.split('-').reverse().join('-'),
+      buyersOrderDate: displayDate(order.details?.buyersOrderDate ?? order.date),
       dispatchDocNo: dispatch.lrNumber ?? order.details?.dispatchDocNo ?? '',
       dispatchedThrough: through,
       destination: order.details?.destination ?? order.shipTo?.address?.split('\n').at(-1) ?? '',
@@ -144,7 +155,7 @@ export function packAsPaper(pack: PackRecord, order: Estimate): PaperRecord {
     shipTo: order.shipTo,
     details: {
       buyersOrderNo: order.details?.buyersOrderNo ?? order.number,
-      buyersOrderDate: order.details?.buyersOrderDate ?? order.date.split('-').reverse().join('-'),
+      buyersOrderDate: displayDate(order.details?.buyersOrderDate ?? order.date),
       otherReferences: `${String(pack.boxCount)} box${pack.boxCount === 1 ? '' : 'es'}${pack.packedByName ? ` · packed by ${pack.packedByName}` : ''}`,
     },
     reference: `Against ${order.number}`,
@@ -173,7 +184,7 @@ export function grnAsPaper(grn: Grn, po: PurchaseOrder): PaperRecord {
     shipTo: null,
     details: {
       buyersOrderNo: grn.purchaseOrderNumber,
-      buyersOrderDate: po.date.split('-').reverse().join('-'),
+      buyersOrderDate: displayDate(po.date),
       referenceNo: grn.vendorInvoiceRef ?? '',
       otherReferences: grn.receivedByName ? `Received by ${grn.receivedByName}` : '',
     },

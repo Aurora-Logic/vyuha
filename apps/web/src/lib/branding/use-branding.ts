@@ -34,6 +34,8 @@ const brandingSchema = z.object({
   appearance: appearanceSchema.optional(),
   /** Absent on a server from before it existed; figures then group the Indian way. */
   locale: localeSchema.optional(),
+  /** Absent on a server from before it existed; dates then keep the shipped dd-MM-yyyy. */
+  dateFormat: z.string().optional(),
 });
 
 export type Branding = z.infer<typeof brandingSchema>;

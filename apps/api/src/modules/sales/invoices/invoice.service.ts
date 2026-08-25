@@ -161,8 +161,9 @@ export class InvoiceService implements OnModuleInit {
       placeOfSupply: input.placeOfSupply ?? order.placeOfSupply,
       shipTo: input.shipTo ?? order.shipTo,
       // The Tally grid: what the order carried, with the buyer's order filled in from the order itself.
-      // The details grid is free text and the paper prints dates day-first, so the order date goes in as it will print.
-      details: input.details ?? { ...(order.details ?? {}), buyersOrderNo: order.details?.buyersOrderNo ?? order.number, buyersOrderDate: order.details?.buyersOrderDate ?? order.date.split('-').reverse().join('-') },
+      // Stored as ISO: the paper formats it per the organisation's date setting at render;
+      // a pre-formatted string would freeze the format at creation.
+      details: input.details ?? { ...(order.details ?? {}), buyersOrderNo: order.details?.buyersOrderNo ?? order.number, buyersOrderDate: order.details?.buyersOrderDate ?? order.date },
     };
     const id = await repository.create(
       header,

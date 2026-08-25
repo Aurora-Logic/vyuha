@@ -1,3 +1,4 @@
+import { DATE_FORMATS } from '@vyuha/shared';
 import { z } from 'zod';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
@@ -15,17 +16,6 @@ import { attendancePolicySchema, photoPolicyObject,
  * three. The consequence is that "absent" and "null" mean different things
  * here: absent leaves the stored value alone, null clears a nullable column.
  */
-
-/**
- * The date formats the web client can actually render.
- *
- * Not a free date-fns pattern. An administrator who types `DD-MM-YYYY` -- the
- * Moment spelling, which date-fns reads as day-of-year and era -- would change
- * every date on every screen and every export into nonsense, and nothing would
- * report an error.
- */
-export const DATE_FORMATS = ['dd-MM-yyyy', 'dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'] as const;
-export type DateFormat = (typeof DATE_FORMATS)[number];
 
 /**
  * An IANA zone name, checked by asking the platform rather than by matching a

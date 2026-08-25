@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { format } from 'date-fns';
 import {
   BuildingsIcon,
   ClockIcon,
@@ -578,7 +579,8 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 id="org-date-format"
                 label="Date format"
                 value={draft.organisation.dateFormat}
-                options={DATE_FORMATS.map((value) => ({ value, label: value }))}
+                // A rendered sample, not the pattern: a day past 12 shows the day/month order.
+                options={DATE_FORMATS.map((value) => ({ value, label: format(new Date(2026, 11, 31), value) }))}
                 help="How dates are written on screen and in exports."
                 onValueChange={(next) => {
                   patchOrganisation({ dateFormat: next });

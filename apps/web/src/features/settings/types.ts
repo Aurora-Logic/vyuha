@@ -1,4 +1,6 @@
 import {
+  DATE_FORMATS,
+  type DateFormat,
   DEVICE_BINDING_MODES,
   type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy, duplicatesPolicySchema, type DuplicatesPolicy, returnReasonsPolicySchema, type ReturnReasonsPolicy } from '@vyuha/shared';
 import { z } from 'zod';
@@ -16,9 +18,9 @@ import { z } from 'zod';
  * boot the whole application.
  */
 
-/** Must match the API's `DATE_FORMATS`; a format outside this set will not render. */
-export const DATE_FORMATS = ['dd-MM-yyyy', 'dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'] as const;
-export type DateFormat = (typeof DATE_FORMATS)[number];
+/** Single-sourced in @vyuha/shared; a format outside this set will not render. */
+export { DATE_FORMATS };
+export type { DateFormat };
 
 /** REQ-L-02 lists geofence behaviour; the three outcomes are the punch-window three. */
 export const GEOFENCE_BEHAVIOURS = ['BLOCK', 'ALLOW_WITH_REASON', 'ALLOW_AND_FLAG'] as const;
