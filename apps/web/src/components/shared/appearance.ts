@@ -4,11 +4,11 @@ import { sliceColours } from './slice-hues';
 
 /**
  * System stacks for the workspace typeface, so a choice never fetches a font.
- * `sans` keeps the app's own Inter ahead of the system fallback; the others
+ * `sans` keeps the app's own Geist ahead of the system fallback; the others
  * are the same stacks the printed documents use, for one voice across both.
  */
 const FONT_STACKS: Record<Appearance['font'], string> = {
-  sans: "'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  sans: "'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   serif: "Georgia, 'Times New Roman', Times, serif",
   humanist: "'Trebuchet MS', 'Gill Sans', Verdana, 'DejaVu Sans', sans-serif",
   mono: "ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace",
