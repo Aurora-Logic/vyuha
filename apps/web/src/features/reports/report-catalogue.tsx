@@ -1,30 +1,37 @@
-import { useState } from 'react';
-import { ChartBarIcon, ListIcon, SquaresFourIcon } from '@phosphor-icons/react';
+import { useEffect, useState } from 'react';
+import { ChartBarIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { REPORT_CATEGORY_ICONS } from '@/components/shared/entity-icons';
 import { PageHeader } from '@/components/shared/page-header';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { CategoryChip } from './category-chip';
-import { useCatalogueViewStore } from './catalogue-view-store';
-import { RecordTable, type RecordColumn, type RecordSort } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
+import { SectionHeading } from '@/components/shared/section-heading';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { REPORT_CATEGORIES, type ReportCategory, type ReportDefinition } from '@vyuha/shared';
 
-/**
- * The Reports module's front door (REQ-AD-03): every report the caller may
- * see, as the one list pattern every other register in the product uses —
- * header, toolbar, table; stacked rows on a phone (CLAUDE.md §3 rule 4).
- * Opening one is navigation, so the report screen, Go To and the sidebar
- * all address the same URL. The catalogue shows only what the server sent:
- * a report the caller cannot open is not greyed out, it is absent.
- */
+import { useRecentReports } from './api';
+import { CategoryChip } from './category-chip';
 
-const ALL_CATEGORIES = '__all__';
+/**
+ * The Reports hub (REQ-AD-03), rebuilt after the owner's 25 Aug verdict that
+ * the module felt unorganised: sixty reports in one sortable table asked the
+ * reader to already know what they were looking for.
+ *
+ * The hub now answers the three ways people actually arrive. Typing — the
+ * search field is first and already focused on a desk. Habit — the reports
+ * this person opened last, as one row of chips, served by the API so it is
+ * the same truth the usage table holds. Browsing — every category as its own
+ * headed shelf, in the catalogue's own reading order, each report one calm
+ * row of name and what it answers.
+ *
+ * One list, no view toggle: the toggle offered two arrangements of the same
+ * sixty rows, which was one more decision before any data. The catalogue
+ * still shows only what the server sent — a report the caller cannot open is
+ * not greyed out, it is absent.
+ */
 
 const CATEGORY_BLURBS: Record<ReportCategory, string> = {
   Attendance: 'Registers, musters and the exceptions of the working day.',
@@ -39,266 +46,258 @@ const CATEGORY_BLURBS: Record<ReportCategory, string> = {
   Exceptions: 'Reports whose ideal state is empty.',
 };
 
-/** Categories keep the catalogue's own order, not the alphabet's: Attendance before Vendors is a reading order. */
-const CATEGORY_RANK = new Map<ReportCategory, number>(REPORT_CATEGORIES.map((c, index) => [c, index]));
-
-function CategoryCell({ category }: { category: ReportCategory }) {
-  // The chip, not an icon and a word. Three places name a category -- this
-  // cell, the phone row and the card -- and they were three renderings of the
-  // same fact, which is three chances to drift.
-  return <CategoryChip category={category} />;
-}
-
-const COLUMNS: RecordColumn<ReportDefinition>[] = [
-  {
-    key: 'label',
-    header: 'Report',
-    sortField: 'label',
-    cell: (report) => <span className="font-medium">{report.label}</span>,
-  },
-  {
-    key: 'category',
-    header: 'Category',
-    sortField: 'category',
-    className: 'w-40',
-    cell: (report) => <CategoryCell category={report.category} />,
-  },
-  {
-    key: 'description',
-    header: 'What it answers',
-    cell: (report) => <span className="text-muted-foreground">{report.description}</span>,
-  },
-];
-
-function compareReports(a: ReportDefinition, b: ReportDefinition, sort: RecordSort): number {
-  const direction = sort.descending ? -1 : 1;
-  if (sort.field === 'category') {
-    const byCategory = (CATEGORY_RANK.get(a.category) ?? 0) - (CATEGORY_RANK.get(b.category) ?? 0);
-    if (byCategory !== 0) return byCategory * direction;
-    return a.label.localeCompare(b.label);
-  }
-  return a.label.localeCompare(b.label) * direction;
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading the catalogue" className="border">
-      {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-40 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="hidden h-3 w-72 shrink-0 md:block" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /**
- * One report as a card.
- *
- * A button rather than a div with a click handler, because it is a control:
- * it takes focus in order, answers Enter and Space, and announces itself. The
- * whole card is the target -- a card whose title alone is clickable teaches
+ * One report as one row: a button, not a div with a handler, so it takes
+ * focus in order, answers Enter and Space, and announces what it opens. The
+ * whole row is the target — a row whose title alone is clickable teaches
  * people to aim.
  *
- * Not nested in another card (CLAUDE.md section 3): the grid sits directly on
- * the page surface, so this is the only box.
+ * The chip appears only in search results. Inside a section the heading
+ * already names the category, and a chip on every row would say the same
+ * word sixty times.
  */
-function ReportCard({ report, onOpen }: { report: ReportDefinition; onOpen: () => void }) {
-  const Glyph = REPORT_CATEGORY_ICONS[report.category];
+function ReportRow({
+  report,
+  withChip,
+  onOpen,
+}: {
+  report: ReportDefinition;
+  withChip: boolean;
+  onOpen: () => void;
+}) {
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       onClick={onOpen}
-      className="hover:border-foreground/30 hover:bg-accent/40 h-auto min-w-0 flex-col items-start gap-2 whitespace-normal p-4 text-left"
+      className="hover:bg-accent/40 h-auto min-h-11 w-full min-w-0 flex-col items-start gap-0.5 rounded-none whitespace-normal border-b px-3 py-2 text-left font-normal last:border-b-0"
     >
-      <span className="flex w-full min-w-0 items-center gap-2">
-        <Glyph className="text-muted-foreground shrink-0" />
-        {/* Wraps rather than truncates: a report nobody can read the name of
-            is a report nobody opens, and the grid has the height to give. */}
-        <span className="min-w-0 flex-1 text-sm font-medium">{report.label}</span>
+      <span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-sm font-medium">{report.label}</span>
+        {withChip ? <CategoryChip category={report.category} /> : null}
       </span>
-      <span className="text-muted-foreground line-clamp-3 text-xs font-normal">
+      <span className="text-muted-foreground line-clamp-1 w-full text-xs">
         {report.description}
       </span>
-      <CategoryChip category={report.category} className="mt-auto" />
     </Button>
   );
 }
 
-function CardSkeleton() {
+function HubSkeleton() {
   return (
-    <div role="status" aria-busy="true" aria-label="Loading the catalogue" className={CARD_GRID}>
-      {Array.from({ length: 9 }, (_, index) => (
-        <div key={index} aria-hidden className="flex flex-col gap-2 border p-4">
+    <div role="status" aria-busy="true" aria-label="Loading the catalogue" className="flex flex-col gap-6">
+      {Array.from({ length: 3 }, (_, section) => (
+        <div key={section} aria-hidden className="flex flex-col gap-2">
           <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-3/4" />
-          <Skeleton className="mt-1 h-4 w-20" />
+          <div className="border">
+            {Array.from({ length: 4 }, (_, row) => (
+              <div key={row} className="flex min-h-11 flex-col justify-center gap-1.5 border-b px-3 py-2 last:border-b-0">
+                <Skeleton className="h-3 w-40" />
+                <Skeleton className="h-3 w-72 max-w-full" />
+              </div>
+            ))}
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-/** Three across at desk width, one on a phone; the cards size themselves. */
-const CARD_GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3';
+function NoMatches({ narrowed }: { narrowed: boolean }) {
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <ChartBarIcon />
+        </EmptyMedia>
+        <EmptyTitle>No report matches</EmptyTitle>
+        <EmptyDescription>
+          {narrowed
+            ? 'Try another word, or show all categories. A report you cannot open is not listed.'
+            : 'Try another word. A report you cannot open is not listed.'}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
 
-export function ReportCatalogue({ reports, loading }: { reports: readonly ReportDefinition[]; loading: boolean }) {
+export function ReportCatalogue({
+  reports,
+  loading,
+  error = null,
+}: {
+  reports: readonly ReportDefinition[];
+  loading: boolean;
+  /** A failed catalogue read. Without it an errored load renders as "no report matches", which reads as a permissions problem. */
+  error?: { message: string; retry: () => void } | null;
+}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryParam = searchParams.get('category');
   const category = REPORT_CATEGORIES.find((c) => c === categoryParam) ?? null;
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<RecordSort>({ field: 'category', descending: false });
-  const view = useCatalogueViewStore((state) => state.view);
-  const setView = useCatalogueViewStore((state) => state.setView);
+  const recent = useRecentReports();
+
+  useEffect(() => {
+    // md+ only: an autofocused field on a phone throws the keyboard over the
+    // list before the reader has seen what is on it.
+    if (window.matchMedia('(min-width: 768px)').matches) {
+      document.getElementById('report-search')?.focus();
+    }
+  }, []);
 
   const needle = q.trim().toLowerCase();
-  const categories = REPORT_CATEGORIES.filter((c) => reports.some((r) => r.category === c));
-  const countOf = (c: ReportCategory) => reports.filter((r) => r.category === c).length;
-  const rows = reports
-    .filter(
-      (report) =>
-        (category === null || report.category === category) &&
-        (needle === '' || `${report.label} ${report.description} ${report.category}`.toLowerCase().includes(needle)),
-    )
-    .sort((a, b) => compareReports(a, b, sort));
+  const searching = needle !== '';
+
+  // The category link narrows the shelf; the search narrows within whatever
+  // is shown. Label and description only — the description is how somebody
+  // finds the report they cannot name.
+  const scoped = category === null ? reports : reports.filter((report) => report.category === category);
+  const results = searching
+    ? scoped.filter((report) => `${report.label} ${report.description}`.toLowerCase().includes(needle))
+    : scoped;
+
+  /*
+   * Intersected with the catalogue rather than trusted: the server already
+   * narrows to this caller's keys, but a client one release behind may not
+   * know a key at all, and a chip that navigates to "not available" is worse
+   * than no chip. No history, no row — a labelled empty shell would tell a
+   * first-time visitor the feature is broken. Errors vanish the same way:
+   * losing a shortcut must not take the catalogue down with it.
+   */
+  const recentReports = (recent.data ?? [])
+    .map((key) => reports.find((report) => report.key === key))
+    .filter((report): report is ReportDefinition => report !== undefined);
 
   function open(report: ReportDefinition) {
-    void navigate(`/reports?report=${report.key}`);
+    const params = new URLSearchParams();
+    params.set('report', report.key);
+    // The period the reader came back with is carried into the next report,
+    // so browsing between reports does not reset the dates each time. The
+    // report screen narrows it to what that report can answer for.
+    for (const key of ['from', 'to'] as const) {
+      const value = searchParams.get(key);
+      if (value !== null) params.set(key, value);
+    }
+    void navigate(`/reports?${params.toString()}`);
   }
+
+  function showAll() {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('category');
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  const sections = REPORT_CATEGORIES.filter((c) => results.some((report) => report.category === c));
 
   return (
     <>
       <PageHeader description="Every report, searchable and grouped. Each one shares the same shell: filters, columns, saved views, export and scheduling." />
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchField
-            id="report-search"
-            label="Search reports"
-            value={q}
-            onValueChange={setQ}
-            placeholder="Name, or what it answers"
-          />
-          <Select
-            value={category ?? ALL_CATEGORIES}
-            onValueChange={(value: string | null) => {
-              setSearchParams(
-                (current) => {
-                  const next = new URLSearchParams(current);
-                  if (value === null || value === ALL_CATEGORIES) next.delete('category');
-                  else next.set('category', value);
-                  return next;
-                },
-                { replace: true },
-              );
-            }}
-          >
-            <SelectTrigger className="w-48" aria-label="Category">
-              <SelectValue>
-                {(value: string) =>
-                  value === ALL_CATEGORIES
-                    ? `All categories · ${String(reports.length)}`
-                    : `${value} · ${String(countOf(value as ReportCategory))}`
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_CATEGORIES}>All categories · {reports.length}</SelectItem>
-              {categories.map((c) => {
-                const Glyph = REPORT_CATEGORY_ICONS[c];
-                return (
-                  <SelectItem key={c} value={c}>
-                    <Glyph />
-                    {c} · {countOf(c)}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-          {category !== null ? <p className="text-muted-foreground text-xs">{CATEGORY_BLURBS[category]}</p> : null}
+        <SearchField
+          id="report-search"
+          label="Search reports"
+          value={q}
+          onValueChange={setQ}
+          placeholder="Name, or what it answers"
+          className="md:max-w-md"
+        />
 
-          {/* Pushed to the end: the toggle changes how the same rows are drawn,
-              so it belongs with the view, not with the filters that decide
-              which rows there are. */}
-          <ToggleGroup
-            variant="outline"
-            aria-label="View"
-            className="ms-auto"
-            value={[view]}
-            onValueChange={(next: string[]) => {
-              // Base UI hands back an empty array when the active item is
-              // pressed again. There is no "no view", so that is ignored
-              // rather than blanking the catalogue.
-              const chosen = next[0];
-              if (chosen === 'list' || chosen === 'cards') setView(chosen);
-            }}
-          >
-            <ToggleGroupItem value="list" aria-label="List view">
-              <ListIcon />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="cards" aria-label="Card view">
-              <SquaresFourIcon />
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-
-        {loading ? (view === 'cards' ? <CardSkeleton /> : <ListSkeleton />) : null}
-
-        {/* Cards and the list draw the same `rows`: the same filter, the same
-            sort, the same permission set. Only the shape changes, so a person
-            who switches view does not silently see a different catalogue. */}
-        {!loading && view === 'cards' ? (
-          rows.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <ChartBarIcon />
-              </EmptyMedia>
-              <EmptyTitle>No report matches</EmptyTitle>
-              <EmptyDescription>Try another word, or clear the category. A report you cannot open is not listed.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-          ) : (
-            <div className={CARD_GRID}>
-              {rows.map((report) => (
-                <ReportCard
+        {!loading && !searching && category === null && recentReports.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground text-xs">Recently used</span>
+            {recentReports.map((report) => {
+              const Glyph = REPORT_CATEGORY_ICONS[report.category];
+              return (
+                <Button
                   key={report.key}
-                  report={report}
-                  onOpen={() => {
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full font-normal"
+                  onClick={() => {
                     open(report);
                   }}
-                />
-              ))}
-            </div>
-          )
+                >
+                  <Glyph className="text-muted-foreground" />
+                  {report.label}
+                </Button>
+              );
+            })}
+          </div>
         ) : null}
 
-        {!loading && view === 'list' ? (
-          <RecordTable
-            columns={COLUMNS}
-            rows={rows}
-            rowKey={(report) => report.key}
-            sort={sort}
-            onSortChange={setSort}
-            onRowActivate={open}
-            mobilePrimary={(report) => report.label}
-            mobileStatus={(report) => <CategoryChip category={report.category} />}
-            mobileSupporting={(report) => <span className="line-clamp-2">{report.description}</span>}
-            emptyState={
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <ChartBarIcon />
-                  </EmptyMedia>
-                  <EmptyTitle>No report matches</EmptyTitle>
-                  <EmptyDescription>Try another word, or clear the category. A report you cannot open is not listed.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            }
-          />
+        {category !== null ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="text-muted-foreground text-xs">Showing {category} only.</p>
+            <Button variant="ghost" size="sm" onClick={showAll}>
+              Show all reports
+            </Button>
+          </div>
+        ) : null}
+
+        {loading ? <HubSkeleton /> : null}
+
+        {!loading && error !== null ? (
+          <Alert variant="destructive">
+            <WarningCircleIcon />
+            <AlertTitle>The report list could not be loaded</AlertTitle>
+            <AlertDescription>
+              {error.message}
+              <Button variant="outline" size="sm" className="mt-2" onClick={error.retry}>
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {!loading && error === null && results.length === 0 ? <NoMatches narrowed={category !== null} /> : null}
+
+        {/* Search flattens the shelves: a match in Vendors beside a match in
+            Leave, each wearing its chip because no heading says it. */}
+        {!loading && searching && results.length > 0 ? (
+          <div className="border">
+            {results.map((report) => (
+              <ReportRow
+                key={report.key}
+                report={report}
+                withChip
+                onOpen={() => {
+                  open(report);
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {!loading && !searching && results.length > 0 ? (
+          <div className="flex flex-col gap-6">
+            {sections.map((c) => {
+              const Glyph = REPORT_CATEGORY_ICONS[c];
+              return (
+                <section key={c} className="flex flex-col gap-2">
+                  <SectionHeading icon={<Glyph />} title={c} note={CATEGORY_BLURBS[c]} />
+                  <div className="border">
+                    {results
+                      .filter((report) => report.category === c)
+                      .map((report) => (
+                        <ReportRow
+                          key={report.key}
+                          report={report}
+                          withChip={false}
+                          onOpen={() => {
+                            open(report);
+                          }}
+                        />
+                      ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         ) : null}
       </div>
     </>

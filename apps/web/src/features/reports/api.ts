@@ -59,6 +59,7 @@ function parse<T>(schema: z.ZodType<T>, body: unknown, what: string): T {
 
 export const reportKeys = {
   catalogue: ['reports', 'catalogue'] as const,
+  recent: ['reports', 'usage', 'recent'] as const,
   rows: (reportKey: string, query: string) => ['reports', 'rows', reportKey, query] as const,
   views: (reportKey: string) => ['reports', 'views', reportKey] as const,
   exports: ['reports', 'exports'] as const,
@@ -76,6 +77,27 @@ export function useReportCatalogue(): UseQueryResult<ReportDefinition[], Error> 
     // The catalogue changes when the server is redeployed, not while a reader
     // is looking at it.
     staleTime: 10 * 60_000,
+  });
+}
+
+/**
+ * Plain strings, not `z.enum(REPORT_KEYS)`: a server one release ahead may
+ * name a report this client has never heard of, and that must not take the
+ * whole hub down. The catalogue the hub renders from is the authority on what
+ * a key means here, so unknown ones simply find no definition and vanish.
+ */
+const recentReportsSchema = z.object({ data: z.array(z.string()) });
+
+export function useRecentReports(): UseQueryResult<string[], Error> {
+  return useQuery({
+    queryKey: reportKeys.recent,
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/reports/usage/recent', { signal });
+      return parse(recentReportsSchema, body, 'recently used reports').data;
+    },
+    // Fresh enough to move a chip after a report is opened, without refetching
+    // on every focus of a screen whose answer changes a few times a day.
+    staleTime: 60_000,
   });
 }
 

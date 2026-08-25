@@ -92,6 +92,34 @@ export class ReportController {
     return { data: this.sources.catalogue(principal) };
   }
 
+  /**
+   * The caller's own last eight distinct reports, most recent open first, for
+   * the hub's "Recently used" row (REQ-AD-09's read side). Narrowed through
+   * the same catalogue the shell serves, so a key whose permission has since
+   * been withdrawn is dropped rather than offered as a door that will not
+   * open. Declared before `:reportKey/rows` for the reason `views` gives.
+   */
+  @Get('usage/recent')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  async recentUsage(@CurrentUser() principal: Principal): Promise<{ data: ReportKey[] }> {
+    const opened = await this.db.execute<{ report_key: string }>(
+      sql`SELECT report_key
+            FROM report_usage
+           WHERE org_id = ${principal.orgId} AND user_id = ${principal.userId}
+           GROUP BY report_key
+           ORDER BY max(opened_at) DESC`,
+    );
+    const allowed = new Set(this.sources.catalogue(principal).map((definition) => definition.key));
+    // The cap of eight applies after the narrowing, not in the query: a role
+    // that shrank still fills its row from deeper history, and the grouped
+    // read is already bounded by how many report keys exist at all.
+    const data = opened.rows
+      .map((row) => row.report_key)
+      .filter((key): key is ReportKey => isReportKey(key) && allowed.has(key))
+      .slice(0, 8);
+    return { data };
+  }
+
   // ------------------------------------------------------------ saved views
 
   /**
