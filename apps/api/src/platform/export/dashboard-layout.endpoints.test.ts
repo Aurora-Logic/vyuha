@@ -128,6 +128,7 @@ describe('saving and reading a layout', () => {
     expect(saved.body.config.tiles[1]).toEqual({
       reportKey: 'headcount',
       form: 'auto',
+      kind: 'chart',
       wide: false,
       filters: {},
     });
