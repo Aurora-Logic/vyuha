@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 
 import { compactCount, compactIndian, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Label, Line, LineChart, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 
 import { FORM_LABELS } from './dashboard-form-labels';
 import { pieSliceLabel } from './pie-label';
-import type { ReportDefinition, ReportKey } from '@vyuha/shared';
+import { REPORT_DEFINITIONS, type ReportDefinition, type ReportKey } from '@vyuha/shared';
 
 import {
   ageingSeries,
@@ -28,6 +28,7 @@ import {
   paretoSeries,
   resolveChartForm,
   salesAnalysisSeries,
+  shareInsight,
   shareSeries,
   type ChartRow,
   velocitySeries,
@@ -341,7 +342,10 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ShareRadialChart rows={rows} labelKey="item" valueKey="value" title="Share of stock value" animate={animate} />
-          <GenericReportChart reportKey="stock-summary" definition={{ columns: [{ key: 'item', header: 'Item', type: 'text' }, { key: 'value', header: 'Value at cost', type: 'text' }], defaultSort: '-value' }} rows={rows} animate={animate} />
+          {/* The shared definition, not an inline copy of it: a column
+              renamed in @vyuha/shared must break here loudly, not diverge
+              this one chart silently. */}
+          <GenericReportChart reportKey="stock-summary" definition={REPORT_DEFINITIONS['stock-summary']} rows={rows} animate={animate} />
         </div>
       );
     default:
@@ -390,7 +394,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
      with nothing beside it. The tooltip keeps `name`, which does fall back. */
   const data = points.map((p, index) => ({ name: p.label, slice: `s${String(index)}`, value: p.share, fill: `var(--color-s${String(index)})` }));
   return (
-    <ChartCard title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
+    <ChartCard title={title} insight={shareInsight(points)}>
       <ChartContainer config={config} className="mx-auto aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
         <RadialBarChart data={data} innerRadius={28} outerRadius={104}>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
@@ -428,7 +432,9 @@ export interface ChartDrill {
 export function GenericReportChart({ reportKey, definition, rows, animate, compare, onDrill, form, title, action, wide, footnote, insight }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; form?: GenericChartForm; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode; insight?: string | null }) {
   // A dashboard tile may pin a form. The resolved spec keeps the category and
   // series keys the resolver worked out; only the shape of the drawing moves.
-  const resolved = resolveChartForm(reportKey, definition, rows);
+  // Memoised: the resolver and the series below walk up to 200 rows, and a
+  // parent's unrelated state change (a sheet opening) must not re-walk them.
+  const resolved = useMemo(() => resolveChartForm(reportKey, definition, rows), [reportKey, definition, rows]);
   const spec = resolved === null || form === undefined ? resolved : { ...resolved, form };
   if (spec === null) {
     // Tile mode: the card stands and points at the table. The shell passes no
@@ -526,12 +532,16 @@ function cannotWear(form: string, title: string | undefined, action: ReactNode, 
 
 /** The non-bar generic forms: a line through time, or a donut of composition. */
 function FormChart({ spec, definition, rows, animate, compare, onDrill, title, action, wide, footnote, insight = null }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode; insight?: string | null }) {
-  const points = formSeries(spec, rows);
+  const points = useMemo(() => formSeries(spec, rows), [spec, rows]);
+  const paretoPoints = useMemo(
+    () => (spec.form === 'pareto' ? paretoSeries(rows, spec.category) : []),
+    [spec, rows],
+  );
   if (points.length === 0) return cannotWear(spec.form, title, action, wide, footnote);
   const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
 
   if (spec.form === 'pareto') {
-    const points = paretoSeries(rows, spec.category);
+    const points = paretoPoints;
     if (points.length === 0) return cannotWear('pareto', title, action, wide, footnote);
     const noun = spec.noun ?? 'rows';
     const measure = spec.measure ?? 'total';

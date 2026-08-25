@@ -95,12 +95,13 @@ import {
   useSaveView,
   type ReportRowsParams,
 } from './api';
-import { useParties } from '@/features/masters/use-parties';
+import { useParties, useParty } from '@/features/masters/use-parties';
 
 import { useChartIntro } from '@/components/shared/use-chart-motion';
 
 import { CategoryChip } from './category-chip';
 import { ColumnChooser } from './column-chooser';
+import { comparisonJoinable, deltaTone, isToDate, previousRowLookup, rowShapeOf } from './comparison';
 import { ReportCatalogue } from './report-catalogue';
 import { GenericReportChart, ReportChart, type ChartDrill } from './report-charts';
 import { chartKindOf, primaryNumericColumn } from './report-series';
@@ -321,6 +322,17 @@ export function ReportsPage() {
     label: party.name,
     ...(party.gstin === null ? {} : { hint: party.gstin }),
   }));
+  const partyIdParam = searchParams.get('partyId');
+  // The caption names the party, never its UUID: the picker's first page
+  // holds 25 options and a drill can carry any party at all, so the one
+  // being filtered on is fetched by id when the page does not hold it.
+  const captionParty = useParty(
+    canReadParties && partyIdParam !== null && !partyOptions.some((option) => option.id === partyIdParam)
+      ? partyIdParam
+      : null,
+  );
+  const partyName = (id: string): string =>
+    partyOptions.find((option) => option.id === id)?.label ?? (captionParty.data?.id === id ? captionParty.data.name : id);
   const unknownReport = catalogue.isSuccess && definition === undefined;
 
   // --------------------------------------------------------------- state
@@ -397,6 +409,9 @@ export function ReportsPage() {
         else params.delete('from');
         if (patch.period.to) params.set('to', toDateParam(patch.period.to));
         else params.delete('to');
+        // A hand-edited period is no longer "This month": the granularity
+        // label must not keep claiming a preset the dates have left.
+        params.delete('granularity');
       }
       for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
         if (!(key in patch)) continue;
@@ -409,7 +424,7 @@ export function ReportsPage() {
 
   function clearFilters() {
     patchParams((params) => {
-      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
+      for (const key of ['from', 'to', 'granularity', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
         params.delete(key);
       }
     });
@@ -569,7 +584,23 @@ export function ReportsPage() {
   const chartIntro = useChartIntro(chartSource.isSuccess);
   const chartKind = chartKindOf(reportKey, definition, chartRows);
   const primaryColumn = definition === undefined ? null : primaryNumericColumn(definition, active.data?.data ?? []);
-  const prevById = new Map((comparison.data?.data ?? []).map((row) => [row.id, row]));
+  // The honest join (comparison.ts): entity rows by identity, month and
+  // date rows shifted onto this period's calendar under "last FY", and null
+  // where no honest join exists -- which renders as no comparison, never as
+  // a column of false "new".
+  const shapeRows = (active.data?.data.length ?? 0) > 0 ? (active.data?.data ?? []) : chartRows;
+  const rowShape = rowShapeOf(shapeRows);
+  const prevLookup =
+    compare === 'off' || !comparison.isSuccess
+      ? null
+      : previousRowLookup(compare, shapeRows, comparison.data.data);
+  // The chart engines join their ghost series by label; that join is only
+  // honest for entity-keyed rows, so time-keyed charts show the current
+  // period alone and the table carries the aligned comparison.
+  const chartCompare =
+    compare !== 'off' && comparison.isSuccess && prevLookup !== null && rowShape === 'entity'
+      ? { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }
+      : undefined;
 
   // Table | Chart | Both, remembered per report on this device; a phone
   // starts on the table, a desk sees both (owner's pick, 21 Aug).
@@ -703,12 +734,19 @@ export function ReportsPage() {
 
   // Comparison deltas ride beside the primary numeric column: previous value,
   // the change, and the change as a share — 'new' when the base was zero,
-  // never a percentage of nothing (data-analyst skill §3).
-  if (compare !== 'off' && primaryColumn !== null && comparison.isSuccess) {
+  // never a percentage of nothing (data-analyst skill §3). Only when the
+  // join is honest (comparison.ts): a mode the rows cannot be aligned
+  // under shows no columns rather than a wall of false "new".
+  if (compare !== 'off' && primaryColumn !== null && comparison.isSuccess && prevLookup !== null) {
     const columnKey = primaryColumn.key;
-    const readNumber = (row: ReportRowView | undefined): number => {
+    // Null for a cell that is absent or not a number: an unreadable value
+    // must render as absent, never as a hard zero asserting a 100% drop.
+    const readNumber = (row: ReportRowView | undefined): number | null => {
       const value = row?.cells[columnKey];
-      return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) || 0 : 0;
+      if (typeof value === 'number') return value;
+      if (typeof value !== 'string' || value.trim() === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
     };
     tableColumns.push(
       {
@@ -717,7 +755,7 @@ export function ReportsPage() {
         numeric: true,
         secondary: true,
         cell: (row) => {
-          const prev = prevById.get(row.id);
+          const prev = prevLookup(row);
           return prev === undefined ? EMPTY_VALUE : renderCell(prev.cells[columnKey] ?? null, 'text');
         },
       },
@@ -726,10 +764,15 @@ export function ReportsPage() {
         header: 'Change',
         numeric: true,
         cell: (row) => {
-          const delta = deltaOf(readNumber(row), readNumber(prevById.get(row.id)));
+          const current = readNumber(row);
+          if (current === null) return EMPTY_VALUE;
+          const delta = deltaOf(current, readNumber(prevLookup(row)) ?? 0);
           if (delta.label === 'none') return EMPTY_VALUE;
+          // Direction and goodness are separate facts: rising interest
+          // cost or ageing is red however upward the arrow points.
+          const tone = deltaTone(reportKey, delta.direction);
           return (
-            <span className={cn('inline-flex items-center gap-0.5 tabular-nums', delta.direction === 'up' ? 'text-success' : delta.direction === 'down' ? 'text-destructive' : 'text-muted-foreground')}>
+            <span className={cn('inline-flex items-center gap-0.5 tabular-nums', tone === 'good' ? 'text-success' : tone === 'bad' ? 'text-destructive' : 'text-muted-foreground')}>
               {delta.direction === 'up' ? <ArrowUpIcon className="size-3" /> : delta.direction === 'down' ? <ArrowDownIcon className="size-3" /> : null}
               {delta.label === 'new' ? 'new' : `${delta.absolute > 0 ? '+' : ''}${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(delta.absolute)}${delta.pct === null ? '' : ` (${String(delta.pct)}%)`}`}
             </span>
@@ -805,10 +848,7 @@ export function ReportsPage() {
   // screen and the header block in the download agree about what a date is.
   // The party is named, not identified: the caption bar and the exported
   // file both said "Party 0192...-8f3a" when they said anything at all.
-  const filterNames =
-    filters.partyId === null
-      ? {}
-      : { [filters.partyId]: partyOptions.find((option) => option.id === filters.partyId)?.label ?? filters.partyId };
+  const filterNames = filters.partyId === null ? {} : { [filters.partyId]: partyName(filters.partyId) };
   const captions = describeFilters(exportFilters, filterNames, formatDate);
 
   if (browsing) {
@@ -986,7 +1026,12 @@ export function ReportsPage() {
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="off">No comparison</SelectItem>
-        <SelectItem value="previous">vs previous period</SelectItem>
+        {/* Month- and date-keyed rows have no honest alignment against an
+            arbitrary previous window (1–21 Aug's "previous" is 11–31 Jul);
+            last FY aligns exactly, so it stays. */}
+        <SelectItem value="previous" disabled={!comparisonJoinable('previous', rowShape)}>
+          vs previous period
+        </SelectItem>
         <SelectItem value="lastYear">vs same period last FY</SelectItem>
       </SelectContent>
     </Select>
@@ -1376,13 +1421,23 @@ export function ReportsPage() {
               ))}
               {compare !== 'off' && compareRange !== null ? (
                 <li className="text-muted-foreground text-xs tabular-nums">
-                  against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}, to date
+                  against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}
+                  {/* ", to date" only while the period is still running: a
+                      finished month against its full predecessor is not
+                      clipped, and saying so misleads. */}
+                  {currentRange !== null && isToDate(currentRange.to, toDateParam(new Date())) ? ', to date' : ''}
                   {/* The party filter above scopes both periods, which is what
                       lets one customer or vendor be compared across them. */}
                   {definition?.filters.includes('partyId')
                     ? filters.partyId
-                      ? `, for ${partyOptions.find((option) => option.id === filters.partyId)?.label ?? 'one party'}`
+                      ? `, for ${partyName(filters.partyId)}`
                       : ' · whole business — filter by party to compare one'
+                    : ''}
+                  {/* A row absent from a clipped previous page must not be
+                      sold as "new"; the clipping is stated where the
+                      comparison is. */}
+                  {comparison.isSuccess && comparison.data.meta.total > comparison.data.data.length
+                    ? ' · previous period read from its top 200 rows'
                     : ''}
                 </li>
               ) : null}
@@ -1403,7 +1458,7 @@ export function ReportsPage() {
                 reportKey={reportKey}
                 rows={chartRows}
                 animate={chartIntro}
-                compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }}
+                compare={chartCompare}
               />
             ) : null}
             {chartKind === 'generic' && definition !== undefined ? (
@@ -1412,7 +1467,7 @@ export function ReportsPage() {
                 definition={definition}
                 rows={chartRows}
                 animate={chartIntro}
-                compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }}
+                compare={chartCompare}
                 onDrill={drillToSegment}
               />
             ) : null}

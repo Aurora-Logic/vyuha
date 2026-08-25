@@ -252,6 +252,18 @@ export function shareSeries(rows: readonly ChartRow[], labelKey: string, valueKe
   return { points, total };
 }
 
+/**
+ * The share chart's sentence, with the same restraint the sales analysis
+ * applies: below a fifth, "holds" would dress an even spread up as a
+ * headline. This lived inline in the chart's JSX, untested and headlining
+ * a 1% leader; an insight is a claim the rows prove, or nothing.
+ */
+export function shareInsight(points: readonly SharePoint[]): string | null {
+  const leader = points[0];
+  if (leader === undefined || leader.share < 20) return null;
+  return `${leader.label} holds ${String(leader.share)}% of what this page shows.`;
+}
+
 /** Whether a report can draw anything, so the view toggle can tell the truth. */
 export function chartKindOf(reportKey: ReportKey, definition: Pick<ReportDefinition, 'columns' | 'defaultSort'> | undefined, rows: readonly ChartRow[]): 'bespoke' | 'generic' | 'none' {
   if (BESPOKE_CHART_KEYS.has(reportKey)) return 'bespoke';
