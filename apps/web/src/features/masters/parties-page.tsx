@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowsClockwiseIcon, BooksIcon, LockKeyIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BooksIcon, LockKeyIcon, UserFocusIcon } from '@phosphor-icons/react';
 import { useSearchParams, useNavigate } from 'react-router';
 
 import { DuplicateBadge } from '@/components/shared/duplicate-badge';
@@ -78,6 +78,7 @@ const COLUMNS: RecordColumn<Party>[] = [
     numeric: true,
     secondary: true,
   },
+  { key: 'manager', header: 'Relationship manager', cell: (row) => row.manager?.name ?? EMPTY_VALUE, secondary: true },
   {
     key: 'pulled',
     header: 'As of',
@@ -112,6 +113,7 @@ export function PartiesPage() {
 
   const q = searchParams.get('q') ?? '';
   const parentGroup = searchParams.get('group') ?? '';
+  const mine = searchParams.get('mine') === '1';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
   const [draft, setDraft] = useState(q);
@@ -146,7 +148,7 @@ export function PartiesPage() {
 
   const { sort, activeSort, onSortChange } = useUrlSort(PARTY_SORT_FIELDS);
   const query = useParties(
-    { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(sort ? { sort } : {}) },
+    { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(sort ? { sort } : {}), ...(mine ? { mine: true } : {}) },
     { enabled: canView, prefetchNext: true },
   );
   const rows = query.data?.data ?? [];
@@ -227,6 +229,27 @@ export function PartiesPage() {
               ))}
             </SelectContent>
           </Select>
+          {/* The relationship manager's own book, one toggle: the parties they own. */}
+          <Button
+            variant={mine ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={mine}
+            onClick={() => {
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (mine) next.delete('mine');
+                  else next.set('mine', '1');
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          >
+            <UserFocusIcon data-icon="inline-start" />
+            My customers
+          </Button>
         </div>
 
         {query.isPending ? <ListSkeleton /> : null}
