@@ -662,6 +662,29 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
           SELECT l.id FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
            WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
         `;
+      case 'gst-summary':
+        /*
+         * D-21: inputs for whoever files, never a return. The projection
+         * carries tax only as ledger-line names, so heads are classified by
+         * word -- a ledger named away from its head lands in "otherTax"
+         * rather than in a wrong column, and the description says so. Sales
+         * net of Credit Notes by the sign convention the lifecycle analytics
+         * use; the goods value reads inventory lines, so a service-only
+         * voucher contributes tax but no outward value.
+         */
+        return sql`
+          SELECT to_char(v.voucher_date, 'YYYY-MM') AS month,
+                 round(COALESCE(sum(CASE WHEN l.kind = 'inventory' THEN CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(l.amount) ELSE abs(l.amount) END ELSE 0 END), 0), 2)::text AS "taxableValue",
+                 round(COALESCE(sum(CASE WHEN l.kind = 'ledger' AND l.ledger_name ~* '\\mcgst' THEN CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(l.amount) ELSE abs(l.amount) END ELSE 0 END), 0), 2)::text AS cgst,
+                 round(COALESCE(sum(CASE WHEN l.kind = 'ledger' AND l.ledger_name ~* '\\m(sgst|utgst)' THEN CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(l.amount) ELSE abs(l.amount) END ELSE 0 END), 0), 2)::text AS sgst,
+                 round(COALESCE(sum(CASE WHEN l.kind = 'ledger' AND l.ledger_name ~* '\\migst' THEN CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(l.amount) ELSE abs(l.amount) END ELSE 0 END), 0), 2)::text AS igst,
+                 round(COALESCE(sum(CASE WHEN l.kind = 'ledger' AND l.ledger_name ~* '\\mcess' THEN CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(l.amount) ELSE abs(l.amount) END ELSE 0 END), 0), 2)::text AS cess,
+                 round(COALESCE(sum(CASE WHEN l.kind = 'ledger' AND l.ledger_name ~* '\\m(gst|vat|tds|tcs|tax)' AND l.ledger_name !~* '\\m(cgst|sgst|utgst|igst|cess)' THEN CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(l.amount) ELSE abs(l.amount) END ELSE 0 END), 0), 2)::text AS "otherTax"
+            FROM voucher_lines l
+            JOIN vouchers v ON v.id = l.voucher_id
+           WHERE l.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')}
+           GROUP BY 1
+        `;
       case 'aov-trend':
         return sql`
           SELECT to_char(v.voucher_date, 'YYYY-MM') AS month,
@@ -863,6 +886,9 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
 /** The columns a headline quotes, which are therefore summed over the whole report. */
 const SUMMABLE: Partial<Record<ReportKey, readonly string[]>> = {
   'dead-stock': ['valueLocked'],
+  // A filing aid is read whole: the period's totals are the figures that
+  // matter, the months are the working.
+  'gst-summary': ['taxableValue', 'cgst', 'sgst', 'igst', 'cess', 'otherTax'],
 };
 
 const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
@@ -873,6 +899,7 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
   'vendor-spend-concentration': { rank: 'rank' },
   'receivables-concentration': { rank: 'rank' },
   'aov-trend': { month: 'month', aov: 'aov::numeric' },
+  'gst-summary': { month: 'month' },
   'partial-shipments': { partyName: '"partyName"', partialPct: '"partialPct"::numeric' },
   'vendor-lead-time': { partyName: '"partyName"', medianDays: '"medianDays"' },
   'stock-out-frequency': { item: 'item', month: 'month', shortages: 'shortages' },
@@ -908,6 +935,7 @@ const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
   'vendor-spend-concentration': 'rank ASC',
   'receivables-concentration': 'rank ASC',
   'aov-trend': 'month ASC',
+  'gst-summary': 'month ASC',
   'partial-shipments': '"partialPct"::numeric DESC, "partyName" ASC',
   'vendor-lead-time': '"medianDays" DESC NULLS LAST, "partyName" ASC',
   'stock-out-frequency': 'shortages DESC, item ASC',

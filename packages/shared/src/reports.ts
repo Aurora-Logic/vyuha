@@ -98,6 +98,8 @@ export const REPORT_KEYS = [
   'stock-out-frequency',
   'margin-proxy',
   'sales-heatmap',
+  // D-21: the GST inputs summary that amends REQ-AE-08 narrowly.
+  'gst-summary',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -142,6 +144,7 @@ export const ANALYTICS_REPORT_KEYS = [
   'stock-out-frequency',
   'margin-proxy',
   'sales-heatmap',
+  'gst-summary',
 ] as const satisfies readonly ReportKey[];
 /**
  * Owner, 22 Aug 2026: attendance's own analytics - reviews, approvals, early
@@ -1101,6 +1104,17 @@ const AOV_TREND_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+const GST_SUMMARY_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'taxableValue', header: 'Outward goods value', type: 'money', width: 18 },
+  { key: 'cgst', header: 'CGST', type: 'money', width: 14 },
+  { key: 'sgst', header: 'SGST', type: 'money', width: 14 },
+  { key: 'igst', header: 'IGST', type: 'money', width: 14 },
+  { key: 'cess', header: 'Cess', type: 'money', width: 12, secondary: true },
+  { key: 'otherTax', header: 'Other tax heads', type: 'money', width: 16, secondary: true },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 const PARTIAL_SHIPMENTS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'ordersDispatched', header: 'Orders dispatched', type: 'number', width: 12 },
@@ -1695,6 +1709,15 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: 'month',
     filters: ['period'],
   },
+  'gst-summary': {
+    key: 'gst-summary',
+    category: 'Books',
+    label: 'GST summary',
+    description: 'Outward goods value and tax by head, month by month, from the tax ledger lines on projected Sales vouchers net of Credit Notes. Working data for whoever files - this is not a return, and Tally remains the filing system. Heads are read from ledger names, so a tax ledger named away from its head lands under Other.',
+    columns: GST_SUMMARY_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
   'partial-shipments': {
     key: 'partial-shipments',
     category: 'Fulfilment',
@@ -1891,7 +1914,7 @@ export function narrowToDeclaredFilters(reportKey: ReportKey, filters: ReportFil
       if (filters[key] !== undefined) kept[key] = filters[key];
     }
   }
-  return kept as ReportFilters;
+  return kept;
 }
 
 /**
@@ -2107,6 +2130,7 @@ const ROW_JOIN_KEYS: Partial<Record<ReportKey, { fields: readonly string[]; mode
   'customer-concentration': { fields: ['partyId'], mode: 'first' },
   'order-fill-rate': { fields: ['partyId'], mode: 'first' },
   'new-vs-repeat': { fields: ['month'], mode: 'first' },
+  'gst-summary': { fields: ['month'], mode: 'first' },
   'approvals-turnaround': { fields: ['type'], mode: 'first' },
   'early-arrival-leaderboard': { fields: ['employeeId'], mode: 'first' },
   'on-time-rate': { fields: ['departmentId'], mode: 'first' },

@@ -768,6 +768,7 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'early-arrival-leaderboard': analyticsShape('employeeId', 'employeeName'),
   'on-time-rate': analyticsShape('id', 'department'),
   'aov-trend': analyticsShape('month', 'month'),
+  'gst-summary': analyticsShape('month', 'month'),
   'partial-shipments': analyticsShape('id', 'partyName'),
   'vendor-lead-time': analyticsShape('id', 'partyName'),
   'stock-out-frequency': analyticsShape('id', 'item'),
