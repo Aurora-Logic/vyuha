@@ -110,6 +110,13 @@ Last updated: 16 August 2026
 | **Reasoning** | The same stance the product takes on payroll: produce the inputs, never run the calculation that files. A cross-check figure beside Tally's own 3B saves the accountant a reconciliation walk; a second return would eventually disagree with the certified one by a rupee and cost more than it saves. |
 | **Consequence** | The by-rate split (3B table 3.1(a)'s shape) stays unbuilt until the sync contract carries per-line tax rates and a Duties & Taxes ledger master — the projection today has tax heads only as ledger-line names. Head classification from ledger names is stated as such on the surface, with the as-of stamp. `14 §1` stays in force for everything else it names. |
 
+### D-22 — Interest cost and cash cycle analytics, voucher-grain v1
+
+| | |
+|---|---|
+| **Decision** | An Interest Cost module quantifies working-capital interest on money blocked with customers and in stock, computed from daily closing balance series (never invoice-date arithmetic). Owner's seven scope answers, 25 Aug 2026: the annual rate is an editable org setting seeded at 12.00; vendor credit days read Tally's `credit_days` with a Vyuha-side editable override and a "credit terms missing" flag, never a silent 30; stock interest uses purchase value in v1, labelled "purchase cost basis"; GST on purchases carries no separate interest line in v1; receipts follow Tally's bill-wise marks with FIFO for on-account, the applied rule shown; the series builds from the earliest voucher the projection holds; and receivables run voucher-grain in v1 — each Sales voucher a bill, due at voucher date plus credit days — because `bill_allocations` has readers but no production writer yet. |
+| **Consequence** | Surfaces say their own approximations out loud ("voucher-grain until Tally bill marks arrive"). Bill-wise data arriving later upgrades the split in place without a schema change. The spec's §8 export-framework migration was already done (P-10): sources register per module and permission keys are parameterised, so the module only registers its three report sources. This is money *analytics* over projected Tally data — the no-payroll rule stands untouched. |
+
 ---
 
 ## Still open
