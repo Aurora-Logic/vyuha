@@ -102,6 +102,7 @@ describe('saving and reading a layout', () => {
               reportKey: 'attendance-register',
               label: 'Register',
               form: 'hbar',
+      kind: 'chart',
               wide: true,
               filters: { from: '2026-08-01', to: '2026-08-31' },
             },
@@ -118,6 +119,7 @@ describe('saving and reading a layout', () => {
       reportKey: 'attendance-register',
       label: 'Register',
       form: 'hbar',
+      kind: 'chart',
       wide: true,
       filters: { from: '2026-08-01', to: '2026-08-31' },
     });
