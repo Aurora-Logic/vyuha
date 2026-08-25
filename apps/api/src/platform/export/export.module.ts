@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { SettingsModule } from '../settings/settings.module.js';
 
+import { DashboardLayoutService } from './dashboard-layout.service.js';
 import { ExportService } from './export.service.js';
 import { ReportController } from './report.controller.js';
 import { ReportExportHandler } from './report-export.handler.js';
@@ -27,6 +28,7 @@ import { ScheduleService } from './schedule.service.js';
     ReportSourceRegistry,
     ExportService,
     SavedViewService,
+    DashboardLayoutService,
     ScheduleService,
     ReportExportHandler,
     ScheduleSweepHandler,

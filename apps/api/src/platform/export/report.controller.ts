@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -15,6 +16,7 @@ import {
   isReportKey,
   pageSlice,
   paginated,
+  type DashboardLayoutView,
   type ExportDownload,
   type ExportJobSummary,
   type Paginated,
@@ -30,8 +32,11 @@ import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
+import { DashboardLayoutService } from './dashboard-layout.service.js';
 import { ExportService } from './export.service.js';
 import {
+  DashboardLayoutInputDto,
+  DashboardParamDto,
   ExportListQueryDto,
   ExportRequestDto,
   ReportRowQueryDto,
@@ -72,6 +77,7 @@ export class ReportController {
     private readonly exports: ExportService,
     private readonly views: SavedViewService,
     private readonly schedules: ScheduleService,
+    private readonly dashboards: DashboardLayoutService,
   ) {}
 
   /**
@@ -118,6 +124,43 @@ export class ReportController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.views.remove(principal, id);
+  }
+
+  // ------------------------------------------------------------- dashboards
+
+  /*
+   * Customisable dashboards (owner, 25 Aug 2026). Guarded on `report.view`:
+   * a layout only chooses which report tiles a board renders, and every
+   * tile's rows still arrive through the row route under its own key.
+   * Declared before `:reportKey/rows` -- Nest matches in declaration order,
+   * and `dashboards` would otherwise be read as a report key.
+   */
+  @Get('dashboards')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  async listDashboards(
+    @CurrentUser() principal: Principal,
+  ): Promise<{ data: DashboardLayoutView[] }> {
+    return { data: await this.dashboards.listFor(principal) };
+  }
+
+  @Put('dashboards/:dashboard')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  putDashboard(
+    @CurrentUser() principal: Principal,
+    @Param() params: DashboardParamDto,
+    @Body() body: DashboardLayoutInputDto,
+  ): Promise<DashboardLayoutView> {
+    return this.dashboards.put(principal, params.dashboard, body);
+  }
+
+  @Delete('dashboards/:dashboard')
+  @RequirePermission(PERMISSIONS.REPORT_VIEW)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  resetDashboard(
+    @CurrentUser() principal: Principal,
+    @Param() params: DashboardParamDto,
+  ): Promise<void> {
+    return this.dashboards.reset(principal, params.dashboard);
   }
 
   // --------------------------------------------------------------- exports

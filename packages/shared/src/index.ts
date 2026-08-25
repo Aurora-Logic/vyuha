@@ -7,6 +7,7 @@ export * from './workspace.js';
 export * from './auth.js';
 export * from './consent.js';
 export * from './crm.js';
+export * from './dashboards.js';
 export * from './enums.js';
 export * from './errors.js';
 export * from './go-to.js';
