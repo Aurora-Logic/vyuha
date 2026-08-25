@@ -59,6 +59,12 @@ export function SearchField({
         type="text"
         role="searchbox"
         aria-label={label}
+        // The caret sits at the text start, on top of the placeholder's first
+        // letter, which reads as a struck-through "C". Fading the placeholder
+        // while the field is focused leaves the caret alone on an empty field;
+        // the hint returns the moment focus leaves. One place, so every search
+        // across the app behaves the same.
+        className="focus:placeholder:text-transparent"
         placeholder={placeholder}
         value={value}
         autoComplete="off"
