@@ -324,6 +324,55 @@ export const returnReasonsPolicyRowSchema = returnReasonsPolicySchema;
 export type ReturnReasonsPolicyRow = ReturnReasonsPolicy;
 export const DEFAULT_RETURN_REASONS_POLICY_ROW: ReturnReasonsPolicy = DEFAULT_RETURN_REASONS_POLICY;
 
+/**
+ * D-22: the interest cost module's knobs. The snapshots hold balances with
+ * no rate baked in, so editing the rate re-prices history at the next read;
+ * the window and non-moving settings feed the nightly build and the stock
+ * report. `rate_source` and `receivable_base` exist ahead of their second
+ * values so the day bill marks or a bank-linked rate arrive is a data
+ * change, not a schema one.
+ */
+export const INTEREST_RATE_SOURCES = ['FIXED'] as const;
+export const INTEREST_RECEIVABLE_BASES = ['VOUCHER', 'BILL'] as const;
+export const INTEREST_STOCK_CLOCK_STARTS = ['AFTER_CREDIT_DAYS', 'INWARD'] as const;
+
+export const INTEREST_SETTINGS = {
+  annualRatePct: { key: 'interest.annual_rate', help: 'Percent per annum applied to blocked working capital. D-22 seeds 12.00.', enforcedBy: 'Interest reports' },
+  dayBasis: { key: 'interest.day_basis', help: 'Days in the interest year: 365, or 360 for bank convention.', enforcedBy: 'Interest reports' },
+  rateSource: { key: 'interest.rate_source', help: 'Where the annual rate comes from. FIXED is the only source today.', enforcedBy: null },
+  receivableBase: { key: 'interest.receivable_base', help: 'VOUCHER treats each Sales voucher as a bill (D-22 v1); BILL is reserved for when Tally bill marks gain a writer.', enforcedBy: 'Interest snapshots' },
+  stockClockStart: { key: 'interest.stock_clock_start', help: 'AFTER_CREDIT_DAYS starts the stock funding clock once the vendor credit days pass; INWARD starts it at the inward date.', enforcedBy: 'Interest snapshots' },
+  includeGstInStock: { key: 'interest.include_gst_in_stock', help: 'Whether GST paid on purchases joins the stock value being funded. Off in v1 (D-22).', enforcedBy: 'Interest snapshots' },
+  recomputeWindowDays: { key: 'interest.recompute_window_days', help: 'How many days back the nightly build recomputes, so backdated entries are caught rather than trusted to a stale snapshot.', enforcedBy: 'Interest snapshots' },
+  nonMovingDays: { key: 'interest.non_moving_days', help: 'Days without outward movement before an item is flagged non-moving.', enforcedBy: 'Interest reports' },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const interestPolicySchema = z.object({
+  annualRatePct: z.number().min(0).max(100),
+  dayBasis: z.union([z.literal(365), z.literal(360)]),
+  rateSource: z.enum(INTEREST_RATE_SOURCES),
+  receivableBase: z.enum(INTEREST_RECEIVABLE_BASES),
+  stockClockStart: z.enum(INTEREST_STOCK_CLOCK_STARTS),
+  includeGstInStock: z.boolean(),
+  recomputeWindowDays: z.number().int().min(7).max(365),
+  nonMovingDays: z.number().int().min(7).max(365),
+});
+export type InterestPolicy = z.infer<typeof interestPolicySchema>;
+
+export const DEFAULT_INTEREST_POLICY: InterestPolicy = {
+  // D-22: 12.00 percent on a 365-day year.
+  annualRatePct: 12,
+  dayBasis: 365,
+  rateSource: 'FIXED',
+  // D-22: voucher-grain until Tally bill marks arrive.
+  receivableBase: 'VOUCHER',
+  stockClockStart: 'AFTER_CREDIT_DAYS',
+  // D-22: no separate GST-on-purchases interest line in v1.
+  includeGstInStock: false,
+  recomputeWindowDays: 90,
+  nonMovingDays: 90,
+};
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
@@ -334,6 +383,7 @@ export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(RETENTION_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(DUPLICATES_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(RETURNS_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(INTEREST_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

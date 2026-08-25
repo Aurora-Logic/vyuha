@@ -182,6 +182,22 @@ export interface JobPayloads {
     readonly now?: string;
   };
 
+  /**
+   * D-22: materialise the daily closing balance series for receivables,
+   * payables and stock. The nightly run resumes from `interest_build_state`
+   * minus the recompute window, so a backdated voucher is re-walked rather
+   * than trusted to a stale snapshot; the first run walks from the earliest
+   * voucher the projection holds. The optional fields exist for the
+   * on-demand recompute endpoint, which narrows the rebuild.
+   */
+  'build-interest-snapshots': {
+    readonly now?: string;
+    readonly orgId?: string;
+    readonly partyId?: string;
+    readonly stockItemId?: string;
+    readonly from?: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -289,6 +305,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'sweep-broken-promises': QUEUES.NOTIFICATION,
   'raise-reorder-requirements': QUEUES.MAINTENANCE,
   'sweep-exception-reports': QUEUES.MAINTENANCE,
+  'build-interest-snapshots': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -400,6 +417,9 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   { schedulerId: 'reports:exception-sweep', jobName: 'sweep-exception-reports', pattern: '45 1 * * *' },
   // After the exception sweep, before the working day: the promises that came due yesterday.
   { schedulerId: 'collections:broken-promises', jobName: 'sweep-broken-promises', pattern: '0 3 * * *' },
+  // D-22: after the night's pulls and the collections sweep have settled the
+  // projection, before anyone reads the interest reports with breakfast.
+  { schedulerId: 'interest:build-snapshots', jobName: 'build-interest-snapshots', pattern: '20 3 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

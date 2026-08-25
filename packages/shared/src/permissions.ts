@@ -114,6 +114,15 @@ export const PERMISSIONS = {
   PURCHASE_DOCUMENT_CREATE: 'purchase.document.create',
   PURCHASE_DOCUMENT_APPROVE: 'purchase.document.approve',
 
+  /**
+   * D-22: working-capital interest on money blocked with customers and in
+   * stock. Viewing is Accounts' and Admin's; configuring — the rate, the
+   * per-party overrides, the recompute — is a separate key because a changed
+   * rate silently re-prices every figure the viewers act on.
+   */
+  INTEREST_VIEW: 'interest_cost.view',
+  INTEREST_CONFIGURE: 'interest_cost.configure',
+
   /** 12 REQ-AB-03: exempt from the sign-in window. Admin only by default. */
   ACCESS_OUTSIDE_WINDOW: 'access.outside_window',
 } as const;
@@ -177,6 +186,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
+  'interest_cost.view': 'View interest cost on receivables and stock, and the cash cycle',
+  'interest_cost.configure': 'Set the interest rate and per-party overrides, and trigger a recompute',
   'access.outside_window': 'Sign in and work outside the access window (19:30 to 09:00 by default)',
   'integration.manage': 'Manage integration connections',
 };
@@ -337,6 +348,10 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.RETURNS_MANAGE,
   PERMISSIONS.RETURNS_DISPOSITION,
   PERMISSIONS.PORTAL_MANAGE,
+  // D-22: the working-capital interest figures are the accountant's lens,
+  // and the rate and overrides are theirs to keep honest.
+  PERMISSIONS.INTEREST_VIEW,
+  PERMISSIONS.INTEREST_CONFIGURE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

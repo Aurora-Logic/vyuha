@@ -14,6 +14,7 @@ import {
   DEFAULT_RETENTION_POLICY,
   DEFAULT_SECURITY_POLICY,
   DUPLICATES_SETTINGS,
+  INTEREST_SETTINGS,
   LOCALE_SETTINGS,
   PHOTO_SETTINGS,
   RETENTION_SETTINGS,
@@ -93,7 +94,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS), ...Object.values(RETURNS_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS), ...Object.values(RETURNS_SETTINGS), ...Object.values(INTEREST_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);

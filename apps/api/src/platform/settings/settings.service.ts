@@ -44,6 +44,10 @@ import {
   DEFAULT_RETENTION_POLICY,
   retentionPolicySchema,
   type RetentionPolicyRow,
+  INTEREST_SETTINGS,
+  DEFAULT_INTEREST_POLICY,
+  interestPolicySchema,
+  type InterestPolicy,
 } from './settings.catalogue.js';
 import type { UpdateSettingsInput } from './settings.dto.js';
 import { SettingsRepository, type OrgProfilePatch, type OrgProfileRow } from './settings.repository.js';
@@ -81,6 +85,8 @@ export interface OrgSettingsView {
   readonly retention: RetentionPolicyRow;
   readonly duplicates: DuplicatesPolicyRow;
   readonly returns: ReturnReasonsPolicyRow;
+  /** D-22: the interest cost module's rate, basis and windows. */
+  readonly interest: InterestPolicy;
   readonly email: EmailSettingsView;
   /**
    * What reads each policy field today, or null when nothing does. The screen
@@ -95,6 +101,7 @@ export interface OrgSettingsView {
     readonly retention: Readonly<Record<string, SettingConsumer>>;
     readonly duplicates: Readonly<Record<string, SettingConsumer>>;
     readonly returns: Readonly<Record<string, SettingConsumer>>;
+    readonly interest: Readonly<Record<string, SettingConsumer>>;
   };
   /**
    * Stored rows that no longer satisfy their schema. The screen shows the
@@ -358,6 +365,7 @@ export class SettingsService {
     const retention = resolveGroup(retentionPolicySchema, RETENTION_SETTINGS, DEFAULT_RETENTION_POLICY, rows);
     const duplicates = resolveGroup(duplicatesPolicyRowSchema, DUPLICATES_SETTINGS, DEFAULT_DUPLICATES_POLICY_ROW, rows);
     const returns = resolveGroup(returnReasonsPolicyRowSchema, RETURNS_SETTINGS, DEFAULT_RETURN_REASONS_POLICY_ROW, rows);
+    const interest = resolveGroup(interestPolicySchema, INTEREST_SETTINGS, DEFAULT_INTEREST_POLICY, rows);
 
     return {
       organisation,
@@ -369,6 +377,7 @@ export class SettingsService {
       retention: retention.value,
       duplicates: duplicates.value,
       returns: returns.value,
+      interest: interest.value,
       email: emailView(),
       enforcement: {
         attendance: enforcementOf(ATTENDANCE_SETTINGS),
@@ -379,8 +388,9 @@ export class SettingsService {
         retention: enforcementOf(RETENTION_SETTINGS),
         duplicates: enforcementOf(DUPLICATES_SETTINGS),
         returns: enforcementOf(RETURNS_SETTINGS),
+        interest: enforcementOf(INTEREST_SETTINGS),
       },
-      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable, ...locale.unreadable, ...retention.unreadable, ...duplicates.unreadable, ...returns.unreadable],
+      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable, ...locale.unreadable, ...retention.unreadable, ...duplicates.unreadable, ...returns.unreadable, ...interest.unreadable],
     };
   }
 
@@ -483,6 +493,13 @@ export class SettingsService {
       for (const [field, descriptor] of Object.entries(RETURNS_SETTINGS)) {
         if (!(field in input.returns)) continue;
         values.set(descriptor.key, merged[field as keyof ReturnReasonsPolicyRow]);
+      }
+    }
+    if (input.interest !== undefined) {
+      const merged = parseMerged(interestPolicySchema, { ...current.interest, ...input.interest }, 'interest');
+      for (const [field, descriptor] of Object.entries(INTEREST_SETTINGS)) {
+        if (!(field in input.interest)) continue;
+        values.set(descriptor.key, merged[field as keyof InterestPolicy]);
       }
     }
 
