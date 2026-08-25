@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatMoneyShort, humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+import { FORM_LABELS } from './dashboard-form-labels';
 import { pieSliceLabel } from './pie-label';
 import type { ReportDefinition, ReportKey } from '@vyuha/shared';
 
@@ -107,6 +108,14 @@ function truncateTight(label: string): string {
   return label.length > 12 ? `${label.slice(0, 11)}…` : label;
 }
 
+/**
+ * The house card grammar -- the form first, then the subject it draws -- so a
+ * generic chart never renders as a bare title the way the named ones never do.
+ */
+function formDescription(form: GenericChartForm, subject: string): string {
+  return `${FORM_LABELS[form]}. ${subject}`;
+}
+
 /** A whole-number share, as it is written on a ring. */
 function sharePercent(value: unknown): string {
   return typeof value === 'number' ? `${String(value)}%` : '';
@@ -115,15 +124,16 @@ function sharePercent(value: unknown): string {
 /*
  * Heights and overflow, together on purpose.
  *
- * The angled category labels claim 56px of the box and the values on the caps
- * want 20 at the top, so an h-56 chart had about 148px left to actually plot
- * in -- the bars got shorter while the furniture around them did not. Raised
- * so the plot keeps the room it had before the labels arrived.
+ * Every chart here sits on the house's tallest height step -- explicit and
+ * responsive, never the container's default aspect ratio -- because the
+ * angled category labels claim 56px of the box and the values on the caps
+ * want 20 at the top: a shorter step leaves the bars less room than the
+ * furniture around them.
  *
  * `overflow-hidden` because a Recharts SVG does not clip itself: an angled
  * label longer than its slot spilled past the bottom of the chart and sat over
  * whatever came next. Clipping is the guard rather than the fix -- the height
- * above is the fix, and if a label is ever cut it means the height is wrong
+ * step is the fix, and if a label is ever cut it means the step is wrong
  * again rather than that the clip is doing its job.
  */
 
@@ -204,7 +214,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ChartCard title="Where the value sits" insight={insight}>
-            <ChartContainer config={config} className="h-72 w-full overflow-hidden">
+            <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
               {/* Angled, like the item charts below: a party name is as long as
                   an item name, and `interval={0}` with eight of them straight
                   across a 360px axis renders one smear. */}
@@ -234,7 +244,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <ChartCard title="Inward against outward" insight={insight}>
-          <ChartContainer config={MOVEMENT_CONFIG} className="h-72 w-full overflow-hidden">
+          <ChartContainer config={MOVEMENT_CONFIG} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
             <BarChart data={[...points]} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="month" tickLine={false} axisLine={false} />
@@ -257,7 +267,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <ChartCard title="The pace, year against quarter" insight={insight}>
-          <ChartContainer config={VELOCITY_CONFIG} className="h-72 w-full overflow-hidden">
+          <ChartContainer config={VELOCITY_CONFIG} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -280,7 +290,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <ChartCard title="How long the shelf has held it" insight={insight}>
-          <ChartContainer config={AGEING_CONFIG} className="h-72 w-full overflow-hidden">
+          <ChartContainer config={AGEING_CONFIG} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -311,7 +321,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       }));
       return (
         <ChartCard title="Revenue going quiet" insight={insight}>
-          <ChartContainer config={LAPSE_CONFIG} className="h-72 w-full overflow-hidden">
+          <ChartContainer config={LAPSE_CONFIG} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
             <BarChart data={data} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="customer" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -343,7 +353,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
 export function MonthlyValueChart({ points, animate }: { points: readonly { label: string; value: number }[]; animate: boolean }) {
   if (points.length === 0) return null;
   return (
-    <ChartContainer config={VALUE_CONFIG} className="h-72 w-full overflow-hidden">
+    <ChartContainer config={VALUE_CONFIG} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
       <BarChart data={[...points]} margin={AXIS_MARGIN}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} />
@@ -381,7 +391,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
   const data = points.map((p, index) => ({ name: p.label, slice: `s${String(index)}`, value: p.share, fill: `var(--color-s${String(index)})` }));
   return (
     <ChartCard title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
-      <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
+      <ChartContainer config={config} className="mx-auto aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
         <RadialBarChart data={data} innerRadius={28} outerRadius={104}>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
           <RadialBar dataKey="value" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
@@ -449,9 +459,10 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
     ...series.series.map((s, index) => [s.key, { label: s.label, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
     ...(withPrev ? [['compare', { label: compare.label, color: 'var(--muted-foreground)' }]] : []),
   ]) as ChartConfig;
+  const subject = `Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`;
   return (
-    <ChartCard title={title ?? `Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
-      <ChartContainer config={config} className="h-80 w-full overflow-hidden">
+    <ChartCard title={title ?? subject} description={formDescription('hbar', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
           <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={compactIndian} />
@@ -529,8 +540,8 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
       cumulativePct: { label: 'Running total', color: 'var(--chart-2)' },
     } satisfies ChartConfig;
     return (
-      <ChartCard title={title ?? 'Concentration'} action={action} wide={wide} footnote={footnote} insight={paretoInsight(points, noun, measure)}>
-        <ChartContainer config={config} className="h-80 w-full overflow-hidden">
+      <ChartCard title={title ?? 'Concentration'} description={formDescription('pareto', `Running share of ${measure}, largest ${noun} first`)} action={action} wide={wide} footnote={footnote} insight={paretoInsight(points, noun, measure)}>
+        <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           {/* One axis, in per cent, for both series. A Pareto is classically
               drawn with value on the left and per cent on the right; two
               scales on one chart is the mistake this product does not make,
@@ -561,9 +572,10 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const firstKey = spec.series[0] ?? '';
     // The comparison walks the same span shifted, so it joins by position, not by date.
     const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
+    const subject = `${headers.get(firstKey) ?? 'Value'} over time`;
     return (
-      <ChartCard title={title ?? `${headers.get(firstKey) ?? 'Value'} over time`} action={action} wide={wide} footnote={footnote} insight={null}>
-        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
+      <ChartCard title={title ?? subject} description={formDescription('line', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
             <XAxis dataKey="category" tickLine={false} axisLine={false} minTickGap={24} />
@@ -590,9 +602,10 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
       spec.series.map((key, index) => [key, { label: headers.get(key) ?? key, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
     ) as ChartConfig;
     const lastKey = spec.series.at(-1);
+    const subject = `${headers.get(spec.series[0] ?? '') ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? `${headers.get(spec.series[0] ?? '') ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
-        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
+      <ChartCard title={title ?? subject} description={formDescription(spec.form, subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <BarChart data={points} margin={AXIS_MARGIN_ANGLED}>
             <CartesianGrid vertical={false} />
             <XAxis dataKey="category" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -637,9 +650,10 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const config = Object.fromEntries(
       keys.map((key, index) => [key, { label: headers.get(key) ?? key, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
     ) as ChartConfig;
+    const subject = `${headers.get(keys[0] ?? '') ?? 'Value'} over time`;
     return (
-      <ChartCard title={title ?? `${headers.get(keys[0] ?? '') ?? 'Value'} over time`} action={action} wide={wide} footnote={footnote} insight={null}>
-        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
+      <ChartCard title={title ?? subject} description={formDescription(spec.form, subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <AreaChart data={points} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
             <XAxis dataKey="category" tickLine={false} axisLine={false} minTickGap={24} />
@@ -673,9 +687,10 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     // categories, the most the ring stays readable at.
     const [key = 'value'] = spec.series;
     const config = { [key]: { label: headers.get(key) ?? key, color: 'var(--chart-1)' } } as ChartConfig;
+    const subject = `${headers.get(key) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? `${headers.get(key) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
-        <ChartContainer config={config} className="mx-auto aspect-square max-h-72 w-full">
+      <ChartCard title={title ?? subject} description={formDescription('radar', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="mx-auto aspect-square h-56 max-w-full sm:h-64">
           <RadarChart data={points}>
             <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
             <PolarAngleAxis dataKey="category" tickFormatter={truncateTight} />
@@ -690,9 +705,10 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   if (spec.form === 'scatter') {
     const [xKey = 'x', yKey = 'y'] = spec.series;
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--chart-1)' } } as ChartConfig;
+    const subject = `${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? `${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
-        <ChartContainer config={config} className="h-80 w-full overflow-hidden">
+      <ChartCard title={title ?? subject} description={formDescription('scatter', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+        <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
             <CartesianGrid />
             <XAxis type="number" dataKey={xKey} name={headers.get(xKey) ?? xKey} tickLine={false} axisLine={false} />
@@ -719,8 +735,9 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
 
   if (spec.form === 'radials') {
     const [rateKey = 'rate'] = spec.series;
+    const subject = `${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? `${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('radials', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {points.map((point) => (
             <Button
@@ -744,8 +761,9 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const [valueKey = 'value'] = spec.series;
     const grid = heatmapGrid(points, valueKey);
     if (grid.months.length === 0 || grid.rows.length === 0) return cannotWear('heatmap', title, action, wide, footnote);
+    const subject = `${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`;
     return (
-      <ChartCard title={title ?? `${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('heatmap', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
         <div className="overflow-x-auto">
           <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
             <TableHeader>
@@ -798,8 +816,8 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <ChartCard title={title ?? 'Composition'} action={action} wide={wide} footnote={footnote} insight={null}>
-      <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
+    <ChartCard title={title ?? 'Composition'} description={formDescription(spec.form, `Share of the total by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartContainer config={config} className="mx-auto aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
           <Pie
@@ -836,7 +854,7 @@ export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: 
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
+    <ChartContainer config={config} className="mx-auto aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
       <PieChart>
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
         <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={pieLabel} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
@@ -865,7 +883,7 @@ export function RateRadial({ pct, label, animate }: { pct: number; label: string
               if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
                 return (
                   <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                    <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                    <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-lg font-semibold sm:text-xl">
                       {String(clamped)}%
                     </tspan>
                     <tspan x={viewBox.cx} y={(viewBox.cy ?? 0) + 22} className="fill-muted-foreground text-xs">

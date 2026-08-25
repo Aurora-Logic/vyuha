@@ -15,12 +15,20 @@ import { describe, expect, it } from 'vitest';
  * jsdom has no layout, so it cannot catch this by rendering. The source can.
  */
 const source = readFileSync(resolve(__dirname, 'dashboard-v2.tsx'), 'utf8');
+// The card composition moved into the shared ChartCard, so the CardContent
+// this page's charts actually sit in lives there now; the rule follows it.
+const cardSource = readFileSync(
+  resolve(__dirname, '../../components/shared/chart-card.tsx'),
+  'utf8',
+);
 
 describe('dashboard chart layout', () => {
   it('never puts a flex container around a chart', () => {
-    const cardContents = [...source.matchAll(/<CardContent([^>]*)>/gu)].map((m) => m[1] ?? '');
-    const flexed = cardContents.filter((attributes) => /\bflex\b/u.test(attributes));
-    expect(flexed, 'a flex CardContent collapses ChartContainer to zero width').toEqual([]);
+    for (const text of [source, cardSource]) {
+      const cardContents = [...text.matchAll(/<CardContent([^>]*)>/gu)].map((m) => m[1] ?? '');
+      const flexed = cardContents.filter((attributes) => /\bflex\b/u.test(attributes));
+      expect(flexed, 'a flex CardContent collapses ChartContainer to zero width').toEqual([]);
+    }
   });
 
   it('centres a square chart with mx-auto instead', () => {
