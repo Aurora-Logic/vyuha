@@ -512,6 +512,14 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM portal_link_keys WHERE org_id = ${this.orgId}`);
     // 15 Area AK: a return holds an employee (RESTRICT), a dispatch and the
     // document lines it came off, so it goes before every one of them.
+    // The interest snapshots reference parties and stock items RESTRICT, and
+    // the nightly build (or a hand-triggered one) writes them for every
+    // organisation -- including this fixture's. Cleared first, or the party
+    // and stock deletes below die on rows a job wrote between runs.
+    await this.db.execute(sql`DELETE FROM interest_daily_party WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_daily_stock WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_party_settings WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_build_state WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM sales_return_credit_notes WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM sales_return_attachments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM sales_return_lines WHERE org_id = ${this.orgId}`);
