@@ -20,6 +20,7 @@ Purchase going live). Updated as work lands.
 | B25-9 | The six overview KPI figures become customisable board tiles; customising Overview seeds from all six instead of dropping them | Done -- KPI registry + headline-figures section in Customise |
 | B25-10 | Reports module reorganised (owner: unorganised/confusing): hub catalogue with search + recently-used + category shelves, report identity header, two-row toolbar | Done -- hub chosen from three IA options |
 | B25-11 | Chart customisation previews: the form picker is a live gallery, every wearable form drawn with the report's real rows, unwearable ones dimmed with the reason | Done |
+| B25-12 | Virtual CFO module (owner master brief): prerequisites reported and cleared (framework + switcher already built; connector proceeds voucher-grain per D-23); fact_receivable_snapshot daily job building now; Parts M-Q of the brief awaited as docs/16-virtual-cfo.md before Phase 2 | In progress -- the irreversible clock first |
 
 ## 21 Aug 2026 brief
 
