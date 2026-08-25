@@ -65,6 +65,15 @@ item-group label that failed even once its table was joined.
 
 ## P3 — 42 leads, unverified
 
+**Closed 25 Aug 2026.** The 35 deduped leads all survived adversarial
+verification and are all fixed, each proven by a test failing against its
+pre-fix source. The last three: draft POs double-taking a requirement (the
+confirm now re-reads open quantities under lock and refuses, D-18), GRN and
+dispatch voids arriving from Tally without an audit row (one row, on the
+pull that learned of it), and the duplicate-cluster signature exceeding the
+btree index ceiling (~2.7KB; proved live with an incompressible 8KB probe,
+now deduped by md5).
+
 Rounding and tax-split details, stale query keys, drill-throughs dropping the
 period, short-close callable twice, requirements not released on a Tally
 cancel, a NULL-passing CHECK in migration 0011, and similar. Each is
