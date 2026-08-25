@@ -115,7 +115,16 @@ export class PurchaseOrderService implements OnModuleInit {
       }
       return;
     }
-    await tx.execute(sql`UPDATE grns SET last_error = 'Cancelled in Tally', updated_at = now() WHERE id = ${documentId}`);
+    // Noted once: the mirror arrives on every pull, and last_error flipping
+    // is the claim that this pull is the one that learned of the void.
+    const noted = await tx.execute<{ number: string }>(sql`
+      UPDATE grns SET last_error = 'Cancelled in Tally', updated_at = now()
+       WHERE id = ${documentId} AND last_error IS DISTINCT FROM 'Cancelled in Tally'
+      RETURNING number
+    `);
+    if (noted.rows[0] !== undefined) {
+      this.auditContext.record({ action: 'purchase.grn.cancelled_in_tally', entityType: 'grn', entityId: documentId, before: null, after: { number: noted.rows[0].number, remoteGuid: mirror.remoteGuid } });
+    }
   }
 
   // -------------------------------------------------------- purchase orders
@@ -323,6 +332,29 @@ export class PurchaseOrderService implements OnModuleInit {
       RETURNING id
     `);
     if (claimed.rows.length === 0) throw AppError.conflict(`${number} is already confirmed.`);
+
+    /*
+     * D-18: a shared requirement is not resolved by silently trimming it.
+     * Nothing claims a requirement until this point -- two drafts can link
+     * the same open quantity -- so the linked amounts are re-read here under
+     * lock, and a confirm that would take more than remains open is refused
+     * naming the shortfall. A racing confirm blocks on the same rows and
+     * sees this one's take when it wakes.
+     */
+    const linked = await tx.execute<{ name: string; open: string; qty: string }>(sql`
+      SELECT s.name, (r.quantity - r.ordered_qty)::text AS open, t.qty::text AS qty
+        FROM (SELECT plr.requirement_id, sum(plr.quantity) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${id} GROUP BY plr.requirement_id) t
+        JOIN procurement_requirements r ON r.id = t.requirement_id
+        JOIN stock_items s ON s.id = r.stock_item_id
+       ORDER BY s.name
+         FOR UPDATE OF r
+    `);
+    const short = linked.rows.find((row) => Number(row.qty) > Number(row.open));
+    if (short !== undefined) {
+      throw AppError.conflict(
+        `${number} links ${short.qty} of ${short.name} to a requirement with only ${Math.max(0, Number(short.open)).toFixed(3)} still open - another order took it first. Edit this draft's lines, or short-close the other order.`,
+      );
+    }
     // REQ-X-18: the vendor's copy, composed now and sent by hand until the channel lands (REQ-AA-26).
     const po = await this.view(orgId, id);
     if (po !== null) {
