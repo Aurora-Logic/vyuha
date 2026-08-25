@@ -4,6 +4,7 @@ import type { DateRange } from 'react-day-picker';
 import { useNavigate } from 'react-router';
 
 import { ChartCard } from '@/components/shared/chart-card';
+import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { useChartIntro } from '@/components/shared/use-chart-motion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -87,12 +88,12 @@ export function TileGrid({
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {visible.map((tile, index) => (
-        <DashboardTileCard
-          key={`${String(index)}-${tile.reportKey}`}
-          tile={tile}
-          range={range}
-          animate={animate}
-        />
+        // Bounded per tile: a tile is stored configuration, which makes it
+        // untrusted input to the renderer, and one bad tile must cost one
+        // card, never the board.
+        <ErrorBoundary key={`${String(index)}-${tile.reportKey}`} resetKey={`${tile.reportKey}-${tile.form}`}>
+          <DashboardTileCard tile={tile} range={range} animate={animate} />
+        </ErrorBoundary>
       ))}
     </div>
   );

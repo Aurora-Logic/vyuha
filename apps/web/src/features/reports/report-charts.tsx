@@ -417,10 +417,21 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
   // series keys the resolver worked out; only the shape of the drawing moves.
   const resolved = resolveChartForm(reportKey, definition, rows);
   const spec = resolved === null || form === undefined ? resolved : { ...resolved, form };
-  if (spec === null) return null;
+  if (spec === null) {
+    // Tile mode: the card stands and points at the table. The shell passes no
+    // title and keeps its bare null -- its table is already on the screen.
+    if (title === undefined) return null;
+    return (
+      <ChartCard title={title} action={action} wide={wide}>
+        <p className="text-muted-foreground py-8 text-sm">
+          This report reads as a table. Open it to see the rows.
+        </p>
+      </ChartCard>
+    );
+  }
   if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} />;
   const series = genericSeries(definition, rows);
-  if (series === null) return null;
+  if (series === null) return cannotWear('bar', title, action, wide);
   const first = series.series[0];
   // The comparison series joins by category and renders muted beside the
   // current one — current solid, past quiet (data-analyst skill §3).
@@ -481,15 +492,33 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
   );
 }
 
+/**
+ * A tile that cannot draw must still stand: the board is a grid of the
+ * person's choices, and a choice that silently vanishes reads as a blank
+ * board with no way back -- which is exactly how it shipped, once, with a
+ * pinned form the rows could not wear. Bare null is reserved for the report
+ * shell, which draws its table beside the chart and loses nothing.
+ */
+function cannotWear(form: string, title: string | undefined, action: ReactNode, wide: boolean | undefined): ReactNode {
+  if (title === undefined) return null;
+  return (
+    <ChartCard title={title} action={action} wide={wide}>
+      <p className="text-muted-foreground py-8 text-sm">
+        These rows cannot wear the {form} chart. Open the report to see them, or set the tile back to Automatic.
+      </p>
+    </ChartCard>
+  );
+}
+
 /** The non-bar generic forms: a line through time, or a donut of composition. */
 function FormChart({ spec, definition, rows, animate, compare, onDrill, title, action, wide }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; title?: string; action?: ReactNode; wide?: boolean }) {
   const points = formSeries(spec, rows);
-  if (points.length === 0) return null;
+  if (points.length === 0) return cannotWear(spec.form, title, action, wide);
   const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
 
   if (spec.form === 'pareto') {
     const points = paretoSeries(rows, spec.category);
-    if (points.length === 0) return null;
+    if (points.length === 0) return cannotWear('pareto', title, action, wide);
     const noun = spec.noun ?? 'rows';
     const measure = spec.measure ?? 'total';
     const config = {
@@ -604,7 +633,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   if (spec.form === 'heatmap') {
     const [valueKey = 'value'] = spec.series;
     const grid = heatmapGrid(points, valueKey);
-    if (grid.months.length === 0 || grid.rows.length === 0) return null;
+    if (grid.months.length === 0 || grid.rows.length === 0) return cannotWear('heatmap', title, action, wide);
     return (
       <ChartCard title={title ?? `${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} action={action} wide={wide} insight={null}>
         <div className="overflow-x-auto">
