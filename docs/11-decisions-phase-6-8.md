@@ -83,6 +83,33 @@ Last updated: 16 August 2026
 | **Confirmed** | 16 August 2026 |
 | **Reasoning** | A resolution rule for the common case is what produces a system nobody can audit six months later. The exception queue is a screen somebody checks daily, not a log somebody greps after a customer complains. |
 
+### D-19 — Masters and Sales merge; Logistics becomes a module
+
+| | |
+|---|---|
+| **Decision** | The Masters module folds into Sales as sidebar groups (Documents, Masters, Books). Fulfilment — pick queue, packed, awaiting invoice, dispatches, delivered, returns, scan — moves out into a new Logistics module. Purchase stays whole. |
+| **Confirmed** | 25 August 2026, owner. |
+| **Reasoning** | Masters and Sales are worked hand in hand: raising an invoice means touching parties, items and price lists in the same sitting, and the module switcher between them was a wall through one job. Fulfilment is the opposite case — a different person at a different bench, whose seven destinations were crowding the Sales sidebar toward the eleven-destination cap (D-16). |
+| **Consequence** | Item-level permission gates replace the merged module's single gate, so a masters-only user still sees their screens. Breadcrumbs, the Go To palette's section headings and the guided tour follow the registry and need no separate change, but their tests assert literal labels and move with it. |
+
+### D-20 — The mobile bar is the person's, five wide, from any module
+
+| | |
+|---|---|
+| **Decision** | The bottom bar carries five chosen destinations plus More. The picker offers every destination the person can reach across every module, not just the active module's. |
+| **Confirmed** | 25 August 2026, owner. |
+| **Reasoning** | Roles differ more than job titles suggest: the person who lives in Collections and the one who lives in the pick queue should not share a bar. A per-module bar also made the bar itself unstable — it changed under the thumb when a link crossed a module boundary. |
+| **Consequence** | The stored preference becomes one cross-module list (store version bump with migration from the per-module shape). A saved route the person can no longer reach is dropped silently, as today. |
+
+### D-21 — GST inputs summary, amending REQ-AE-08 narrowly
+
+| | |
+|---|---|
+| **Decision** | Vyuha shows a period GST summary — outward taxable value and tax by head (CGST, SGST, IGST, cess) from projected tax-ledger lines, sales net of credit notes — as working data for whoever files. No GSTR form layout, no filing, no by-rate table. Tally remains the filing system; the deep-link stays; the surface says plainly that it is not a return. |
+| **Confirmed** | 25 August 2026, owner, choosing "inputs summary" over 3B-shaped sections and over keeping the rule unchanged. |
+| **Reasoning** | The same stance the product takes on payroll: produce the inputs, never run the calculation that files. A cross-check figure beside Tally's own 3B saves the accountant a reconciliation walk; a second return would eventually disagree with the certified one by a rupee and cost more than it saves. |
+| **Consequence** | The by-rate split (3B table 3.1(a)'s shape) stays unbuilt until the sync contract carries per-line tax rates and a Duties & Taxes ledger master — the projection today has tax heads only as ledger-line names. Head classification from ledger names is stated as such on the surface, with the as-of stamp. `14 §1` stays in force for everything else it names. |
+
 ---
 
 ## Still open
