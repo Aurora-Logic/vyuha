@@ -18,6 +18,7 @@
     "user:mfa": "tsx seed/manage-mfa.ts",
     "rate-limit:clear": "tsx seed/clear-rate-limits.ts",
     "tally:clear": "tsx seed/clear-tally-data.ts",
+    "cross-company:report": "tsx seed/cross-company-consolidation.ts",
     "db:demo": "tsx seed/run-demo.ts"
   },
   "dependencies": {
