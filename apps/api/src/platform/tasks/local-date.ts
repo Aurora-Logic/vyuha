@@ -13,3 +13,16 @@ export function localDateIn(instant: Date, timezone: string): string {
     day: '2-digit',
   }).format(instant);
 }
+
+/**
+ * The IST calendar date of an instant. The nightly snapshot jobs (D-22,
+ * D-23) key their photographs by this: dates are stored UTC and displayed
+ * IST, so the books' day boundary is IST midnight — an instant from 18:30Z
+ * onward already belongs to the next IST day, and a photograph keyed by the
+ * UTC date would file the evening's book under yesterday's page. Both jobs
+ * share this one function so their tables can never disagree on which date
+ * a night belongs to.
+ */
+export function istDateOf(instantIso: string): string {
+  return localDateIn(new Date(instantIso), 'Asia/Kolkata');
+}

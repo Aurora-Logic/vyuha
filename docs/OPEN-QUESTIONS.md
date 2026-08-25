@@ -503,3 +503,17 @@ One consequence to note either way: commit `109421a` corrected two role
 expectations to include `regularization.raise`, because that is what the
 code returns today. If the key is deleted again, those two expectations go
 back to three keys.
+
+---
+
+## Raised during Phase 6a — the receivable snapshot (D-23)
+
+Defaults implemented in `receivable-snapshot.service.ts` and the two nightly
+handlers. **All three confirmed by the owner, 25 August 2026** — recorded
+here rather than guessed at, and now decisions rather than drift.
+
+| # | Question | Blocks | Recommended default in use |
+|---|---|---|---|
+| D-23-1 | **Billwise parties' opening bills are invisible to the snapshot.** `bill_allocations` hangs off vouchers, so a ledger-master opening bill ref has no `new` row; receipts marked against one sum negative and the group is dropped. The voucher-grain fallback seeds `parties.opening_balance` (D-22 rule 6), but the billwise path has no per-bill date to seed with. | Nothing yet — understates billwise parties whose receivable predates the sync window | **Accept the understatement and keep the dropped groups out**, until the connector projects opening bill refs with their own dates. Netting the party's opening balance against the dropped groups would need a bill date to age by, and inventing one would fabricate ageing. The service comment marks the spot. |
+| D-23-2 | **Does the CFO snapshot honour `interest_party_settings.credit_days_override`?** The interest build ages by `override ?? party.credit_days`; the snapshot uses `party.credit_days` alone, so the two modules can disagree on when the same bill went overdue for an overridden party. | Nothing yet — cosmetic divergence between two reports | **No.** The override is an interest-module setting for pricing, not a statement about the bill's real terms, and modules may not read each other's settings. If the owner wants one ageing everywhere, the override moves to the party master and both modules read it there. |
+| D-23-3 | **Is the snapshot's day boundary IST, or each organisation's own timezone?** Organisations carry a `timezone` column (default `Asia/Kolkata`) and the attendance sweeps close each org's day in its own zone; both nightly book photographs (D-22, D-23) close the day at IST midnight for every org via `istDateOf`. | Nothing while every org is IST | **Fixed IST**, matching "dates are stored UTC and displayed IST" in the CFO brief. If a non-IST organisation ever onboards, both handlers take the org's timezone from the row they already read, and `istDateOf` becomes `localDateIn(now, org.timezone)` — the seam is one function. |

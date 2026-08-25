@@ -155,4 +155,31 @@ describe('the open book at a date', () => {
     });
     expect(open).toEqual([]);
   });
+
+  it('a positive opening balance is a keyless bill the oldest receipts settle first', () => {
+    // The receipt is against the opening money, not the January sale; without
+    // the seed it would read as an advance and eat the V-1 bill instead.
+    const open = openBillsThrough({
+      through: '2026-01-31',
+      opening: { date: '2026-01-01', amount: 5_000 },
+      bills: [{ date: '2026-01-10', amount: 2_000, key: 'V-1' }],
+      settlements: [{ date: '2026-01-15', amount: 4_000 }],
+    });
+    expect(open).toEqual([
+      { date: '2026-01-01', key: null, amount: 5_000, outstanding: 1_000 },
+      { date: '2026-01-10', key: 'V-1', amount: 2_000, outstanding: 2_000 },
+    ]);
+  });
+
+  it('a negative opening balance is an advance the first bill consumes before it ages', () => {
+    const open = openBillsThrough({
+      through: '2026-01-31',
+      opening: { date: '2026-01-01', amount: -1_500 },
+      bills: [{ date: '2026-01-10', amount: 2_000, key: 'V-1' }],
+      settlements: [],
+    });
+    // `amount` stays what the bill was raised for; the advance only reduces
+    // what is still open on it.
+    expect(open).toEqual([{ date: '2026-01-10', key: 'V-1', amount: 2_000, outstanding: 500 }]);
+  });
 });

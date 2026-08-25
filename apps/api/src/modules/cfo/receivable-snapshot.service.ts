@@ -13,11 +13,16 @@ import { bucketFor, daysOverdueOn, dueDateFor, type ReceivableBucket, type Recei
  *   bill is its rows summed, exactly as the ageing report reads them.
  * - `voucher` for parties with no allocation rows — each Sales voucher a
  *   bill, receipts and credit notes settling oldest-first through the
- *   platform ledger, due = voucher date + the party's credit days.
+ *   platform ledger, the opening balance seeded at the books' first day
+ *   (D-22 rule 6), due = voucher date + the party's credit days.
  *
  * A party with allocation rows stays billwise even when every bill is
  * settled: its receipts carry marks the voucher walk would misread as FIFO,
- * so falling back would invent open bills the books do not show.
+ * so falling back would invent open bills the books do not show. What the
+ * billwise side cannot see is an opening bill from before the sync window —
+ * `bill_allocations` hangs off vouchers, and a ledger-master opening ref
+ * has none — so receipts marked against one sum negative and drop out
+ * (OPEN-QUESTIONS D-23-1).
  */
 
 /**
@@ -42,7 +47,12 @@ type VoucherRow = {
   voucher_type: string;
   voucher_number: string;
   amount: string;
+};
+
+type DebtorRow = {
+  id: string;
   credit_days: number | null;
+  opening_balance: string | null;
 };
 
 interface SnapshotRow {
@@ -96,8 +106,9 @@ export class ReceivableSnapshotService {
 
   /**
    * Tally's own bill-wise book: a bill is its `new` and `against` rows
-   * summed, open when the sum is positive after rounding to the paisa — a
-   * hundredth of a rupee left by a part payment is not an open bill.
+   * summed, open when the sum is still positive after rounding to the
+   * paisa — the rounding drops only sub-paisa float residue, so a bill with
+   * one paisa genuinely left on it stays open, exactly as Tally shows it.
    * `advance` and `on_account` rows are excluded for the reason the ageing
    * report excludes them: money with no bill attached has no date to age
    * from. Rows whose ledger name matched no projected party cannot land in
@@ -111,11 +122,17 @@ export class ReceivableSnapshotService {
     // only allocations from vouchers that existed by then — and drops
     // cancelled vouchers, whose allocation rows survive until a re-pull
     // rewrites them, the way the voucher-grain walk already drops them.
+    // min() on both dates, deliberately: Tally restarts voucher numbers each
+    // financial year, so one party can hold two open bills sharing a name,
+    // and the projection has nothing beyond the name to split them by. The
+    // merged row then ages by its OLDEST bill and due date — overstating a
+    // bucket keeps overdue money visible; max() would let the old year's
+    // receivable hide behind the new year's due date.
     const billwise = await this.db.execute<BillwiseRow>(sql`
       SELECT b.party_id,
              b.bill_name,
              min(b.bill_date)::text AS bill_date,
-             max(b.due_date)::text AS due_date,
+             min(b.due_date)::text AS due_date,
              p.credit_days,
              round(sum(b.amount) FILTER (WHERE b.ref_type = 'new'), 2)::text AS raised,
              round(sum(b.amount), 2)::text AS outstanding
@@ -167,9 +184,29 @@ export class ReceivableSnapshotService {
     snapshotDate: string,
     billwiseParties: ReadonlySet<string>,
   ): Promise<SnapshotRow[]> {
+    // The books begin where the interest build says they do (D-22 rule 6):
+    // at the earliest voucher the projection holds, with each party's
+    // opening balance seeded there as a keyless bill or an advance. Without
+    // the seed, receipts that in truth settle the opening balance read as
+    // advances and consume later bills before they age. Null means an empty
+    // projection — nothing to photograph at voucher grain.
+    const earliest = await this.db.execute<{ d: string | null }>(sql`
+      SELECT min(voucher_date)::text AS d FROM vouchers WHERE org_id = ${orgId} AND NOT is_cancelled
+    `);
+    const seriesStart = earliest.rows[0]?.d ?? null;
+    if (seriesStart === null) return [];
+
+    // Every debtor, not just the vouchered ones: a party whose whole
+    // receivable is its opening balance has no voucher to surface it.
+    const debtors = await this.db.execute<DebtorRow>(sql`
+      SELECT p.id, p.credit_days, p.opening_balance::text AS opening_balance
+        FROM parties p
+       WHERE p.org_id = ${orgId} AND p.parent_group = 'Sundry Debtors'
+    `);
+
     const vouchers = await this.db.execute<VoucherRow>(sql`
       SELECT v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_number,
-             v.amount::text AS amount, p.credit_days
+             v.amount::text AS amount
         FROM vouchers v
         JOIN parties p ON p.id = v.party_id
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled
@@ -188,10 +225,12 @@ export class ReceivableSnapshotService {
     }
 
     const rows: SnapshotRow[] = [];
-    for (const [partyId, partyVouchers] of byParty) {
+    for (const debtor of debtors.rows) {
+      if (billwiseParties.has(debtor.id)) continue;
+      const partyId = debtor.id;
       const bills: BillEvent[] = [];
       const settlements: SettlementEvent[] = [];
-      for (const voucher of partyVouchers) {
+      for (const voucher of byParty.get(partyId) ?? []) {
         const amount = Math.abs(Number(voucher.amount));
         if (amount === 0) continue;
         if (voucher.voucher_type === 'Sales') {
@@ -200,10 +239,17 @@ export class ReceivableSnapshotService {
           settlements.push({ date: voucher.voucher_date, amount });
         }
       }
+      const opening = Number(debtor.opening_balance ?? '0');
+      if (bills.length === 0 && settlements.length === 0 && opening <= 0) continue;
 
-      const creditDays = partyVouchers[0]?.credit_days ?? 0;
+      const creditDays = debtor.credit_days ?? 0;
       const usedRefs = new Set<string>();
-      for (const open of openBillsThrough({ through: snapshotDate, bills, settlements })) {
+      for (const open of openBillsThrough({
+        through: snapshotDate,
+        ...(opening === 0 ? {} : { opening: { date: seriesStart, amount: opening } }),
+        bills,
+        settlements,
+      })) {
         const outstanding = Math.round(open.outstanding * 100) / 100;
         if (outstanding <= 0) continue;
         const dueDate = dueDateFor(open.date, creditDays);

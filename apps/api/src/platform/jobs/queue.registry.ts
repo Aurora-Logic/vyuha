@@ -192,6 +192,8 @@ export interface JobPayloads {
    */
   'build-interest-snapshots': {
     readonly now?: string;
+    /** The occurrence's own creation time, stamped by the runner on scheduled runs; `now` beats it. */
+    readonly requestedAt?: string;
     readonly orgId?: string;
     readonly partyId?: string;
     readonly stockItemId?: string;
@@ -203,11 +205,14 @@ export interface JobPayloads {
    * calendar day. The Virtual CFO's one irreversible piece — a day nobody
    * photographed cannot be rebuilt, because receipts keep settling bills
    * and the projection only holds the present. `now` and `orgId` exist for
-   * tests and repairs; the schedule sets neither, so the routine run always
-   * photographs the day it wakes on.
+   * tests and repairs; the routine run photographs the IST day of its own
+   * occurrence (`requestedAt`), so even a retry that limps past midnight
+   * still writes the day it woke for.
    */
   'snapshot-receivables': {
     readonly now?: string;
+    /** The occurrence's own creation time, stamped by the runner on scheduled runs; `now` beats it. */
+    readonly requestedAt?: string;
     readonly orgId?: string;
   };
 
