@@ -512,6 +512,11 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM portal_link_keys WHERE org_id = ${this.orgId}`);
     // 15 Area AK: a return holds an employee (RESTRICT), a dispatch and the
     // document lines it came off, so it goes before every one of them.
+    // D-23: the receivable snapshot holds parties RESTRICT, and the nightly
+    // job writes it for every organisation -- this fixture's included. Same
+    // story as the interest snapshots below: cleared before the party
+    // delete, or rows a job wrote between runs block it.
+    await this.db.execute(sql`DELETE FROM fact_receivable_snapshot WHERE org_id = ${this.orgId}`);
     // The interest snapshots reference parties and stock items RESTRICT, and
     // the nightly build (or a hand-triggered one) writes them for every
     // organisation -- including this fixture's. Cleared first, or the party

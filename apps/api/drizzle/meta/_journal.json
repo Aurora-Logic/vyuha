@@ -470,6 +470,13 @@
       "when": 1787659207623,
       "tag": "0066_hard_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1787660976180,
+      "tag": "0067_cfo_receivable_snapshot",
+      "breakpoints": true
     }
   ]
 }

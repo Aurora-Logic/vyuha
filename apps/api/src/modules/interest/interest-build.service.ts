@@ -2,18 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
-import type { InterestPolicy } from '../../platform/settings/settings.catalogue.js';
 import {
   buildPartyDailySeries,
-  buildStockDailySeries,
   epochDay,
   isoOfEpochDay,
   type BillEvent,
   type PartyDay,
   type SettlementEvent,
-  type StockDay,
-  type StockEvent,
-} from './interest-math.js';
+} from '../../platform/receivables/bill-series.js';
+import type { InterestPolicy } from '../../platform/settings/settings.catalogue.js';
+import { buildStockDailySeries, type StockDay, type StockEvent } from './interest-math.js';
 import { readInterestPolicy } from './interest-policy.js';
 
 /**

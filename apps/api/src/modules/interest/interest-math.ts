@@ -1,5 +1,7 @@
 import type { InterestDayBasis } from '@vyuha/shared';
 
+import { epochDay, isoOfEpochDay } from '../../platform/receivables/bill-series.js';
+
 /**
  * The one formula of D-22, as pure functions: interest for a period is the
  * SUM of the daily closing balance series times the annual rate over the day
@@ -7,21 +9,15 @@ import type { InterestDayBasis } from '@vyuha/shared';
  * over its inputs so the hand-worked examples in `interest-math.test.ts` can
  * pin exact numbers; nothing reads a clock, a database or a setting.
  *
+ * The receivable side — the open-bill ledger and the party daily series —
+ * lives in `platform/receivables/bill-series.ts`, because the CFO module
+ * reads the same books and modules may not import each other. What remains
+ * here is the pricing and the stock series, which are interest's alone.
+ *
  * Rounding: none. Sums are carried at full precision and the callers round
  * at display (the snapshot writer stores the daily balances at the paisa,
  * which is the grain of the ledger itself, not a display rounding).
  */
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/** Calendar days as an integer epoch, so date arithmetic cannot drift with a timezone. */
-export function epochDay(isoDate: string): number {
-  return Math.floor(Date.parse(`${isoDate}T00:00:00Z`) / MS_PER_DAY);
-}
-
-export function isoOfEpochDay(day: number): string {
-  return new Date(day * MS_PER_DAY).toISOString().slice(0, 10);
-}
 
 /** A party override beats the org rate; that is the whole precedence. */
 export function resolveAnnualRatePct(orgRatePct: number, overridePct: number | null): number {
@@ -38,138 +34,6 @@ export function interestOnRupeeDays(
   dayBasis: InterestDayBasis,
 ): number {
   return (sumOfDailyClosings * annualRatePct) / 100 / dayBasis;
-}
-
-// ------------------------------------------------------------- receivables
-
-export interface BillEvent {
-  /** YYYY-MM-DD. */
-  readonly date: string;
-  /** Positive rupees. */
-  readonly amount: number;
-  /** Tally's bill name, when the voucher carried a `new` allocation. */
-  readonly key?: string;
-}
-
-export interface SettlementEvent {
-  readonly date: string;
-  /** Positive rupees. */
-  readonly amount: number;
-  /** Tally's `against` mark; FIFO oldest-first when absent (D-22 rule 5). */
-  readonly billKey?: string;
-}
-
-export interface PartyDay {
-  readonly date: string;
-  readonly closing: number;
-  readonly withinCredit: number;
-  readonly overdue: number;
-}
-
-interface OpenBill {
-  readonly day: number;
-  readonly key: string | null;
-  remaining: number;
-}
-
-/**
- * The voucher-grain daily series for one party (D-22 rule 7): each bill is
- * within credit through its date plus the credit days, overdue from the day
- * after. Settlements reduce the oldest bill first unless they carry a Tally
- * bill mark; what exceeds every open bill becomes an advance, which the next
- * bill consumes before it ages at all. A party in advance closes negative,
- * and the negative rides in `overdue` — interest gained, never clamped —
- * so the loss column is the one honest number either way.
- *
- * Part payments, credit notes and backdated entries need no special arms:
- * each is an event on its own date, and the series only ever reads events
- * up to the day being closed.
- */
-export function buildPartyDailySeries(input: {
-  readonly seriesStart: string;
-  readonly to: string;
-  /** Seeds a bill (positive) or an advance (negative) at `seriesStart` (D-22 rule 6). */
-  readonly openingBalance: number;
-  readonly creditDays: number;
-  readonly bills: readonly BillEvent[];
-  readonly settlements: readonly SettlementEvent[];
-}): PartyDay[] {
-  const startDay = epochDay(input.seriesStart);
-  const endDay = epochDay(input.to);
-  if (endDay < startDay) return [];
-
-  const billsByDay = new Map<number, BillEvent[]>();
-  for (const bill of input.bills) {
-    const day = epochDay(bill.date);
-    const list = billsByDay.get(day) ?? [];
-    list.push(bill);
-    billsByDay.set(day, list);
-  }
-  const settlementsByDay = new Map<number, SettlementEvent[]>();
-  for (const settlement of input.settlements) {
-    const day = epochDay(settlement.date);
-    const list = settlementsByDay.get(day) ?? [];
-    list.push(settlement);
-    settlementsByDay.set(day, list);
-  }
-
-  // Insertion order is FIFO: bills are pushed chronologically below.
-  const open: OpenBill[] = [];
-  let advance = 0;
-
-  const raise = (day: number, amount: number, key: string | null): void => {
-    let remaining = amount;
-    if (advance > 0) {
-      const applied = Math.min(advance, remaining);
-      advance -= applied;
-      remaining -= applied;
-    }
-    if (remaining > 0) open.push({ day, key, remaining });
-  };
-
-  const settle = (amount: number, billKey: string | undefined): void => {
-    let left = amount;
-    if (billKey !== undefined) {
-      const target = open.find((bill) => bill.key === billKey && bill.remaining > 0);
-      if (target !== undefined) {
-        const applied = Math.min(target.remaining, left);
-        target.remaining -= applied;
-        left -= applied;
-      }
-    }
-    for (const bill of open) {
-      if (left <= 0) break;
-      const applied = Math.min(bill.remaining, left);
-      bill.remaining -= applied;
-      left -= applied;
-    }
-    if (left > 0) advance += left;
-  };
-
-  if (input.openingBalance > 0) raise(startDay, input.openingBalance, null);
-  else if (input.openingBalance < 0) advance = -input.openingBalance;
-
-  const series: PartyDay[] = [];
-  for (let day = startDay; day <= endDay; day += 1) {
-    for (const bill of billsByDay.get(day) ?? []) raise(day, bill.amount, bill.key ?? null);
-    for (const settlement of settlementsByDay.get(day) ?? []) settle(settlement.amount, settlement.billKey);
-
-    let withinCredit = 0;
-    let overdue = 0;
-    for (const bill of open) {
-      if (bill.remaining <= 0) continue;
-      // Within credit while the bill's age has not passed the credit days;
-      // overdue from the day after due, in calendar days with no holiday
-      // exclusion — money costs interest on a Sunday too.
-      if (day - bill.day <= input.creditDays) withinCredit += bill.remaining;
-      else overdue += bill.remaining;
-    }
-    // An advance can only be positive while no bill remains (a new bill
-    // consumes it first), so the negative lands whole in `overdue`.
-    overdue -= advance;
-    series.push({ date: isoOfEpochDay(day), closing: withinCredit + overdue, withinCredit, overdue });
-  }
-  return series;
 }
 
 // ------------------------------------------------------------------- stock

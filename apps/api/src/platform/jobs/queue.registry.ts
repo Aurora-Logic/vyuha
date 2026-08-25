@@ -198,6 +198,19 @@ export interface JobPayloads {
     readonly from?: string;
   };
 
+  /**
+   * D-23: photograph each organisation's open receivable book for one IST
+   * calendar day. The Virtual CFO's one irreversible piece — a day nobody
+   * photographed cannot be rebuilt, because receipts keep settling bills
+   * and the projection only holds the present. `now` and `orgId` exist for
+   * tests and repairs; the schedule sets neither, so the routine run always
+   * photographs the day it wakes on.
+   */
+  'snapshot-receivables': {
+    readonly now?: string;
+    readonly orgId?: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -306,6 +319,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'raise-reorder-requirements': QUEUES.MAINTENANCE,
   'sweep-exception-reports': QUEUES.MAINTENANCE,
   'build-interest-snapshots': QUEUES.MAINTENANCE,
+  'snapshot-receivables': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -420,6 +434,10 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // D-22: after the night's pulls and the collections sweep have settled the
   // projection, before anyone reads the interest reports with breakfast.
   { schedulerId: 'interest:build-snapshots', jobName: 'build-interest-snapshots', pattern: '20 3 * * *' },
+  // D-23: after the journal-body sweep at 02:45 and clear of the interest
+  // build. A miss here is history lost rather than late, so it runs early in
+  // the quiet hours with the whole night left for a retry.
+  { schedulerId: 'cfo:snapshot-receivables', jobName: 'snapshot-receivables', pattern: '50 2 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

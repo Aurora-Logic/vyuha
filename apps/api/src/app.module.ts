@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
+import { CfoModule } from './modules/cfo/cfo.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
 import { SalesModule } from './modules/sales/sales.module.js';
 import { PurchaseModule } from './modules/purchase/purchase.module.js';
@@ -105,6 +106,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     SalesModule,
     PurchaseModule,
     InterestModule,
+    CfoModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AppExceptionFilter },
