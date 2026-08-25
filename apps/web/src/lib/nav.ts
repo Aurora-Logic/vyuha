@@ -728,15 +728,9 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Catalogue',
         items: [
-          {
-            to: '/reports',
-            label: 'All reports',
-            shortLabel: 'Reports',
-            icon: ChartBarIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 3,
-            reqs: 'REQ-J-01, REQ-AD-03',
-          },
+          // Owner, 25 Aug: the shelves only. The hub at /reports is where every
+          // category door and every report's back button lands, so a separate
+          // "All reports" row was the same door twice.
           {
             to: '/reports?category=Books',
             label: 'Books',
@@ -839,9 +833,12 @@ export function findModuleForPath(pathname: string): ModuleDef {
   return (
     MODULES.find((module) =>
       module.groups.some((group) =>
-        group.items.some(
-          (item) => item.to === pathname || (item.to !== '/' && pathname.startsWith(`${item.to}/`)),
-        ),
+        group.items.some((item) => {
+          // Query doors (the report categories) still claim their pathname:
+          // /reports belongs to the reports module even with no bare item.
+          const base = item.to.split('?')[0] ?? item.to;
+          return base === pathname || (base !== '/' && pathname.startsWith(`${base}/`));
+        }),
       ),
     ) ?? ATTENDANCE_MODULE
   );
@@ -900,6 +897,10 @@ const OFF_NAV_LABELS: Record<string, string> = {
      being a destination inside a module, so it needs a name here for the same
      reason the three below do -- without it the header announced the page as
      "Not found" above a screen that was rendering perfectly. */
+  /* The reports hub. Its sidebar rows are the category doors (owner, 25 Aug),
+     each carrying a query -- so no nav item owns the bare pathname, and the
+     breadcrumb needs the name here. */
+  '/reports': 'All reports',
   '/administration': 'Administration',
   /* Same reasoning as /profile: PRD §6.1 fixes the sidebar to Work, Records,
      Reports and Setup, and a changelog belongs to none of them. Reached from

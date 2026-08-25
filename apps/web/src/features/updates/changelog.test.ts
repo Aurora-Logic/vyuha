@@ -13,7 +13,7 @@ import { hasUnread, LATEST_VERSION, RELEASES, visibleReleases } from './changelo
  */
 
 /** Every route the router will actually serve, plus the off-sidebar ones. */
-const ROUTES = new Set<string>([...ALL_NAV_ITEMS.map((i) => i.to), '/profile', '/updates']);
+const ROUTES = new Set<string>([...ALL_NAV_ITEMS.map((i) => i.to), '/profile', '/updates', '/reports']);
 
 describe('changelog integrity', () => {
   it('points every "Take me there" at a route that exists', () => {

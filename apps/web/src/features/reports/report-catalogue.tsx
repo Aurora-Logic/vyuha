@@ -217,7 +217,7 @@ export function ReportCatalogue({
                   key={report.key}
                   variant="outline"
                   size="sm"
-                  className="rounded-full font-normal"
+                  className="font-normal"
                   onClick={() => {
                     open(report);
                   }}
