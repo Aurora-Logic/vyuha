@@ -345,6 +345,7 @@ export function ReportsDashboardV2() {
           // figures, so customising never silently drops them.
           current={layout ?? OVERVIEW_SEED}
           hasStored={stored !== null}
+          range={range}
         />
       ) : null}
     </div>

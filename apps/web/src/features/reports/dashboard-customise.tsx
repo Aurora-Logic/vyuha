@@ -1,8 +1,13 @@
 import { useState } from 'react';
-import { ArrowDownIcon, ArrowUpIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CaretDownIcon,
+  CaretUpIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react';
 import {
   DASHBOARD_KPI_METRICS,
-  DASHBOARD_TILE_FORMS,
   REPORT_DEFINITIONS,
   SALES_ANALYSIS_DIMENSIONS,
   SALES_ANALYSIS_DIMENSION_LABELS,
@@ -17,6 +22,7 @@ import {
   type ReportKey,
   type SalesAnalysisDimension,
 } from '@vyuha/shared';
+import type { DateRange } from 'react-day-picker';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -47,8 +53,9 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 import { useReportCatalogue } from './api';
+import { FormGallery } from './dashboard-form-gallery';
+import { FORM_LABELS } from './dashboard-form-labels';
 import { DASHBOARD_KPIS, kpiTileOf } from './dashboard-kpis';
-import { wearableForms } from './report-series';
 import { useResetDashboardLayout, useSaveDashboardLayout } from './use-dashboard-layouts';
 
 /**
@@ -57,25 +64,6 @@ import { useResetDashboardLayout, useSaveDashboardLayout } from './use-dashboard
  * report catalogue the server serves this person -- never from a client list
  * of keys -- so nobody can add a tile their permissions cannot render.
  */
-
-// `hbar` reads "Horizontal bars" because plain "Bars" now names the vertical
-// family: two entries wearing the same word would be an unanswerable choice.
-const FORM_LABELS: Record<DashboardTileForm, string> = {
-  auto: 'Automatic',
-  hbar: 'Horizontal bars',
-  bar: 'Bars',
-  'stacked-bar': 'Stacked bars',
-  line: 'Line',
-  area: 'Area',
-  'stacked-area': 'Stacked area',
-  donut: 'Donut',
-  pie: 'Pie',
-  scatter: 'Scatter',
-  heatmap: 'Heatmap',
-  radials: 'Radials',
-  radar: 'Radar',
-  pareto: 'Pareto',
-};
 
 /** The tile as the sheet edits it: the label always a string so the Input stays controlled. */
 interface DraftTile {
@@ -121,10 +109,6 @@ function toTile(draft: DraftTile): DashboardTile {
   };
 }
 
-function isTileForm(value: string): value is DashboardTileForm {
-  return (DASHBOARD_TILE_FORMS as readonly string[]).includes(value);
-}
-
 function isDimension(value: string): value is SalesAnalysisDimension {
   return (SALES_ANALYSIS_DIMENSIONS as readonly string[]).includes(value);
 }
@@ -135,6 +119,7 @@ export function DashboardCustomiseSheet({
   onOpenChange,
   current,
   hasStored,
+  range,
 }: {
   board: DashboardKey;
   open: boolean;
@@ -142,6 +127,8 @@ export function DashboardCustomiseSheet({
   /** The draft's starting point: the stored layout, the preset, or the overview's KPI seed. */
   current: DashboardLayout | null;
   hasStored: boolean;
+  /** The board's own period, so a tile's chart previews draw the rows the board would. */
+  range: DateRange;
 }) {
   const isMobile = useIsMobile();
   return (
@@ -163,6 +150,7 @@ export function DashboardCustomiseSheet({
             board={board}
             current={current}
             hasStored={hasStored}
+            range={range}
             onClose={() => {
               onOpenChange(false);
             }}
@@ -177,11 +165,13 @@ function CustomiseBody({
   board,
   current,
   hasStored,
+  range,
   onClose,
 }: {
   board: DashboardKey;
   current: DashboardLayout | null;
   hasStored: boolean;
+  range: DateRange;
   onClose: () => void;
 }) {
   // Two drafts, one save: the headline figures keep their own order among
@@ -194,6 +184,9 @@ function CustomiseBody({
     (current?.tiles ?? []).filter((tile) => tile.kind === 'chart').map(fromTile),
   );
   const count = kpis.length + tiles.length;
+  // Which tile's chart gallery is expanded, by position. One at a time: a
+  // dozen live previews per open gallery is the budget, not per tile.
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const catalogue = useReportCatalogue();
   const save = useSaveDashboardLayout();
   const reset = useResetDashboardLayout();
@@ -210,6 +203,10 @@ function CustomiseBody({
   const groups = [...byCategory.entries()];
 
   function move(index: number, delta: -1 | 1): void {
+    // The open gallery is addressed by position, and after a move or a
+    // removal that position names a different tile -- closing beats showing
+    // one report's previews under another report's row.
+    setGalleryAt(null);
     setTiles((list) => {
       const target = index + delta;
       if (target < 0 || target >= list.length) return list;
@@ -226,6 +223,7 @@ function CustomiseBody({
   }
 
   function remove(index: number): void {
+    setGalleryAt(null);
     setTiles((list) => list.filter((_, at) => at !== index));
   }
 
@@ -370,6 +368,11 @@ function CustomiseBody({
                 first={index === 0}
                 last={index === tiles.length - 1}
                 busy={busy}
+                range={range}
+                galleryOpen={galleryAt === index}
+                onToggleGallery={() => {
+                  setGalleryAt((at) => (at === index ? null : index));
+                }}
                 onChange={(patch) => {
                   update(index, patch);
                 }}
@@ -463,6 +466,9 @@ function TileRow({
   first,
   last,
   busy,
+  range,
+  galleryOpen,
+  onToggleGallery,
   onChange,
   onUp,
   onDown,
@@ -473,6 +479,9 @@ function TileRow({
   first: boolean;
   last: boolean;
   busy: boolean;
+  range: DateRange;
+  galleryOpen: boolean;
+  onToggleGallery: () => void;
   onChange: (patch: Partial<DraftTile>) => void;
   onUp: () => void;
   onDown: () => void;
@@ -527,25 +536,23 @@ function TileRow({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={draft.form}
-          onValueChange={(next: string | null) => {
-            if (next !== null && isTileForm(next)) onChange({ form: next });
-          }}
+        {/* Collapsed to the current form's name so the tile rows stay
+            scannable; expanding trades that row's compactness for the
+            gallery of live previews below. */}
+        <Button
+          type="button"
+          variant="outline"
+          aria-expanded={galleryOpen}
+          aria-label={`Chart form for ${definition.label}: ${FORM_LABELS[draft.form]}`}
+          onClick={onToggleGallery}
         >
-          <SelectTrigger aria-label={`Chart form for ${definition.label}`} className="w-32">
-            <SelectValue>{(current: DashboardTileForm) => FORM_LABELS[current]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {(['auto', ...wearableForms(definition)] as DashboardTileForm[]).map((form) => (
-                <SelectItem key={form} value={form}>
-                  {FORM_LABELS[form]}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+          Chart: {FORM_LABELS[draft.form]}
+          {galleryOpen ? (
+            <CaretUpIcon data-icon="inline-end" />
+          ) : (
+            <CaretDownIcon data-icon="inline-end" />
+          )}
+        </Button>
 
         <Label htmlFor={wideId} className="flex items-center gap-1.5 text-xs font-normal">
           <Switch
@@ -616,6 +623,18 @@ function TileRow({
           />
         ) : null}
       </div>
+
+      {galleryOpen ? (
+        <FormGallery
+          reportKey={draft.reportKey}
+          definition={definition}
+          form={draft.form}
+          range={range}
+          onPick={(next) => {
+            onChange({ form: next });
+          }}
+        />
+      ) : null}
     </li>
   );
 }
