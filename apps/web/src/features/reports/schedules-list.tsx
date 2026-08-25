@@ -7,6 +7,7 @@ import {
 } from '@vyuha/shared';
 
 import { SectionHeading } from '@/components/shared/section-heading';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -135,6 +136,17 @@ export function SchedulesList({ canExport }: { canExport: boolean }) {
             <Skeleton key={index} className="h-14 w-full" />
           ))}
         </div>
+      ) : schedules.isError ? (
+        // A failed load must not wear the empty state: "Nothing scheduled"
+        // over schedules that exist but could not be fetched tells the user
+        // their timers are gone.
+        <QueryErrorAlert
+          error={schedules.error}
+          subject="the scheduled reports"
+          onRetry={() => {
+            void schedules.refetch();
+          }}
+        />
       ) : schedules.data === undefined || schedules.data.length === 0 ? (
         <Empty>
           <EmptyHeader>

@@ -41,6 +41,35 @@ const sum = (values: readonly number[]): number => values.reduce((a, b) => a + b
 const pct = (part: number, whole: number): number =>
   whole === 0 ? 0 : Math.round((part / whole) * 1000) / 10;
 
+/**
+ * Zero-fill the months between the first and last present, so a month with
+ * no sales exists as a zero instead of not existing at all. Without this a
+ * line chart glides through the silent month, and "on the month before"
+ * can compare May to July across a June nobody saw. Applies only when
+ * every label is a month key; other groupings pass through untouched.
+ */
+function fillMonths<T extends { readonly label: string }>(
+  points: readonly T[],
+  zero: (label: string) => T,
+): T[] {
+  if (points.length < 2 || !points.every((p) => /^\d{4}-\d{2}$/u.test(p.label))) return [...points];
+  const byLabel = new Map(points.map((p) => [p.label, p]));
+  const filled: T[] = [];
+  const last = points[points.length - 1];
+  let [year, month] = (points[0]?.label ?? '').split('-').map(Number);
+  while (year !== undefined && month !== undefined && last !== undefined) {
+    const label = `${String(year)}-${String(month).padStart(2, '0')}`;
+    filled.push(byLabel.get(label) ?? zero(label));
+    if (label === last.label) break;
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return filled;
+}
+
 // ---------------------------------------------------------------- thresholds
 
 /** Below this many finished months a direction is noise, not a trend. */
@@ -73,9 +102,12 @@ export interface MonthlySeries extends Series<Point> {
  * months in order of size.
  */
 export function monthlyInvoiced(rows: readonly ReportRowView[], thisMonth: string): MonthlySeries {
-  const points = rows
-    .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  const points = fillMonths(
+    rows
+      .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    (label) => ({ label, value: 0 }),
+  );
   const total = sum(points.map((p) => p.value));
 
   // The month in progress is a part-month and would read as a collapse against
@@ -116,7 +148,7 @@ export interface TopCustomers extends Series<Point> {
 }
 
 /** The top `keep` by value, with everyone else folded into a tail figure. */
-export function topCustomers(rows: readonly ReportRowView[], keep = 5): TopCustomers {
+export function topCustomers(rows: readonly ReportRowView[], keep = 5, truncated = false): TopCustomers {
   const all = rows
     .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
     .sort((a, b) => b.value - a.value);
@@ -125,13 +157,18 @@ export function topCustomers(rows: readonly ReportRowView[], keep = 5): TopCusto
   const total = sum(all.map((p) => p.value));
   const leader = points[0];
 
+  // When the page cap clipped the party list, `total` is the top rows'
+  // sum, not the period's -- the denominator the exposure tile refused to
+  // fake ("a headline belonging to nobody"). The sentence then claims only
+  // what the page proves.
+  const whole = truncated ? `the top ${String(all.length)} customers shown` : 'the period';
   const share = leader === undefined ? 0 : pct(leader.value, total);
   const insight =
     leader === undefined
       ? null
-      : share >= CONCENTRATION_WORRY_PCT
+      : share >= CONCENTRATION_WORRY_PCT && !truncated
         ? `${leader.label} alone is ${String(share)}% of the period — losing them would be felt.`
-        : `${leader.label} leads at ${String(share)}% of the period.`;
+        : `${leader.label} leads at ${String(share)}% of ${whole}.`;
 
   return { points, tailValue: sum(rest.map((p) => p.value)), tailCount: rest.length, total, insight };
 }
@@ -168,14 +205,35 @@ export function ageingByBucket(rows: readonly ReportRowView[]): AgeingSeries {
     if (bucket === '') continue;
     totals.set(bucket, (totals.get(bucket) ?? 0) + num(row, 'outstanding'));
   }
-  const points = AGE_BUCKETS.filter((b) => totals.has(b)).map((bucket, index) => ({
-    bucket,
-    value: totals.get(bucket) ?? 0,
-    fill: `var(--chart-${String(index + 1)})`,
-  }));
+  // The fill is indexed by the bucket's identity, not its position among
+  // the buckets that happen to have money: with 31-60 and 61-90 empty,
+  // '90+' must still wear the deep end of the ramp, or the scale lies.
+  const points: { bucket: string; value: number; fill: string }[] = AGE_BUCKETS.filter((b) => totals.has(b)).map(
+    (bucket) => ({
+      bucket,
+      value: totals.get(bucket) ?? 0,
+      fill: `var(--chart-${String(AGE_BUCKETS.indexOf(bucket) + 1)})`,
+    }),
+  );
+  // A bucket this module does not recognise still holds real money; it
+  // rides as its own slice rather than vanishing. This is the UNDATED
+  // story (audit 34) closed as a class: the next new bucket name shows up
+  // visibly instead of silently shrinking the total.
+  const known = new Set<string>(AGE_BUCKETS);
+  const unknown = [...totals.entries()].filter(([bucket]) => !known.has(bucket));
+  if (unknown.length > 0) {
+    points.push({
+      bucket: 'Other',
+      value: sum(unknown.map(([, value]) => value)),
+      fill: `var(--chart-${String(AGE_BUCKETS.length + 1)})`,
+    });
+  }
   const total = sum(points.map((p) => p.value));
-  // Undated is not overdue: nothing is known about when it was due.
-  const overdue = sum(points.filter((p) => p.bucket !== '0-30' && p.bucket !== 'UNDATED').map((p) => p.value));
+  // Undated is not overdue: nothing is known about when it was due. The
+  // same restraint for 'Other' -- age unknown, so overdue unclaimed.
+  const overdue = sum(
+    points.filter((p) => p.bucket !== '0-30' && p.bucket !== 'UNDATED' && p.bucket !== 'Other').map((p) => p.value),
+  );
   const share = pct(overdue, total);
 
   return {
@@ -215,10 +273,14 @@ export function newVsRepeat(rows: readonly ReportRowView[]): Series<NewVsRepeatP
 
   return {
     points,
+    // Zero revenue is declined, not reported as "0% came from new
+    // customers" -- a share of nothing is not a share.
     insight:
       points.length === 0
         ? null
-        : `${String(share)}% of the period's revenue came from customers billed for the first time.`,
+        : fresh + repeat === 0
+          ? 'Nothing invoiced in this period.'
+          : `${String(share)}% of the period's revenue came from customers billed for the first time.`,
   };
 }
 
@@ -381,7 +443,11 @@ export function pendingByAge(rows: readonly ReportRowView[]): Series<Point> {
 
 // ----------------------------------------------------------- 10. stock ageing
 
-/** Value locked in stock, by how long it has sat. */
+/**
+ * Quantity on the shelf by how long it has sat -- the bucket columns are
+ * quantities; the money is the report's separate `valueLocked` column,
+ * which this series deliberately does not mix in.
+ */
 export function stockAgeing(rows: readonly ReportRowView[]): Series<Point> {
   const buckets: { label: string; key: string }[] = [
     { label: '0-30', key: 'bucket0' },
@@ -488,20 +554,33 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
  * A twelve-month bar chart shows what happened. This shows whether the same
  * thing happens every year -- the question behind "is March always quiet".
  */
-export function seasonality(rows: readonly ReportRowView[]): Series<Point> {
+export function seasonality(rows: readonly ReportRowView[], thisMonth: string): Series<Point> {
   const totals = new Array<number>(12).fill(0);
+  const seen = new Array<number>(12).fill(0);
   let matched = 0;
   for (const row of rows) {
     const key = text(row, 'label');
+    // The month in progress is a part-month; folded into its calendar
+    // bucket it lets three weeks of August argue with twelve full months
+    // and can crown itself "the weakest month of the year".
+    if (key === thisMonth) continue;
     const month = /^\d{4}-(\d{2})$/u.exec(key);
     if (month === null) continue;
     const index = Number(month[1]) - 1;
     if (index < 0 || index > 11) continue;
     totals[index] = (totals[index] ?? 0) + num(row, 'value');
+    seen[index] = (seen[index] ?? 0) + 1;
     matched += 1;
   }
 
-  const points = MONTH_NAMES.map((label, index) => ({ label, value: totals[index] ?? 0 }));
+  // The mean per calendar month, not the sum: over a range longer than a
+  // year some calendar months appear twice, and a sum would crown them for
+  // being counted twice rather than for selling more.
+  const points = MONTH_NAMES.map((label, index) => {
+    const count = seen[index] ?? 0;
+    const total = totals[index] ?? 0;
+    return { label, value: count === 0 ? 0 : Math.round((total / count) * 100) / 100 };
+  });
   const busiest = points.reduce((most, p) => (p.value > most.value ? p : most), points[0] ?? { label: '', value: 0 });
   const quietest = points
     .filter((p) => p.value > 0)
@@ -565,7 +644,12 @@ export function invoiceMix(rows: readonly ReportRowView[]): MixSeries {
   return {
     points,
     averageBill,
-    insight: `${best.label} writes the largest bills, at about ${String(Math.round((best.value / best.invoices) / averageBill * 10) / 10)} times the average; ${String(above)} of ${String(points.length)} customers sit above the line.`,
+    // Invoices with no value make the average bill zero, and "about NaN
+    // times the average" is not a sentence anyone should read.
+    insight:
+      averageBill === 0
+        ? null
+        : `${best.label} writes the largest bills, at about ${String(Math.round((best.value / best.invoices) / averageBill * 10) / 10)} times the average; ${String(above)} of ${String(points.length)} customers sit above the line.`,
   };
 }
 
@@ -575,6 +659,7 @@ export interface BasketPoint {
   readonly label: string;
   readonly revenue: number;
   readonly aov: number;
+  readonly invoices: number;
 }
 export interface BasketSeries extends Series<BasketPoint> {
   readonly totals: { readonly revenue: number; readonly aov: number };
@@ -588,31 +673,45 @@ export interface BasketSeries extends Series<BasketPoint> {
  * falls is more customers buying less each, which is a different week from
  * revenue up on a steady average.
  */
-export function revenueAndBasket(rows: readonly ReportRowView[]): BasketSeries {
-  const points = rows
-    .map((row) => ({
-      label: text(row, 'month'),
-      revenue: num(row, 'revenue'),
-      aov: num(row, 'aov'),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+export function revenueAndBasket(rows: readonly ReportRowView[], thisMonth: string): BasketSeries {
+  const points = fillMonths(
+    rows
+      .map((row) => ({
+        label: text(row, 'month'),
+        revenue: num(row, 'revenue'),
+        aov: num(row, 'aov'),
+        invoices: num(row, 'invoices'),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    (label) => ({ label, revenue: 0, aov: 0, invoices: 0 }),
+  );
 
   const revenue = sum(points.map((p) => p.revenue));
-  const invoices = points.length;
+  // The period's own average bill: all the money over all the invoices. The
+  // average of the monthly averages would weight a quiet month the same as
+  // a busy one -- and dividing by the number of MONTHS, which this once
+  // did, is not an invoice average at all, it is monthly revenue wearing
+  // the wrong label.
+  const invoices = sum(points.map((p) => p.invoices));
   const totals = {
     revenue,
-    // The average of the averages would weight a quiet month the same as a
-    // busy one; this is the period's own average bill.
     aov: invoices === 0 ? 0 : Math.round((revenue / invoices) * 100) / 100,
   };
 
   if (points.length < MONTHS_FOR_A_TREND) {
     return { points, totals, insight: 'Not enough months here to read the basket.' };
   }
-  const first = points[0];
-  const last = points.at(-1);
-  const revenueUp = last !== undefined && first !== undefined && last.revenue >= first.revenue;
-  const basketUp = last !== undefined && first !== undefined && last.aov >= first.aov;
+  // The month in progress is a part-month and would read as a collapse
+  // against a whole one, so the direction is read across finished months
+  // only -- same rule as monthlyInvoiced, same reason.
+  const finished = points.filter((p) => p.label !== thisMonth);
+  const first = finished[0];
+  const last = finished.at(-1);
+  if (first === undefined || last === undefined) {
+    return { points, totals, insight: 'Not enough finished months here to read the basket.' };
+  }
+  const revenueUp = last.revenue >= first.revenue;
+  const basketUp = last.aov >= first.aov;
 
   return {
     points,

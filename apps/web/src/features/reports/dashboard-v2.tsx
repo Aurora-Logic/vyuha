@@ -437,13 +437,13 @@ function OverviewCharts({ range }: { range: DateRange }) {
   const thisMonth = asApiDate(new Date()).slice(0, 7);
   const monthRows = byMonth.data?.data ?? [];
   const invoiced = series.monthlyInvoiced(monthRows, thisMonth);
-  const season = series.seasonality(monthRows);
+  const season = series.seasonality(monthRows, thisMonth);
   const partyRows = byParty.data?.data ?? [];
-  const customers = series.topCustomers(partyRows);
+  const customers = series.topCustomers(partyRows, 5, (byParty.data?.meta.total ?? 0) > partyRows.length);
   const scatter = series.invoiceMix(partyRows);
   const owed = series.ageingByBucket(ageing.data?.data ?? []);
   const firstTime = series.newVsRepeat(mix.data?.data ?? []);
-  const basket = series.revenueAndBasket(aov.data?.data ?? []);
+  const basket = series.revenueAndBasket(aov.data?.data ?? [], thisMonth);
   const fewness = series.concentration(spread.data?.data ?? []);
   const slippage = series.paymentSlippage(paying.data?.data ?? []);
   const served = series.fillRate(filling.data?.data ?? []);

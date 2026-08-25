@@ -84,6 +84,12 @@ const pageMetaSchema = z.object({
   page: z.number().int(),
   pageSize: z.number().int(),
   total: z.number().int(),
+  // Report-wide sums the server computes over the WHOLE result, not the
+  // page. Zod strips undeclared keys, so leaving this out silently turned
+  // every headline figure into a 200-row page sum -- the exact "number
+  // belonging to nobody" the KPI tiles exist to avoid. Optional because
+  // only the money reports send it.
+  totals: z.record(z.string(), z.string()).optional(),
 });
 
 /**

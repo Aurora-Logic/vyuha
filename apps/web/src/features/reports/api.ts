@@ -1,5 +1,4 @@
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -153,8 +152,13 @@ export function useReportRows(
     },
     // Paging or changing a filter changes the key. Without this the table
     // empties to a skeleton between every step, which reads as the report
-    // breaking and coming back rather than as the page moving.
-    placeholderData: keepPreviousData,
+    // breaking and coming back rather than as the page moving. But only
+    // within ONE report: carried across a report switch, the old report's
+    // rows render under the new report's columns -- a full table of dashes
+    // reading exactly like a quiet period, the failure the shell's own
+    // error path exists to prevent.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery !== undefined && previousQuery.queryKey[2] === reportKey ? previous : undefined,
   });
 }
 

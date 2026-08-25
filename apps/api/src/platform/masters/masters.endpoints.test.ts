@@ -864,6 +864,34 @@ describe('the second analytics set (owner, 22 Aug 2026)', () => {
     expect(catalogue.body.data.some((report) => report.key === 'margin-proxy')).toBe(false);
     expect(catalogue.body.data.some((report) => report.key === 'aov-trend')).toBe(true);
   });
+
+  it('refuses a margin export at the button, not five retries later in the tray', async () => {
+    // report.export alone does not open every report: the request is checked
+    // against the same catalogue the viewer sees, so a report they may not
+    // view 403s immediately instead of queueing a job whose forbidden would
+    // be retried through the whole backoff schedule.
+    const exporterRoleId = await harness.createRole('Exporter without margin', [
+      PERMISSIONS.RECEIVABLES_VIEW,
+      PERMISSIONS.REPORT_VIEW,
+      PERMISSIONS.REPORT_EXPORT,
+    ]);
+    const exporter = await harness.createUser({ email: scopedEmail('masters-export-no-margin'), roleIds: [exporterRoleId] });
+    const exporterToken = (await harness.login(exporter.email, exporter.password)).token;
+
+    const refused = await harness.post<{ error: { code: string } }>('/reports/exports', {
+      token: exporterToken,
+      body: { reportKey: 'margin-proxy', filters: { from: '2026-08-01', to: '2026-08-31' }, format: 'CSV' },
+    });
+    expect(refused.status, refused.text).toBe(403);
+
+    // The same requester exporting a report they may see is accepted, so the
+    // gate is the report's permission, not the export button.
+    const accepted = await harness.post<{ id: string }>('/reports/exports', {
+      token: exporterToken,
+      body: { reportKey: 'aov-trend', filters: { from: '2026-08-01', to: '2026-08-31' }, format: 'CSV' },
+    });
+    expect(accepted.status, accepted.text).toBe(202);
+  });
 });
 
 /**

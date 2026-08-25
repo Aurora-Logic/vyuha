@@ -34,6 +34,32 @@ describe('monthlyInvoiced', () => {
     row({ label: '2026-06', value: '200' }),
   ];
 
+  it('zero-fills a silent month instead of letting the line glide through it', () => {
+    // June sold nothing and sent no row. It must exist as a zero: without
+    // it the chart hides the collapse, and "on the month before" would
+    // compare July to May.
+    const series = monthlyInvoiced(
+      [row({ label: '2026-05', value: '100' }), row({ label: '2026-07', value: '300' })],
+      '2026-08',
+    );
+    expect(series.points).toEqual([
+      { label: '2026-05', value: 100 },
+      { label: '2026-06', value: 0 },
+      { label: '2026-07', value: 300 },
+    ]);
+    // July against a zero June is a movement with no honest percentage, so
+    // no claim is made rather than a made-up one.
+    expect(series.insight).toBeNull();
+  });
+
+  it('fills across a December so the year boundary does not break the axis', () => {
+    const series = monthlyInvoiced(
+      [row({ label: '2026-11', value: '100' }), row({ label: '2027-01', value: '300' })],
+      '2027-02',
+    );
+    expect(series.points.map((p) => p.label)).toEqual(['2026-11', '2026-12', '2027-01']);
+  });
+
   it('orders by month, not by the size the API sorted on', () => {
     expect(monthlyInvoiced(rows, '2026-08').points.map((p) => p.label)).toEqual([
       '2026-05',
@@ -102,6 +128,14 @@ describe('topCustomers', () => {
     expect(topCustomers(spread).insight).toBe('P0 leads at 10% of the period.');
   });
 
+  it('claims only the rows shown when the page cap clipped the party list', () => {
+    // 500 of 1000 would be a concentration alarm -- but the denominator is
+    // four rows of a longer book, so the sentence must not say "of the
+    // period", and must not raise the alarm it cannot prove.
+    const series = topCustomers(rows, 2, true);
+    expect(series.insight).toBe('A leads at 50% of the top 4 customers shown.');
+  });
+
   it('has no insight with no rows', () => {
     expect(topCustomers([]).insight).toBeNull();
   });
@@ -120,11 +154,26 @@ describe('ageingByBucket', () => {
     expect(series.points.map((p) => p.value)).toEqual([100, 400]);
   });
 
-  it('assigns the ramp in age order so the scale reads as a scale', () => {
+  it('assigns the ramp by the bucket’s identity, not its position among the non-empty', () => {
+    // With 31-60 and 61-90 empty, 90+ still wears the deep end of the
+    // ramp; a positional index would dress it in 31-60’s colour.
     expect(ageingByBucket(rows).points.map((p) => p.fill)).toEqual([
       'var(--chart-1)',
-      'var(--chart-2)',
+      'var(--chart-4)',
     ]);
+  });
+
+  it('surfaces a bucket it does not recognise instead of dropping the money', () => {
+    // The UNDATED story (audit 34) as a class: a new bucket name from the
+    // server rides as ‘Other’, keeps the total honest, and claims no
+    // overdue-ness it cannot prove.
+    const series = ageingByBucket([
+      row({ bucket: '0-30', outstanding: '100' }),
+      row({ bucket: '120+', outstanding: '900' }),
+    ]);
+    expect(series.points.map((p) => p.bucket)).toEqual(['0-30', 'Other']);
+    expect(series.total).toBe(1000);
+    expect(series.overdue).toBe(0);
   });
 
   it('counts everything past thirty days as overdue', () => {
@@ -370,26 +419,48 @@ describe('creditHeadroom', () => {
 });
 
 describe('seasonality', () => {
-  it('folds the years together, one bucket per calendar month', () => {
-    const series = seasonality([
-      row({ label: '2025-03', value: '100' }),
-      row({ label: '2026-03', value: '50' }),
-      row({ label: '2026-07', value: '400' }),
-    ]);
+  // No fixture month is in progress.
+  const AFTER = '2026-12';
+
+  it('folds the years together as a mean per calendar month, never a sum', () => {
+    const series = seasonality(
+      [
+        row({ label: '2025-03', value: '100' }),
+        row({ label: '2026-03', value: '50' }),
+        row({ label: '2026-07', value: '400' }),
+      ],
+      AFTER,
+    );
     expect(series.points).toHaveLength(12);
-    expect(series.points[2]).toEqual({ label: 'Mar', value: 150 });
+    // March appears in both years: (100 + 50) / 2, not 150 -- a month must
+    // not be crowned for being counted twice.
+    expect(series.points[2]).toEqual({ label: 'Mar', value: 75 });
     expect(series.points[6]).toEqual({ label: 'Jul', value: 400 });
     expect(series.insight).toBe('Jul is the strongest month of the year here; Mar the weakest.');
   });
 
+  it('keeps the month in progress out of its calendar bucket', () => {
+    // Three weeks of August must not argue with a full July.
+    const series = seasonality(
+      [
+        row({ label: '2026-07', value: '400' }),
+        row({ label: '2026-06', value: '300' }),
+        row({ label: '2026-08', value: '90' }),
+      ],
+      '2026-08',
+    );
+    expect(series.points[7]).toEqual({ label: 'Aug', value: 0 });
+    expect(series.insight).toBe('Jul is the strongest month of the year here; Jun the weakest.');
+  });
+
   it('still returns twelve axes when a month is missing, so the shape holds', () => {
-    const series = seasonality([row({ label: '2026-01', value: '10' })]);
+    const series = seasonality([row({ label: '2026-01', value: '10' })], AFTER);
     expect(series.points).toHaveLength(12);
     expect(series.points[5]).toEqual({ label: 'Jun', value: 0 });
   });
 
   it('ignores a label that is not a month key', () => {
-    expect(seasonality([row({ label: 'Godavari Electricals', value: '900' })]).insight).toBeNull();
+    expect(seasonality([row({ label: 'Godavari Electricals', value: '900' })], AFTER).insight).toBeNull();
   });
 });
 
@@ -438,43 +509,78 @@ describe('invoiceMix', () => {
 });
 
 describe('revenueAndBasket', () => {
+  // Hand-worked: 100/50 = 2 invoices, 200/40 = 5, 300/30 = 10.
   const rows = [
-    row({ month: '2026-03', revenue: '300', aov: '30' }),
-    row({ month: '2026-01', revenue: '100', aov: '50' }),
-    row({ month: '2026-02', revenue: '200', aov: '40' }),
+    row({ month: '2026-03', revenue: '300', aov: '30', invoices: 10 }),
+    row({ month: '2026-01', revenue: '100', aov: '50', invoices: 2 }),
+    row({ month: '2026-02', revenue: '200', aov: '40', invoices: 5 }),
   ];
+  // No month in the fixture is in progress.
+  const AFTER = '2026-04';
 
   it('orders by month and totals the period', () => {
-    const series = revenueAndBasket(rows);
+    const series = revenueAndBasket(rows, AFTER);
     expect(series.points.map((p) => p.label)).toEqual(['2026-01', '2026-02', '2026-03']);
     expect(series.totals.revenue).toBe(600);
-    // The period's own average bill, not the mean of three monthly averages.
-    expect(series.totals.aov).toBe(200);
+    // The period's own average bill: all the money over all the invoices,
+    // 600 / 17. Not the mean of the monthly averages (40), and NEVER
+    // revenue over the number of months (200) -- a period's average
+    // invoice cannot exceed its largest monthly average.
+    expect(series.totals.aov).toBe(35.29);
   });
 
   it('names the case where the two measures disagree', () => {
-    expect(revenueAndBasket(rows).insight).toBe(
+    expect(revenueAndBasket(rows, AFTER).insight).toBe(
       'Revenue is up while the average bill is down: more customers, buying less each.',
     );
   });
 
-  it('says so when they move together', () => {
-    const together = [
-      row({ month: '2026-01', revenue: '100', aov: '10' }),
-      row({ month: '2026-02', revenue: '200', aov: '20' }),
-      row({ month: '2026-03', revenue: '300', aov: '30' }),
-    ];
-    expect(revenueAndBasket(together).insight).toContain('moving the same way, both up');
+  it('reads the direction across finished months only', () => {
+    // With March still in progress, the read stops at February: revenue up
+    // (100 -> 200) and basket down (50 -> 40) -- the same disagreement, but
+    // proven without the part-month.
+    expect(revenueAndBasket(rows, '2026-03').insight).toBe(
+      'Revenue is up while the average bill is down: more customers, buying less each.',
+    );
+    // The part-month still counts toward the period totals; only the trend
+    // sentence excludes it.
+    expect(revenueAndBasket(rows, '2026-03').totals.revenue).toBe(600);
   });
 
-  it('refuses a reading from two months', () => {
-    expect(revenueAndBasket(rows.slice(0, 2)).insight).toBe(
+  it('says so when they move together', () => {
+    const together = [
+      row({ month: '2026-01', revenue: '100', aov: '10', invoices: 10 }),
+      row({ month: '2026-02', revenue: '200', aov: '20', invoices: 10 }),
+      row({ month: '2026-03', revenue: '300', aov: '30', invoices: 10 }),
+    ];
+    expect(revenueAndBasket(together, AFTER).insight).toContain('moving the same way, both up');
+  });
+
+  it('refuses a reading from two adjacent months', () => {
+    const twoMonths = [
+      row({ month: '2026-01', revenue: '100', aov: '50', invoices: 2 }),
+      row({ month: '2026-02', revenue: '200', aov: '40', invoices: 5 }),
+    ];
+    expect(revenueAndBasket(twoMonths, AFTER).insight).toBe(
       'Not enough months here to read the basket.',
     );
   });
 
+  it('a gap month counts as a month: January and March span three, with a real zero between', () => {
+    // Two rows, three calendar months -- the silent February is data, not
+    // absence, so the window is wide enough to read.
+    const gapped = [
+      row({ month: '2026-01', revenue: '100', aov: '50', invoices: 2 }),
+      row({ month: '2026-03', revenue: '300', aov: '30', invoices: 10 }),
+    ];
+    const series = revenueAndBasket(gapped, AFTER);
+    expect(series.points.map((p) => p.label)).toEqual(['2026-01', '2026-02', '2026-03']);
+    expect(series.points[1]).toEqual({ label: '2026-02', revenue: 0, aov: 0, invoices: 0 });
+    expect(series.insight).not.toBeNull();
+  });
+
   it('does not divide by zero on an empty period', () => {
-    expect(revenueAndBasket([]).totals).toEqual({ revenue: 0, aov: 0 });
+    expect(revenueAndBasket([], AFTER).totals).toEqual({ revenue: 0, aov: 0 });
   });
 });
 

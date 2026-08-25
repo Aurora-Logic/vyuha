@@ -65,7 +65,18 @@ export function SavedViews({
   async function save() {
     const trimmed = name.trim();
     if (trimmed.length === 0) return;
-    await onSave({ name: trimmed, isShared: shared, config: currentConfig });
+    // The dialog stays open on failure, holding the name the user typed;
+    // an unhandled rejection here closed nothing and said nothing.
+    try {
+      await onSave({ name: trimmed, isShared: shared, config: currentConfig });
+    } catch (error: unknown) {
+      toast.add({
+        type: 'error',
+        title: 'The view could not be saved',
+        description: error instanceof Error ? error.message : 'Try again in a moment.',
+      });
+      return;
+    }
     setDialogOpen(false);
     setName('');
     setShared(false);
@@ -162,9 +173,18 @@ export function SavedViews({
                     key={`delete-${view.id}`}
                     variant="destructive"
                     onClick={() => {
-                      void onDelete(view).then(() => {
-                        toast.add({ type: 'success', title: 'View removed', description: view.name });
-                      });
+                      void onDelete(view).then(
+                        () => {
+                          toast.add({ type: 'success', title: 'View removed', description: view.name });
+                        },
+                        (error: unknown) => {
+                          toast.add({
+                            type: 'error',
+                            title: 'The view could not be removed',
+                            description: error instanceof Error ? error.message : view.name,
+                          });
+                        },
+                      );
                     }}
                   >
                     <TrashIcon />

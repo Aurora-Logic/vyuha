@@ -31,6 +31,7 @@ import { sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { escapeLike } from '../db/like.js';
 import {
   ReportSourceRegistry,
   type ReportSource,
@@ -46,9 +47,10 @@ import { hasPermission, type Principal } from '../rbac/principal.js';
  * (REQ-Y-03), sales analysis (REQ-Y-05) — every one read from the
  * projection alone, every row stamped with the sync it is as of (REQ-Y-07).
  *
- * Ageing (REQ-Y-02) and payment analysis (REQ-Y-04) are absent on purpose:
- * both need bill-wise allocations, which the push-only source does not
- * carry (P6b). A statement can be honest without them; an ageing cannot.
+ * Ageing (REQ-Y-02) and payment analysis (REQ-Y-04) shipped the day the
+ * projection began carrying bill-wise allocations -- both read
+ * `bill_allocations` directly, and both stay honest by refusing rather
+ * than approximating where a bill carries no dates.
  *
  * Registered like the attendance source: this file puts itself into the
  * registry, and nothing under `platform/export/` learned a new key.
@@ -641,10 +643,29 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
         LEFT JOIN stock_items s ON s.id = l.stock_item_id`;
   }
 
+  /**
+   * Revenue nets credit notes (data-analyst dictionary: Credit Notes
+   * SUBTRACT) -- without them, an item sold and returned in the same month
+   * reads as revenue the business never kept, and this report's number
+   * disagrees with the concentration reports' for the same party and
+   * period. The sign lives in `signedLineAmount`/`signedLineQty` so every
+   * consumer of this WHERE nets the same way.
+   */
   private salesLinesWhere(orgId: string, filters: ReportFilters): SQL {
-    return sql`l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
+    return sql`l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
       ${this.periodClause(filters, 'v.voucher_date')}
       ${filters.partyId === undefined ? sql`` : sql`AND v.party_id = ${filters.partyId}`}`;
+  }
+
+  /** A credit note's line subtracts what its sale added. */
+  private signedLineAmount(): SQL {
+    return sql`CASE WHEN v.voucher_type = 'Credit Note' THEN -l.amount ELSE l.amount END`;
+  }
+
+  /** Signed quantity, tolerating the minus and leading space Tally sends on returns. */
+  private signedLineQty(): SQL {
+    return sql`(CASE WHEN v.voucher_type = 'Credit Note' THEN -1 ELSE 1 END)
+      * COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric`;
   }
 
   private dimensionKey(dimension: SalesAnalysisDimension): SQL {
@@ -687,7 +708,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     const dimension = filters.groupBy ?? 'party';
     const orderBy = orderByField(sort, SORTABLE['sales-analysis'], 'value DESC, label ASC', 'label ASC');
     const grand = await this.db.execute<{ value: string }>(sql`
-      SELECT round(COALESCE(sum(l.amount), 0), 2)::text AS value
+      SELECT round(COALESCE(sum(${this.signedLineAmount()}), 0), 2)::text AS value
         FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
        WHERE ${this.salesLinesWhere(orgId, filters)}
     `);
@@ -695,12 +716,14 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     const rows = await this.db.execute<{ key: string; label: string; vouchers: number; quantity: string | null; value: string }>(sql`
       SELECT (${this.dimensionKey(dimension)})::text AS key,
              ${this.dimensionLabel(dimension)} AS label,
-             count(DISTINCT v.id)::int AS vouchers,
+             -- Invoices are Sales vouchers; a credit note nets the money
+             -- but is not an invoice anyone wrote.
+             count(DISTINCT v.id) FILTER (WHERE v.voucher_type = 'Sales')::int AS vouchers,
              -- Only when every line agrees on a unit does a quantity mean anything.
              CASE WHEN count(DISTINCT s.unit) = 1
-                  THEN sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text || ' ' || max(s.unit)
+                  THEN sum(${this.signedLineQty()})::text || ' ' || max(s.unit)
                   ELSE NULL END AS quantity,
-             round(COALESCE(sum(l.amount), 0), 2)::text AS value
+             round(COALESCE(sum(${this.signedLineAmount()}), 0), 2)::text AS value
         ${this.salesLinesFrom()}
        WHERE ${this.salesLinesWhere(orgId, filters)}
        GROUP BY ${this.dimensionKey(dimension)}
@@ -763,7 +786,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     return sql`org_id = ${orgId}
       ${this.periodClause(filters, 'voucher_date')}
       ${filters.partyId === undefined ? sql`` : sql`AND party_id = ${filters.partyId}`}
-      ${filters.voucherType === undefined ? sql`` : sql`AND voucher_type ILIKE ${filters.voucherType}`}`;
+      ${filters.voucherType === undefined ? sql`` : sql`AND voucher_type ILIKE ${escapeLike(filters.voucherType)} ESCAPE '\\'`}`;
   }
 
   private async dayBookRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<DayBookSource[]> {

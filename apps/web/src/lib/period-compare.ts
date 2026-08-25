@@ -55,7 +55,7 @@ export function fyStart(date: string): string {
 export function fyQuarterStart(date: string): string {
   const { y, m } = parse(date);
   const quarterFirstMonth = m >= 4 ? 4 + Math.floor((m - 4) / 3) * 3 : 1;
-  return format(m >= 4 ? y : y, quarterFirstMonth, 1);
+  return format(y, quarterFirstMonth, 1);
 }
 
 /** This month / this FY quarter / this FY, each running to the given day — the partial period as it stands. */

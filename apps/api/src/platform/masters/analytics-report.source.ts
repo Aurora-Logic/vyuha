@@ -14,6 +14,7 @@ import { sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { escapeLike } from '../db/like.js';
 import {
   ReportSourceRegistry,
   type ReportSource,
@@ -205,11 +206,14 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
            WHERE s.org_id = ${orgId} AND NOT s.absent_in_tally ${this.itemClause(f, 's.name')}
         `;
       case 'negative-stock':
+        // NOT absent_in_tally, like every other stock report here: a stale
+        // projection row for an item deleted in Tally is not an exception
+        // anyone can act on, and it fed the daily digest as a phantom.
         return sql`
           SELECT s.id AS "stockItemId", s.name AS item, s.parent_group AS "group",
                  s.closing_qty::text AS "closingQty", s.unit, s.last_pulled_at AS "lastPulledAt"
             FROM stock_items s
-           WHERE s.org_id = ${orgId} AND s.closing_qty < 0
+           WHERE s.org_id = ${orgId} AND s.closing_qty < 0 AND NOT s.absent_in_tally
         `;
       case 'stale-projections':
         return sql`
@@ -260,7 +264,7 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
         return sql`
           SELECT COALESCE(v.party_id::text, v.party_name) || ':' || COALESCE(l.stock_item_id::text, l.stock_item_name) AS id,
                  v.party_id AS "partyId", v.party_name AS "partyName", l.stock_item_id AS "stockItemId", l.stock_item_name AS item,
-                 count(DISTINCT v.id)::int AS invoices, sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text AS quantity,
+                 count(DISTINCT v.id)::int AS invoices, sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text AS quantity,
                  sum(l.amount)::text AS value, max(v.voucher_date)::text AS "lastDate"
             FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
            WHERE ${this.salesLines(orgId, f)} ${this.partyClause(f)} ${this.itemClause(f, 'l.stock_item_name')}
@@ -321,8 +325,8 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
         return sql`
           WITH sold AS (
             SELECT l.stock_item_id, l.stock_item_name,
-                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 365) AS qty_12m,
-                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 90) AS qty_3m
+                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 365) AS qty_12m,
+                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 90) AS qty_3m
               FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
              WHERE ${this.salesLines(orgId, { })} ${this.itemClause(f, 'l.stock_item_name')}
              GROUP BY l.stock_item_id, l.stock_item_name
@@ -360,10 +364,10 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
         return sql`
           SELECT to_char(v.voucher_date, 'YYYY-MM') || ':' || l.stock_item_name AS id,
                  to_char(v.voucher_date, 'YYYY-MM') AS month, l.stock_item_name AS item,
-                 COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Purchase'), 0)::text AS "inwardQty",
-                 COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Sales'), 0)::text AS "outwardQty",
-                 (COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Purchase'), 0)
-                  - COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Sales'), 0))::text AS "netQty"
+                 COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Purchase'), 0)::text AS "inwardQty",
+                 COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Sales'), 0)::text AS "outwardQty",
+                 (COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Purchase'), 0)
+                  - COALESCE(sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_type = 'Sales'), 0))::text AS "netQty"
             FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
            WHERE l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type IN ('Sales', 'Purchase') AND NOT v.is_cancelled
              ${this.periodClause(f, 'v.voucher_date')} ${this.itemClause(f, 'l.stock_item_name')}
@@ -372,7 +376,7 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
       case 'vendor-item-history':
         return sql`
           WITH bought AS (
-            SELECT v.party_id, v.party_name, l.stock_item_name, v.voucher_date, l.rate, COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric AS billed_qty
+            SELECT v.party_id, v.party_name, l.stock_item_name, v.voucher_date, l.rate, COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric AS billed_qty
               FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
              WHERE l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type = 'Purchase' AND NOT v.is_cancelled
                ${this.periodClause(f, 'v.voucher_date')} ${this.partyClause(f)} ${this.itemClause(f, 'l.stock_item_name')}
@@ -441,9 +445,9 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
         return sql`
           WITH inward AS (
             SELECT l.stock_item_id,
-                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 30) AS in_0,
-                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 60 AND v.voucher_date < CURRENT_DATE - 30) AS in_31,
-                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 90 AND v.voucher_date < CURRENT_DATE - 60) AS in_61
+                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 30) AS in_0,
+                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 60 AND v.voucher_date < CURRENT_DATE - 30) AS in_31,
+                   sum(COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric) FILTER (WHERE v.voucher_date >= CURRENT_DATE - 90 AND v.voucher_date < CURRENT_DATE - 60) AS in_61
               FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
              WHERE l.org_id = ${orgId} AND l.kind = 'inventory' AND v.voucher_type = 'Purchase' AND NOT v.is_cancelled AND l.stock_item_id IS NOT NULL
              GROUP BY l.stock_item_id
@@ -626,17 +630,28 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
              ${this.periodClause(f, 'd.date')}
         `;
       case 'new-vs-repeat':
-        // A party's first-ever Sales voucher decides which month it was new in.
+        // A party's first-ever Sales voucher decides which month it was new
+        // in; credit notes net the revenue of whichever bucket the party's
+        // months put them in (dictionary: Credit Notes SUBTRACT), but only
+        // a Sales voucher can make a party "new".
         return sql`
-          WITH sales AS (
-            SELECT party_id, voucher_date, amount,
-                   min(voucher_date) OVER (PARTITION BY party_id) AS first_sale
+          WITH first_sales AS (
+            SELECT party_id, min(voucher_date) AS first_sale
               FROM vouchers
              WHERE org_id = ${orgId} AND voucher_type = 'Sales' AND NOT is_cancelled AND party_id IS NOT NULL
+             GROUP BY party_id
+          ),
+          sales AS (
+            SELECT v.party_id, v.voucher_date, v.voucher_type,
+                   CASE WHEN v.voucher_type = 'Credit Note' THEN -v.amount ELSE v.amount END AS amount,
+                   fs.first_sale
+              FROM vouchers v
+              JOIN first_sales fs ON fs.party_id = v.party_id
+             WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
           ),
           monthly AS (
             SELECT to_char(voucher_date, 'YYYY-MM') AS month,
-                   count(DISTINCT party_id) FILTER (WHERE to_char(first_sale, 'YYYY-MM') = to_char(voucher_date, 'YYYY-MM'))::int AS new_parties,
+                   count(DISTINCT party_id) FILTER (WHERE voucher_type = 'Sales' AND to_char(first_sale, 'YYYY-MM') = to_char(voucher_date, 'YYYY-MM'))::int AS new_parties,
                    COALESCE(sum(amount) FILTER (WHERE to_char(first_sale, 'YYYY-MM') = to_char(voucher_date, 'YYYY-MM')), 0) AS new_revenue,
                    COALESCE(sum(amount) FILTER (WHERE to_char(first_sale, 'YYYY-MM') <> to_char(voucher_date, 'YYYY-MM')), 0) AS repeat_revenue
               FROM sales
@@ -686,13 +701,17 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
            GROUP BY 1
         `;
       case 'aov-trend':
+        // Revenue nets credit notes (dictionary: Credit Notes SUBTRACT);
+        // invoices count Sales alone -- a credit note nets the money but
+        // is not an invoice anyone wrote, so it must not dilute the AOV.
         return sql`
           SELECT to_char(v.voucher_date, 'YYYY-MM') AS month,
-                 count(*)::int AS invoices,
-                 round(sum(v.amount), 2)::text AS revenue,
-                 round(sum(v.amount) / NULLIF(count(*), 0), 2)::text AS aov
+                 count(*) FILTER (WHERE v.voucher_type = 'Sales')::int AS invoices,
+                 round(sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -v.amount ELSE v.amount END), 2)::text AS revenue,
+                 round(sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -v.amount ELSE v.amount END)
+                       / NULLIF(count(*) FILTER (WHERE v.voucher_type = 'Sales'), 0), 2)::text AS aov
             FROM vouchers v
-           WHERE v.org_id = ${orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')}
+           WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')}
            GROUP BY 1
         `;
       case 'partial-shipments':
@@ -746,27 +765,49 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
       case 'margin-proxy':
         // D-46: the held cost is a weighted average, so this is a proxy and
         // says so in the catalogue; the report is gated on reports.margin.view.
+        // Credit notes net both revenue and quantity (dictionary: Credit
+        // Notes SUBTRACT) -- an item sold and returned must not show margin
+        // on money the business handed back. The signed quantity and amount
+        // are computed once in the CTE so the four aggregates below cannot
+        // disagree about the sign.
         return sql`
-          SELECT COALESCE(s.id::text, l.stock_item_name) AS "stockItemId", COALESCE(s.name, l.stock_item_name) AS item,
-                 sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text AS quantity,
-                 round(sum(l.amount), 2)::text AS revenue,
-                 round(sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric * COALESCE(s.cost_price, 0)), 2)::text AS cost,
-                 round(sum(l.amount) - sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric * COALESCE(s.cost_price, 0)), 2)::text AS margin,
-                 CASE WHEN sum(l.amount) > 0
-                      THEN round((sum(l.amount) - sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric * COALESCE(s.cost_price, 0))) * 100.0 / sum(l.amount), 1)::text
+          WITH lines AS (
+            SELECT COALESCE(s.id::text, l.stock_item_name) AS item_id,
+                   COALESCE(s.name, l.stock_item_name) AS item,
+                   (CASE WHEN v.voucher_type = 'Credit Note' THEN -1 ELSE 1 END)
+                     * COALESCE(NULLIF(substring(l.billed_qty from '^\\s*-?[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric AS qty,
+                   CASE WHEN v.voucher_type = 'Credit Note' THEN -l.amount ELSE l.amount END AS amount,
+                   COALESCE(s.cost_price, 0) AS cost_price
+              FROM voucher_lines l
+              JOIN vouchers v ON v.id = l.voucher_id AND v.org_id = l.org_id
+              LEFT JOIN stock_items s ON (s.id = l.stock_item_id AND s.org_id = l.org_id)
+                   OR (l.stock_item_id IS NULL AND s.org_id = ${orgId} AND s.name = l.stock_item_name)
+             WHERE l.org_id = ${orgId} AND l.kind = 'inventory'
+               AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
+               ${this.periodClause(f, 'v.voucher_date')}
+               ${this.itemClause(f, 'COALESCE(s.name, l.stock_item_name)')}
+          )
+          SELECT item_id AS "stockItemId", item,
+                 sum(qty)::text AS quantity,
+                 round(sum(amount), 2)::text AS revenue,
+                 round(sum(qty * cost_price), 2)::text AS cost,
+                 round(sum(amount) - sum(qty * cost_price), 2)::text AS margin,
+                 CASE WHEN sum(amount) > 0
+                      THEN round((sum(amount) - sum(qty * cost_price)) * 100.0 / sum(amount), 1)::text
                       ELSE '0' END AS "marginPct"
-            FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
-            LEFT JOIN stock_items s ON s.id = l.stock_item_id OR (l.stock_item_id IS NULL AND s.org_id = ${orgId} AND s.name = l.stock_item_name)
-           WHERE ${this.salesLines(orgId, f)} ${this.itemClause(f, 'COALESCE(s.name, l.stock_item_name)')}
-           GROUP BY COALESCE(s.id::text, l.stock_item_name), COALESCE(s.name, l.stock_item_name)
+            FROM lines
+           GROUP BY item_id, item
         `;
       case 'sales-heatmap':
+        // Netted (dictionary: Credit Notes SUBTRACT); a cell can go
+        // negative when a month's returns outweigh its sales, which is a
+        // fact about that month worth seeing, not an error to clamp.
         return sql`
           SELECT COALESCE(v.party_id::text, v.party_name) || ':' || to_char(v.voucher_date, 'YYYY-MM') AS id,
                  v.party_id AS "partyId", v.party_name AS "partyName", to_char(v.voucher_date, 'YYYY-MM') AS month,
-                 round(sum(v.amount), 2)::text AS value
+                 round(sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -v.amount ELSE v.amount END), 2)::text AS value
             FROM vouchers v
-           WHERE v.org_id = ${orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')} ${this.partyClause(f)}
+           WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')} ${this.partyClause(f)}
            GROUP BY v.party_id, v.party_name, 4
         `;
       default:
@@ -835,7 +876,10 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   private ledgerLines(orgId: string, f: ReportFilters): SQL {
-    return sql`l.org_id = ${orgId} AND l.kind = 'ledger' AND l.ledger_name ILIKE ${f.ledgerName ?? ''} AND NOT v.is_cancelled`;
+    // Escaped: the extract's contract is ONE ledger, and an unescaped '%'
+    // here merged every ledger into one running balance that read as a
+    // single ledger's statement.
+    return sql`l.org_id = ${orgId} AND l.kind = 'ledger' AND l.ledger_name ILIKE ${escapeLike(f.ledgerName ?? '')} ESCAPE '\\' AND NOT v.is_cancelled`;
   }
 
   private salesLines(orgId: string, f: ReportFilters): SQL {

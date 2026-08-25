@@ -130,6 +130,16 @@ export class ExportService {
       // column of zero deltas that reads as "nothing changed".
       throw AppError.validation('This report has no period, so there is nothing to compare it against.');
     }
+    // The same principle for permissions: the catalogue is each source's own
+    // visibility verdict, so a report the requester may not view -- the
+    // margin proxy without reports.margin.view -- refuses at the button,
+    // rather than queueing a job whose forbidden is retried through the
+    // whole backoff schedule before the tray admits what was true at the
+    // start. The job still re-checks at run time, because permissions can
+    // be lost between the click and the worker.
+    if (!this.sources.catalogue(principal).some((definition) => definition.key === input.reportKey)) {
+      throw AppError.forbidden('You do not hold the permission this report needs.');
+    }
     const filters = this.sources.usableFilters(input.reportKey, input.filters);
     const requestedAt = new Date();
     const filename = exportFileName(input.reportKey, requestedAt, input.format);
