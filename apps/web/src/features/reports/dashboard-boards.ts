@@ -1,4 +1,4 @@
-import { DASHBOARD_KPI_METRICS, isDashboardKey, type DashboardKey, type DashboardLayout } from '@vyuha/shared';
+import { isDashboardKey, type DashboardKey, type DashboardLayout } from '@vyuha/shared';
 
 import { kpiTileOf } from './dashboard-kpis';
 
@@ -17,9 +17,46 @@ import { kpiTileOf } from './dashboard-kpis';
  * report learned a better chart. A form is pinned only where the preset wants
  * something the resolver would not choose: the fill rate as radial gauges,
  * because "how much of the whole happened" reads as a dial, not a ranking.
- *
- * The overview board has no preset: its default is the bespoke page.
  */
+
+/**
+ * The front board. Not a gallery of chart shapes -- its predecessor was
+ * literally titled "every chart shape shadcn ships" and read like a
+ * showroom -- but the four decisions an owner makes with their morning tea,
+ * one glance each:
+ *
+ *   Is money coming in?      invoiced by month, and from whom.
+ *   Is what is owed safe?    the ageing buckets, and who pays late.
+ *   Where does risk sit?     concentration, and revenue going quiet.
+ *   Is the floor keeping up? order fill, and what is below reorder.
+ *
+ * The six headline figures open the page; every chart drills to its report
+ * with the period riding along, and every tile carries the tested sentence
+ * its series proves. Rendered through the same TileGrid as every board, so
+ * the overview loads, errs, and customises exactly like the rest.
+ */
+export const OVERVIEW_PRESET: DashboardLayout = {
+  tiles: [
+    kpiTileOf('invoiced-period'),
+    kpiTileOf('receivables-exposure'),
+    kpiTileOf('credit-breaches'),
+    kpiTileOf('revenue-going-quiet'),
+    kpiTileOf('dead-stock-value'),
+    kpiTileOf('below-reorder'),
+    // Is money coming in?
+    { reportKey: 'sales-analysis', label: 'Invoiced by month', kind: 'chart', form: 'auto', wide: true, filters: { groupBy: 'month' } },
+    { reportKey: 'sales-analysis', label: 'Revenue by customer', kind: 'chart', form: 'auto', wide: false, filters: { groupBy: 'party' } },
+    // Is what is owed safe?
+    { reportKey: 'ageing', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    { reportKey: 'payment-analysis', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    // Where does the risk sit? The Pareto takes the full row for the
+    // reason the finance board gives: half a row smears its axis.
+    { reportKey: 'customer-concentration', kind: 'chart', form: 'auto', wide: true, filters: {} },
+    { reportKey: 'customer-lapse', kind: 'chart', form: 'auto', wide: false, filters: {} },
+    // Is the floor keeping up?
+    { reportKey: 'order-fill-rate', kind: 'chart', form: 'radials', wide: false, filters: {} },
+  ],
+};
 
 export const SALES_PRESET: DashboardLayout = {
   tiles: [
@@ -62,17 +99,6 @@ export const FINANCE_PRESET: DashboardLayout = {
     { reportKey: 'party-interest-cost', kind: 'chart', form: 'hbar', wide: false, filters: {} },
     { reportKey: 'cash-cycle', kind: 'chart', form: 'line', wide: true, filters: {} },
   ],
-};
-
-/**
- * The overview stores no preset -- its default render is the bespoke page --
- * but its customise sheet must not start from nothing: a person who opened
- * the sheet and saved would silently lose the six headline figures the page
- * had been showing them. The sheet seeds from this instead, so customising
- * begins with the figures on the board and dropping one is a visible act.
- */
-export const OVERVIEW_SEED: DashboardLayout = {
-  tiles: DASHBOARD_KPI_METRICS.map(kpiTileOf),
 };
 
 /**

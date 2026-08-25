@@ -18,6 +18,8 @@ import { EMPTY_VALUE } from '@/lib/format';
 
 import { useReportCatalogue, useReportRows } from './api';
 import { DASHBOARD_KPIS, type KpiMetricSpec } from './dashboard-kpis';
+import { asApiDate } from './dashboard-v2.presets';
+import { tileInsight } from './tile-insights';
 import { periodParams } from './period';
 import { GenericReportChart, type ChartDrill } from './report-charts';
 import { healTileForm } from './dashboard-heal';
@@ -331,6 +333,13 @@ function DashboardTileCard({
     );
   }
 
+  // The sentence the rows prove, from the same tested builders the report
+  // shell's bespoke charts use; null where no builder claims this report.
+  const insight =
+    rows.data === undefined
+      ? null
+      : tileInsight(tile.reportKey, tile.filters, points, rows.data.meta, asApiDate(new Date()).slice(0, 7));
+
   return (
     <GenericReportChart
       reportKey={tile.reportKey}
@@ -340,6 +349,7 @@ function DashboardTileCard({
       onDrill={drill}
       form={healed.form}
       footnote={healed.footnote}
+      insight={insight}
       title={title}
       action={action}
       wide={tile.wide}

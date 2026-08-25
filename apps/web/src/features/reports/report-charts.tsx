@@ -425,7 +425,7 @@ export interface ChartDrill {
   readonly rowId: string | null;
 }
 
-export function GenericReportChart({ reportKey, definition, rows, animate, compare, onDrill, form, title, action, wide, footnote }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; form?: GenericChartForm; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode }) {
+export function GenericReportChart({ reportKey, definition, rows, animate, compare, onDrill, form, title, action, wide, footnote, insight }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; form?: GenericChartForm; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode; insight?: string | null }) {
   // A dashboard tile may pin a form. The resolved spec keeps the category and
   // series keys the resolver worked out; only the shape of the drawing moves.
   const resolved = resolveChartForm(reportKey, definition, rows);
@@ -442,7 +442,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
       </ChartCard>
     );
   }
-  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} footnote={footnote} />;
+  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} title={title} action={action} wide={wide} footnote={footnote} insight={insight ?? null} />;
   const series = genericSeries(definition, rows);
   if (series === null) return cannotWear('bar', title, action, wide, footnote);
   const first = series.series[0];
@@ -461,7 +461,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
   ]) as ChartConfig;
   const subject = `Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`;
   return (
-    <ChartCard title={title ?? subject} description={formDescription('hbar', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+    <ChartCard title={title ?? subject} description={formDescription('hbar', subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
       <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
@@ -525,7 +525,7 @@ function cannotWear(form: string, title: string | undefined, action: ReactNode, 
 }
 
 /** The non-bar generic forms: a line through time, or a donut of composition. */
-function FormChart({ spec, definition, rows, animate, compare, onDrill, title, action, wide, footnote }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode }) {
+function FormChart({ spec, definition, rows, animate, compare, onDrill, title, action, wide, footnote, insight = null }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void; title?: string; action?: ReactNode; wide?: boolean; footnote?: ReactNode; insight?: string | null }) {
   const points = formSeries(spec, rows);
   if (points.length === 0) return cannotWear(spec.form, title, action, wide, footnote);
   const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
@@ -574,7 +574,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
     const subject = `${headers.get(firstKey) ?? 'Value'} over time`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription('line', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('line', subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
@@ -604,7 +604,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const lastKey = spec.series.at(-1);
     const subject = `${headers.get(spec.series[0] ?? '') ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription(spec.form, subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription(spec.form, subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <BarChart data={points} margin={AXIS_MARGIN_ANGLED}>
             <CartesianGrid vertical={false} />
@@ -652,7 +652,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     ) as ChartConfig;
     const subject = `${headers.get(keys[0] ?? '') ?? 'Value'} over time`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription(spec.form, subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription(spec.form, subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <AreaChart data={points} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
@@ -689,7 +689,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const config = { [key]: { label: headers.get(key) ?? key, color: 'var(--chart-1)' } } as ChartConfig;
     const subject = `${headers.get(key) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription('radar', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('radar', subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <ChartContainer config={config} className="mx-auto aspect-square h-56 max-w-full sm:h-64">
           <RadarChart data={points}>
             <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
@@ -707,7 +707,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--chart-1)' } } as ChartConfig;
     const subject = `${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription('scatter', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('scatter', subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <ChartContainer config={config} className="aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
           <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
             <CartesianGrid />
@@ -737,7 +737,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     const [rateKey = 'rate'] = spec.series;
     const subject = `${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription('radials', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('radials', subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {points.map((point) => (
             <Button
@@ -763,7 +763,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
     if (grid.months.length === 0 || grid.rows.length === 0) return cannotWear('heatmap', title, action, wide, footnote);
     const subject = `${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`;
     return (
-      <ChartCard title={title ?? subject} description={formDescription('heatmap', subject)} action={action} wide={wide} footnote={footnote} insight={null}>
+      <ChartCard title={title ?? subject} description={formDescription('heatmap', subject)} action={action} wide={wide} footnote={footnote} insight={insight}>
         <div className="overflow-x-auto">
           <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
             <TableHeader>
@@ -816,7 +816,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill, title, a
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <ChartCard title={title ?? 'Composition'} description={formDescription(spec.form, `Share of the total by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`)} action={action} wide={wide} footnote={footnote} insight={null}>
+    <ChartCard title={title ?? 'Composition'} description={formDescription(spec.form, `Share of the total by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`)} action={action} wide={wide} footnote={footnote} insight={insight}>
       <ChartContainer config={config} className="mx-auto aspect-auto h-56 w-full min-w-0 overflow-hidden sm:h-64">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />

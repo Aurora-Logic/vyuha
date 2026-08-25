@@ -2,21 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DASHBOARD_KEYS,
-  DASHBOARD_KPI_METRICS,
   REPORT_DEFINITIONS,
   dashboardTileSchema,
   type DashboardLayout,
   type DashboardTile,
 } from '@vyuha/shared';
 
-import { FINANCE_PRESET, OVERVIEW_SEED, SALES_PRESET, boardFromParam, boardToParam } from './dashboard-boards';
+import { FINANCE_PRESET, OVERVIEW_PRESET, SALES_PRESET, boardFromParam, boardToParam } from './dashboard-boards';
 import { DASHBOARD_KPIS } from './dashboard-kpis';
 import type { GenericChartForm } from './report-series';
 
 const BOARDS: readonly [string, DashboardLayout][] = [
+  ['overview', OVERVIEW_PRESET],
   ['sales', SALES_PRESET],
   ['finance', FINANCE_PRESET],
-  ['overview seed', OVERVIEW_SEED],
 ];
 
 /** The thirteen drawable forms; `auto` is the absence of a choice, not a form. */
@@ -119,9 +118,27 @@ describe('the KPI tiles', () => {
     expect(FINANCE_PRESET.tiles[3]?.metric).toBe('credit-breaches');
   });
 
-  it('seeds the overview customise draft with all six figures', () => {
-    expect(OVERVIEW_SEED.tiles.map((tile) => tile.metric)).toEqual([...DASHBOARD_KPI_METRICS]);
-    expect(OVERVIEW_SEED.tiles.every((tile) => tile.kind === 'kpi')).toBe(true);
+  it('opens the overview on its six headline figures, then the four decisions', () => {
+    // The front board answers: money in, money owed, where risk sits,
+    // whether the floor keeps up. The KPI strip leads; the charts argue.
+    expect(OVERVIEW_PRESET.tiles.slice(0, 6).map((tile) => tile.metric)).toEqual([
+      'invoiced-period',
+      'receivables-exposure',
+      'credit-breaches',
+      'revenue-going-quiet',
+      'dead-stock-value',
+      'below-reorder',
+    ]);
+    expect(OVERVIEW_PRESET.tiles.slice(6).every((tile) => tile.kind === 'chart')).toBe(true);
+    expect(OVERVIEW_PRESET.tiles.slice(6).map((tile) => tile.reportKey)).toEqual([
+      'sales-analysis',
+      'sales-analysis',
+      'ageing',
+      'payment-analysis',
+      'customer-concentration',
+      'customer-lapse',
+      'order-fill-rate',
+    ]);
   });
 
   it('parses a layout stored before KPI tiles existed, as a chart tile', () => {
