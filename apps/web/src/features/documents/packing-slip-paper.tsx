@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { HANDLING_MARK_LABELS, code128, type DocumentDesign, type DocumentProfile, type HandlingMark } from '@vyuha/shared';
 
 import { HANDLING_MARK_ICONS } from '@/components/shared/entity-icons';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -194,29 +195,33 @@ function barcodeBody(ctx: SlipContext): ReactNode {
       </section>
 
       <section className={cn('flex flex-1 flex-col text-[9pt]', a4 && 'text-[10pt]')}>
-        <table className="w-full border-collapse">
-          <thead>
-            <tr>
-              {a4 ? <th className="border-b border-[#111] py-[1mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">#</th> : null}
-              <th className="border-b border-[#111] py-[1mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Item</th>
-              {a4 ? <th className="border-b border-[#111] py-[1mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">HSN</th> : null}
-              <th className="border-b border-[#111] py-[1mm] text-right text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Qty</th>
-            </tr>
-          </thead>
-          <tbody>
+        {/* The shadcn table in print clothes: hairline ink borders and
+            millimetre padding override the app theme's heights, hover washes
+            and theme-coloured rules -- a printed sheet has no hover and must
+            stay black-on-white in either colour mode. */}
+        <Table className="border-collapse text-[1em]">
+          <TableHeader className="[&_tr]:border-0">
+            <TableRow className="hover:bg-transparent">
+              {a4 ? <TableHead className="h-auto border-b border-[#111] px-0 py-[1mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">#</TableHead> : null}
+              <TableHead className="h-auto border-b border-[#111] px-0 py-[1mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Item</TableHead>
+              {a4 ? <TableHead className="h-auto border-b border-[#111] px-0 py-[1mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">HSN</TableHead> : null}
+              <TableHead className="h-auto border-b border-[#111] px-0 py-[1mm] text-right text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Qty</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {lines.map((line, index) => (
-              <tr key={line.key}>
-                {a4 ? <td className="border-b border-[#ddd] py-[1.3mm] pr-[2mm] tabular-nums">{index + 1}</td> : null}
-                <td className="border-b border-[#ddd] py-[1.3mm]">{line.description}</td>
-                {a4 ? <td className="border-b border-[#ddd] py-[1.3mm] pr-[2mm] tabular-nums">{line.hsnCode}</td> : null}
-                <td className="border-b border-[#ddd] py-[1.3mm] text-right whitespace-nowrap tabular-nums">
+              <TableRow key={line.key} className="border-0 hover:bg-transparent">
+                {a4 ? <TableCell className="border-b border-[#ddd] px-0 py-[1.3mm] pr-[2mm] tabular-nums">{index + 1}</TableCell> : null}
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.3mm] whitespace-normal">{line.description}</TableCell>
+                {a4 ? <TableCell className="border-b border-[#ddd] px-0 py-[1.3mm] pr-[2mm] tabular-nums">{line.hsnCode}</TableCell> : null}
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.3mm] text-right whitespace-nowrap tabular-nums">
                   {line.quantity}
                   {line.unit ? ` ${line.unit}` : ''}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         <p className="pt-[1.5mm] text-[#444]">
           {lines.length} line{lines.length === 1 ? '' : 's'} · {units} units {note ? 'in this dispatch' : 'in this packing'}
           {a4 ? ' · quantities only, values are on the invoice' : ''}
@@ -358,33 +363,35 @@ function listBody(ctx: SlipContext): ReactNode {
       </section>
 
       <section className="flex-1 text-[9.5pt]">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-y border-[#111]">
-              <th className="py-[1.2mm] pr-[2mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">#</th>
-              <th className="py-[1.2mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Item</th>
-              <th className="py-[1.2mm] pr-[2mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">HSN</th>
-              <th className="py-[1.2mm] pr-[2mm] text-right text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Qty</th>
-              <th className="py-[1.2mm] text-center text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Packed</th>
-            </tr>
-          </thead>
-          <tbody>
+        {/* Same print clothes as the barcode slip's table; the ruled header
+            keeps its own top-and-bottom ink lines on the row. */}
+        <Table className="border-collapse text-[1em]">
+          <TableHeader>
+            <TableRow className="border-y border-[#111] hover:bg-transparent">
+              <TableHead className="h-auto px-0 py-[1.2mm] pr-[2mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">#</TableHead>
+              <TableHead className="h-auto px-0 py-[1.2mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Item</TableHead>
+              <TableHead className="h-auto px-0 py-[1.2mm] pr-[2mm] text-left text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">HSN</TableHead>
+              <TableHead className="h-auto px-0 py-[1.2mm] pr-[2mm] text-right text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Qty</TableHead>
+              <TableHead className="h-auto px-0 py-[1.2mm] text-center text-[7pt] font-semibold tracking-[0.1em] text-[#444] uppercase">Packed</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {lines.map((line, index) => (
-              <tr key={line.key}>
-                <td className="border-b border-[#ddd] py-[1.4mm] pr-[2mm] align-top tabular-nums">{index + 1}</td>
-                <td className="border-b border-[#ddd] py-[1.4mm] align-top">{line.description}</td>
-                <td className="border-b border-[#ddd] py-[1.4mm] pr-[2mm] align-top tabular-nums">{line.hsnCode}</td>
-                <td className="border-b border-[#ddd] py-[1.4mm] pr-[2mm] text-right align-top whitespace-nowrap tabular-nums">
+              <TableRow key={line.key} className="border-0 hover:bg-transparent">
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.4mm] pr-[2mm] align-top tabular-nums">{index + 1}</TableCell>
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.4mm] align-top whitespace-normal">{line.description}</TableCell>
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.4mm] pr-[2mm] align-top tabular-nums">{line.hsnCode}</TableCell>
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.4mm] pr-[2mm] text-right align-top whitespace-nowrap tabular-nums">
                   {line.quantity}
                   {line.unit ? ` ${line.unit}` : ''}
-                </td>
-                <td className="border-b border-[#ddd] py-[1.4mm] text-center align-top">
+                </TableCell>
+                <TableCell className="border-b border-[#ddd] px-0 py-[1.4mm] text-center align-top">
                   <span className="inline-block size-[4mm] border border-[#999]" />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         <p className="pt-[1.5mm] text-[8.5pt] text-[#444]">
           {lines.length} line{lines.length === 1 ? '' : 's'} · {units} units {note ? 'in this dispatch' : 'in this packing'} · quantities only, values are on the invoice
         </p>
