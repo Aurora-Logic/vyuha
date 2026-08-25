@@ -111,10 +111,11 @@ describe('the KPI tiles', () => {
     }
   });
 
-  it('leads sales with the invoiced figure and finance with the exposure figures', () => {
+  it('leads sales with the invoiced figure and finance with the interest leak (owner: essential)', () => {
     expect(SALES_PRESET.tiles[0]?.metric).toBe('invoiced-period');
-    expect(FINANCE_PRESET.tiles[0]?.metric).toBe('receivables-exposure');
-    expect(FINANCE_PRESET.tiles[1]?.metric).toBe('credit-breaches');
+    expect(FINANCE_PRESET.tiles[0]?.metric).toBe('interest-lost');
+    expect(FINANCE_PRESET.tiles[1]?.metric).toBe('receivables-exposure');
+    expect(FINANCE_PRESET.tiles[2]?.metric).toBe('credit-breaches');
   });
 
   it('seeds the overview customise draft with all six figures', () => {

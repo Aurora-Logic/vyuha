@@ -31,7 +31,7 @@ export type DashboardTileForm = (typeof DASHBOARD_TILE_FORMS)[number];
  * the contract; what each one fetches and how it sums live in the web's
  * metric registry, because the server stores the choice and computes nothing.
  */
-export const DASHBOARD_KPI_METRICS = ['invoiced-period', 'receivables-exposure', 'credit-breaches', 'revenue-going-quiet', 'dead-stock-value', 'below-reorder'] as const;
+export const DASHBOARD_KPI_METRICS = ['interest-lost', 'invoiced-period', 'receivables-exposure', 'credit-breaches', 'revenue-going-quiet', 'dead-stock-value', 'below-reorder'] as const;
 export type DashboardKpiMetric = (typeof DASHBOARD_KPI_METRICS)[number];
 
 export const dashboardTileSchema = z

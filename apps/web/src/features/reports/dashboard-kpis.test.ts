@@ -102,3 +102,33 @@ describe('dead-stock-value', () => {
     expect(reading.note).toBe('2 items with no sale in ninety days');
   });
 });
+
+describe('the interest-lost figure', () => {
+  const spec = DASHBOARD_KPIS['interest-lost'];
+  const rowsOf = (key: string, values: number[]) =>
+    values.map((value, index) => ({ id: `r${String(index)}`, cells: { [key]: String(value) } }) as unknown as ReportRowView);
+  const meta = (totals?: Record<string, string>): PageMeta => ({ total: 2, page: 1, pageSize: 200, ...(totals === undefined ? {} : { totals }) });
+
+  it('sums both leaks and names the split', () => {
+    const reading = spec.computeCombined?.(
+      { rows: rowsOf('interestLoss', [100, 50]), meta: meta() },
+      { rows: rowsOf('interest', [30]), meta: meta() },
+    );
+    expect(reading?.value).toContain('180');
+    expect(reading?.note).toContain('receivables');
+    expect(reading?.note).toContain('stock');
+  });
+
+  it('prefers the server totals over the page sum, per the house rule', () => {
+    const reading = spec.computeCombined?.(
+      { rows: rowsOf('interestLoss', [1]), meta: meta({ interestLoss: '999' }) },
+      { rows: rowsOf('interest', [1]), meta: meta({ interest: '1' }) },
+    );
+    expect(reading?.value).toContain('1,000');
+  });
+
+  it('wears the warning tone: it is a standing leak, not a neutral figure', () => {
+    expect(spec.tone).toBe('warning');
+    expect(spec.secondary?.reportKey).toBe('stock-interest-cost');
+  });
+});
