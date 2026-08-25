@@ -107,6 +107,10 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   sortableFields(key: ReportKey): readonly string[] {
+    // The extract's ORDER BY lives in `ledgerExtractRows`, not in SORTABLE:
+    // its running balance and opening row move with the read direction, which
+    // a bare ORDER BY fragment cannot express.
+    if (key === 'ledger-extract') return ['date'];
     return Object.keys(SORTABLE[key] ?? {});
   }
 
@@ -144,7 +148,7 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
     const total = await this.count(principal, key, usable);
     const asOf = await this.asOf(principal.orgId);
     if (key === 'ledger-extract') {
-      const page: AnalyticsPage = { key, total, rows: await this.ledgerExtractRows(principal.orgId, usable, limit, offset, asOf) };
+      const page: AnalyticsPage = { key, total, rows: await this.ledgerExtractRows(principal.orgId, usable, filters.sort, limit, offset, asOf) };
       return page;
     }
     const order = orderBy(filters.sort, SORTABLE[key] ?? {}, DEFAULT_ORDER[key] ?? ' 1 ASC');
@@ -753,7 +757,8 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
    * a running balance. Debit and credit read from `is_deemed_positive`,
    * which is Tally's own word for the line's direction.
    */
-  private async ledgerExtractRows(orgId: string, f: ReportFilters, limit: number, offset: number, asOf: string | null): Promise<Record<string, unknown>[]> {
+  private async ledgerExtractRows(orgId: string, f: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<Record<string, unknown>[]> {
+    const desc = sort === '-date';
     const opening = await this.db.execute<{ value: string }>(sql`
       SELECT COALESCE(sum(CASE WHEN l.is_deemed_positive THEN l.amount ELSE -l.amount END), 0)::text AS value
         FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
@@ -779,8 +784,8 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
          WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
       )
       SELECT * FROM extract_lines
-       ORDER BY date ASC, created_at ASC, id ASC
-       LIMIT ${offset === 0 ? Math.max(limit - 1, 0) : limit} OFFSET ${offset === 0 ? 0 : offset - 1}
+       ORDER BY date ${desc ? sql`DESC` : sql`ASC`}, created_at ${desc ? sql`DESC` : sql`ASC`}, id ${desc ? sql`DESC` : sql`ASC`}
+       LIMIT ${desc ? limit : offset === 0 ? Math.max(limit - 1, 0) : limit} OFFSET ${desc ? offset : offset === 0 ? 0 : offset - 1}
     `);
     const lines = rows.rows.map((r) => {
       const balance = openingValue + Number(r.movement);
@@ -796,12 +801,13 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
         asOf,
       };
     });
-    if (offset === 0) {
-      return [
-        { id: 'opening', date: f.from ?? '', voucherType: 'Opening balance', voucherNumber: '', partyName: null, debit: null, credit: null, balance: openingValue.toFixed(2), asOf },
-        ...lines,
-      ];
+    const openingRow = { id: 'opening', date: f.from ?? '', voucherType: 'Opening balance', voucherNumber: '', partyName: null, debit: null, credit: null, balance: openingValue.toFixed(2), asOf };
+    if (desc) {
+      // Read backwards the opening line is the last slot of the last page --
+      // a short page is the signal the rows ran out.
+      return lines.length < limit ? [...lines, openingRow] : lines;
     }
+    if (offset === 0) return [openingRow, ...lines];
     return lines;
   }
 
