@@ -49,12 +49,15 @@ export interface StockItemFilters {
   pageSize?: number;
   q?: string;
   parentGroup?: string;
+  /** A term the server knows (STOCK_ITEM_SORT_FIELDS), e.g. "-gstRate" or "name". */
+  sort?: string;
 }
 
 function stockItemsQuery(filters: StockItemFilters) {
   const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
+  if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return {
     queryKey: ['masters', 'stock-items', key] as const,

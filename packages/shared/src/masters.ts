@@ -35,11 +35,17 @@ export interface PartyView {
   readonly duplicate: DuplicateFlag | null;
 }
 
+/** The columns the parties register orders by; a header and a `?sort=` term are the same word. */
+export const PARTY_SORT_FIELDS = ['name', 'creditLimit', 'creditDays'] as const;
+export const DEFAULT_PARTY_SORT = 'name';
+
 export const partyListQuerySchema = pageQuerySchema.extend({
   /** Free text over name, alias and GSTIN. */
   q: z.string().trim().min(1).max(80).optional(),
   /** Filter to one side of the ledger: Sundry Debtors or Sundry Creditors. */
   parentGroup: z.string().trim().min(1).max(120).optional(),
+  /** `field` or `-field` from PARTY_SORT_FIELDS; an unknown term is dropped, not a 400. */
+  sort: z.string().trim().max(60).optional(),
 });
 
 export type PartyListQuery = z.infer<typeof partyListQuerySchema>;
@@ -63,11 +69,17 @@ export interface StockItemView {
   readonly duplicate: DuplicateFlag | null;
 }
 
+/** The columns the stock-items register orders by. */
+export const STOCK_ITEM_SORT_FIELDS = ['name', 'gstRate'] as const;
+export const DEFAULT_STOCK_ITEM_SORT = 'name';
+
 export const stockItemListQuerySchema = pageQuerySchema.extend({
   /** Free text over name and alias. */
   q: z.string().trim().min(1).max(80).optional(),
   /** Filter to one stock group, verbatim. */
   parentGroup: z.string().trim().min(1).max(120).optional(),
+  /** `field` or `-field` from STOCK_ITEM_SORT_FIELDS; an unknown term is dropped, not a 400. */
+  sort: z.string().trim().max(60).optional(),
 });
 
 export type StockItemListQuery = z.infer<typeof stockItemListQuerySchema>;

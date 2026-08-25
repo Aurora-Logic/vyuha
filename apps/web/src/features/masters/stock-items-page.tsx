@@ -7,6 +7,7 @@ import { DUPLICATE_ROW_CLASS } from '@/components/shared/duplicate-flag';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PERMISSIONS, STOCK_ITEM_SORT_FIELDS } from '@vyuha/shared';
 
 import { useStockItems, type StockItem } from './use-stock-items';
 
@@ -34,6 +35,7 @@ const COLUMNS: RecordColumn<StockItem>[] = [
   {
     key: 'name',
     header: 'Item',
+    sortField: 'name',
     cell: (row) => (
       <span className="flex items-center gap-2">
         <span className="font-medium">{row.name}</span>
@@ -46,6 +48,7 @@ const COLUMNS: RecordColumn<StockItem>[] = [
   {
     key: 'gst',
     header: 'GST rate',
+    sortField: 'gstRate',
     cell: (row) => (row.gstRate === null ? EMPTY_VALUE : `${row.gstRate}%`),
     numeric: true,
   },
@@ -112,7 +115,8 @@ export function StockItemsPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useStockItems({ page, ...(q ? { q } : {}) }, { enabled: canView, prefetchNext: true });
+  const { sort, activeSort, onSortChange } = useUrlSort(STOCK_ITEM_SORT_FIELDS);
+  const query = useStockItems({ page, ...(q ? { q } : {}), ...(sort ? { sort } : {}) }, { enabled: canView, prefetchNext: true });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
 
@@ -200,7 +204,8 @@ export function StockItemsPage() {
               columns={COLUMNS}
               rows={rows}
               rowKey={(row) => row.id}
-
+              sort={activeSort}
+              onSortChange={onSortChange}
               rowClassName={(row) => (row.duplicate ? DUPLICATE_ROW_CLASS : undefined)}
 
               rowLeading={(row) => (row.duplicate ? <DuplicateBadge flag={row.duplicate} /> : null)}

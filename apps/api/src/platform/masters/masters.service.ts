@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DEFAULT_PARTY_SORT,
+  DEFAULT_STOCK_ITEM_SORT,
   DEFAULT_VOUCHER_SORT,
   pageSlice,
   paginated,
   parseSort,
+  PARTY_SORT_FIELDS,
+  STOCK_ITEM_SORT_FIELDS,
   VOUCHER_SORT_FIELDS,
   type Paginated,
   type PartyListQuery,
@@ -24,7 +28,7 @@ import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { DuplicatesService } from './duplicates.service.js';
 import { parties, priceListEntries, stockItems, voucherLines, vouchers } from '../db/schema/index.js';
-import { masterSearch } from '../org/master-query.js';
+import { masterOrderBy, masterSearch } from '../org/master-query.js';
 import { type Principal } from '../rbac/principal.js';
 
 /**
@@ -62,7 +66,7 @@ export class MastersService {
         .select()
         .from(parties)
         .where(where)
-        .orderBy(asc(parties.name), asc(parties.id))
+        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays }, parties.name, parties.id))
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(parties).where(where),
@@ -107,7 +111,7 @@ export class MastersService {
         .select()
         .from(stockItems)
         .where(where)
-        .orderBy(asc(stockItems.name), asc(stockItems.id))
+        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_STOCK_ITEM_SORT, STOCK_ITEM_SORT_FIELDS), { name: stockItems.name, gstRate: stockItems.gstRate }, stockItems.name, stockItems.id))
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(stockItems).where(where),
