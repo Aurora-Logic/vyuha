@@ -18,6 +18,8 @@ Purchase going live). Updated as work lands.
 | B25-7 | Interest cost & cash cycle module (owner spec + D-22): daily-series interest on receivables and stock, three reports, finance-board tiles, settings + per-party overrides | Done -- 13 hand-worked math tests, 11 endpoint tests, migration 0065; full api suite 2252 green after |
 | B25-8 | Every shadcn chart family as a pickable tile form (area, stacked area, bar, stacked bar, radar, pie join the set), reference code via the shadcn MCP | Done -- 13-form union, wearability-gated picker |
 | B25-9 | The six overview KPI figures become customisable board tiles; customising Overview seeds from all six instead of dropping them | Done -- KPI registry + headline-figures section in Customise |
+| B25-10 | Reports module reorganised (owner: unorganised/confusing): hub catalogue with search + recently-used + category shelves, report identity header, two-row toolbar | Done -- hub chosen from three IA options |
+| B25-11 | Chart customisation previews: the form picker is a live gallery, every wearable form drawn with the report's real rows, unwearable ones dimmed with the reason | Done |
 
 ## 21 Aug 2026 brief
 
