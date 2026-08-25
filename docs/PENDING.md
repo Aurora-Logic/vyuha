@@ -5,6 +5,19 @@ stands on `phase-6a`, which is ahead of the brief in several places (the
 brief predates the Reports module, the module switcher and CRM/Sales/
 Purchase going live). Updated as work lands.
 
+## 25 Aug 2026 brief
+
+| ID | Item | Status |
+|----|------|--------|
+| B25-1 | Masters merges into Sales (Documents / Masters / Books); Logistics module for fulfilment (D-19) | Done |
+| B25-2 | Mobile bar: five slots, chosen from any module, one global preference (D-20) | Done |
+| B25-3 | Org date format applied everywhere + dd MMM yyyy option; bypassing renders routed through the formatter | Done |
+| B25-4 | Sales and Finance dashboards | Done -- preset boards on the dashboard page, rendered by the generic chart engine |
+| B25-5 | GST inputs summary (D-21 narrows REQ-AE-08; by-rate blocked on sync contract) | Done |
+| B25-6 | Customisable dashboards: tiles, chart form, parameters, per-user server-side layouts | Done -- dashboard_layouts + /reports/dashboards, customise sheet on every board |
+
+## 21 Aug 2026 brief
+
 | ID | Item | Description | Area | Decision needed? | Status |
 |----|------|-------------|------|------------------|--------|
 | P-01 | Data analyst skill | `.claude/skills/data-analyst/SKILL.md`: metric dictionary, chart matrix, FY comparison rules, report spec template, drill rules | Skills | No | Done |
