@@ -4,6 +4,7 @@ import { ReceivableSnapshotHandler } from './receivable-snapshot.handler.js';
 import { SettingsModule } from '../../platform/settings/settings.module.js';
 import { CfoController } from './cfo.controller.js';
 import { CreditControlService } from './credit-control.service.js';
+import { MyCfoService } from './my-cfo.service.js';
 import { OwnerMapService } from './attribution/owner-map.service.js';
 import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
 import { SalesFactService } from './sales-fact.service.js';
@@ -17,6 +18,6 @@ import { SalesFactService } from './sales-fact.service.js';
 @Module({
   imports: [SettingsModule],
   controllers: [CfoController],
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService],
 })
 export class CfoModule {}

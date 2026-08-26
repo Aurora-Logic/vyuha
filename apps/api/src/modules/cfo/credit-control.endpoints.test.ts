@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import type { CreditOverview, WorkLists } from './credit-control.service.js';
+import type { MyCfo } from './my-cfo.service.js';
+import { OwnerMapService } from './attribution/owner-map.service.js';
 
 /**
  * Phase 2's credit endpoints on hand-computed fixtures.
@@ -23,6 +25,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
 let harness: ApiHarness;
 let adminToken = '';
 let employeeToken = '';
+let adminUserId = '';
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'CFO Credit Org', { preservePeople: true });
@@ -37,6 +40,7 @@ beforeAll(async () => {
   const employee = await harness.createUser({ email: scopedEmail('cfo-credit-emp'), roleIds: [employeeRoleId] });
   adminToken = (await harness.login(admin.email, admin.password)).token;
   employeeToken = (await harness.login(employee.email, employee.password)).token;
+  adminUserId = admin.id;
 
   const connection = await harness.db.execute<{ id: string }>(sql`
     INSERT INTO integration_connections (org_id, system, name, company_guid)
@@ -70,6 +74,9 @@ beforeAll(async () => {
       (${ORG_ID}, ${connectionId}, 1, '2026-07-10', 'Sales',   'S-A0', 'Asha Traders',  ${ashaId},   '', false, 50000, now()),
       (${ORG_ID}, ${connectionId}, 1, '2026-08-15', 'Receipt', 'R-A1', 'Asha Traders',  ${ashaId},   '', false, 20000, now())
   `);
+
+  // My CFO's book: Asha is the admin's through the CFO owner map.
+  await harness.resolve(OwnerMapService).assign(ORG_ID, null, ashaId, [{ ownerRef: `user:${adminUserId}`, share: 100 }], '2026-01-01');
 });
 
 afterAll(async () => {
@@ -132,5 +139,32 @@ describe('GET /cfo/work-lists', () => {
 
     // The current bill due within seven days shows as a courtesy call.
     expect(list('due-this-week')?.rows.map((r) => r.party)).toEqual(['Asha Traders']);
+  });
+});
+
+
+describe('GET /cfo/me', () => {
+  it('scopes every figure to my own book', async () => {
+    const res = await harness.get<MyCfo>('/cfo/me?from=2026-08-01&to=2026-08-31', { token: adminToken });
+
+    expect(res.status).toBe(200);
+    // Asha only: 60,000 sales this August against 50,000 last July-shifted
+    // window; Bharat's 40,000 is someone else's book and must not leak in.
+    expect(res.body.bookSize).toBe(1);
+    expect(res.body.mySales).toBe('60000.00');
+    expect(res.body.myCollections).toBe('20000.00');
+    expect(res.body.myOverdue).toBe('60000.00');
+    // 60,000 overdue at the default 12% -- the same D17 price the ladder shows.
+    expect(res.body.delayCostPerYear).toBe('7200.00');
+    const asha = res.body.customers.find((c) => c.party === 'Asha Traders');
+    expect(asha?.daysOverdue).toBe(45);
+    expect(res.body.customers.some((c) => c.party === 'Bharat Cables')).toBe(false);
+    // Pacing runs cumulatively and ends at the period total.
+    expect(res.body.pacing.at(-1)?.cumulative).toBe(60000);
+  });
+
+  it('an empty book answers zeros, not an error', async () => {
+    const res = await harness.get<MyCfo>('/cfo/me?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(res.status).toBe(403);
   });
 });

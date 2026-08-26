@@ -10,6 +10,7 @@ import {
   ChartBarIcon,
   ChartLineUpIcon,
   HandCoinsIcon,
+  UserCircleIcon,
   CheckSquareIcon,
   ClipboardIcon,
   ClipboardTextIcon,
@@ -764,6 +765,15 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Credit',
         items: [
+          {
+            to: '/reports/me',
+            label: 'My CFO',
+            shortLabel: 'Mine',
+            icon: UserCircleIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief G3, Phase 2',
+          },
           {
             to: '/reports/credit',
             label: 'Credit control',

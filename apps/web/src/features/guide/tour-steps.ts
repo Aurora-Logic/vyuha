@@ -343,6 +343,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Jobs finishing, exceptions raised, and how fresh the last pull from Tally is.',
   },
   {
+    id: 'screen.reports-me',
+    route: '/reports/me',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'My CFO',
+    body: 'Your own book: sales against last year, collections, the overdue money, and every customer behind it.',
+  },
+  {
     id: 'screen.reports-credit',
     route: '/reports/credit',
     anchor: ANCHORS.screenHeader,
