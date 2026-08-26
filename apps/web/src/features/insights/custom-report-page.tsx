@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  ArrowsClockwiseIcon,
   DotsSixVerticalIcon,
+  DotsThreeVerticalIcon,
   LockKeyIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -31,14 +33,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
+import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { useAreaInsights, useCustomReport, useCustomReportMutations } from './api';
 import { BuilderPanel } from './builder-panel';
 import { AREA_METRICS } from './catalogue';
 import { MetricChart, MetricPointsTable } from './metric-card';
-import { defaultRange } from './period';
+import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
 import { formatHeadline } from './units';
 
 /**
@@ -56,10 +60,8 @@ import { formatHeadline } from './units';
  * one (PRD §6.4).
  */
 
-const RANGE = defaultRange();
-
-function WidgetBody({ widget }: { widget: CustomWidget }) {
-  const query = useAreaInsights(widget.area, RANGE);
+function WidgetBody({ widget, range }: { widget: CustomWidget; range: { from: string; to: string } }) {
+  const query = useAreaInsights(widget.area, range);
   const metric = query.data?.metrics.find((m) => m.key === widget.metric);
 
   if (query.isPending) return <Skeleton className="h-40 w-full" />;
@@ -119,6 +121,7 @@ export function CustomReportPage() {
   const query = useCustomReport(id);
   const { update, remove } = useCustomReportMutations();
 
+  const range = rangeFromParams(searchParams);
   const editing = searchParams.get('edit') === '1' && query.data?.editable === true;
   const [draft, setDraft] = useState<CustomWidget[] | null>(null);
   const [shared, setShared] = useState<boolean | null>(null);
@@ -321,6 +324,41 @@ export function CustomReportPage() {
         }
       />
 
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Refresh"
+          onClick={() => {
+            void query.refetch();
+          }}
+        >
+          <ArrowsClockwiseIcon />
+        </Button>
+        <DateRangeField
+          label="Period"
+          value={rangeAsPickerValue(range)}
+          presets={INSIGHT_PRESETS}
+          onValueChange={(next) => {
+            if (!next.from || !next.to) return;
+            const from = toApiDate(next.from);
+            const to = toApiDate(next.to);
+            setSearchParams(
+              (current) => {
+                const params = new URLSearchParams(current);
+                params.set('from', from);
+                params.set('to', to);
+                return params;
+              },
+              { replace: true },
+            );
+          }}
+        />
+        <span className="text-muted-foreground text-xs tabular-nums">
+          {formatDate(range.from)} → {formatDate(range.to)}
+        </span>
+      </div>
+
       <div className={cn('flex flex-col gap-4', editing && 'xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start')}>
         {widgets.length === 0 ? (
           <Empty className="border">
@@ -392,7 +430,7 @@ export function CustomReportPage() {
                       <DropdownMenuTrigger
                         render={
                           <Button variant="ghost" size="icon-sm" aria-label={`${widget.title} widget menu`}>
-                            <ArrowRightIcon className="rotate-90" />
+                            <DotsThreeVerticalIcon />
                           </Button>
                         }
                       />
@@ -420,7 +458,7 @@ export function CustomReportPage() {
                   ) : null}
                 </CardHeader>
                 <CardContent>
-                  <WidgetBody widget={widget} />
+                  <WidgetBody widget={widget} range={range} />
                 </CardContent>
               </Card>
             ))}
@@ -438,9 +476,10 @@ export function CustomReportPage() {
         )}
 
         {editing && selected !== null ? (
-          <div className="border p-4 xl:sticky xl:top-4">
+          <div className="bg-background border p-4 xl:sticky xl:top-16 xl:max-h-[calc(100vh-5rem)] xl:overflow-y-auto">
             <BuilderPanel
               widget={selected}
+              range={range}
               onChange={patchWidget}
               onRemove={() => {
                 setDraft((current) => (current ?? []).filter((w) => w.id !== selected.id));

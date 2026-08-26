@@ -99,6 +99,7 @@ export type WidgetKind = (typeof WIDGET_KINDS)[number];
  */
 export const WIDGET_PALETTES = [
   'default',
+  'mixed',
   'accent',
   'blue',
   'violet',

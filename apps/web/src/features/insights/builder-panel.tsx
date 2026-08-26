@@ -159,10 +159,13 @@ function RangeField({
 
 export function BuilderPanel({
   widget,
+  range,
   onChange,
   onRemove,
 }: {
   widget: CustomWidget;
+  /** The page's period, so suggestions come from the data actually shown. */
+  range?: { from: string; to: string };
   onChange: (next: CustomWidget) => void;
   onRemove: () => void;
 }) {
@@ -173,7 +176,7 @@ export function BuilderPanel({
   // The widget's own data, from the same cache its chart reads, so the
   // range dropdowns can SUGGEST rather than ask for a bare number: the top
   // of the data, one step up, and double, each rounded to a clean figure.
-  const areaData = useAreaInsights(widget.area, defaultRange());
+  const areaData = useAreaInsights(widget.area, range ?? defaultRange());
   const liveMetric = areaData.data?.metrics.find((m) => m.key === widget.metric);
   const metricSeries = liveMetric?.series ?? [];
   const peak = (liveMetric?.points ?? []).reduce(
@@ -240,7 +243,9 @@ export function BuilderPanel({
         onValueChange={(picked) => {
           if (picked !== null) {
             const { series: _series, ...rest } = widget.options;
-            onChange({ ...widget, metric: picked.id, options: rest });
+            const oldLabel = metrics.find((m) => m.key === widget.metric)?.label;
+            const title = widget.title === oldLabel || widget.title.trim() === '' ? picked.label : widget.title;
+            onChange({ ...widget, metric: picked.id, title, options: rest });
           }
         }}
       />

@@ -1,4 +1,4 @@
-import { ArrowRightIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react';
 import { Link, useSearchParams } from 'react-router';
 import { PERMISSIONS, type InsightArea } from '@vyuha/shared';
 
@@ -15,13 +15,16 @@ import {
 import { ChartBarIcon } from '@phosphor-icons/react';
 import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
+import { SectionHeading } from '@/components/shared/section-heading';
+import { DateRangeField } from '@/features/attendance/pickers';
+import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
-import { useAreaInsights, type AreaInsightsData } from './api';
+import { useAreaInsights, type AreaInsightsData, type Metric } from './api';
 import { AREA_LABELS } from './catalogue';
 import { MetricChart } from './metric-card';
 import { formatHeadline } from './units';
-import { rangeFromParams } from './period';
+import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
 
 /**
  * The reports overview (owner, 26 Aug 2026, the Supabase Overview shape): a
@@ -66,53 +69,61 @@ function tilesOf(area: InsightArea, data: AreaInsightsData | undefined): KpiTile
   }
 }
 
-function AreaHealthCard({ area, data, pending }: { area: InsightArea; data: AreaInsightsData | undefined; pending: boolean }) {
-  const metrics = data?.metrics ?? [];
+function OverviewMetricCard({ metric, index }: { metric: Metric; index: number }) {
   return (
-    <Card>
+    <Card className="min-w-0" data-metric={metric.key}>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">{AREA_LABELS[area]}</CardTitle>
-        {/* The action slot: the header grid only grows its second column for
-            this, which is why Open sat under the title before. */}
+        <CardTitle className="truncate text-sm font-medium">{metric.label}</CardTitle>
         <CardAction>
-          <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}`} />}>
-            Open
-            <ArrowRightIcon data-icon="inline-end" />
-          </Button>
+          <span className="text-sm font-semibold tabular-nums">{formatHeadline(metric.unit, metric.headline)}</span>
         </CardAction>
       </CardHeader>
       <CardContent>
-        {pending ? <Skeleton className="h-40 w-full" /> : null}
-        {metrics.length > 0 ? (
-          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-            {metrics.map((metric, index) => (
-              <div key={metric.key} className="min-w-0">
-                <p className="text-muted-foreground flex items-baseline justify-between gap-2 text-xs">
-                  <span className="truncate">{metric.label}</span>
-                  <span className="text-foreground shrink-0 font-medium tabular-nums">
-                    {formatHeadline(metric.unit, metric.headline)}
-                  </span>
-                </p>
-                <MetricChart
-                  metric={metric}
-                  kind={metric.xKind === 'category' ? 'bar' : metric.series.length > 1 ? 'bar' : 'area'}
-                  options={{ legend: true, dataLabels: false, colourIndex: index }}
-                  className="h-32"
-                />
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {!pending && metrics.length === 0 ? (
-          <p className="text-muted-foreground flex h-24 items-center justify-center text-sm">Nothing yet</p>
-        ) : null}
+        <MetricChart
+          metric={metric}
+          kind={metric.xKind === 'category' ? 'bar' : metric.series.length > 1 ? 'bar' : 'area'}
+          options={{ legend: true, dataLabels: false, colourIndex: index }}
+          className="h-36"
+        />
       </CardContent>
     </Card>
   );
 }
 
+function AreaSection({ area, data, pending }: { area: InsightArea; data: AreaInsightsData | undefined; pending: boolean }) {
+  const metrics = data?.metrics ?? [];
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <SectionHeading title={AREA_LABELS[area]} />
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}`} />}>
+          Open
+          <ArrowRightIcon data-icon="inline-end" />
+        </Button>
+      </div>
+      {pending ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Skeleton className="h-52" />
+          <Skeleton className="h-52" />
+          <Skeleton className="h-52" />
+        </div>
+      ) : null}
+      {metrics.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {metrics.map((metric, index) => (
+            <OverviewMetricCard key={metric.key} metric={metric} index={index} />
+          ))}
+        </div>
+      ) : null}
+      {!pending && metrics.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Nothing yet for this period.</p>
+      ) : null}
+    </section>
+  );
+}
+
 export function InsightsOverviewPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
 
   const canAttendance = usePermission(PERMISSIONS.ATTENDANCE_VIEW_ALL);
@@ -138,7 +149,7 @@ export function InsightsOverviewPage() {
   if (areas.length === 0) {
     return (
       <>
-        <PageHeader description="Headline figures across the areas you may see, over the last thirty days." />
+        <PageHeader description="Headline figures across the areas you may see, one chart to a card." />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -157,14 +168,49 @@ export function InsightsOverviewPage() {
 
   return (
     <>
-      <PageHeader description="Headline figures across the areas you may see, over the last thirty days." />
-      <div className="flex flex-col gap-4">
-        {tiles.length > 0 ? <KpiGrid tiles={tiles} columns={6} /> : null}
-        <div className="grid gap-4 lg:grid-cols-2">
-          {areas.map((entry) => (
-            <AreaHealthCard key={entry.area} area={entry.area} data={entry.data} pending={entry.pending} />
-          ))}
+      <PageHeader description="Headline figures across the areas you may see, one chart to a card." />
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Refresh"
+            onClick={() => {
+              void attendance.refetch();
+              void receivables.refetch();
+              void sales.refetch();
+              void sync.refetch();
+            }}
+          >
+            <ArrowsClockwiseIcon />
+          </Button>
+          <DateRangeField
+            label="Period"
+            value={rangeAsPickerValue(range)}
+            presets={INSIGHT_PRESETS}
+            onValueChange={(next) => {
+              if (!next.from || !next.to) return;
+              const from = toApiDate(next.from);
+              const to = toApiDate(next.to);
+              setSearchParams(
+                (current) => {
+                  const params = new URLSearchParams(current);
+                  params.set('from', from);
+                  params.set('to', to);
+                  return params;
+                },
+                { replace: true },
+              );
+            }}
+          />
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {formatDate(range.from)} → {formatDate(range.to)}
+          </span>
         </div>
+        {tiles.length > 0 ? <KpiGrid tiles={tiles} columns={6} /> : null}
+        {areas.map((entry) => (
+          <AreaSection key={entry.area} area={entry.area} data={entry.data} pending={entry.pending} />
+        ))}
       </div>
     </>
   );

@@ -104,9 +104,19 @@ export const CHART_PALETTES: Record<WidgetPalette, readonly string[]> = {
   amber: familyOf(75),
   rose: familyOf(15),
   teal: familyOf(200),
-  // The nine Notion inks the owner supplied, measured to oklch and stepped in
-  // lightness around each ink's own hue and chroma -- the muted Notion voice,
-  // beside the saturated families above.
+  // A mixed set drawn from the soft ink palette the owner supplied: five of
+  // its hues in fixed order, no green (standing chart rule) and no red
+  // (reserved for trouble), for whoever wants the whole widget in that voice.
+  mixed: [
+    'oklch(0.566 0.099 237.4)',
+    'oklch(0.659 0.159 55.7)',
+    'oklch(0.581 0.12 309.5)',
+    'oklch(0.59 0.164 350.4)',
+    'oklch(0.697 0.13 76)',
+  ],
+  // The same soft inks as single-hue families, measured to oklch and stepped
+  // in lightness around each ink's own hue and chroma, beside the saturated
+  // families above.
   gray: familyOf(91.5, 0.01),
   brown: familyOf(45.6, 0.076),
   orange: familyOf(55.7, 0.159),
@@ -125,12 +135,13 @@ export const PALETTE_LABELS: Record<WidgetPalette, string> = {
   amber: 'Amber',
   rose: 'Rose',
   teal: 'Teal',
-  gray: 'Notion gray',
-  brown: 'Notion brown',
-  orange: 'Notion orange',
-  yellow: 'Notion yellow',
-  green: 'Notion green',
-  purple: 'Notion purple',
-  pink: 'Notion pink',
-  red: 'Notion red',
+  mixed: 'Soft mixed',
+  gray: 'Gray',
+  brown: 'Brown',
+  orange: 'Orange',
+  yellow: 'Yellow',
+  green: 'Green',
+  purple: 'Purple',
+  pink: 'Pink',
+  red: 'Red',
 };
