@@ -1,0 +1,136 @@
+import { SYSTEM_ROLES } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import type { CreditOverview, WorkLists } from './credit-control.service.js';
+
+/**
+ * Phase 2's credit endpoints on hand-computed fixtures.
+ *
+ * The book on 20 Aug 2026: Asha holds 40,000 current (due 30 Aug) and
+ * 60,000 at 45 days overdue; Bharat holds 30,000 at 10 days overdue against
+ * a 25,000 limit. August credit sales 100,000 (31 days), July 50,000.
+ *
+ * Hand-worked: outstanding 130,000 · overdue 90,000 · countback consumes
+ * August whole (31d) and 30,000/50,000 of July (18.6d) = 49.6 · best DSO
+ * on the 40,000 current book = 12.4 · ADD 37.2. D17 at the default 12%:
+ * Asha's delay costs 7,200 a year, Bharat's 3,600.
+ */
+const ORG_ID = '01900000-0000-7000-8000-00000000f0e5';
+const TODAY = new Date().toISOString().slice(0, 10);
+
+let harness: ApiHarness;
+let adminToken = '';
+let employeeToken = '';
+
+beforeAll(async () => {
+  harness = await ApiHarness.start(ORG_ID, 'CFO Credit Org', { preservePeople: true });
+  for (const table of ['fact_receivable_snapshot', 'customer_owner_map', 'voucher_lines', 'vouchers', 'parties']) {
+    await harness.db.execute(sql.raw(`DELETE FROM ${table} WHERE org_id = '${ORG_ID}'`));
+  }
+  await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`);
+
+  const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
+  const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE, { isSystem: true });
+  const admin = await harness.createUser({ email: scopedEmail('cfo-credit-admin'), roleIds: [adminRoleId] });
+  const employee = await harness.createUser({ email: scopedEmail('cfo-credit-emp'), roleIds: [employeeRoleId] });
+  adminToken = (await harness.login(admin.email, admin.password)).token;
+  employeeToken = (await harness.login(employee.email, employee.password)).token;
+
+  const connection = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO integration_connections (org_id, system, name, company_guid)
+    VALUES (${ORG_ID}, 'TALLY', 'Credit Co', 'guid-cfo-credit') RETURNING id
+  `);
+  const connectionId = connection.rows[0]?.id ?? '';
+  const asha = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO parties (org_id, connection_id, name, parent_group)
+    VALUES (${ORG_ID}, ${connectionId}, 'Asha Traders', 'Sundry Debtors') RETURNING id
+  `);
+  const bharat = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)
+    VALUES (${ORG_ID}, ${connectionId}, 'Bharat Cables', 'Sundry Debtors', 25000) RETURNING id
+  `);
+  const ashaId = asha.rows[0]?.id ?? '';
+  const bharatId = bharat.rows[0]?.id ?? '';
+
+  await harness.db.execute(sql`
+    INSERT INTO fact_receivable_snapshot (org_id, snapshot_date, party_id, bill_ref, bill_date, due_date, amount, outstanding, days_overdue, bucket, source) VALUES
+      (${ORG_ID}, '2026-08-20', ${ashaId},   'A-CUR', '2026-08-10', (${TODAY}::date + 5), 40000, 40000, 0,  'current', 'test'),
+      (${ORG_ID}, '2026-08-20', ${ashaId},   'A-OLD', '2026-06-15', '2026-07-06',        60000, 60000, 45, '31-60',  'test'),
+      (${ORG_ID}, '2026-08-20', ${bharatId}, 'B-1',   '2026-07-25', '2026-08-10',        30000, 30000, 10, '0-30',   'test'),
+      (${ORG_ID}, '2026-08-19', ${ashaId},   'A-OLD', '2026-06-15', '2026-07-06',        60000, 62000, 44, '31-60',  'test')
+  `);
+
+  // Credit sales: August 100,000, July 50,000; a receipt for last-payment.
+  await harness.db.execute(sql`
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-05', 'Sales',   'S-A1', 'Asha Traders',  ${ashaId},   '', false, 60000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-12', 'Sales',   'S-B1', 'Bharat Cables', ${bharatId}, '', false, 40000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-07-10', 'Sales',   'S-A0', 'Asha Traders',  ${ashaId},   '', false, 50000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-15', 'Receipt', 'R-A1', 'Asha Traders',  ${ashaId},   '', false, 20000, now())
+  `);
+});
+
+afterAll(async () => {
+  await harness.close();
+});
+
+describe('GET /cfo/receivables', () => {
+  it('reads the book, counts back the DSO, and prices the delay', async () => {
+    const res = await harness.get<CreditOverview>('/cfo/receivables?from=2026-08-01&to=2026-08-31', { token: adminToken });
+
+    if (res.status !== 200) throw new Error(`500 body: ${res.text.slice(0, 400)}`);
+    expect(res.body.asOf).toBe('2026-08-20');
+    expect(res.body.outstanding).toBe('130000.00');
+    expect(res.body.overdue).toBe('90000.00');
+    expect(res.body.buckets['31-60']).toBe('60000.00');
+
+    // Countback: August 100,000 consumed whole (31d), then 30,000 of July's
+    // 50,000 = 0.6 x 31 = 18.6. Total 49.6. Best on 40,000 current = 12.4.
+    expect(res.body.dsoCountback).toBeCloseTo(49.6, 10);
+    expect(res.body.bestPossibleDso).toBeCloseTo(12.4, 10);
+    expect(res.body.addDays).toBeCloseTo(37.2, 10);
+
+    // The trend covers both photographed days, stacked by bucket.
+    expect(res.body.ageingTrend.map((p) => p.t)).toEqual(['2026-08-19', '2026-08-20']);
+
+    const ashaRow = res.body.topOverdue.find((r) => r.party === 'Asha Traders');
+    expect(ashaRow?.daysOverdue).toBe(45);
+    // 60,000 overdue at the default 12% = 7,200 a year.
+    expect(ashaRow?.costPerYear).toBe('7200.00');
+    expect(ashaRow?.lastPayment).toBe('2026-08-15');
+  });
+
+  it('refuses a caller without cfo.receivables.view', async () => {
+    const res = await harness.get('/cfo/receivables?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('GET /cfo/work-lists', () => {
+  it('bands the ladder, catches the breach, and keeps thin history off the churn list', async () => {
+    const res = await harness.get<WorkLists>('/cfo/work-lists', { token: adminToken });
+
+    expect(res.status).toBe(200);
+    const list = (key: string) => res.body.lists.find((l) => l.key === key);
+
+    // Asha (45 days) sits in 31-60; Bharat (10 days) in 1-30, with the
+    // ladder rows carrying the priced delay in their reason.
+    expect(list('overdue-31-60')?.rows.map((r) => r.party)).toEqual(['Asha Traders']);
+    expect(list('overdue-31-60')?.rows[0]?.reason).toContain('7200.00 a year');
+    expect(list('overdue-1-30')?.rows.map((r) => r.party)).toEqual(['Bharat Cables']);
+
+    // 30,000 outstanding against a 25,000 limit = 120%.
+    const breach = list('limit-breach')?.rows[0];
+    expect(breach?.party).toBe('Bharat Cables');
+    expect(breach?.utilisationPct).toBe(120);
+
+    // Two orders is insufficient history (Q1.1): nobody here may be accused
+    // of silent churn on two data points.
+    expect(list('silent-churn')?.rows).toEqual([]);
+
+    // The current bill due within seven days shows as a courtesy call.
+    expect(list('due-this-week')?.rows.map((r) => r.party)).toEqual(['Asha Traders']);
+  });
+});

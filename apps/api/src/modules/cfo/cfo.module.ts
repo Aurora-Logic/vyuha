@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 
 import { ReceivableSnapshotHandler } from './receivable-snapshot.handler.js';
+import { SettingsModule } from '../../platform/settings/settings.module.js';
+import { CfoController } from './cfo.controller.js';
+import { CreditControlService } from './credit-control.service.js';
 import { OwnerMapService } from './attribution/owner-map.service.js';
 import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
 import { SalesFactService } from './sales-fact.service.js';
@@ -12,6 +15,8 @@ import { SalesFactService } from './sales-fact.service.js';
  * later, so the recorder ships first and the UI catches up.
  */
 @Module({
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService],
+  imports: [SettingsModule],
+  controllers: [CfoController],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService],
 })
 export class CfoModule {}

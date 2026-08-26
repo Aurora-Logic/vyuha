@@ -172,21 +172,21 @@ describe('guided tour length', () => {
    * of somebody taking the tour.
    */
   // Recounted when the reports module returned as the observed areas (owner,
-  // 26 Aug 2026): six screens joined the tour, each behind its own key, so a
-  // role gains exactly the report pages its permissions open -- Admin all
-  // six, HR the three its attendance and report keys unlock, the commercial
-  // roles two, Operations two, and Employee and Purchase none at all.
+  // 26 Aug 2026), and again when the CFO's credit screens joined it: each
+  // step sits behind its own key, so a role gains exactly the pages its
+  // permissions open -- the sales roles the work lists, the credit-sighted
+  // roles the receivable book, Employee and Purchase none at all.
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
     Employee: { desktop: 12, phone: 11 },
     Operations: { desktop: 21, phone: 20 },
     HR: { desktop: 26, phone: 25 },
-    Admin: { desktop: 59, phone: 58 },
+    Admin: { desktop: 61, phone: 60 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
-    Sales: { desktop: 25, phone: 24 },
-    'Sales manager': { desktop: 31, phone: 30 },
+    Sales: { desktop: 26, phone: 25 },
+    'Sales manager': { desktop: 33, phone: 32 },
     Purchase: { desktop: 15, phone: 14 },
-    Accounts: { desktop: 32, phone: 31 },
+    Accounts: { desktop: 34, phone: 33 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [

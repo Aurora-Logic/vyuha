@@ -343,6 +343,22 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Jobs finishing, exceptions raised, and how fresh the last pull from Tally is.',
   },
   {
+    id: 'screen.reports-credit',
+    route: '/reports/credit',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+    title: 'Credit control',
+    body: 'The receivable book as its measures: DSO, days late, the collection score, and whose delay costs the most.',
+  },
+  {
+    id: 'screen.reports-work-lists',
+    route: '/reports/work-lists',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Work lists',
+    body: 'Who to call, for how much, and why — the credit ladder and the recovery lists, each row one task away from the board.',
+  },
+  {
     id: 'screen.reports-custom',
     route: '/reports/custom',
     anchor: ANCHORS.screenHeader,
