@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { PERMISSIONS, type InsightArea } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Empty,
@@ -70,12 +70,16 @@ function AreaHealthCard({ area, data, pending }: { area: InsightArea; data: Area
   const metrics = data?.metrics ?? [];
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader>
         <CardTitle className="text-sm font-medium">{AREA_LABELS[area]}</CardTitle>
-        <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}`} />}>
-          Open
-          <ArrowRightIcon data-icon="inline-end" />
-        </Button>
+        {/* The action slot: the header grid only grows its second column for
+            this, which is why Open sat under the title before. */}
+        <CardAction>
+          <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}`} />}>
+            Open
+            <ArrowRightIcon data-icon="inline-end" />
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {pending ? <Skeleton className="h-40 w-full" /> : null}

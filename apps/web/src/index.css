@@ -417,6 +417,19 @@
     --surface-purple: oklch(0.9679 0.0073 312.3);
     --surface-pink: oklch(0.9674 0.0085 349.2);
     --surface-red: oklch(0.9541 0.0152 17.4);
+    /* The chart categorical palette (owner, 26 Aug 2026): five fixed fresh
+       hues -- blue, amber, violet, teal, pink -- in zigzag lightness so every
+       adjacent pair differs in lightness as well as hue, which is what
+       survives every kind of colour-blindness. Fixed rather than walked from
+       the accent: the walk landed On duty on a dark red beside Absent's
+       destructive red, two reds meaning opposite things. Red (and green, the
+       standing rule) stay out of this set; destructive is the trouble colour.
+       Validated with the dataviz six checks against both surfaces. */
+    --fresh-1: oklch(0.54 0.19 255);
+    --fresh-2: oklch(0.66 0.15 80);
+    --fresh-3: oklch(0.52 0.19 300);
+    --fresh-4: oklch(0.64 0.13 198);
+    --fresh-5: oklch(0.56 0.2 343);
     --border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --input: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
@@ -537,6 +550,13 @@
     --surface-purple: oklch(0.2722 0.0234 307.5);
     --surface-pink: oklch(0.2709 0.0188 349.4);
     --surface-red: oklch(0.2804 0.0217 27.8);
+    /* The same five identities, re-stepped inside the dark band rather than
+       lightened -- validated against #191919, not assumed. */
+    --fresh-1: oklch(0.6 0.16 255);
+    --fresh-2: oklch(0.665 0.14 82);
+    --fresh-3: oklch(0.53 0.17 300);
+    --fresh-4: oklch(0.66 0.12 198);
+    --fresh-5: oklch(0.55 0.18 343);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));

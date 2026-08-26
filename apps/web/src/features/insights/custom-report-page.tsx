@@ -12,7 +12,7 @@ import type { CustomWidget, InsightArea } from '@vyuha/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -346,7 +346,7 @@ export function CustomReportPage() {
                 )}
                 onClick={editing ? () => { setSelectedId(widget.id); } : undefined}
               >
-                <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+                <CardHeader>
                   <CardTitle className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
                     {editing ? (
                       <Button
@@ -376,6 +376,7 @@ export function CustomReportPage() {
                     <span className="truncate">{widget.title}</span>
                   </CardTitle>
                   {editing ? (
+                    <CardAction>
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
@@ -404,6 +405,7 @@ export function CustomReportPage() {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </CardAction>
                   ) : null}
                 </CardHeader>
                 <CardContent>

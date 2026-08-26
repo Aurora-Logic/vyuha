@@ -1,4 +1,4 @@
-import { PERMISSIONS, type InsightArea, type PermissionKey } from '@vyuha/shared';
+import { PERMISSIONS, type InsightArea, type PermissionKey, type WidgetPalette } from '@vyuha/shared';
 
 /**
  * What the four areas offer, named once: the sidebar, the overview, the
@@ -83,4 +83,35 @@ export const AREA_CONFIG: Record<InsightArea, AreaConfig> = {
     areas: [],
     wide: ['job-outcomes'],
   },
+};
+
+/** A single-hue family, its steps far enough apart to stay five colours. */
+const familyOf = (hue: number): string[] =>
+  [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 ${String(hue)})`);
+
+/**
+ * Every palette a chart may draw in, in draw order. 'default' is the fresh
+ * set: five fixed hues in zigzag lightness (see --fresh-N in index.css),
+ * validated for colour-blind separation on both surfaces. The families are
+ * one hue in five steps, for whoever asks the builder for a monochrome
+ * widget on purpose.
+ */
+export const CHART_PALETTES: Record<WidgetPalette, readonly string[]> = {
+  default: ['var(--fresh-1)', 'var(--fresh-2)', 'var(--fresh-3)', 'var(--fresh-4)', 'var(--fresh-5)'],
+  accent: ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'],
+  blue: familyOf(250),
+  violet: familyOf(295),
+  amber: familyOf(75),
+  rose: familyOf(15),
+  teal: familyOf(200),
+};
+
+export const PALETTE_LABELS: Record<WidgetPalette, string> = {
+  default: 'Fresh (default)',
+  accent: 'Accent shades',
+  blue: 'Blue',
+  violet: 'Violet',
+  amber: 'Amber',
+  rose: 'Rose',
+  teal: 'Teal',
 };

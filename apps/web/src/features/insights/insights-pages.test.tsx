@@ -9,6 +9,7 @@ import { useSessionStore } from '@/lib/session/session-store';
 
 import { AreaPage } from './area-page';
 import { CustomReportPage } from './custom-report-page';
+import { InsightsOverviewPage } from './overview-page';
 
 /**
  * The reports pages against a captured API (owner, 26 Aug 2026). The area
@@ -171,6 +172,25 @@ describe('AreaPage', () => {
 
     await screen.findByText('Invoiced');
     expect(requested[0]).toBe('GET /insights/receivables?from=2026-08-01&to=2026-08-30');
+  });
+});
+
+describe('InsightsOverviewPage', () => {
+  it('keeps Open in the header action slot, beside the title rather than under it', async () => {
+    renderAt('/reports', <InsightsOverviewPage />, '/reports');
+
+    // The receivables health card, from the mocked area response.
+    await screen.findByText('Receivables');
+    // Base UI keeps role="button" on a Button rendered as a Link (see the
+    // legal-page test's same note), so that is the role to find it by.
+    const open = screen.getAllByRole('button', { name: /Open/u })[0];
+    // The card header only makes a second column for the card-action slot;
+    // outside it, the button lands in a row of its own below the title --
+    // which is exactly the misplacement the screenshots showed.
+    expect(open?.closest('[data-slot="card-action"]')).not.toBeNull();
+    // Every metric of the area draws, not one marquee.
+    expect(await screen.findByText('Customer ageing')).toBeTruthy();
+    expect(screen.getAllByText('Received').length).toBeGreaterThanOrEqual(1);
   });
 });
 

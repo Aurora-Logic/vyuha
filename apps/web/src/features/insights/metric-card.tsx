@@ -17,7 +17,7 @@ import {
 import type { WidgetKind, WidgetPalette } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   ChartContainer,
   ChartLegend,
@@ -40,6 +40,7 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import type { Metric } from './api';
+import { CHART_PALETTES } from './catalogue';
 import { formatCell, formatHeadline, formatTick } from './units';
 
 /**
@@ -71,23 +72,9 @@ const BAR_MAX = 20;
 /** Value labels stop above this many points: forty labelled bars is noise. */
 export const LABEL_LIMIT = 16;
 
-/** A single-hue family, its steps far enough apart to stay five colours. */
-const family = (hue: number): string[] =>
-  [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 ${String(hue)})`);
-
-const PALETTES: Record<WidgetPalette, readonly string[]> = {
-  default: ['var(--slice-1)', 'var(--slice-2)', 'var(--slice-3)', 'var(--slice-4)', 'var(--slice-5)'],
-  accent: ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'],
-  blue: family(250),
-  violet: family(295),
-  amber: family(75),
-  rose: family(15),
-  teal: family(200),
-};
-
 function seriesColour(key: string, index: number, palette: WidgetPalette): string {
   if (TROUBLE_KEYS.has(key)) return 'var(--destructive)';
-  const colours = PALETTES[palette];
+  const colours = CHART_PALETTES[palette];
   // Never cycled: a sixth identity folds into the muted ink rather than
   // repainting the first colour (dataviz non-negotiable).
   return colours[index] ?? 'var(--muted-foreground)';
@@ -280,7 +267,7 @@ export function MetricChart({
           <defs>
             {metric.series.map((s, index) => (
               <linearGradient key={s.key} id={`${gradientId}-${String(index)}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={`var(--color-${s.key})`} stopOpacity={0.35} />
+                <stop offset="0%" stopColor={`var(--color-${s.key})`} stopOpacity={0.42} />
                 <stop offset="100%" stopColor={`var(--color-${s.key})`} stopOpacity={0.04} />
               </linearGradient>
             ))}
@@ -344,7 +331,9 @@ export function MetricChart({
               dataKey={s.key}
               stackId="m"
               fill={`var(--color-${s.key})`}
-              fillOpacity={0.88}
+              fillOpacity={0.7}
+              stroke={`var(--color-${s.key})`}
+              strokeWidth={1}
               maxBarSize={BAR_MAX}
               radius={SHARP}
               isAnimationActive={animate}
@@ -375,7 +364,9 @@ export function MetricChart({
             dataKey={s.key}
             stackId="m"
             fill={`var(--color-${s.key})`}
-            fillOpacity={0.88}
+            fillOpacity={0.7}
+              stroke={`var(--color-${s.key})`}
+              strokeWidth={1}
             maxBarSize={BAR_MAX}
             radius={SHARP}
             isAnimationActive={animate}
@@ -471,7 +462,7 @@ export function MetricCard({
 }) {
   return (
     <Card data-metric={metric.key}>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader>
         <CardTitle className="flex items-center gap-1.5 text-sm font-medium">
           {metric.label}
           <Tooltip>
@@ -487,7 +478,11 @@ export function MetricCard({
             <TooltipContent className="max-w-72 text-pretty">{metric.hint}</TooltipContent>
           </Tooltip>
         </CardTitle>
-        {action}
+        {/* CardAction, not a flexed header: the header is a grid that only
+            makes a second column for this slot, and anything else lands in a
+            row of its own below the title -- which is exactly where the
+            overview's Open button was found sitting. */}
+        {action !== undefined ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         <p className="text-3xl font-semibold tracking-tight tabular-nums">

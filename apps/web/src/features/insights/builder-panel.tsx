@@ -25,7 +25,7 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { usePermissions } from '@/lib/session/permissions';
 
-import { AREA_GATES, AREA_LABELS, AREA_METRICS } from './catalogue';
+import { AREA_GATES, AREA_LABELS, AREA_METRICS, CHART_PALETTES, PALETTE_LABELS } from './catalogue';
 
 /**
  * The widget configuration rail (owner, 26 Aug 2026, the Twenty reference):
@@ -49,33 +49,12 @@ const KINDS: readonly { kind: WidgetKind; label: string; icon: typeof ChartBarIc
   { kind: 'table', label: 'Table', icon: TableIcon },
 ];
 
-const PALETTE_LABELS: Record<WidgetPalette, string> = {
-  default: 'Fresh (default)',
-  accent: 'Accent shades',
-  blue: 'Blue',
-  violet: 'Violet',
-  amber: 'Amber',
-  rose: 'Rose',
-  teal: 'Teal',
-};
-
-/** The five circles beside a palette's name, the way the reference picks colours. */
-const PALETTE_SWATCHES: Record<WidgetPalette, readonly string[]> = {
-  default: ['var(--slice-1)', 'var(--slice-2)', 'var(--slice-3)', 'var(--slice-4)', 'var(--slice-5)'],
-  accent: ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'],
-  blue: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 250)`),
-  violet: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 295)`),
-  amber: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 75)`),
-  rose: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 15)`),
-  teal: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 200)`),
-};
-
 function PaletteRow({ palette }: { palette: WidgetPalette }) {
   return (
     <span className="flex w-full items-center justify-between gap-3">
       <span>{PALETTE_LABELS[palette]}</span>
       <span aria-hidden className="flex items-center gap-0.5">
-        {PALETTE_SWATCHES[palette].map((colour, index) => (
+        {CHART_PALETTES[palette].map((colour, index) => (
           <span key={index} className="size-2.5 rounded-full" style={{ backgroundColor: colour }} />
         ))}
       </span>
