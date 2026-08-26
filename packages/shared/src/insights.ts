@@ -75,7 +75,18 @@ export interface AreaInsights {
 
 /* ------------------------------- custom reports ------------------------------- */
 
-export const WIDGET_KINDS = ['bar', 'barh', 'line', 'area', 'donut', 'number', 'table'] as const;
+export const WIDGET_KINDS = [
+  'bar',
+  'barh',
+  'line',
+  'area',
+  'donut',
+  'pie',
+  'radial',
+  'number',
+  'table',
+  'heatmap',
+] as const;
 
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
@@ -142,6 +153,10 @@ export const customWidgetSchema = z.object({
       /** Axis titles, printed along each axis when given. */
       xTitle: z.string().trim().max(40).optional(),
       yTitle: z.string().trim().max(40).optional(),
+      /** Only these series drawn; absent means all of them. */
+      series: z.array(z.string().min(1).max(60)).max(12).optional(),
+      /** Bar order along x: as the data comes, or ranked by value. */
+      xOrder: z.enum(['natural', 'asc', 'desc']).default('natural'),
     })
     .default({
       legend: true,
@@ -153,6 +168,7 @@ export const customWidgetSchema = z.object({
       points: true,
       stacked: true,
       grid: false,
+      xOrder: 'natural',
     }),
 });
 

@@ -53,7 +53,7 @@ export type AreaInsightsData = z.infer<typeof areaInsightsSchema>;
 const customWidgetSchema = z.object({
   id: z.string(),
   title: z.string(),
-  kind: z.enum(['bar', 'barh', 'line', 'area', 'donut', 'number', 'table']),
+  kind: z.enum(['bar', 'barh', 'line', 'area', 'donut', 'pie', 'radial', 'number', 'table', 'heatmap']),
   size: z.enum(['1x1', '2x1', '2x2']),
   area: z.enum(['attendance', 'receivables', 'sales', 'sync']),
   metric: z.string(),
@@ -75,6 +75,8 @@ const customWidgetSchema = z.object({
     grid: z.boolean().default(false),
     xTitle: z.string().optional(),
     yTitle: z.string().optional(),
+    series: z.array(z.string()).optional(),
+    xOrder: z.enum(['natural', 'asc', 'desc']).default('natural'),
   }),
 });
 

@@ -186,6 +186,7 @@ export function CustomReportPage() {
         points: true,
         stacked: true,
         grid: false,
+        xOrder: 'natural',
       },
     };
     setDraft((current) => [...(current ?? []), widget]);

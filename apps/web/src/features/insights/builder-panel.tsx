@@ -4,6 +4,9 @@ import {
   ChartDonutIcon,
   ChartLineIcon,
   ChartLineUpIcon,
+  ChartPieSliceIcon,
+  ChartPolarIcon,
+  GridNineIcon,
   NumberSquareOneIcon,
   TableIcon,
   TrashIcon,
@@ -23,7 +26,14 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useState } from 'react';
+
+import { RecordPicker } from '@/components/shared/record-picker';
 import { usePermissions } from '@/lib/session/permissions';
+
+import { useAreaInsights } from './api';
+import { defaultRange } from './period';
+import { formatCount } from '@/lib/format';
 
 import { AREA_GATES, AREA_LABELS, AREA_METRICS, CHART_PALETTES, PALETTE_LABELS } from './catalogue';
 
@@ -45,9 +55,21 @@ const KINDS: readonly { kind: WidgetKind; label: string; icon: typeof ChartBarIc
   { kind: 'line', label: 'Line', icon: ChartLineIcon },
   { kind: 'area', label: 'Area', icon: ChartLineUpIcon },
   { kind: 'donut', label: 'Donut', icon: ChartDonutIcon },
+  { kind: 'pie', label: 'Pie', icon: ChartPieSliceIcon },
+  { kind: 'radial', label: 'Radial', icon: ChartPolarIcon },
   { kind: 'number', label: 'Number', icon: NumberSquareOneIcon },
   { kind: 'table', label: 'Table', icon: TableIcon },
+  { kind: 'heatmap', label: 'Heatmap', icon: GridNineIcon },
 ];
+
+/** 8340 -> 10000; 61200 -> 70000: one significant step up, for a y-range list. */
+function niceCeil(value: number): number {
+  if (value <= 0) return 0;
+  const power = Math.pow(10, Math.floor(Math.log10(value)));
+  const leading = value / power;
+  const step = leading <= 1 ? 1 : leading <= 2 ? 2 : leading <= 2.5 ? 2.5 : leading <= 5 ? 5 : 10;
+  return step * power;
+}
 
 function PaletteRow({ palette }: { palette: WidgetPalette }) {
   return (
@@ -68,6 +90,73 @@ const SIZES: readonly { size: WidgetSize; label: string }[] = [
   { size: '2x2', label: 'Tall' },
 ];
 
+/**
+ * A y-range bound as a dropdown of suggested clean figures, with a Custom
+ * door for the number the suggestions did not think of. Auto clears it.
+ */
+function RangeField({
+  label,
+  value,
+  suggestions,
+  onValueChange,
+}: {
+  label: string;
+  value: number | undefined;
+  suggestions: readonly number[];
+  onValueChange: (next: number | undefined) => void;
+}) {
+  const inSuggestions = value !== undefined && suggestions.includes(value);
+  const [custom, setCustom] = useState(value !== undefined && !inSuggestions);
+  const selectValue = custom ? 'custom' : value === undefined ? 'auto' : String(value);
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <Select
+        value={selectValue}
+        onValueChange={(next) => {
+          if (next === null) return;
+          if (next === 'auto') {
+            setCustom(false);
+            onValueChange(undefined);
+          } else if (next === 'custom') {
+            setCustom(true);
+          } else {
+            setCustom(false);
+            onValueChange(Number(next));
+          }
+        }}
+      >
+        <SelectTrigger aria-label={label}>
+          <SelectValue>
+            {(v: string) => (v === 'auto' ? 'Auto' : v === 'custom' ? 'Custom' : formatCount(Number(v)))}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto">Auto</SelectItem>
+          {suggestions.map((s) => (
+            <SelectItem key={s} value={String(s)}>
+              {formatCount(s)}
+            </SelectItem>
+          ))}
+          <SelectItem value="custom">Custom</SelectItem>
+        </SelectContent>
+      </Select>
+      {custom ? (
+        <Input
+          type="number"
+          inputMode="decimal"
+          aria-label={`${label}, custom value`}
+          value={value ?? ''}
+          onChange={(event) => {
+            const raw = event.target.value.trim();
+            onValueChange(raw === '' || Number.isNaN(Number(raw)) ? undefined : Number(raw));
+          }}
+        />
+      ) : null}
+    </Field>
+  );
+}
+
 export function BuilderPanel({
   widget,
   onChange,
@@ -80,6 +169,19 @@ export function BuilderPanel({
   const held = usePermissions();
   const areas = (Object.keys(AREA_LABELS) as InsightArea[]).filter((area) => held.has(AREA_GATES[area]));
   const metrics = AREA_METRICS[widget.area];
+
+  // The widget's own data, from the same cache its chart reads, so the
+  // range dropdowns can SUGGEST rather than ask for a bare number: the top
+  // of the data, one step up, and double, each rounded to a clean figure.
+  const areaData = useAreaInsights(widget.area, defaultRange());
+  const liveMetric = areaData.data?.metrics.find((m) => m.key === widget.metric);
+  const metricSeries = liveMetric?.series ?? [];
+  const peak = (liveMetric?.points ?? []).reduce(
+    (top, point) => Math.max(top, (liveMetric?.series ?? []).reduce((sum, m) => sum + Number(point[m.key] ?? 0), 0)),
+    0,
+  );
+  const maxSuggestions = [...new Set([niceCeil(peak), niceCeil(peak * 1.5), niceCeil(peak * 2)])].filter((v) => v > 0);
+  const minSuggestions = [...new Set([niceCeil(peak / 2) / 2])].filter((v) => v > 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -113,52 +215,35 @@ export function BuilderPanel({
         />
       </Field>
 
-      <Field>
-        <FieldLabel>Source</FieldLabel>
-        <Select
-          value={widget.area}
-          onValueChange={(value) => {
-            if (value === null) return;
-            const area = String(value) as InsightArea;
-            const first = AREA_METRICS[area][0];
-            onChange({ ...widget, area, metric: first?.key ?? widget.metric });
-          }}
-        >
-          <SelectTrigger aria-label="Source area">
-            <SelectValue>{(value: string) => AREA_LABELS[value as InsightArea]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {areas.map((area) => (
-              <SelectItem key={area} value={area}>
-                {AREA_LABELS[area]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+      {/* Searchable, both of them: the metric catalogue is already past a
+          dozen entries and grows with every brief part that lands. */}
+      <RecordPicker
+        label="Source"
+        showLabel
+        placeholder="Pick an area"
+        value={{ id: widget.area, label: AREA_LABELS[widget.area] }}
+        options={areas.map((area) => ({ id: area, label: AREA_LABELS[area] }))}
+        onValueChange={(picked) => {
+          if (picked === null) return;
+          const area = picked.id as InsightArea;
+          const first = AREA_METRICS[area][0];
+          onChange({ ...widget, area, metric: first?.key ?? widget.metric });
+        }}
+      />
 
-      <Field>
-        <FieldLabel>Metric</FieldLabel>
-        <Select
-          value={widget.metric}
-          onValueChange={(value) => {
-            if (value !== null) onChange({ ...widget, metric: String(value) });
-          }}
-        >
-          <SelectTrigger aria-label="Metric">
-            <SelectValue>
-              {(value: string) => metrics.find((m) => m.key === value)?.label ?? value}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {metrics.map((metric) => (
-              <SelectItem key={metric.key} value={metric.key}>
-                {metric.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+      <RecordPicker
+        label="Metric"
+        showLabel
+        placeholder="Pick a metric"
+        value={{ id: widget.metric, label: metrics.find((m) => m.key === widget.metric)?.label ?? widget.metric }}
+        options={metrics.map((metric) => ({ id: metric.key, label: metric.label, hint: AREA_LABELS[widget.area] }))}
+        onValueChange={(picked) => {
+          if (picked !== null) {
+            const { series: _series, ...rest } = widget.options;
+            onChange({ ...widget, metric: picked.id, options: rest });
+          }
+        }}
+      />
 
       <p className="text-muted-foreground text-xs font-medium">Style</p>
 
@@ -329,44 +414,86 @@ export function BuilderPanel({
         />
       </div>
 
+      <p className="text-muted-foreground text-xs font-medium">Y axis</p>
+
+      <Field>
+        <FieldLabel>Series shown</FieldLabel>
+        <Select
+          value={widget.options.series?.[0] ?? 'ALL'}
+          onValueChange={(value) => {
+            if (value === null) return;
+            const { series: _series, ...rest } = widget.options;
+            onChange({
+              ...widget,
+              options: value === 'ALL' ? rest : { ...rest, series: [String(value)] },
+            });
+          }}
+        >
+          <SelectTrigger aria-label="Series shown">
+            <SelectValue>
+              {(value: string) =>
+                value === 'ALL' ? 'All series' : (metricSeries.find((m) => m.key === value)?.label ?? value)
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All series</SelectItem>
+            {metricSeries.map((m) => (
+              <SelectItem key={m.key} value={m.key}>
+                {m.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
       <div className="grid grid-cols-2 gap-2">
-        <Field>
-          <FieldLabel htmlFor="widget-ymin">Min range</FieldLabel>
-          <Input
-            id="widget-ymin"
-            type="number"
-            inputMode="decimal"
-            placeholder="Auto"
-            value={widget.options.yMin ?? ''}
-            onChange={(event) => {
-              const raw = event.target.value.trim();
-              const { yMin: _yMin, ...rest } = widget.options;
-              onChange({
-                ...widget,
-                options: raw === '' || Number.isNaN(Number(raw)) ? rest : { ...rest, yMin: Number(raw) },
-              });
-            }}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="widget-ymax">Max range</FieldLabel>
-          <Input
-            id="widget-ymax"
-            type="number"
-            inputMode="decimal"
-            placeholder="Auto"
-            value={widget.options.yMax ?? ''}
-            onChange={(event) => {
-              const raw = event.target.value.trim();
-              const { yMax: _yMax, ...rest } = widget.options;
-              onChange({
-                ...widget,
-                options: raw === '' || Number.isNaN(Number(raw)) ? rest : { ...rest, yMax: Number(raw) },
-              });
-            }}
-          />
-        </Field>
+        <RangeField
+          label="Min range"
+          value={widget.options.yMin}
+          suggestions={[0, ...minSuggestions]}
+          onValueChange={(next) => {
+            const { yMin: _yMin, ...rest } = widget.options;
+            onChange({ ...widget, options: next === undefined ? rest : { ...rest, yMin: next } });
+          }}
+        />
+        <RangeField
+          label="Max range"
+          value={widget.options.yMax}
+          suggestions={maxSuggestions}
+          onValueChange={(next) => {
+            const { yMax: _yMax, ...rest } = widget.options;
+            onChange({ ...widget, options: next === undefined ? rest : { ...rest, yMax: next } });
+          }}
+        />
       </div>
+
+      <p className="text-muted-foreground text-xs font-medium">X axis</p>
+
+      <Field>
+        <FieldLabel>Order</FieldLabel>
+        <Select
+          value={widget.options.xOrder}
+          onValueChange={(value) => {
+            if (value !== null) {
+              onChange({ ...widget, options: { ...widget.options, xOrder: value } });
+            }
+          }}
+        >
+          <SelectTrigger aria-label="X axis order">
+            <SelectValue>
+              {(value: string) =>
+                value === 'natural' ? 'As the data comes' : value === 'asc' ? 'Low to high' : 'High to low'
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="natural">As the data comes</SelectItem>
+            <SelectItem value="asc">Low to high</SelectItem>
+            <SelectItem value="desc">High to low</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
 
       <div className="grid grid-cols-2 gap-2">
         <Field>

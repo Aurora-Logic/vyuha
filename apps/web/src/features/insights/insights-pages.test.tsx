@@ -110,11 +110,23 @@ const REPORT = {
       metric: 'customer-ageing',
       options: { legend: true, dataLabels: false, showTotal: true },
     },
+    {
+      id: 'w4',
+      title: 'Ageing heat',
+      kind: 'heatmap',
+      size: '1x1',
+      area: 'receivables',
+      metric: 'customer-ageing',
+      options: { legend: true, dataLabels: false, showTotal: true },
+    },
   ],
   updatedAt: '2026-08-26T10:00:00.000Z',
 };
 
-vi.mock('@/lib/api/client', () => ({
+// Partial mock: only the transport is captured; ApiError and the rest stay
+// real, because components downstream of the builder import them.
+vi.mock('@/lib/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/client')>()),
   apiRequest: (path: string, options?: { method?: string; body?: unknown }) => {
     requested.push(`${options?.method ?? 'GET'} ${path}`);
     if (options?.method === 'PUT') {
@@ -203,12 +215,22 @@ describe('CustomReportPage', () => {
     expect(await screen.findByText('Needs a permission you do not hold')).toBeTruthy();
   });
 
+  it('renders a heatmap widget as the dense grid, buckets across the top', async () => {
+    renderAt(`/reports/custom/${REPORT.id}`, <CustomReportPage />, '/reports/custom/:id');
+
+    await screen.findByText('Ageing heat');
+    // The bucket keys become column headers verbatim (category axis), and
+    // every cell is a named button carrying its value.
+    expect((await screen.findAllByText('31-60')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: 'Outstanding, 31-60: ₹400' })).toBeTruthy();
+  });
+
   it('renders a table widget as rows -- a report that is not a chart', async () => {
     renderAt(`/reports/custom/${REPORT.id}`, <CustomReportPage />, '/reports/custom/:id');
 
     await screen.findByText('Ageing table');
     // The category axis labels become the table's first column, the money its second.
-    expect(await screen.findByText('Not due')).toBeTruthy();
+    expect((await screen.findAllByText('Not due')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('₹400.00')).toBeTruthy();
     // A widget stored before the palette option existed parses under defaults.
     expect(screen.queryByText('This metric no longer exists')).toBeNull();
@@ -230,7 +252,7 @@ describe('CustomReportPage', () => {
       expect(putBody).not.toBeNull();
     });
     const body = putBody as { widgets: { id: string }[]; shared: boolean; name: string };
-    expect(body.widgets.map((w) => w.id)).toEqual(['w1', 'w3']);
+    expect(body.widgets.map((w) => w.id)).toEqual(['w1', 'w3', 'w4']);
     expect(body.name).toBe('Money week');
   });
 });

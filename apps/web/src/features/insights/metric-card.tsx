@@ -7,11 +7,16 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Label,
   LabelList,
   Line,
   LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  RadialBar,
+  RadialBarChart,
   XAxis,
   YAxis,
 } from 'recharts';
@@ -36,6 +41,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { HeatmapTable } from '@/components/shared/heatmap-table';
+import { heatGridOf } from '@/components/shared/heat-grid';
 import { useChartIntro } from '@/components/shared/use-chart-motion';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -43,6 +50,14 @@ import { cn } from '@/lib/utils';
 import type { Metric } from './api';
 import { CHART_PALETTES } from './catalogue';
 import { formatCell, formatHeadline, formatTick } from './units';
+
+/** The series the options keep, in the metric's own order. */
+function keptSeries(metric: Metric, options: ChartOptions): Metric['series'] {
+  const chosen = options.series;
+  if (chosen === undefined || chosen.length === 0) return metric.series;
+  const kept = metric.series.filter((s) => chosen.includes(s.key));
+  return kept.length > 0 ? kept : metric.series;
+}
 
 /**
  * The metric card and its charts (owner, 26 Aug 2026, revised on review):
@@ -75,6 +90,10 @@ export interface ChartOptions {
   readonly grid?: boolean;
   readonly xTitle?: string;
   readonly yTitle?: string;
+  /** Only these series drawn; absent means all. */
+  readonly series?: readonly string[];
+  /** Bar order along x: as the data comes, or ranked by total value. */
+  readonly xOrder?: 'natural' | 'asc' | 'desc';
   /**
    * Rotates a single-series chart's colour through the palette, so a page of
    * one-series cards is not a page of one colour -- one chart, one shade
@@ -110,14 +129,22 @@ function chartConfigOf(metric: Metric, palette: WidgetPalette, shift = 0): Chart
 }
 
 /** Recharts wants numbers; money points arrive as exact text for printing. */
-function numericPoints(metric: Metric, omitZero: boolean): Record<string, string | number>[] {
-  const points = metric.points.map((point) => {
+function numericPoints(metric: Metric, options: ChartOptions, series: Metric['series']): Record<string, string | number>[] {
+  let points = metric.points.map((point) => {
     const out: Record<string, string | number> = { t: point.t };
-    for (const s of metric.series) out[s.key] = Number(point[s.key] ?? 0);
+    for (const s of series) out[s.key] = Number(point[s.key] ?? 0);
     return out;
   });
-  if (!omitZero) return points;
-  return points.filter((point) => metric.series.some((s) => Number(point[s.key]) !== 0));
+  if (options.omitZero ?? false) {
+    points = points.filter((point) => series.some((s) => Number(point[s.key]) !== 0));
+  }
+  const order = options.xOrder ?? 'natural';
+  if (order !== 'natural') {
+    const totalOf = (point: Record<string, string | number>): number =>
+      series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0);
+    points = [...points].sort((a, b) => (order === 'asc' ? totalOf(a) - totalOf(b) : totalOf(b) - totalOf(a)));
+  }
+  return points;
 }
 
 function isEmpty(metric: Metric): boolean {
@@ -152,15 +179,16 @@ export function MetricChart({
 }) {
   const gradientId = useId();
   const palette = options.palette ?? 'default';
-  const shift = metric.series.length === 1 ? (options.colourIndex ?? 0) : 0;
+  const series = keptSeries(metric, options);
+  const shift = series.length === 1 ? (options.colourIndex ?? 0) : 0;
   const config = useMemo(() => chartConfigOf(metric, palette, shift), [metric, palette, shift]);
-  const points = useMemo(() => numericPoints(metric, options.omitZero ?? false), [metric, options.omitZero]);
+  const points = useMemo(() => numericPoints(metric, options, series), [metric, options, series]);
   const animate = useChartIntro(points.length > 0);
-  const showLegend = (options.legend ?? true) && metric.series.length > 1;
+  const showLegend = (options.legend ?? true) && series.length > 1;
   const showLabels = (options.dataLabels ?? false) && points.length <= LABEL_LIMIT;
   const category = metric.xKind === 'category';
   const domain: [number | 'auto', number | 'auto'] = [options.yMin ?? 0, options.yMax ?? 'auto'];
-  const lastSeries = metric.series[metric.series.length - 1]?.key;
+  const lastSeries = series[series.length - 1]?.key;
   const curve = CURVES[options.curve ?? 'linear'];
   const dots = options.points ?? true;
   const stacked = options.stacked ?? true;
@@ -169,7 +197,7 @@ export function MetricChart({
   // The number a bar wears when labels are on: the stack's total, printed
   // once at its end rather than once per segment.
   const totalOf = (point: Record<string, string | number>): string =>
-    formatTick(metric.unit, metric.series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0));
+    formatTick(metric.unit, series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0));
   // Grouped bars have no shared total; each series would need its own label,
   // which is clutter -- labels there mark only the last series.
 
@@ -226,7 +254,7 @@ export function MetricChart({
   ) : null;
 
   if (kind === 'donut') {
-    const slices = metric.series.map((s, index) => ({
+    const slices = series.map((s, index) => ({
       key: s.key,
       label: s.label,
       value: points.reduce((sum, p) => sum + Number(p[s.key] ?? 0), 0),
@@ -256,6 +284,117 @@ export function MetricChart({
     );
   }
 
+  if (kind === 'heatmap') {
+    // The dense-grid form (dataviz): rows are the series, columns the days
+    // or buckets, colour carrying magnitude only -- Q2.15's seasonality
+    // shape, on any metric. It reuses the product's own HeatmapTable.
+    const grid = heatGridOf(
+      points.flatMap((point) =>
+        series.map((s) => ({
+          month: String(point.t),
+          category: s.label,
+          rowId: '',
+          value: Number(point[s.key] ?? 0),
+        })),
+      ),
+    );
+    return (
+      <div className={className}>
+        <HeatmapTable
+          grid={grid}
+          rowLabel=""
+          format={(value) => formatTick(metric.unit, value)}
+          columnLabel={(key) => xTick(metric, key)}
+        />
+      </div>
+    );
+  }
+
+  if (kind === 'pie') {
+    // shadcn "Pie Chart - Label": full pie, slice names on the slices.
+    const slices = series.map((s, index) => ({
+      key: s.key,
+      label: s.label,
+      value: points.reduce((sum, p) => sum + Number(p[s.key] ?? 0), 0),
+      fill: seriesColour(s.key, index, palette),
+    }));
+    return (
+      <ChartContainer
+        config={config}
+        className={cn('mx-auto aspect-square h-48 w-full min-w-0 [&_.recharts-pie-label-text]:fill-foreground', className)}
+      >
+        <PieChart accessibilityLayer>
+          <ChartTooltip content={<ChartTooltipContent nameKey="key" hideLabel />} />
+          <Pie
+            data={slices}
+            dataKey="value"
+            nameKey="label"
+            strokeWidth={2}
+            stroke="var(--card)"
+            isAnimationActive={animate}
+            label={
+              showLabels
+                ? (props: { name?: string; value?: number }) =>
+                    `${props.name ?? ''} ${formatTick(metric.unit, Number(props.value ?? 0))}`
+                : true
+            }
+          />
+          {showLegend ? <ChartLegend content={<ChartLegendContent nameKey="key" />} /> : null}
+        </PieChart>
+      </ChartContainer>
+    );
+  }
+
+  if (kind === 'radial') {
+    // shadcn "Radial Chart - Text": the ring with the figure in its centre.
+    // The segments are the series' range totals, the ring is their sum, so
+    // the arc is a share, never a decorative angle.
+    const totals = series.map((s, index) => ({
+      key: s.key,
+      value: points.reduce((sum, p) => sum + Number(p[s.key] ?? 0), 0),
+      fill: seriesColour(s.key, index, palette),
+    }));
+    const ringTotal = totals.reduce((sum, t) => sum + t.value, 0);
+    const datum: Record<string, number> = {};
+    for (const t of totals) datum[t.key] = t.value;
+    return (
+      <ChartContainer config={config} className={cn('mx-auto aspect-square h-48 w-full min-w-0', className)}>
+        <RadialBarChart
+          data={[datum]}
+          startAngle={90}
+          endAngle={-270}
+          innerRadius="62%"
+          outerRadius="88%"
+        >
+          <PolarAngleAxis type="number" domain={[0, ringTotal === 0 ? 1 : ringTotal]} tick={false} />
+          {totals.map((t) => (
+            <RadialBar key={t.key} dataKey={t.key} stackId="ring" fill={t.fill} background={totals.length === 1} isAnimationActive={animate} />
+          ))}
+          <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+            <Label
+              content={({ viewBox }) => {
+                if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
+                  return (
+                    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                      <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-2xl font-semibold">
+                        {formatTick(metric.unit, ringTotal)}
+                      </tspan>
+                      <tspan x={viewBox.cx} y={(Number(viewBox.cy) || 0) + 20} className="fill-muted-foreground text-xs">
+                        {metric.label}
+                      </tspan>
+                    </text>
+                  );
+                }
+                return null;
+              }}
+            />
+          </PolarRadiusAxis>
+          {showLegend ? <ChartLegend content={<ChartLegendContent nameKey="key" />} /> : null}
+        </RadialBarChart>
+      </ChartContainer>
+    );
+  }
+
   if (kind === 'line') {
     return (
       <ChartContainer config={config} className={cn('aspect-auto h-48 w-full min-w-0', className)}>
@@ -264,7 +403,7 @@ export function MetricChart({
           {xAxis}
           {yAxis}
           {tooltip}
-          {metric.series.map((s) => (
+          {series.map((s) => (
             <Line
               key={s.key}
               dataKey={s.key}
@@ -274,7 +413,7 @@ export function MetricChart({
               dot={dots ? { r: 2.5 } : false}
               isAnimationActive={animate}
             >
-              {showLabels && metric.series.length === 1 ? (
+              {showLabels && series.length === 1 ? (
                 <LabelList
                   dataKey={s.key}
                   position="top"
@@ -298,7 +437,7 @@ export function MetricChart({
         <AreaChart accessibilityLayer data={points} margin={{ left: 4, right: 12, top: showLabels ? 18 : 8 }}>
           {grid}
           <defs>
-            {metric.series.map((s, index) => (
+            {series.map((s, index) => (
               <linearGradient key={s.key} id={`${gradientId}-${String(index)}`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={`var(--color-${s.key})`} stopOpacity={0.42} />
                 <stop offset="100%" stopColor={`var(--color-${s.key})`} stopOpacity={0.04} />
@@ -308,15 +447,15 @@ export function MetricChart({
           {xAxis}
           {yAxis}
           {tooltip}
-          {metric.series.map((s, index) => (
+          {series.map((s, index) => (
             <Area
               key={s.key}
               dataKey={s.key}
               type={curve}
-              stackId={stacked && metric.series.length > 1 ? 'a' : undefined}
+              stackId={stacked && series.length > 1 ? 'a' : undefined}
               stroke={`var(--color-${s.key})`}
               strokeWidth={2}
-              dot={dots && metric.series.length === 1 ? { r: 2.5 } : false}
+              dot={dots && series.length === 1 ? { r: 2.5 } : false}
               fill={`url(#${gradientId}-${String(index)})`}
               isAnimationActive={animate}
             >
@@ -360,7 +499,7 @@ export function MetricChart({
             tickFormatter={(value: string) => xTick(metric, value)}
           />
           {tooltip}
-          {metric.series.map((s) => (
+          {series.map((s) => (
             <Bar
               key={s.key}
               dataKey={s.key}
@@ -394,7 +533,7 @@ export function MetricChart({
         {xAxis}
         {yAxis}
         {tooltip}
-        {metric.series.map((s) => (
+        {series.map((s) => (
           <Bar
             key={s.key}
             dataKey={s.key}
