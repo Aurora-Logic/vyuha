@@ -555,8 +555,10 @@ the stock item master; M13 = split credit allowed, maximum two owners.
 |---|---|---|---|
 | M1/M2 | Tally valuation method; inward freight in item cost or separate ledger? | Ask the CA with the Tally screen open | All margin columns (Phase 4); they stay null until then |
 | M4 | Are credit notes linked to original invoices in Tally? | Assume unlinked; all CNs sit in returns (R03) until natures are classifiable | R03 vs R04 split |
-| M5 | Borrowing rate for D17/W04 | The interest module's configured rate, one source of truth | Interest costing (Phase 2+) |
-| M10 | Materiality floor | ₹25,000 or 0.5% of monthly sales, whichever lower (brief default) | Work lists, "Other" grouping |
+| M5 | ~~Borrowing rate~~ Decided 26 Aug: the interest module's configured rate, one source of truth | — | — |
+| M10 | ~~Materiality floor~~ Decided 26 Aug: ₹25,000 or 0.5% of monthly sales, whichever lower; configurable | — | — |
+| M9 | ~~Credit-grade weights~~ Decided 26 Aug: brief defaults accepted (40/25/15/10/10), configurable | — | — |
+| K3 | ~~Two deliberate permission choices~~ Confirmed 26 Aug: league table without detail; margin as %% on own book only | — | — |
 | M11 | One Tally company or several to consolidate? | Single company (current sync is one connection per org) | Fact grain if several |
 | — | Cost centre / salesperson on vouchers: the OpsTally sync does not pull it yet | Extend the sync to carry a voucher salesperson field; map fills the gap meanwhile | Tally-first attribution (map-only until then) |
 | — | Godown in the fact grain (K2) | Omit until the sync carries godowns | Godown-level analysis |

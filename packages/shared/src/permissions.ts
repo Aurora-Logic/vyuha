@@ -74,6 +74,23 @@ export const PERMISSIONS = {
   REPORTS_MARGIN_VIEW: 'reports.margin.view',
 
   /**
+   * Virtual CFO (brief K3, decided 26 Aug 2026). The two deliberate choices
+   * the owner confirmed: salespeople see the league table but never each
+   * other's detail (team.view separates them), and margin reaches a
+   * salesperson only as a percentage on their own book (margin.view is the
+   * rupee sight, held by owner, sales head and accounts-side roles).
+   */
+  CFO_SALES_VIEW: 'cfo.sales.view',
+  CFO_MARGIN_VIEW: 'cfo.margin.view',
+  CFO_RECEIVABLES_VIEW: 'cfo.receivables.view',
+  CFO_BRAND_VIEW: 'cfo.brand.view',
+  CFO_TEAM_VIEW: 'cfo.team.view',
+  CFO_COMPLIANCE_VIEW: 'cfo.compliance.view',
+  CFO_EXCEPTIONS_VIEW: 'cfo.exceptions.view',
+  CFO_EXPORT: 'cfo.export',
+  CFO_LISTS_ASSIGN: 'cfo.lists.assign',
+
+  /**
    * Phase 7 (08 §2.2). Self/all breadths for contacts and deals; tasks are a
    * platform concern (D-17) but keep the `crm.` spelling the PRD gave them.
    * The Sales roles that hold the self keys arrive with the role expansion;
@@ -163,6 +180,15 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'parties.rm.assign': 'Assign or change the relationship manager on a customer',
   'reports.exceptions.notify': 'Receive the daily exception-report digest',
   'reports.margin.view': 'View the gross margin proxy report',
+  'cfo.sales.view': 'Open the Virtual CFO module: company summary and own scorecard',
+  'cfo.margin.view': 'See margin in rupees across the Virtual CFO module',
+  'cfo.receivables.view': 'See the full receivable book in the Virtual CFO module',
+  'cfo.brand.view': 'See brand and principal economics, slabs and schemes',
+  'cfo.team.view': 'Open every person\u2019s scorecard, beyond the league table',
+  'cfo.compliance.view': 'See the compliance exposure reports',
+  'cfo.exceptions.view': 'See the nightly exception reports',
+  'cfo.export': 'Export Virtual CFO reports (every export is logged)',
+  'cfo.lists.assign': 'Assign work-list entries and daily-call names to owners',
   'crm.contact.view.self': 'View the contacts and companies you own',
   'crm.contact.view.all': 'View every contact and company',
   'crm.contact.manage': 'Create and edit contacts and companies',
@@ -297,6 +323,10 @@ const SALES_PERMISSIONS = [
   PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
   PERMISSIONS.SALES_DOCUMENT_CREATE,
   PERMISSIONS.RETURNS_VIEW,
+  // K3: the salesperson row — company summary and their own scorecard
+  // (margin as a percentage on their own book comes with it; the rupee
+  // sight is cfo.margin.view, which this row does not hold).
+  PERMISSIONS.CFO_SALES_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
@@ -320,6 +350,13 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.COLLECTIONS_VIEW_ALL,
   PERMISSIONS.COLLECTIONS_MANAGE,
   PERMISSIONS.RETURNS_MANAGE,
+  // K3: the sales head row — everything the owner sees.
+  PERMISSIONS.CFO_MARGIN_VIEW,
+  PERMISSIONS.CFO_RECEIVABLES_VIEW,
+  PERMISSIONS.CFO_BRAND_VIEW,
+  PERMISSIONS.CFO_TEAM_VIEW,
+  PERMISSIONS.CFO_EXPORT,
+  PERMISSIONS.CFO_LISTS_ASSIGN,
 ] as const satisfies readonly PermissionKey[];
 
 /**
@@ -363,6 +400,13 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.RECEIVABLES_VIEW,
   PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
   PERMISSIONS.REPORTS_MARGIN_VIEW,
+  // K3: the accounts row — company figures and the whole receivable book,
+  // no brand economics, no team detail, no rupee margin.
+  PERMISSIONS.CFO_SALES_VIEW,
+  PERMISSIONS.CFO_RECEIVABLES_VIEW,
+  PERMISSIONS.CFO_COMPLIANCE_VIEW,
+  PERMISSIONS.CFO_EXCEPTIONS_VIEW,
+  PERMISSIONS.CFO_EXPORT,
   PERMISSIONS.DUPLICATES_VIEW,
   PERMISSIONS.DUPLICATES_MANAGE,
   PERMISSIONS.COLLECTIONS_VIEW_SELF,
