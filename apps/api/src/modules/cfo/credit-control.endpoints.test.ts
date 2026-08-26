@@ -55,8 +55,18 @@ beforeAll(async () => {
     INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit)
     VALUES (${ORG_ID}, ${connectionId}, 'Bharat Cables', 'Sundry Debtors', 25000) RETURNING id
   `);
+  const chetan = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO parties (org_id, connection_id, name, parent_group)
+    VALUES (${ORG_ID}, ${connectionId}, 'Chetan Power', 'Sundry Debtors') RETURNING id
+  `);
+  const deva = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO parties (org_id, connection_id, name, parent_group)
+    VALUES (${ORG_ID}, ${connectionId}, 'Deva Supply', 'Sundry Debtors') RETURNING id
+  `);
   const ashaId = asha.rows[0]?.id ?? '';
   const bharatId = bharat.rows[0]?.id ?? '';
+  const chetanId = chetan.rows[0]?.id ?? '';
+  const devaId = deva.rows[0]?.id ?? '';
 
   await harness.db.execute(sql`
     INSERT INTO fact_receivable_snapshot (org_id, snapshot_date, party_id, bill_ref, bill_date, due_date, amount, outstanding, days_overdue, bucket, source) VALUES
@@ -72,7 +82,10 @@ beforeAll(async () => {
       (${ORG_ID}, ${connectionId}, 1, '2026-08-05', 'Sales',   'S-A1', 'Asha Traders',  ${ashaId},   '', false, 60000, now()),
       (${ORG_ID}, ${connectionId}, 1, '2026-08-12', 'Sales',   'S-B1', 'Bharat Cables', ${bharatId}, '', false, 40000, now()),
       (${ORG_ID}, ${connectionId}, 1, '2026-07-10', 'Sales',   'S-A0', 'Asha Traders',  ${ashaId},   '', false, 50000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-15', 'Receipt', 'R-A1', 'Asha Traders',  ${ashaId},   '', false, 20000, now())
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-15', 'Receipt', 'R-A1', 'Asha Traders',  ${ashaId},   '', false, 20000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2025-08-10', 'Sales',   'S-C0', 'Chetan Power',  ${chetanId}, '', false, 30000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2025-08-12', 'Sales',   'S-D0', 'Deva Supply',   ${devaId},   '', false, 20000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-18', 'Sales',   'S-D1', 'Deva Supply',   ${devaId},   '', false, 15000, now())
   `);
 
   // My CFO's book: Asha is the admin's through the CFO owner map.
@@ -93,11 +106,13 @@ describe('GET /cfo/receivables', () => {
     expect(res.body.overdue).toBe('90000.00');
     expect(res.body.buckets['31-60']).toBe('60000.00');
 
-    // Countback: August 100,000 consumed whole (31d), then 30,000 of July's
-    // 50,000 = 0.6 x 31 = 18.6. Total 49.6. Best on 40,000 current = 12.4.
-    expect(res.body.dsoCountback).toBeCloseTo(49.6, 10);
-    expect(res.body.bestPossibleDso).toBeCloseTo(12.4, 10);
-    expect(res.body.addDays).toBeCloseTo(37.2, 10);
+    // Countback: August's 115,000 (Deva joined the month) consumed whole
+    // (31d), then 15,000 of July's 50,000 = 0.3 x 31 = 9.3. Total 40.3.
+    // Best possible spends the 40,000 current book inside August.
+    const best = (40_000 / 115_000) * 31;
+    expect(res.body.dsoCountback).toBeCloseTo(40.3, 10);
+    expect(res.body.bestPossibleDso).toBeCloseTo(best, 10);
+    expect(res.body.addDays).toBeCloseTo(40.3 - best, 10);
 
     // The trend covers both photographed days, stacked by bucket.
     expect(res.body.ageingTrend.map((p) => p.t)).toEqual(['2026-08-19', '2026-08-20']);
@@ -181,11 +196,41 @@ describe('GET /cfo/growth-bridge', () => {
     }>('/cfo/growth-bridge?from=2026-08-01&to=2026-08-31', { token: adminToken });
 
     expect(res.status).toBe(200);
-    // August this year: Asha 60,000 + Bharat 40,000, all ledger-only Sales.
-    // Last August holds nothing, so the whole change is new customers.
-    expect(res.body.thisYear).toBe(100_000);
-    expect(res.body.lastYear).toBe(0);
+    // This August: Asha 60,000 + Bharat 40,000 (new) + Deva 15,000
+    // (retained, ledger-only, so its -5,000 change is mix). Last August:
+    // Chetan 30,000 (lost) + Deva 20,000. Change 65,000 = 100,000 new
+    // - 30,000 lost - 5,000 mix, exactly.
+    expect(res.body.thisYear).toBe(115_000);
+    expect(res.body.lastYear).toBe(50_000);
     expect(res.body.newCustomerEffect).toBe(100_000);
     expect(res.body.reconciliationError).toBe(0);
+  });
+});
+
+
+describe('GET /cfo/movement', () => {
+  it('classifies every customer into a cell, and prices the cell honestly', async () => {
+    const res = await harness.get<{
+      cells: { state: string; band: string; count: number; amount: string; parties: { party: string }[] }[];
+    }>('/cfo/movement?from=2026-08-01&to=2026-08-31', { token: adminToken });
+
+    expect(res.status).toBe(200);
+    const inState = (state: string) => res.body.cells.filter((c) => c.state === state && c.count > 0);
+
+    // Bharat had nothing before the window at all: new. Asha ordered in
+    // July, so with no last-August base she reads as growing, not new --
+    // a customer of six weeks is not an acquisition twice. Chetan sold
+    // only last year: lost, priced at last year's money. Deva fell 25%:
+    // declining.
+    expect(inState('new').flatMap((c) => c.parties.map((p) => p.party))).toEqual(['Bharat Cables']);
+    expect(inState('growing').flatMap((c) => c.parties.map((p) => p.party))).toEqual(['Asha Traders']);
+    const lost = inState('lost');
+    expect(lost.flatMap((c) => c.parties.map((p) => p.party))).toEqual(['Chetan Power']);
+    expect(lost[0]?.amount).toBe('30000.00');
+    expect(inState('declining').flatMap((c) => c.parties.map((p) => p.party))).toEqual(['Deva Supply']);
+
+    // Bands cover the classified set: the heaviest (Asha, 60,000) is A.
+    const ashaCell = res.body.cells.find((c) => c.parties.some((p) => p.party === 'Asha Traders'));
+    expect(ashaCell?.band).toBe('A');
   });
 });

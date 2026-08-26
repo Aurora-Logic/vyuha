@@ -343,6 +343,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Jobs finishing, exceptions raised, and how fresh the last pull from Tally is.',
   },
   {
+    id: 'screen.reports-growth',
+    route: '/reports/growth',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Growth',
+    body: 'Where the change came from — volume, price, mix, new and lost customers — and the matrix naming who it happened to.',
+  },
+  {
     id: 'screen.reports-me',
     route: '/reports/me',
     anchor: ANCHORS.screenHeader,

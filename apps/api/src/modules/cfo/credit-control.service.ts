@@ -251,6 +251,108 @@ export class CreditControlService {
     return growthBridge(ty, ly);
   }
 
+  /**
+   * D2: the customer movement matrix. Six states x three size bands,
+   * every cell a count, a rupee figure and the names behind it --
+   * "Declining x A" is the most expensive cell on the screen.
+   *
+   * States, from the window against the same elapsed days last year:
+   * New (nothing in the prior 365 days), Reactivated (returned after 180+
+   * days quiet), Growing (+5% and up), Flat (within 5%), Declining (-5%
+   * and down), Lost (last year's money, nothing now). Bands are terciles
+   * of each customer's larger year, A the heaviest -- configurable
+   * thresholds arrive with the settings pass.
+   */
+  async movement(principal: Principal, from: string, to: string): Promise<{
+    cells: readonly {
+      state: string;
+      band: string;
+      count: number;
+      amount: string;
+      parties: readonly { partyId: string; party: string; thisYear: string; lastYear: string }[];
+    }[];
+  }> {
+    const lyFrom = sameDayLastYear(from);
+    const lyTo = sameDayLastYear(to);
+    const rows = await this.db.execute<{
+      partyId: string;
+      party: string;
+      ty: string;
+      ly: string;
+      lastBefore: string | null;
+      firstIn: string | null;
+    }>(sql`
+      SELECT v.party_id AS "partyId", max(v.party_name) AS party,
+             sum(CASE WHEN v.voucher_date BETWEEN ${from} AND ${to}
+                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN v.amount ELSE -v.amount END) ELSE 0 END)::numeric(16,2)::text AS ty,
+             sum(CASE WHEN v.voucher_date BETWEEN ${lyFrom} AND ${lyTo}
+                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN v.amount ELSE -v.amount END) ELSE 0 END)::numeric(16,2)::text AS ly,
+             max(v.voucher_date) FILTER (WHERE v.voucher_type = 'Sales' AND v.voucher_date < ${from})::text AS "lastBefore",
+             min(v.voucher_date) FILTER (WHERE v.voucher_type = 'Sales' AND v.voucher_date BETWEEN ${from} AND ${to})::text AS "firstIn"
+      FROM vouchers v
+      WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.party_id IS NOT NULL
+        AND v.voucher_type IN ('Sales', 'Credit Note')
+      GROUP BY 1
+    `);
+
+    interface Classified {
+      partyId: string;
+      party: string;
+      ty: number;
+      ly: number;
+      state: string;
+      size: number;
+    }
+    const gapDays = (a: string, b: string): number => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
+    const classified: Classified[] = [];
+    for (const row of rows.rows) {
+      const ty = Number(row.ty);
+      const ly = Number(row.ly);
+      if (ty <= 0 && ly <= 0) continue;
+      let state: string;
+      if (ly <= 0 && ty > 0) {
+        const quiet = row.lastBefore !== null && row.firstIn !== null ? gapDays(row.lastBefore, row.firstIn) : null;
+        state = quiet === null ? 'new' : quiet >= 180 ? 'reactivated' : 'growing';
+      } else if (ty <= 0) {
+        state = 'lost';
+      } else {
+        const changePct = ((ty - ly) / Math.abs(ly)) * 100;
+        state = changePct > 5 ? 'growing' : changePct < -5 ? 'declining' : 'flat';
+      }
+      classified.push({ partyId: row.partyId, party: row.party, ty, ly, state, size: Math.max(ty, ly) });
+    }
+
+    // Bands: terciles of the classified set by size, A the heaviest.
+    const bySize = [...classified].sort((a, b) => b.size - a.size);
+    const bandOf = new Map<string, string>();
+    bySize.forEach((c, index) => {
+      const third = Math.ceil(bySize.length / 3);
+      bandOf.set(c.partyId, index < third ? 'A' : index < third * 2 ? 'B' : 'C');
+    });
+
+    const STATES = ['new', 'reactivated', 'growing', 'flat', 'declining', 'lost'];
+    const BANDS = ['A', 'B', 'C'];
+    const cells = STATES.flatMap((state) =>
+      BANDS.map((band) => {
+        const members = classified.filter((c) => c.state === state && bandOf.get(c.partyId) === band);
+        // Lost customers are measured by what last year held; everyone else
+        // by the window's own money.
+        const amount = members.reduce((sum, c) => sum + (state === 'lost' ? c.ly : c.ty), 0);
+        return {
+          state,
+          band,
+          count: members.length,
+          amount: amount.toFixed(2),
+          parties: members
+            .sort((a, b) => (state === 'lost' ? b.ly - a.ly : b.ty - a.ty))
+            .slice(0, 50)
+            .map((c) => ({ partyId: c.partyId, party: c.party, thisYear: c.ty.toFixed(2), lastYear: c.ly.toFixed(2) })),
+        };
+      }),
+    );
+    return { cells };
+  }
+
   async workLists(principal: Principal): Promise<WorkLists> {
     const today = istDateOf(new Date().toISOString());
     const rate = (await this.settings.read(principal)).interest.annualRatePct;

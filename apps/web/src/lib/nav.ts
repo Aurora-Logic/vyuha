@@ -721,6 +721,14 @@ export const MODULES: ModuleDef[] = [
             phase: 6,
             reqs: 'REQ-Y-06',
           },
+          {
+            to: '/reports/growth',
+            label: 'Growth',
+            icon: ChartLineUpIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief D1, D2, Phase 3',
+          },
         ],
       },
       {

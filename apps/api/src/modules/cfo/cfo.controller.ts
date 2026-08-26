@@ -47,6 +47,16 @@ export class CfoController {
     return this.credit.bridge(principal, query.from, query.to);
   }
 
+  /** D2: the movement matrix, every cell a named list. */
+  @Get('movement')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  movement(
+    @CurrentUser() principal: Principal,
+    @Query() query: CreditQueryDto,
+  ): ReturnType<CreditControlService['movement']> {
+    return this.credit.movement(principal, query.from, query.to);
+  }
+
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */
   @Get('me')
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)

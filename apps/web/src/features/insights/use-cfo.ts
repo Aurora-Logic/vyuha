@@ -85,3 +85,64 @@ export function useCfoWorkLists(options: { enabled?: boolean } = {}): UseQueryRe
     staleTime: 60_000,
   });
 }
+
+const bridgeSchema = z.object({
+  lastYear: z.number(),
+  thisYear: z.number(),
+  change: z.number(),
+  volumeEffect: z.number(),
+  priceEffect: z.number(),
+  mixEffect: z.number(),
+  newCustomerEffect: z.number(),
+  lostCustomerEffect: z.number(),
+  reconciliationError: z.number(),
+});
+
+export type GrowthBridgeData = z.infer<typeof bridgeSchema>;
+
+const movementSchema = z.object({
+  cells: z.array(
+    z.object({
+      state: z.string(),
+      band: z.string(),
+      count: z.number(),
+      amount: z.string(),
+      parties: z.array(
+        z.object({ partyId: z.string(), party: z.string(), thisYear: z.string(), lastYear: z.string() }),
+      ),
+    }),
+  ),
+});
+
+export type MovementData = z.infer<typeof movementSchema>;
+export type MovementCell = MovementData['cells'][number];
+
+export function useGrowthBridge(
+  range: { from: string; to: string },
+  options: { enabled?: boolean } = {},
+): UseQueryResult<GrowthBridgeData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'growth-bridge', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/growth-bridge?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(bridgeSchema, body, 'growth bridge');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useMovement(
+  range: { from: string; to: string },
+  options: { enabled?: boolean } = {},
+): UseQueryResult<MovementData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'movement', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/movement?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(movementSchema, body, 'movement matrix');
+    },
+    staleTime: 60_000,
+  });
+}

@@ -82,7 +82,9 @@ function OverviewMetricCard({ metric, index }: { metric: Metric; index: number }
         <MetricChart
           metric={metric}
           kind={metric.xKind === 'category' ? 'bar' : metric.series.length > 1 ? 'bar' : 'area'}
-          options={{ legend: true, dataLabels: false, colourIndex: index }}
+          // Labels on, like the reference blocks (owner, 26 Aug): past
+          // sixteen points the chart prints a thinned subset on its own.
+          options={{ legend: true, dataLabels: true, colourIndex: index }}
           className="h-36"
         />
       </CardContent>
