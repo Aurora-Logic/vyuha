@@ -14,6 +14,7 @@ export * from './help.js';
 export * from './holidays.js';
 export * from './ids.js';
 export * from './leave.js';
+export * from './insights.js';
 export * from './masters.js';
 export * from './org.js';
 export * from './pagination.js';

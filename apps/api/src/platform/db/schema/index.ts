@@ -27,3 +27,4 @@ export * from './pricing.schema.js';
 export * from './duplicates.schema.js';
 export * from './collections.schema.js';
 export * from './portal.schema.js';
+export * from './insights.schema.js';
