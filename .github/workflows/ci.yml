@@ -2,7 +2,8 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -11,20 +12,37 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy to Remote Server
-    runs-on: self-hosted
+    name: Build & Deploy to Server
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Execute Deployment Commands via SSH
-        run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_IP }} << 'EOF'
-            set -e
-            cd ${{ secrets.SSH_DIR }}
-            git pull origin main
-            pnpm install
-            cd apps/api
-            pnpm db:migrate
-            cd ${{ secrets.SSH_DIR }}
-            pnpm build
-            sudo systemctl restart ${{ secrets.SERVICE_NAME }}
-          EOF
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_IP }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: true
+          script: |
+            echo "## 1. Navigating to project directory"
+            cd "${{ secrets.SSH_DIR }}" || exit 1
+
+            echo "## 2. Pulling latest changes"
+            git pull origin main || exit 1
+
+            echo "## 3. Installing dependencies"
+            pnpm install || exit 1
+
+            echo "## 4. Running database migrations"
+            cd apps/api || exit 1
+            pnpm db:migrate || exit 1
+            cd "${{ secrets.SSH_DIR }}" || exit 1
+
+            echo "## 5. Building applications"
+            VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" NODE_ENV=production pnpm build || exit 1
+
+            echo "## 6. Restarting service"
+            sudo systemctl restart "${{ secrets.SERVICE_NAME }}" || exit 1
+
+            echo "Deployed Successfully!"
