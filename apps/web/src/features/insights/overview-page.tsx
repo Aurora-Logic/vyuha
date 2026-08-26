@@ -104,14 +104,14 @@ function AreaSection({ area, data, pending }: { area: InsightArea; data: AreaIns
         </Button>
       </div>
       {pending ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Skeleton className="h-52" />
           <Skeleton className="h-52" />
           <Skeleton className="h-52" />
         </div>
       ) : null}
       {metrics.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           {metrics.map((metric, index) => (
             <OverviewMetricCard key={metric.key} metric={metric} index={index} />
           ))}
