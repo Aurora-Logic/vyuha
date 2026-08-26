@@ -186,6 +186,15 @@
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
+    --color-surface-gray: var(--surface-gray);
+    --color-surface-brown: var(--surface-brown);
+    --color-surface-orange: var(--surface-orange);
+    --color-surface-yellow: var(--surface-yellow);
+    --color-surface-green: var(--surface-green);
+    --color-surface-blue: var(--surface-blue);
+    --color-surface-purple: var(--surface-purple);
+    --color-surface-pink: var(--surface-pink);
+    --color-surface-red: var(--surface-red);
     --color-tint-1: var(--tint-1);
     --color-tint-2: var(--tint-2);
     --color-tint-3: var(--tint-3);
@@ -303,20 +312,30 @@
 
 :root {
     --background: oklch(1 0 0);
-    --foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --card-foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --popover-foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
     --primary: oklch(0.457 var(--accent-c) var(--accent-h));
     --primary-foreground: oklch(0.962 0.018 var(--accent-h));
-    --secondary: oklch(0.967 calc(0.001 * var(--base-k)) var(--base-h));
-    --secondary-foreground: oklch(0.21 calc(0.006 * var(--base-k)) var(--base-h));
-    --muted: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --secondary: oklch(0.9576 calc(0.0027 * var(--base-k)) var(--base-h));
+    --secondary-foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
+    --muted: oklch(0.9576 calc(0.0027 * var(--base-k)) var(--base-h));
     --muted-foreground: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
-    --accent: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
-    --accent-foreground: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
-    --destructive: oklch(0.577 0.245 27.325);
+    --accent: oklch(0.9576 calc(0.0027 * var(--base-k)) var(--base-h));
+    --accent-foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
+    /* Darkened 26 Aug 2026 to clear AA on the named surfaces.
+
+       These are 12px badge labels, so the bar is 4.5:1. On the tint they wear
+       they measured 3.04 (warning), 3.60 (success), 4.01 (destructive) and
+       4.08 (info) -- all short, and short before this palette too: the old
+       ink/10 surface was the same brightness. Lightness is the only thing
+       moved; the hue and chroma are the ones already chosen, so the colours
+       are the same colours, just dark enough to read. Solved for the lightest
+       value that still clears the bar, then a little under it so rounding
+       cannot drop it back. White on these as a solid fill only improves. */
+    --destructive: oklch(0.543 0.245 27.325);
     /* The same red as a *fill* rather than as ink, for the one place the PRD
        names a colour: REQ-K-05's unread badge is white text on a red dot.
        --destructive cannot serve, because on dark it is deliberately lifted so
@@ -329,9 +348,9 @@
        has to be able to say which outcome without reaching for a raw Tailwind
        colour, which would ignore the theme and not follow a rebrand. Chroma and
        lightness are matched to --destructive so the four read as one family. */
-    --success: oklch(0.573 0.152 152.535);
-    --warning: oklch(0.646 0.157 71.578);
-    --info: oklch(0.567 0.183 259.052);
+    --success: oklch(0.515 0.152 152.535);
+    --warning: oklch(0.543 0.157 71.578);
+    --info: oklch(0.54 0.183 259.052);
     /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
        distinct from the status colours and from each other. Same lightness band as --info. */
 /* The four fulfilment steps.
@@ -371,6 +390,33 @@
     --tint-6: oklch(0.5 0.17 275);
     --tint-7: oklch(0.5 0.14 155);
     --tint-8: oklch(0.52 0.18 15);
+    /* The nine named surfaces (owner, 26 Aug 2026).
+
+       A background a reader can be given by name -- a stage column, a status
+       pill, a highlighted row -- rather than an ink colour faded to /10, which
+       is what the status badges used to do. Faded ink takes its hue from
+       whatever the ink was and shifts when the accent moves; these are chosen
+       surfaces and hold still.
+
+       They sit ~1.1:1 from the canvas, so they read as a tint and never as a
+       border. That is deliberate and it is also why colour is never the only
+       signal here: every badge that wears one also carries its word, and most
+       carry an icon (status-tone.ts).
+
+       Body ink on every one of them measures 9:1 or better in both themes,
+       which is AAA -- checked, not assumed.
+
+       Light tracks the base picker the way every other light neutral does;
+       dark is achromatic, because the palette specifies it that way. */
+    --surface-gray: oklch(0.9576 calc(0.0027 * var(--base-k)) 106.4);
+    --surface-brown: oklch(0.953 0.0054 17.3);
+    --surface-orange: oklch(0.949 0.0217 69.8);
+    --surface-yellow: oklch(0.9638 0.0299 92.3);
+    --surface-green: oklch(0.9587 0.0095 140.5);
+    --surface-blue: oklch(0.9578 0.0119 223.5);
+    --surface-purple: oklch(0.9679 0.0073 312.3);
+    --surface-pink: oklch(0.9674 0.0085 349.2);
+    --surface-red: oklch(0.9541 0.0152 17.4);
     --border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --input: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
@@ -415,31 +461,31 @@
        --border-radius from it, so leaving it at 0.625rem left the toast as the
        only rounded surface in the app. */
     --radius: 0;
-    --sidebar: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
-    --sidebar-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --sidebar: oklch(0.9731 calc(0.0041 * var(--base-k)) var(--base-h));
+    --sidebar-foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
     --sidebar-primary: oklch(0.511 calc(var(--accent-c) * 1.09) var(--accent-h));
     --sidebar-primary-foreground: oklch(0.962 0.018 var(--accent-h));
-    --sidebar-accent: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
-    --sidebar-accent-foreground: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
+    --sidebar-accent: oklch(0.9576 calc(0.0027 * var(--base-k)) var(--base-h));
+    --sidebar-accent-foreground: oklch(0.3293 calc(0.0091 * var(--base-k)) var(--base-h));
     --sidebar-border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --sidebar-ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
 }
 
 .dark {
-    --background: oklch(0.147 0.004 49.25);
-    --foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
-    --card: oklch(0.216 0.006 56.043);
-    --card-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
-    --popover: oklch(0.216 0.006 56.043);
-    --popover-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --background: oklch(0.2134 0 0);
+    --foreground: oklch(0.8699 0 0);
+    --card: oklch(0.2435 0 0);
+    --card-foreground: oklch(0.8699 0 0);
+    --popover: oklch(0.2435 0 0);
+    --popover-foreground: oklch(0.8699 0 0);
     --primary: oklch(0.398 calc(var(--accent-c) * 0.81) var(--accent-h));
     --primary-foreground: oklch(0.962 0.018 var(--accent-h));
-    --secondary: oklch(0.274 calc(0.006 * var(--base-k)) var(--base-h));
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --secondary: oklch(0.2645 0 0);
+    --secondary-foreground: oklch(0.8699 0 0);
+    --muted: oklch(0.2645 0 0);
     --muted-foreground: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
-    --accent: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
-    --accent-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --accent: oklch(0.2645 0 0);
+    --accent-foreground: oklch(0.8699 0 0);
     --destructive: oklch(0.704 0.191 22.216);
     /* Deliberately *not* lifted with --destructive above: see the note in the
        light block. A badge is a filled shape carrying white text, so lifting
@@ -480,6 +526,17 @@
     --tint-6: oklch(0.8 0.13 275);
     --tint-7: oklch(0.8 0.12 155);
     --tint-8: oklch(0.8 0.14 15);
+    /* The same nine, chosen against the dark ground rather than dimmed from
+       the light set -- each is the palette's own value (#252525 … #332523). */
+    --surface-gray: oklch(0.2645 0 0);
+    --surface-brown: oklch(0.2795 0.0118 44.6);
+    --surface-orange: oklch(0.2928 0.0261 59.1);
+    --surface-yellow: oklch(0.3068 0.027 78.5);
+    --surface-green: oklch(0.2804 0.0134 154.4);
+    --surface-blue: oklch(0.2704 0.0157 232.4);
+    --surface-purple: oklch(0.2722 0.0234 307.5);
+    --surface-pink: oklch(0.2709 0.0188 349.4);
+    --surface-red: oklch(0.2804 0.0217 27.8);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
@@ -496,12 +553,12 @@
     --slice-3: var(--slice-dark-3, oklch(0.58 var(--chart-c) var(--accent-h)));
     --slice-4: var(--slice-dark-4, oklch(0.5 var(--chart-c) var(--accent-h)));
     --slice-5: var(--slice-dark-5, oklch(0.62 var(--chart-c) var(--accent-h)));
-    --sidebar: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
-    --sidebar-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar: oklch(0.2435 0 0);
+    --sidebar-foreground: oklch(0.8699 0 0);
     --sidebar-primary: oklch(0.585 calc(var(--accent-c) * 0.97) var(--accent-h));
     --sidebar-primary-foreground: oklch(0.962 0.018 var(--accent-h));
-    --sidebar-accent: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
-    --sidebar-accent-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-accent: oklch(0.2645 0 0);
+    --sidebar-accent-foreground: oklch(0.8699 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
 }
