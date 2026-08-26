@@ -484,6 +484,13 @@
       "when": 1787733716589,
       "tag": "0068_custom_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1787748263312,
+      "tag": "0069_cfo_sales_fact_owner_map",
+      "breakpoints": true
     }
   ]
 }

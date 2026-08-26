@@ -55,3 +55,101 @@ export const factReceivableSnapshot = pgTable(
     index('fact_receivable_snapshot_date_idx').on(t.orgId, t.snapshotDate),
   ],
 );
+
+/**
+ * The sales fact (brief K2): one row per day x party x item x salesperson x
+ * voucher type, everything ex-GST, money exact to two decimals. The grain
+ * the brief names also carries godown and business line; the projection has
+ * no godown today (raised in the Phase 1 decisions table), and business
+ * line is a column already so Export lands without a migration when export
+ * billing begins (K1 item 7).
+ *
+ * A day is replaced as a unit when rebuilt, like the receivable snapshot —
+ * no updates, no partial days. Margin columns exist but stay null until the
+ * valuation method is confirmed (B1: cost basis blocked); nothing computes
+ * on a null margin.
+ *
+ * `salespersonRef` resolves AS OF VOUCHER DATE and is never rewritten
+ * (B4). Its forms: 'user:<uuid>' | 'HOUSE' | 'UNASSIGNED'. The Unassigned
+ * bucket is a visible data-quality figure, never a silent drop (B3).
+ */
+export const factSalesDaily = pgTable(
+  'fact_sales_daily',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    date: date('date', { mode: 'string' }).notNull(),
+    partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
+    partyName: text('party_name').notNull().default(''),
+    /** Stock item when the line moved goods; null for ledger-only vouchers. */
+    itemId: uuid('item_id'),
+    itemName: text('item_name').notNull().default(''),
+    /** The stock group, which M12 confirms separates C&S and BCH cleanly. */
+    brand: text('brand').notNull().default('Unbranded'),
+    /** 'DOMESTIC' today; 'EXPORT' when K1 item 7's flag exists. */
+    businessLine: text('business_line').notNull().default('DOMESTIC'),
+    salespersonRef: text('salesperson_ref').notNull().default('UNASSIGNED'),
+    voucherType: text('voucher_type').notNull(),
+    /** Base-UOM quantity where parseable; 0 for ledger lines (R11 note). */
+    qty: numeric('qty', { precision: 18, scale: 3 }).notNull().default('0'),
+    /** R01: sales voucher value before discounts and returns. */
+    gross: numeric('gross', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R02: discount ledger lines on sales vouchers. */
+    discount: numeric('discount', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R03: credit notes. Nature (goods return vs rate diff) is a pending decision; all sit here until it lands. */
+    returns: numeric('returns', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R04: rate-difference credit notes, empty until natures are classified. */
+    rateDiff: numeric('rate_diff', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R05 = gross - discount - returns - rate_diff. Growth measures this. */
+    net: numeric('net', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** M06/M07: null until the Tally valuation method is confirmed. */
+    landedCost: numeric('landed_cost', { precision: 16, scale: 2 }),
+    pocketMargin: numeric('pocket_margin', { precision: 16, scale: 2 }),
+    voucherCount: integer('voucher_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('fact_sales_daily_date_idx').on(t.orgId, t.date),
+    index('fact_sales_daily_party_idx').on(t.orgId, t.partyId, t.date),
+    index('fact_sales_daily_item_idx').on(t.orgId, t.itemId, t.date),
+    index('fact_sales_daily_person_idx').on(t.orgId, t.salespersonRef, t.date),
+  ],
+);
+
+/**
+ * Customer -> owner, effective-dated (B4). Resolution order for a voucher:
+ * the voucher's own salesperson when Tally sends one (the sync does not
+ * carry cost centres yet — raised in the decisions table), then this map as
+ * of the voucher date, then UNASSIGNED. History is never rewritten:
+ * reassigning today closes the open interval today and opens a new one, and
+ * last year's facts keep last year's owner.
+ *
+ * Split credit: at most two open rows per party (M13, decided at two), with
+ * shares summing to 100. An owner of null with kind HOUSE marks the house
+ * book explicitly — never a blank (B4).
+ */
+export const customerOwnerMap = pgTable(
+  'customer_owner_map',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id')
+      .notNull()
+      .references(() => parties.id, { onDelete: 'cascade' }),
+    /** 'user:<uuid>' | 'HOUSE'. The fact copies this verbatim. */
+    ownerRef: text('owner_ref').notNull(),
+    /** Percent of the credit, 1..100; open rows for a party sum to 100. */
+    share: integer('share').notNull().default(100),
+    effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+    /** Null while current; set to the day before the successor starts. */
+    effectiveTo: date('effective_to', { mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('customer_owner_map_party_idx').on(t.orgId, t.partyId, t.effectiveFrom),
+  ],
+);

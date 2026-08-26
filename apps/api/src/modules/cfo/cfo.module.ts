@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 
 import { ReceivableSnapshotHandler } from './receivable-snapshot.handler.js';
+import { OwnerMapService } from './attribution/owner-map.service.js';
 import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
+import { SalesFactService } from './sales-fact.service.js';
 
 /**
  * The Virtual CFO module (owner's brief §0.10, D-23). Born as one nightly
@@ -10,6 +12,6 @@ import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
  * later, so the recorder ships first and the UI catches up.
  */
 @Module({
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService],
 })
 export class CfoModule {}

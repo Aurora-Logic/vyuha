@@ -544,3 +544,20 @@ here rather than guessed at, and now decisions rather than drift.
 | RPT-4 | **Which reports keep gross dispatch quantities?** Revenue reports now net Credit Notes per the metric dictionary; the quantity/velocity reports (item-velocity, movement-analysis, price bands) still count Sales dispatches gross. | Nothing — a defensible "gross dispatches" reading | **Keep quantities gross** until the owner asks for net movement; netting revenue but not dispatch counts is stated here so it is a decision, not a drift. Interest's turnover denominator likewise stays as its D-22 policy defines it. |
 | RPT-5 | **`ReportSource` has no structural permission hook** — every source privately calls its own `require()` in `count()`/`page()`; all eight do today, and the export button now checks the catalogue too, but a ninth source that forgets serves rows to anyone with `report.view`. | A future source author's mistake | **Add an abstract `requiredPermission(key)` to the registry interface** in the next platform pass, so forgetting becomes a compile error rather than a convention. |
 | D-23-3 | **Is the snapshot's day boundary IST, or each organisation's own timezone?** Organisations carry a `timezone` column (default `Asia/Kolkata`) and the attendance sweeps close each org's day in its own zone; both nightly book photographs (D-22, D-23) close the day at IST midnight for every org via `istDateOf`. | Nothing while every org is IST | **Fixed IST**, matching "dates are stored UTC and displayed IST" in the CFO brief. If a non-IST organisation ever onboards, both handlers take the org's timezone from the row they already read, and `istDateOf` becomes `localDateIn(now, org.timezone)` — the seam is one function. |
+
+## Virtual CFO — Phase 1 pending decisions (brief 0.6, 26 Aug 2026)
+
+Decided at kick-off: M3 = both (voucher salesperson when the sync carries one, dated
+Vyuha map as fallback, UNASSIGNED visible); M12 = C&S and BCH are cleanly separated in
+the stock item master; M13 = split credit allowed, maximum two owners.
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| M1/M2 | Tally valuation method; inward freight in item cost or separate ledger? | Ask the CA with the Tally screen open | All margin columns (Phase 4); they stay null until then |
+| M4 | Are credit notes linked to original invoices in Tally? | Assume unlinked; all CNs sit in returns (R03) until natures are classifiable | R03 vs R04 split |
+| M5 | Borrowing rate for D17/W04 | The interest module's configured rate, one source of truth | Interest costing (Phase 2+) |
+| M10 | Materiality floor | ₹25,000 or 0.5% of monthly sales, whichever lower (brief default) | Work lists, "Other" grouping |
+| M11 | One Tally company or several to consolidate? | Single company (current sync is one connection per org) | Fact grain if several |
+| — | Cost centre / salesperson on vouchers: the OpsTally sync does not pull it yet | Extend the sync to carry a voucher salesperson field; map fills the gap meanwhile | Tally-first attribution (map-only until then) |
+| — | Godown in the fact grain (K2) | Omit until the sync carries godowns | Godown-level analysis |
+| — | Full brief missing Parts O5.2–O7, P, Q, R (truncated in transit) | Owner adds complete file as docs/13-virtual-cfo-brief.md | Part Q robustness rules in the metric engine; tiers; drill contract |
