@@ -560,4 +560,4 @@ the stock item master; M13 = split credit allowed, maximum two owners.
 | M11 | One Tally company or several to consolidate? | Single company (current sync is one connection per org) | Fact grain if several |
 | — | Cost centre / salesperson on vouchers: the OpsTally sync does not pull it yet | Extend the sync to carry a voucher salesperson field; map fills the gap meanwhile | Tally-first attribution (map-only until then) |
 | — | Godown in the fact grain (K2) | Omit until the sync carries godowns | Godown-level analysis |
-| — | Full brief missing Parts O5.2–O7, P, Q, R (truncated in transit) | Owner adds complete file as docs/13-virtual-cfo-brief.md | Part Q robustness rules in the metric engine; tiers; drill contract |
+| — | ~~Full brief missing Parts O5.2–O7, P, Q, R~~ Resolved 26 Aug: complete brief at docs/16-virtual-cfo-brief.md, Part S at 17, report list at 18 | — | — |

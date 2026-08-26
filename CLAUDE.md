@@ -14,6 +14,9 @@ Companion documents in `/docs`:
 | `09-technical-design-phase-6-8.md` | The sync engine, projection tables, navigation shell. |
 | `10-scope-and-delivery-plan-phase-6-8.md` | Phases 6a–8b and their exit gates. |
 | `11-decisions-phase-6-8.md` | **Authority for Phase 6–8.** Overrides 08–10 wherever they disagree. |
+| `16-virtual-cfo-brief.md` | **The Virtual CFO master brief, Parts 0–R.** Read before any cfo module work; its Part 0 governs execution. |
+| `17-virtual-cfo-part-s.md` | Part S: the CFO custom report builder and lifecycle models. |
+| `18-virtual-cfo-report-list.md` | Every report the CFO module should produce, numbered. |
 
 `01`–`03` are not superseded — they remain in force for attendance. `08`–`11`
 extend them for everything after it.
