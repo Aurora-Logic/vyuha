@@ -47,6 +47,12 @@ const BUILT_ROUTES = new Set([
   '/audit',
   '/period-lock',
   '/downloads',
+  '/reports',
+  '/reports/attendance',
+  '/reports/receivables',
+  '/reports/sales',
+  '/reports/sync',
+  '/reports/custom',
   '/recycle-bin',
   '/organisation',
   '/analytics',
@@ -73,6 +79,10 @@ const ShiftsPage = lazy(() => import('@/features/shifts').then((m) => ({ default
 const AnalyticsPage = lazy(() => import('@/features/analytics').then((m) => ({ default: m.AnalyticsPage })));
 const AuditLogPage = lazy(() => import('@/features/audit').then((m) => ({ default: m.AuditLogPage })));
 const DownloadsPage = lazy(() => import('@/features/downloads').then((m) => ({ default: m.DownloadsPage })));
+const InsightsOverviewPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.InsightsOverviewPage })));
+const InsightsAreaPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.AreaPage })));
+const CustomReportsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.CustomReportsPage })));
+const CustomReportPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.CustomReportPage })));
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
 const RecycleBinPage = lazy(() => import('@/features/recycle-bin').then((m) => ({ default: m.RecycleBinPage })));
@@ -227,6 +237,13 @@ export default function App() {
               <Route path="interest-overrides" element={<InterestOverridesPage />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
+              <Route path="reports" element={<InsightsOverviewPage />} />
+              <Route path="reports/custom" element={<CustomReportsPage />} />
+              <Route path="reports/custom/:id" element={<CustomReportPage />} />
+              <Route path="reports/attendance" element={<InsightsAreaPage area="attendance" />} />
+              <Route path="reports/receivables" element={<InsightsAreaPage area="receivables" />} />
+              <Route path="reports/sales" element={<InsightsAreaPage area="sales" />} />
+              <Route path="reports/sync" element={<InsightsAreaPage area="sync" />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />
               <Route path="organisation" element={<OrgMastersPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />

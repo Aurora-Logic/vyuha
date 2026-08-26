@@ -7,6 +7,7 @@ import {
   BuildingsIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
+  ChartBarIcon,
   ChartLineUpIcon,
   CheckSquareIcon,
   ClipboardIcon,
@@ -697,6 +698,83 @@ export const MODULES: ModuleDef[] = [
       },
     ],
   },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: ChartBarIcon,
+    home: '/reports',
+    // report.view opens the module; each area inside carries its own key, so
+    // the sidebar shows a person exactly the areas their permissions open.
+    permission: PERMISSIONS.REPORT_VIEW,
+    groups: [
+      {
+        label: 'General',
+        items: [
+          {
+            to: '/reports',
+            label: 'Overview',
+            icon: SquaresFourIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+        ],
+      },
+      {
+        label: 'Areas',
+        items: [
+          {
+            to: '/reports/attendance',
+            label: 'Attendance',
+            icon: CalendarDotsIcon,
+            permission: PERMISSIONS.ATTENDANCE_VIEW_ALL,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+          {
+            to: '/reports/receivables',
+            label: 'Receivables',
+            icon: ReceiptIcon,
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+          {
+            to: '/reports/sales',
+            label: 'Sales & purchase',
+            shortLabel: 'Sales',
+            icon: ShoppingCartIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+          {
+            to: '/reports/sync',
+            label: 'Sync health',
+            shortLabel: 'Sync',
+            icon: PlugIcon,
+            permission: PERMISSIONS.INTEGRATION_MANAGE,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+        ],
+      },
+      {
+        label: 'Custom',
+        items: [
+          {
+            to: '/reports/custom',
+            label: 'Custom reports',
+            shortLabel: 'Custom',
+            icon: SquaresFourIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -823,6 +901,7 @@ const OFF_NAV_LABELS: Record<string, string> = {
  * find.
  */
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
+  { pattern: /^\/reports\/custom\/[^/]+$/u, parent: '/reports/custom', label: 'Report' },
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },

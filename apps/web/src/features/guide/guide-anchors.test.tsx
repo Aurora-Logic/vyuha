@@ -171,21 +171,22 @@ describe('guided tour length', () => {
    * so a filter that silently empties itself fails here rather than in front
    * of somebody taking the tour.
    */
-  // Recounted on the reports module's removal (owner, 26 Aug 2026): the two
-  // report screens left the tour, the Downloads step lost its permission
-  // gate so every role now meets the tray, and the interest overrides
-  // gained a step of their own for the roles that configure them.
+  // Recounted when the reports module returned as the observed areas (owner,
+  // 26 Aug 2026): six screens joined the tour, each behind its own key, so a
+  // role gains exactly the report pages its permissions open -- Admin all
+  // six, HR the three its attendance and report keys unlock, the commercial
+  // roles two, Operations two, and Employee and Purchase none at all.
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
     Employee: { desktop: 12, phone: 11 },
-    Operations: { desktop: 19, phone: 18 },
-    HR: { desktop: 23, phone: 22 },
-    Admin: { desktop: 53, phone: 52 },
+    Operations: { desktop: 21, phone: 20 },
+    HR: { desktop: 26, phone: 25 },
+    Admin: { desktop: 59, phone: 58 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
     Sales: { desktop: 25, phone: 24 },
-    'Sales manager': { desktop: 29, phone: 28 },
+    'Sales manager': { desktop: 31, phone: 30 },
     Purchase: { desktop: 15, phone: 14 },
-    Accounts: { desktop: 30, phone: 29 },
+    Accounts: { desktop: 32, phone: 31 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [

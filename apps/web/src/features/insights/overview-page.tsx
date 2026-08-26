@@ -1,0 +1,148 @@
+import { ArrowRightIcon } from '@phosphor-icons/react';
+import { Link, useSearchParams } from 'react-router';
+import { PERMISSIONS, type InsightArea } from '@vyuha/shared';
+
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import { ChartBarIcon } from '@phosphor-icons/react';
+import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
+import { PageHeader } from '@/components/shared/page-header';
+import { usePermission } from '@/lib/session/permissions';
+
+import { useAreaInsights, type AreaInsightsData } from './api';
+import { AREA_LABELS } from './catalogue';
+import { MetricChart } from './metric-card';
+import { formatHeadline } from './units';
+import { rangeFromParams } from './period';
+
+/**
+ * The reports overview (owner, 26 Aug 2026, the Supabase Overview shape): a
+ * strip of headline figures across every area this viewer may see, then one
+ * health card per area with its marquee chart and the way in.
+ *
+ * Each area is fetched only when its permission is held -- the server would
+ * refuse anyway, but asking a question whose answer is already known to be
+ * 403 just fills the error lane of the page with noise.
+ */
+
+function tilesOf(area: InsightArea, data: AreaInsightsData | undefined): KpiTileProps[] {
+  if (data === undefined) return [];
+  const metric = (key: string) => data.metrics.find((m) => m.key === key);
+  switch (area) {
+    case 'attendance': {
+      const mix = metric('attendance-mix');
+      const late = metric('late-arrivals');
+      return [
+        ...(mix ? [{ label: 'Present today', value: formatHeadline(mix.unit, mix.headline) }] : []),
+        ...(late ? [{ label: 'Late arrivals', value: formatHeadline(late.unit, late.headline) }] : []),
+      ];
+    }
+    case 'receivables': {
+      const invoiced = metric('invoiced');
+      const received = metric('received');
+      return [
+        ...(invoiced ? [{ label: 'Invoiced', value: formatHeadline(invoiced.unit, invoiced.headline) }] : []),
+        ...(received ? [{ label: 'Received', value: formatHeadline(received.unit, received.headline) }] : []),
+      ];
+    }
+    case 'sales': {
+      const orders = metric('orders-value');
+      return orders ? [{ label: 'Sales orders', value: formatHeadline(orders.unit, orders.headline) }] : [];
+    }
+    case 'sync': {
+      const exceptions = metric('exceptions');
+      return exceptions
+        ? [{ label: 'Open sync exceptions', value: formatHeadline(exceptions.unit, exceptions.headline) }]
+        : [];
+    }
+  }
+}
+
+function AreaHealthCard({ area, data, pending }: { area: InsightArea; data: AreaInsightsData | undefined; pending: boolean }) {
+  const marquee = data?.metrics[0];
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle className="text-sm font-medium">{AREA_LABELS[area]}</CardTitle>
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}`} />}>
+          Open
+          <ArrowRightIcon data-icon="inline-end" />
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {pending ? <Skeleton className="h-24 w-full" /> : null}
+        {marquee ? <MetricChart metric={marquee} kind="bar" legend={false} className="h-24" /> : null}
+        {!pending && marquee === undefined ? (
+          <p className="text-muted-foreground flex h-24 items-center justify-center text-sm">Nothing yet</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function InsightsOverviewPage() {
+  const [searchParams] = useSearchParams();
+  const range = rangeFromParams(searchParams);
+
+  const canAttendance = usePermission(PERMISSIONS.ATTENDANCE_VIEW_ALL);
+  const canReceivables = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
+  const canSales = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
+  const canSync = usePermission(PERMISSIONS.INTEGRATION_MANAGE);
+
+  const attendance = useAreaInsights('attendance', range, { enabled: canAttendance });
+  const receivables = useAreaInsights('receivables', range, { enabled: canReceivables });
+  const sales = useAreaInsights('sales', range, { enabled: canSales });
+  const sync = useAreaInsights('sync', range, { enabled: canSync });
+
+  const all: { area: InsightArea; allowed: boolean; data: AreaInsightsData | undefined; pending: boolean }[] = [
+    { area: 'attendance', allowed: canAttendance, data: attendance.data, pending: attendance.isPending && canAttendance },
+    { area: 'receivables', allowed: canReceivables, data: receivables.data, pending: receivables.isPending && canReceivables },
+    { area: 'sales', allowed: canSales, data: sales.data, pending: sales.isPending && canSales },
+    { area: 'sync', allowed: canSync, data: sync.data, pending: sync.isPending && canSync },
+  ];
+  const areas = all.filter((entry) => entry.allowed);
+
+  const tiles = areas.flatMap((entry) => tilesOf(entry.area, entry.data));
+
+  if (areas.length === 0) {
+    return (
+      <>
+        <PageHeader description="Headline figures across the areas you may see, over the last thirty days." />
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ChartBarIcon />
+            </EmptyMedia>
+            <EmptyTitle>No report areas for this account</EmptyTitle>
+            <EmptyDescription>
+              Reports show what your other permissions already let you see. None of the four areas —
+              attendance, receivables, sales, sync — is open to this account.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader description="Headline figures across the areas you may see, over the last thirty days." />
+      <div className="flex flex-col gap-4">
+        {tiles.length > 0 ? <KpiGrid tiles={tiles} columns={6} /> : null}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {areas.map((entry) => (
+            <AreaHealthCard key={entry.area} area={entry.area} data={entry.data} pending={entry.pending} />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
