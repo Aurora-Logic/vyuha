@@ -19,6 +19,13 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,6 +36,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatRelativeAge } from '@/lib/format';
 
 import { useCustomReports, useCustomReportMutations, type CustomReport } from './api';
+import { REPORT_PRESETS, widgetsOf } from './report-presets';
 
 /**
  * The custom reports list (owner, 26 Aug 2026): yours and the ones shared
@@ -64,12 +72,18 @@ export function CustomReportsPage() {
   const { create } = useCustomReportMutations();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [presetId, setPresetId] = useState('blank');
 
   async function createReport() {
     const trimmed = name.trim();
     if (trimmed === '') return;
+    const preset = REPORT_PRESETS.find((p) => p.id === presetId);
     try {
-      const report = await create.mutateAsync({ name: trimmed, shared: false, widgets: [] });
+      const report = await create.mutateAsync({
+        name: trimmed,
+        shared: false,
+        widgets: preset === undefined ? [] : widgetsOf(preset),
+      });
       setOpen(false);
       setName('');
       void navigate(`/reports/custom/${report.id}?edit=1`);
@@ -179,6 +193,43 @@ export function CustomReportsPage() {
                 }
               }}
             />
+          </Field>
+          <Field>
+            <FieldLabel>Start from</FieldLabel>
+            <Select
+              value={presetId}
+              onValueChange={(value) => {
+                if (value === null) return;
+                setPresetId(String(value));
+                // The preset's name is the natural default until one is typed.
+                const preset = REPORT_PRESETS.find((p) => p.id === value);
+                if (preset && (name.trim() === '' || REPORT_PRESETS.some((p) => p.name === name))) {
+                  setName(preset.name);
+                }
+              }}
+            >
+              <SelectTrigger aria-label="Start from">
+                <SelectValue>
+                  {(value: string) => (value === 'blank' ? 'Blank report' : (REPORT_PRESETS.find((p) => p.id === value)?.name ?? value))}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="blank">Blank report</SelectItem>
+                {REPORT_PRESETS.map((preset) => (
+                  <SelectItem key={preset.id} value={preset.id}>
+                    <span className="flex w-full flex-col items-start gap-0.5">
+                      <span>{preset.name}</span>
+                      <span className="text-muted-foreground text-xs">{preset.covers}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {presetId !== 'blank' ? (
+              <p className="text-muted-foreground text-xs text-pretty">
+                {REPORT_PRESETS.find((p) => p.id === presetId)?.description}
+              </p>
+            ) : null}
           </Field>
           <DialogFooter>
             <Button

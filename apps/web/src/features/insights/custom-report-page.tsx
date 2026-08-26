@@ -359,7 +359,10 @@ export function CustomReportPage() {
         </span>
       </div>
 
-      <div className={cn('flex flex-col gap-4', editing && 'xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start')}>
+      {/* One scroller: the canvas. The rail is pinned to the viewport edge,
+          full height, and scrolls only inside itself -- two independent
+          scrolling columns read as two half-broken pages (owner, 26 Aug). */}
+      <div className={cn('flex flex-col gap-4', editing && selected !== null && 'xl:pr-[21rem]')}>
         {widgets.length === 0 ? (
           <Empty className="border">
             <EmptyHeader>
@@ -476,7 +479,7 @@ export function CustomReportPage() {
         )}
 
         {editing && selected !== null ? (
-          <div className="bg-background border p-4 xl:sticky xl:top-16 xl:max-h-[calc(100vh-5rem)] xl:overflow-y-auto">
+          <div className="bg-background border p-4 xl:fixed xl:top-14 xl:right-0 xl:bottom-0 xl:z-10 xl:w-80 xl:overflow-y-auto xl:border-t-0 xl:border-r-0 xl:border-b-0">
             <BuilderPanel
               widget={selected}
               range={range}

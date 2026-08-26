@@ -108,8 +108,13 @@ const CURVES = { linear: 'linear', smooth: 'monotone', step: 'stepAfter' } as co
 const TROUBLE_KEYS = new Set(['FAILED', 'ABSENT', 'REJECTED']);
 const SHARP = 0;
 const BAR_MAX = 20;
-/** Value labels stop above this many points: forty labelled bars is noise. */
-export const LABEL_LIMIT = 16;
+/**
+ * Labels are on everywhere (owner, 26 Aug: every chart carries its numbers,
+ * the way the reference blocks do) -- but past this many points only a
+ * thinned subset prints, or a month of bars becomes soup.
+ */
+export const LABEL_EVERY_LIMIT = 16;
+const LABEL_TARGET = 10;
 
 function seriesColour(key: string, index: number, palette: WidgetPalette): string {
   if (TROUBLE_KEYS.has(key)) return 'var(--destructive)';
@@ -185,7 +190,11 @@ export function MetricChart({
   const points = useMemo(() => numericPoints(metric, options, series), [metric, options, series]);
   const animate = useChartIntro(points.length > 0);
   const showLegend = (options.legend ?? true) && series.length > 1;
-  const showLabels = (options.dataLabels ?? false) && points.length <= LABEL_LIMIT;
+  const showLabels = options.dataLabels ?? true;
+  // Which points wear a printed value: all of them up to the limit, then an
+  // evenly-thinned subset that always keeps the last point.
+  const labelStep = points.length <= LABEL_EVERY_LIMIT ? 1 : Math.ceil(points.length / LABEL_TARGET);
+  const labelled = (index: number): boolean => index % labelStep === 0 || index === points.length - 1;
   const category = metric.xKind === 'category';
   const domain: [number | 'auto', number | 'auto'] = [options.yMin ?? 0, options.yMax ?? 'auto'];
   const lastSeries = series[series.length - 1]?.key;
@@ -208,8 +217,8 @@ export function MetricChart({
       offset={6}
       className="fill-foreground"
       fontSize={10}
-      valueAccessor={(entry: { payload?: Record<string, string | number> }) =>
-        entry.payload ? totalOf(entry.payload) : ''
+      valueAccessor={(entry: { payload?: Record<string, string | number>; index?: number }) =>
+        entry.payload && labelled(entry.index ?? 0) ? totalOf(entry.payload) : ''
       }
     />
   );
@@ -420,7 +429,11 @@ export function MetricChart({
                   offset={8}
                   className="fill-foreground"
                   fontSize={10}
-                  formatter={(value: unknown) => (typeof value === 'number' ? formatTick(metric.unit, value) : '')}
+                  valueAccessor={(entry: { value?: unknown; index?: number }) =>
+                    labelled(entry.index ?? 0) && typeof entry.value === 'number'
+                      ? formatTick(metric.unit, entry.value)
+                      : ''
+                  }
                 />
               ) : null}
             </Line>

@@ -104,7 +104,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Me',
     items: [
-      { to: '/dashboard', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
+      // The dashboard moved to the Reports module (owner, 26 Aug 2026); the
+      // route stays alive for old links, named in OFF_NAV_LABELS below.
       {
         to: '/punch',
         label: 'Punch',
@@ -369,7 +370,7 @@ const ATTENDANCE_MODULE: ModuleDef = {
   id: 'attendance',
   label: 'Attendance',
   icon: CalendarDotsIcon,
-  home: '/dashboard',
+  home: '/punch',
   groups: NAV_GROUPS,
 };
 
@@ -857,6 +858,9 @@ export interface Crumb {
  */
 const OFF_NAV_LABELS: Record<string, string> = {
   '/profile': 'Profile',
+  /* The attendance dashboard left the sidebar when the Reports module took
+     its job; the address survives for old links and needs its name. */
+  '/dashboard': 'Dashboard',
   /* The shadcn-shaped second take on the reports dashboard. Deliberately not a
      nav item -- it exists to be compared against /reports/dashboard, and two
      entries called "Dashboard" in the same group would be a puzzle rather than

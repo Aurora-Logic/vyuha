@@ -1,16 +1,20 @@
 import { Navigate } from 'react-router';
 
+import { PERMISSIONS } from '@vyuha/shared';
+
+import { usePermission } from '@/lib/session/permissions';
+
 /**
  * Where "/" goes.
  *
- * It once branched on `receivables.view` and sent the money-minded to the
- * reports dashboard; that module was removed (owner, 26 Aug 2026), so
- * everybody lands on the attendance dashboard until a successor front page
- * exists. A redirect rather than a component, so the address bar says where
- * you are and the page is linkable, bookmarkable and refreshable like any
- * other. `replace` keeps Back going to wherever you came from rather than
- * bouncing through here.
+ * The Reports overview is the front page for whoever holds report.view
+ * (owner, 26 Aug 2026: the dashboard's job moved there); everyone else
+ * lands on Punch, the one screen every employee owns. A redirect rather
+ * than a component, so the address bar says where you are and the page is
+ * linkable, bookmarkable and refreshable like any other. `replace` keeps
+ * Back going to wherever you came from rather than bouncing through here.
  */
 export function LandingPage() {
-  return <Navigate to="/dashboard" replace />;
+  const canReports = usePermission(PERMISSIONS.REPORT_VIEW);
+  return <Navigate to={canReports ? '/reports' : '/punch'} replace />;
 }
