@@ -176,7 +176,17 @@ export function CustomReportPage() {
       size: '1x1',
       area,
       metric: first?.key ?? 'invoiced',
-      options: { legend: true, dataLabels: false, showTotal: true, palette: 'default', omitZero: false },
+      options: {
+        legend: true,
+        dataLabels: false,
+        showTotal: true,
+        palette: 'default',
+        omitZero: false,
+        curve: 'linear',
+        points: true,
+        stacked: true,
+        grid: false,
+      },
     };
     setDraft((current) => [...(current ?? []), widget]);
     setSelectedId(widget.id);

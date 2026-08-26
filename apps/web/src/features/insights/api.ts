@@ -63,10 +63,18 @@ const customWidgetSchema = z.object({
     legend: z.boolean().default(true),
     dataLabels: z.boolean().default(false),
     showTotal: z.boolean().default(true),
-    palette: z.enum(['default', 'accent', 'blue', 'violet', 'amber', 'rose', 'teal']).default('default'),
+    palette: z
+      .enum(['default', 'accent', 'blue', 'violet', 'amber', 'rose', 'teal', 'gray', 'brown', 'orange', 'yellow', 'green', 'purple', 'pink', 'red'])
+      .default('default'),
     omitZero: z.boolean().default(false),
     yMin: z.number().optional(),
     yMax: z.number().optional(),
+    curve: z.enum(['linear', 'smooth', 'step']).default('linear'),
+    points: z.boolean().default(true),
+    stacked: z.boolean().default(true),
+    grid: z.boolean().default(false),
+    xTitle: z.string().optional(),
+    yTitle: z.string().optional(),
   }),
 });
 

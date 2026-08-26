@@ -86,8 +86,8 @@ export const AREA_CONFIG: Record<InsightArea, AreaConfig> = {
 };
 
 /** A single-hue family, its steps far enough apart to stay five colours. */
-const familyOf = (hue: number): string[] =>
-  [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 ${String(hue)})`);
+const familyOf = (hue: number, chroma = 0.17): string[] =>
+  [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} ${String(chroma)} ${String(hue)})`);
 
 /**
  * Every palette a chart may draw in, in draw order. 'default' is the fresh
@@ -104,6 +104,17 @@ export const CHART_PALETTES: Record<WidgetPalette, readonly string[]> = {
   amber: familyOf(75),
   rose: familyOf(15),
   teal: familyOf(200),
+  // The nine Notion inks the owner supplied, measured to oklch and stepped in
+  // lightness around each ink's own hue and chroma -- the muted Notion voice,
+  // beside the saturated families above.
+  gray: familyOf(91.5, 0.01),
+  brown: familyOf(45.6, 0.076),
+  orange: familyOf(55.7, 0.159),
+  yellow: familyOf(76, 0.13),
+  green: familyOf(158.4, 0.085),
+  purple: familyOf(309.5, 0.12),
+  pink: familyOf(350.4, 0.164),
+  red: familyOf(25.8, 0.172),
 };
 
 export const PALETTE_LABELS: Record<WidgetPalette, string> = {
@@ -114,4 +125,12 @@ export const PALETTE_LABELS: Record<WidgetPalette, string> = {
   amber: 'Amber',
   rose: 'Rose',
   teal: 'Teal',
+  gray: 'Notion gray',
+  brown: 'Notion brown',
+  orange: 'Notion orange',
+  yellow: 'Notion yellow',
+  green: 'Notion green',
+  purple: 'Notion purple',
+  pink: 'Notion pink',
+  red: 'Notion red',
 };

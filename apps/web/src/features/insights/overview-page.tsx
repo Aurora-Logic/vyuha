@@ -85,7 +85,7 @@ function AreaHealthCard({ area, data, pending }: { area: InsightArea; data: Area
         {pending ? <Skeleton className="h-40 w-full" /> : null}
         {metrics.length > 0 ? (
           <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-            {metrics.map((metric) => (
+            {metrics.map((metric, index) => (
               <div key={metric.key} className="min-w-0">
                 <p className="text-muted-foreground flex items-baseline justify-between gap-2 text-xs">
                   <span className="truncate">{metric.label}</span>
@@ -96,7 +96,7 @@ function AreaHealthCard({ area, data, pending }: { area: InsightArea; data: Area
                 <MetricChart
                   metric={metric}
                   kind={metric.xKind === 'category' ? 'bar' : metric.series.length > 1 ? 'bar' : 'area'}
-                  options={{ legend: true, dataLabels: false }}
+                  options={{ legend: true, dataLabels: false, colourIndex: index }}
                   className="h-32"
                 />
               </div>

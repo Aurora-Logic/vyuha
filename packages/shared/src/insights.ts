@@ -79,8 +79,30 @@ export const WIDGET_KINDS = ['bar', 'barh', 'line', 'area', 'donut', 'number', '
 
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
-/** The named palettes a widget may choose; 'default' is the fresh multi-hue set. */
-export const WIDGET_PALETTES = ['default', 'accent', 'blue', 'violet', 'amber', 'rose', 'teal'] as const;
+/**
+ * The named palettes a widget may choose. 'default' is the fresh multi-hue
+ * set; the rest are single-hue families -- the original five plus the nine
+ * Notion inks the owner supplied (26 Aug 2026), so a chart can wear the same
+ * colour language as the product's surfaces. Values are only ever added
+ * here: removing one would make every stored widget that chose it unreadable.
+ */
+export const WIDGET_PALETTES = [
+  'default',
+  'accent',
+  'blue',
+  'violet',
+  'amber',
+  'rose',
+  'teal',
+  'gray',
+  'brown',
+  'orange',
+  'yellow',
+  'green',
+  'purple',
+  'pink',
+  'red',
+] as const;
 
 export type WidgetPalette = (typeof WIDGET_PALETTES)[number];
 
@@ -108,8 +130,30 @@ export const customWidgetSchema = z.object({
       /** A pinned y range; absent means the data decides. */
       yMin: z.number().finite().optional(),
       yMax: z.number().finite().optional(),
+      /* The per-kind detail the reference's chart blocks carry. */
+      /** How a line or area bends: straight segments, smoothed, or stepped. */
+      curve: z.enum(['linear', 'smooth', 'step']).default('linear'),
+      /** Dots on line and area points. */
+      points: z.boolean().default(true),
+      /** Stack multi-series bars; off draws them grouped side by side. */
+      stacked: z.boolean().default(true),
+      /** Horizontal grid lines behind the plot. */
+      grid: z.boolean().default(false),
+      /** Axis titles, printed along each axis when given. */
+      xTitle: z.string().trim().max(40).optional(),
+      yTitle: z.string().trim().max(40).optional(),
     })
-    .default({ legend: true, dataLabels: false, showTotal: true, palette: 'default', omitZero: false }),
+    .default({
+      legend: true,
+      dataLabels: false,
+      showTotal: true,
+      palette: 'default',
+      omitZero: false,
+      curve: 'linear',
+      points: true,
+      stacked: true,
+      grid: false,
+    }),
 });
 
 export type CustomWidget = z.infer<typeof customWidgetSchema>;

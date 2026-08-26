@@ -204,6 +204,79 @@ export function BuilderPanel({
         </ToggleGroup>
       </Field>
 
+      {widget.kind === 'line' || widget.kind === 'area' ? (
+        <>
+          {/* The reference's line block offers exactly this: how the line
+              bends, and whether the points show. */}
+          <Field>
+            <FieldLabel>Curve</FieldLabel>
+            <ToggleGroup
+              value={[widget.options.curve]}
+              aria-label="Curve style"
+              className="w-full"
+              onValueChange={(value: unknown[]) => {
+                const curve = value[0];
+                if (typeof curve === 'string' && curve !== '') {
+                  onChange({ ...widget, options: { ...widget.options, curve: curve as 'linear' | 'smooth' | 'step' } });
+                }
+              }}
+            >
+              <ToggleGroupItem value="linear" className="flex-1 text-xs">
+                Straight
+              </ToggleGroupItem>
+              <ToggleGroupItem value="smooth" className="flex-1 text-xs">
+                Smooth
+              </ToggleGroupItem>
+              <ToggleGroupItem value="step" className="flex-1 text-xs">
+                Step
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </Field>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="widget-points" className="text-sm">
+              Show points
+            </Label>
+            <Switch
+              id="widget-points"
+              checked={widget.options.points}
+              onCheckedChange={(points) => {
+                onChange({ ...widget, options: { ...widget.options, points } });
+              }}
+            />
+          </div>
+        </>
+      ) : null}
+
+      {widget.kind === 'bar' || widget.kind === 'barh' ? (
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="widget-stacked" className="text-sm">
+            Stack series
+          </Label>
+          <Switch
+            id="widget-stacked"
+            checked={widget.options.stacked}
+            onCheckedChange={(stacked) => {
+              onChange({ ...widget, options: { ...widget.options, stacked } });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {widget.kind !== 'donut' && widget.kind !== 'number' && widget.kind !== 'table' ? (
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="widget-grid" className="text-sm">
+            Grid lines
+          </Label>
+          <Switch
+            id="widget-grid"
+            checked={widget.options.grid}
+            onCheckedChange={(grid) => {
+              onChange({ ...widget, options: { ...widget.options, grid } });
+            }}
+          />
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between gap-2">
         <Label htmlFor="widget-legend" className="text-sm">
           Legend
@@ -290,6 +363,37 @@ export function BuilderPanel({
                 ...widget,
                 options: raw === '' || Number.isNaN(Number(raw)) ? rest : { ...rest, yMax: Number(raw) },
               });
+            }}
+          />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field>
+          <FieldLabel htmlFor="widget-xtitle">X axis name</FieldLabel>
+          <Input
+            id="widget-xtitle"
+            maxLength={40}
+            placeholder="None"
+            value={widget.options.xTitle ?? ''}
+            onChange={(event) => {
+              const raw = event.target.value;
+              const { xTitle: _x, ...rest } = widget.options;
+              onChange({ ...widget, options: raw.trim() === '' ? rest : { ...rest, xTitle: raw } });
+            }}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="widget-ytitle">Y axis name</FieldLabel>
+          <Input
+            id="widget-ytitle"
+            maxLength={40}
+            placeholder="None"
+            value={widget.options.yTitle ?? ''}
+            onChange={(event) => {
+              const raw = event.target.value;
+              const { yTitle: _y, ...rest } = widget.options;
+              onChange({ ...widget, options: raw.trim() === '' ? rest : { ...rest, yTitle: raw } });
             }}
           />
         </Field>

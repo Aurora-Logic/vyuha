@@ -100,9 +100,9 @@ export function AreaPage({ area }: { area: InsightArea }) {
 
         {query.isSuccess ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            {query.data.metrics.map((metric) => (
+            {query.data.metrics.map((metric, index) => (
               <div key={metric.key} className={config.wide.includes(metric.key) ? 'lg:col-span-2' : undefined}>
-                <MetricCard metric={metric} kind={kindFor(config, metric.key)} />
+                <MetricCard metric={metric} kind={kindFor(config, metric.key)} colourIndex={index} />
               </div>
             ))}
           </div>

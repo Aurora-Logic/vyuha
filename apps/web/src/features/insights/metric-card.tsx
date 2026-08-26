@@ -5,6 +5,7 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   LabelList,
   Line,
@@ -64,7 +65,26 @@ export interface ChartOptions {
   readonly omitZero?: boolean;
   readonly yMin?: number;
   readonly yMax?: number;
+  /** How a line or area bends between points. */
+  readonly curve?: 'linear' | 'smooth' | 'step';
+  /** Dots on line and area points. */
+  readonly points?: boolean;
+  /** Stack multi-series bars; off draws them grouped side by side. */
+  readonly stacked?: boolean;
+  /** Horizontal grid lines behind the plot. */
+  readonly grid?: boolean;
+  readonly xTitle?: string;
+  readonly yTitle?: string;
+  /**
+   * Rotates a single-series chart's colour through the palette, so a page of
+   * one-series cards is not a page of one colour -- one chart, one shade
+   * (owner, 26 Aug 2026). Multi-series charts ignore it: their colours are
+   * identities and must not move.
+   */
+  readonly colourIndex?: number;
 }
+
+const CURVES = { linear: 'linear', smooth: 'monotone', step: 'stepAfter' } as const;
 
 const TROUBLE_KEYS = new Set(['FAILED', 'ABSENT', 'REJECTED']);
 const SHARP = 0;
@@ -80,10 +100,11 @@ function seriesColour(key: string, index: number, palette: WidgetPalette): strin
   return colours[index] ?? 'var(--muted-foreground)';
 }
 
-function chartConfigOf(metric: Metric, palette: WidgetPalette): ChartConfig {
+function chartConfigOf(metric: Metric, palette: WidgetPalette, shift = 0): ChartConfig {
   const config: ChartConfig = {};
+  const colours = CHART_PALETTES[palette];
   metric.series.forEach((s, index) => {
-    config[s.key] = { label: s.label, color: seriesColour(s.key, index, palette) };
+    config[s.key] = { label: s.label, color: seriesColour(s.key, (index + shift) % colours.length, palette) };
   });
   return config;
 }
@@ -131,7 +152,8 @@ export function MetricChart({
 }) {
   const gradientId = useId();
   const palette = options.palette ?? 'default';
-  const config = useMemo(() => chartConfigOf(metric, palette), [metric, palette]);
+  const shift = metric.series.length === 1 ? (options.colourIndex ?? 0) : 0;
+  const config = useMemo(() => chartConfigOf(metric, palette, shift), [metric, palette, shift]);
   const points = useMemo(() => numericPoints(metric, options.omitZero ?? false), [metric, options.omitZero]);
   const animate = useChartIntro(points.length > 0);
   const showLegend = (options.legend ?? true) && metric.series.length > 1;
@@ -139,11 +161,18 @@ export function MetricChart({
   const category = metric.xKind === 'category';
   const domain: [number | 'auto', number | 'auto'] = [options.yMin ?? 0, options.yMax ?? 'auto'];
   const lastSeries = metric.series[metric.series.length - 1]?.key;
+  const curve = CURVES[options.curve ?? 'linear'];
+  const dots = options.points ?? true;
+  const stacked = options.stacked ?? true;
+  const grid = options.grid ? <CartesianGrid vertical={false} strokeOpacity={0.4} /> : null;
 
   // The number a bar wears when labels are on: the stack's total, printed
   // once at its end rather than once per segment.
   const totalOf = (point: Record<string, string | number>): string =>
     formatTick(metric.unit, metric.series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0));
+  // Grouped bars have no shared total; each series would need its own label,
+  // which is clutter -- labels there mark only the last series.
+
 
   const totalLabel = (position: 'top' | 'right') => (
     <LabelList
@@ -167,6 +196,7 @@ export function MetricChart({
       interval={category ? 0 : undefined}
       ticks={xTicks(points, category)}
       tickFormatter={(value: string) => xTick(metric, value)}
+      label={options.xTitle ? { value: options.xTitle, position: 'insideBottom', offset: -4, fontSize: 11 } : undefined}
     />
   );
   const yAxis = (
@@ -179,6 +209,7 @@ export function MetricChart({
       allowDecimals={false}
       domain={domain}
       tickFormatter={(value: number) => formatTick(metric.unit, value)}
+      label={options.yTitle ? { value: options.yTitle, angle: -90, position: 'insideLeft', fontSize: 11 } : undefined}
     />
   );
   const tooltip = (
@@ -229,6 +260,7 @@ export function MetricChart({
     return (
       <ChartContainer config={config} className={cn('aspect-auto h-48 w-full min-w-0', className)}>
         <LineChart accessibilityLayer data={points} margin={{ left: 4, right: 12, top: showLabels ? 18 : 8 }}>
+          {grid}
           {xAxis}
           {yAxis}
           {tooltip}
@@ -236,10 +268,10 @@ export function MetricChart({
             <Line
               key={s.key}
               dataKey={s.key}
-              type="linear"
+              type={curve}
               stroke={`var(--color-${s.key})`}
               strokeWidth={2}
-              dot={{ r: 2.5 }}
+              dot={dots ? { r: 2.5 } : false}
               isAnimationActive={animate}
             >
               {showLabels && metric.series.length === 1 ? (
@@ -264,6 +296,7 @@ export function MetricChart({
     return (
       <ChartContainer config={config} className={cn('aspect-auto h-48 w-full min-w-0', className)}>
         <AreaChart accessibilityLayer data={points} margin={{ left: 4, right: 12, top: showLabels ? 18 : 8 }}>
+          {grid}
           <defs>
             {metric.series.map((s, index) => (
               <linearGradient key={s.key} id={`${gradientId}-${String(index)}`} x1="0" y1="0" x2="0" y2="1">
@@ -279,10 +312,11 @@ export function MetricChart({
             <Area
               key={s.key}
               dataKey={s.key}
-              type="linear"
-              stackId={metric.series.length > 1 ? 'a' : undefined}
+              type={curve}
+              stackId={stacked && metric.series.length > 1 ? 'a' : undefined}
               stroke={`var(--color-${s.key})`}
               strokeWidth={2}
+              dot={dots && metric.series.length === 1 ? { r: 2.5 } : false}
               fill={`url(#${gradientId}-${String(index)})`}
               isAnimationActive={animate}
             >
@@ -305,6 +339,7 @@ export function MetricChart({
           margin={{ left: 4, right: showLabels ? 44 : 12, top: 4 }}
           barCategoryGap="24%"
         >
+          {options.grid ? <CartesianGrid horizontal={false} strokeOpacity={0.4} /> : null}
           <XAxis
             type="number"
             tickLine={false}
@@ -329,7 +364,7 @@ export function MetricChart({
             <Bar
               key={s.key}
               dataKey={s.key}
-              stackId="m"
+              stackId={stacked ? 'm' : undefined}
               fill={`var(--color-${s.key})`}
               fillOpacity={0.7}
               stroke={`var(--color-${s.key})`}
@@ -355,6 +390,7 @@ export function MetricChart({
         margin={{ left: 4, right: 12, top: showLabels ? 18 : 8 }}
         barCategoryGap="20%"
       >
+        {grid}
         {xAxis}
         {yAxis}
         {tooltip}
@@ -362,7 +398,7 @@ export function MetricChart({
           <Bar
             key={s.key}
             dataKey={s.key}
-            stackId="m"
+            stackId={stacked ? 'm' : undefined}
             fill={`var(--color-${s.key})`}
             fillOpacity={0.7}
               stroke={`var(--color-${s.key})`}
@@ -454,10 +490,12 @@ export function MetricPointsTable({ metric }: { metric: Metric }) {
 export function MetricCard({
   metric,
   kind = 'bar',
+  colourIndex = 0,
   action,
 }: {
   metric: Metric;
   kind?: Exclude<WidgetKind, 'number' | 'table'>;
+  colourIndex?: number;
   action?: ReactNode;
 }) {
   return (
@@ -493,7 +531,7 @@ export function MetricCard({
             Nothing to show in this period
           </div>
         ) : (
-          <MetricChart metric={metric} kind={kind} options={{ legend: true, dataLabels: true }} />
+          <MetricChart metric={metric} kind={kind} options={{ legend: true, dataLabels: true, colourIndex }} />
         )}
         <MetricBreakdownTable metric={metric} />
       </CardContent>
