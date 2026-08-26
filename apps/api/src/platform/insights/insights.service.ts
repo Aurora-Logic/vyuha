@@ -496,6 +496,60 @@ export class InsightsService {
       },
     });
 
+    // The stock side of D-22, the pair to receivables' interest-exposure:
+    // the interest module's daily stock value and the funded share of it,
+    // behind the same key its own screens demand.
+    if (principal.permissions.has(PERMISSIONS.INTEREST_VIEW)) {
+      const stockExposure = await this.db.execute<DayRow>(sql`
+        SELECT date::text AS day, key, value::text AS value FROM (
+          SELECT date, 'fundedValue' AS key, sum(funded_value) AS value
+          FROM interest_daily_stock
+          WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          GROUP BY 1
+          UNION ALL
+          SELECT date, 'ownValue' AS key, sum(closing_value - funded_value) AS value
+          FROM interest_daily_stock
+          WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          GROUP BY 1
+        ) balances
+      `);
+      const stockItemsTop = await this.db.execute<{ item: string; closingValue: string; fundedValue: string }>(sql`
+        WITH latest AS (
+          SELECT max(date) AS d FROM interest_daily_stock WHERE org_id = ${principal.orgId}
+        )
+        SELECT coalesce(s.name, 'Unknown item') AS item,
+               i.closing_value::text AS "closingValue",
+               i.funded_value::text AS "fundedValue"
+        FROM interest_daily_stock i
+        JOIN latest ON i.date = latest.d
+        LEFT JOIN stock_items s ON s.id = i.stock_item_id
+        WHERE i.org_id = ${principal.orgId} AND i.closing_value > 0
+        ORDER BY i.funded_value DESC LIMIT 8
+      `);
+      const fundedRows = stockExposure.rows.filter((r) => r.key === 'fundedValue');
+      const latestFunded = [...fundedRows].sort((a, b) => a.day.localeCompare(b.day)).at(-1);
+      metrics.push({
+        key: 'stock-exposure',
+        label: 'Interest on stock',
+        hint: 'The interest module’s daily stock value, split into the funded share (borrowed money sitting on the shelf) and the rest. The headline is the funded value on the latest day; the rate arithmetic lives in the interest module.',
+        unit: 'money',
+        headline: latestFunded === undefined ? '' : String(latestFunded.value),
+        series: [
+          { key: 'fundedValue', label: 'Funded' },
+          { key: 'ownValue', label: 'Own money' },
+        ],
+        points: bucketise(stockExposure.rows, days, ['fundedValue', 'ownValue']),
+        breakdown: {
+          columns: [
+            { key: 'item', label: 'Item' },
+            { key: 'closingValue', label: 'Stock value', numeric: true, unit: 'money' },
+            { key: 'fundedValue', label: 'Funded', numeric: true, unit: 'money' },
+          ],
+          rows: stockItemsTop.rows,
+        },
+      });
+    }
+
     // Purchase rides on the sales page but behind its own key: a viewer who
     // may see sales and not purchases gets the page minus this card.
     if (principal.permissions.has(PERMISSIONS.PURCHASE_DOCUMENT_VIEW)) {

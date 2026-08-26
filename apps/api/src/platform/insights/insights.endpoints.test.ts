@@ -35,6 +35,7 @@ beforeAll(async () => {
   await harness.db.execute(sql`DELETE FROM custom_reports WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM fact_receivable_snapshot WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM interest_daily_party WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM interest_daily_stock WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM attendance_days WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM voucher_lines WHERE org_id = ${ORG_ID}`);
@@ -112,9 +113,14 @@ beforeAll(async () => {
       (${ORG_ID}, ${partyId}, '2026-08-01', 500, 350, 150),
       (${ORG_ID}, ${partyId}, '2026-08-02', 500, 300, 200.50)
   `);
-  await harness.db.execute(sql`
+  const stockItem = await harness.db.execute<{ id: string }>(sql`
     INSERT INTO stock_items (org_id, connection_id, name, unit, parent_group)
-    VALUES (${ORG_ID}, ${connectionId}, 'Cat6 cable 305m', 'BOX', 'Cables')
+    VALUES (${ORG_ID}, ${connectionId}, 'Cat6 cable 305m', 'BOX', 'Cables') RETURNING id
+  `);
+  await harness.db.execute(sql`
+    INSERT INTO interest_daily_stock (org_id, stock_item_id, date, quantity, closing_value, funded_value) VALUES
+      (${ORG_ID}, ${stockItem.rows[0]?.id ?? ''}, '2026-08-01', 10, 5000, 2000),
+      (${ORG_ID}, ${stockItem.rows[0]?.id ?? ''}, '2026-08-02', 10, 5000, 1500.25)
   `);
 });
 
@@ -175,6 +181,13 @@ describe('GET /insights/:area', () => {
     const sales = await harness.get<AreaInsights>('/insights/sales?from=2026-08-01&to=2026-08-02', { token: adminToken });
     expect(metric(sales.body, 'orders-value').headline).toBe('590.00');
     expect(metric(sales.body, 'estimate-funnel').series.map((s) => s.key)).toEqual(['SENT']);
+
+    const exposure = metric(sales.body, 'stock-exposure');
+    // Latest day's funded value, exact; the rest of the shelf is own money.
+    expect(exposure.headline).toBe('1500.25');
+    expect(exposure.points[0]?.fundedValue).toBe('2000.00');
+    expect(exposure.points[0]?.ownValue).toBe('3000.00');
+    expect(exposure.breakdown?.rows[0]?.item).toBe('Cat6 cable 305m');
 
     const stock = metric(sales.body, 'stock-ageing');
     expect(stock.xKind).toBe('category');

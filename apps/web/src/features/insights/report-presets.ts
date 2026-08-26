@@ -114,6 +114,39 @@ export const REPORT_PRESETS: readonly ReportPreset[] = [
     ],
   },
   {
+    id: 'interest-working-capital',
+    name: 'Interest on stock and receivables',
+    covers: 'Reports 55, 56 (D-22)',
+    description: 'The two working-capital exposures interest runs on: the receivable book and the funded shelf.',
+    widgets: [
+      { title: 'Interest-bearing exposure', kind: 'area', size: '2x1', area: 'receivables', metric: 'interest-exposure' },
+      { title: 'Interest on stock', kind: 'area', size: '2x1', area: 'sales', metric: 'stock-exposure' },
+      { title: 'Parties by overdue', kind: 'table', size: '1x1', area: 'receivables', metric: 'interest-exposure' },
+      { title: 'Items by funded value', kind: 'table', size: '1x1', area: 'sales', metric: 'stock-exposure' },
+    ],
+  },
+  {
+    id: 'vouchers-register',
+    name: 'Voucher register',
+    covers: 'Reports 13, 14 context',
+    description: 'Every voucher type the sync delivered, day by day, and the mix behind it.',
+    widgets: [
+      { title: 'Vouchers by type', kind: 'bar', size: '2x1', area: 'receivables', metric: 'voucher-mix' },
+      { title: 'Mix over the period', kind: 'donut', size: '1x1', area: 'receivables', metric: 'voucher-mix' },
+      { title: 'Day by day', kind: 'table', size: '1x1', area: 'receivables', metric: 'voucher-mix' },
+    ],
+  },
+  {
+    id: 'overtime-report',
+    name: 'Overtime',
+    covers: 'Workforce reports',
+    description: 'Overtime credited per day, and the days as rows.',
+    widgets: [
+      { title: 'Overtime', kind: 'area', size: '2x1', area: 'attendance', metric: 'overtime' },
+      { title: 'Day by day', kind: 'table', size: '2x1', area: 'attendance', metric: 'overtime' },
+    ],
+  },
+  {
     id: 'morning-glance',
     name: 'Morning glance',
     covers: 'Report 10, the pacing strip',

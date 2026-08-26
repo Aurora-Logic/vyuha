@@ -40,6 +40,7 @@ export const AREA_METRICS: Record<InsightArea, readonly { key: string; label: st
     { key: 'invoices-value', label: 'Invoices' },
     { key: 'purchase-orders', label: 'Purchase orders' },
     { key: 'stock-ageing', label: 'Stock ageing' },
+    { key: 'stock-exposure', label: 'Interest on stock' },
   ],
   sync: [
     { key: 'job-outcomes', label: 'Sync jobs' },
@@ -74,8 +75,8 @@ export const AREA_CONFIG: Record<InsightArea, AreaConfig> = {
   sales: {
     description: 'Documents raised here: orders and invoices by value, estimates and purchase orders by where they stand, and the stock that has stopped moving.',
     lines: [],
-    areas: [],
-    wide: ['orders-value', 'stock-ageing'],
+    areas: ['stock-exposure'],
+    wide: ['orders-value', 'stock-ageing', 'stock-exposure'],
   },
   sync: {
     description: 'The bridge to Tally: jobs finishing, exceptions raised, and how fresh the last pull is.',
