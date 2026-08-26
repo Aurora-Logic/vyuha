@@ -168,3 +168,24 @@ describe('GET /cfo/me', () => {
     expect(res.status).toBe(403);
   });
 });
+
+
+describe('GET /cfo/growth-bridge', () => {
+  it('splits the window against last year and reconciles exactly (Q1.6 rule five)', async () => {
+    const res = await harness.get<{
+      thisYear: number;
+      lastYear: number;
+      change: number;
+      newCustomerEffect: number;
+      reconciliationError: number;
+    }>('/cfo/growth-bridge?from=2026-08-01&to=2026-08-31', { token: adminToken });
+
+    expect(res.status).toBe(200);
+    // August this year: Asha 60,000 + Bharat 40,000, all ledger-only Sales.
+    // Last August holds nothing, so the whole change is new customers.
+    expect(res.body.thisYear).toBe(100_000);
+    expect(res.body.lastYear).toBe(0);
+    expect(res.body.newCustomerEffect).toBe(100_000);
+    expect(res.body.reconciliationError).toBe(0);
+  });
+});

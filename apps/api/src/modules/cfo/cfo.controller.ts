@@ -6,6 +6,7 @@ import { createZodDto } from '../../platform/common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../../platform/rbac/principal.js';
 import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
+import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
 
 const creditQuerySchema = z.object({
@@ -37,6 +38,13 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   workLists(@CurrentUser() principal: Principal): Promise<WorkLists> {
     return this.credit.workLists(principal);
+  }
+
+  /** D1: the five-factor bridge, window against the same days last year. */
+  @Get('growth-bridge')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  growthBridge(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<GrowthBridge> {
+    return this.credit.bridge(principal, query.from, query.to);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

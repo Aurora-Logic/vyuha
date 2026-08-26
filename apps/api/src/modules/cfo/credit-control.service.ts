@@ -5,6 +5,8 @@ import { InjectDatabase, type Database } from '../../platform/db/db.provider.js'
 import { SettingsService } from '../../platform/settings/settings.service.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
 import { type Principal } from '../../platform/rbac/principal.js';
+import { growthBridge, type BridgeRow, type GrowthBridge } from './growth-bridge.js';
+import { sameDayLastYear } from './period/period-resolver.js';
 import {
   averageDaysDelinquent,
   collectionEffectivenessIndex,
@@ -209,6 +211,44 @@ export class CreditControlService {
       ageingTrend,
       topOverdue,
     };
+  }
+
+  /**
+   * D1 over the voucher projection: the window against the same elapsed
+   * days a year back, at customer x item grain. Credit notes ride as
+   * negative party-level rows so a returns-heavy customer's story lands in
+   * mix or lost, never silently dropped.
+   */
+  async bridge(principal: Principal, from: string, to: string): Promise<GrowthBridge> {
+    const window = async (f: string, t: string): Promise<BridgeRow[]> => {
+      const rows = await this.db.execute<{ customerKey: string; itemKey: string; qty: string; net: string }>(sql`
+        SELECT customer AS "customerKey", item AS "itemKey", sum(qty)::float AS qty, sum(net)::float AS net FROM (
+          SELECT coalesce(v.party_id::text, v.party_name) AS customer,
+                 coalesce(l.stock_item_id::text, 'ledger-only') AS item,
+                 CASE WHEN l.billed_qty ~ '^\s*-?[0-9]' THEN (regexp_match(l.billed_qty, '-?[0-9]+\.?[0-9]*'))[1]::numeric ELSE 0 END AS qty,
+                 abs(l.amount) AS net
+          FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+          WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
+            AND l.kind = 'inventory' AND v.voucher_date BETWEEN ${f} AND ${t}
+          UNION ALL
+          SELECT coalesce(v.party_id::text, v.party_name), 'ledger-only', 0, v.amount
+          FROM vouchers v
+          WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
+            AND v.voucher_date BETWEEN ${f} AND ${t}
+            AND NOT EXISTS (SELECT 1 FROM voucher_lines l WHERE l.voucher_id = v.id AND l.kind = 'inventory')
+          UNION ALL
+          SELECT coalesce(v.party_id::text, v.party_name), 'credit-note', 0, -v.amount
+          FROM vouchers v
+          WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Credit Note'
+            AND v.voucher_date BETWEEN ${f} AND ${t}
+        ) grains GROUP BY 1, 2
+      `);
+      return rows.rows.map((r) => ({ customerKey: r.customerKey, itemKey: r.itemKey, qty: Number(r.qty), net: Number(r.net) }));
+    };
+    // The period engine's own year-shift, which already knows 29 February
+    // maps to the 28th rather than to an invalid date.
+    const [ty, ly] = await Promise.all([window(from, to), window(sameDayLastYear(from), sameDayLastYear(to))]);
+    return growthBridge(ty, ly);
   }
 
   async workLists(principal: Principal): Promise<WorkLists> {
