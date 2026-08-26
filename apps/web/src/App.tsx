@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
+import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
@@ -46,7 +46,6 @@ const BUILT_ROUTES = new Set([
   '/integrations',
   '/audit',
   '/period-lock',
-  '/reports',
   '/downloads',
   '/recycle-bin',
   '/organisation',
@@ -77,13 +76,8 @@ const DownloadsPage = lazy(() => import('@/features/downloads').then((m) => ({ d
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
 const RecycleBinPage = lazy(() => import('@/features/recycle-bin').then((m) => ({ default: m.RecycleBinPage })));
-const ReportsPage = lazy(() => import('@/features/reports').then((m) => ({ default: m.ReportsPage })));
 const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then((m) => ({ default: m.DashboardPage })));
 const LandingPage = lazy(() => import('@/features/dashboard/landing').then((m) => ({ default: m.LandingPage })));
-/* The reports dashboard is the shadcn-shaped one. The earlier page it replaced
-   lived at this address for months, so the address is what moved, not the
-   people using it. */
-const ReportsDashboardPage = lazy(() => import('@/features/reports/dashboard-v2').then((m) => ({ default: m.ReportsDashboardV2 })));
 const InterestOverridesPage = lazy(() => import('@/features/interest/overrides-page').then((m) => ({ default: m.InterestOverridesPage })));
 const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
 const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
@@ -226,14 +220,11 @@ export default function App() {
               <Route path="purchase/grns/:id" element={<GrnPaperPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
-              <Route path="reports" element={<ReportsPage />} />
-              <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
-              {/* The comparison is over and this one won; the old link still
-                  works rather than answering "not found". */}
-              <Route path="reports/dashboard/v2" element={<Navigate to="/reports/dashboard" replace />} />
               {/* D-22's per-party overrides: reached from the Interest cost
-                  section of Settings, not from the sidebar. */}
-              <Route path="reports/interest-overrides" element={<InterestOverridesPage />} />
+                  section of Settings, not from the sidebar. The address lost
+                  its /reports prefix when that module was removed (owner,
+                  26 Aug 2026). */}
+              <Route path="interest-overrides" element={<InterestOverridesPage />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />

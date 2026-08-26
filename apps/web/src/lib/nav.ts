@@ -7,7 +7,6 @@ import {
   BuildingsIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
-  ChartBarIcon,
   ChartLineUpIcon,
   CheckSquareIcon,
   ClipboardIcon,
@@ -17,7 +16,6 @@ import {
   DownloadSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
-  GaugeIcon,
   GearIcon,
   HandshakeIcon,
   type Icon,
@@ -32,7 +30,6 @@ import {
   SquaresFourIcon,
   TagIcon,
   TrashIcon,
-  TrayIcon,
   TreePalmIcon,
   ScanIcon,
   UmbrellaIcon,
@@ -337,10 +334,8 @@ export const ADMIN_GROUPS: NavGroup[] = [
       },
       {
         to: '/downloads',
-
         label: 'Downloads',
         icon: DownloadSimpleIcon,
-        permission: PERMISSIONS.REPORT_EXPORT,
         phase: 3,
         reqs: 'REQ-J-03',
       },
@@ -702,110 +697,6 @@ export const MODULES: ModuleDef[] = [
       },
     ],
   },
-  {
-    id: 'reports',
-    label: 'Reports',
-    icon: ChartBarIcon,
-    home: '/reports',
-    permission: PERMISSIONS.REPORT_VIEW,
-    // REQ-AD-03: the catalogue is the destination and search is the menu —
-    // sixty reports cannot live in a sidebar, so the sidebar lists the
-    // categories, each a filtered view of the one catalogue.
-    groups: [
-      {
-        label: 'Overview',
-        items: [
-          {
-            to: '/reports/dashboard',
-            label: 'Dashboard',
-            icon: GaugeIcon,
-            permission: PERMISSIONS.RECEIVABLES_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AI',
-          },
-        ],
-      },
-      {
-        label: 'Catalogue',
-        items: [
-          // Owner, 25 Aug: the shelves only. The hub at /reports is where every
-          // category door and every report's back button lands, so a separate
-          // "All reports" row was the same door twice.
-          {
-            to: '/reports?category=Books',
-            label: 'Books',
-            icon: BooksIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AE',
-          },
-          {
-            to: '/reports?category=Customers',
-            label: 'Customers',
-            icon: UsersThreeIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AG',
-          },
-          {
-            to: '/reports?category=Inventory',
-            label: 'Inventory',
-            icon: PackageIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AF',
-          },
-          {
-            to: '/reports?category=Vendors',
-            label: 'Vendors',
-            icon: ArchiveIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AG',
-          },
-          {
-            to: '/reports?category=Exceptions',
-            label: 'Exceptions',
-            icon: ScrollIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AH',
-          },
-          {
-            to: '/reports?category=Attendance',
-            label: 'Attendance',
-            icon: CalendarDotsIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 3,
-            reqs: 'REQ-J-01',
-          },
-          {
-            to: '/reports?category=Approvals',
-            label: 'Approvals',
-            icon: TrayIcon,
-            // The catalogue hides what the reader may not open; the link is
-            // gated like every other category so the tour and the nav agree.
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: 'B-05, B-06',
-          },
-        ],
-      },
-      {
-        label: 'Output',
-        items: [
-          {
-            to: '/downloads',
-            label: 'Downloads',
-            icon: DownloadSimpleIcon,
-            permission: PERMISSIONS.REPORT_EXPORT,
-            phase: 3,
-            reqs: 'REQ-J-03',
-          },
-        ],
-      },
-    ],
-  },
 ];
 
 /**
@@ -915,7 +806,7 @@ const OFF_NAV_LABELS: Record<string, string> = {
      section of Settings rather than the sidebar: a configuration surface is
      not a report, and the reports group is at its cap. Named here so the
      header does not say "Not found" above it. */
-  '/reports/interest-overrides': 'Interest cost overrides',
+  '/interest-overrides': 'Interest cost overrides',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 

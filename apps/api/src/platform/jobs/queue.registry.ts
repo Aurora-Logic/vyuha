@@ -66,37 +66,6 @@ export interface JobPayloads {
   };
 
   /**
-   * REQ-J-03: "Exports run as background jobs and land in a Downloads tray."
-   *
-   * Only the id of the `export_jobs` row travels. The filters, the column
-   * selection and the requester are all on that row already, and a payload
-   * that repeated them would be a second copy able to disagree with the row
-   * the tray is showing.
-   */
-  'generate-report-export': {
-    readonly orgId: string;
-    readonly exportJobId: string;
-    /** Only for the trail; the handler works from the row and the current clock. */
-    readonly requestedAt: string;
-  };
-
-  /**
-   * REQ-J-05's sweep: every scheduled export that has come due.
-   *
-   * Carries no schedule id. One sweep reads the table and decides, rather than
-   * a job per schedule -- which would mean BullMQ schedulers created and torn
-   * down as people add and remove schedules, and a set of cron entries able to
-   * drift out of step with the rows they came from.
-   *
-   * `now` exists for the tests. The cron entry never sets it, and a run with it
-   * absent uses the clock; a run with it set can ask what is due at 06:05 in
-   * Asia/Kolkata without waiting for 06:05 in Asia/Kolkata.
-   */
-  'run-report-schedules': {
-    readonly now?: string;
-  };
-
-  /**
    * REQ-R-07: masters sync runs on a schedule. One sweep enqueues a pull job
    * per eligible connection per entity type with a writer, rather than a
    * BullMQ entry per connection -- connections are rows, and cron entries
@@ -136,12 +105,10 @@ export interface JobPayloads {
   /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
-   * Same shape as `generate-report-export` and for the same reason -- only the
-   * `export_jobs` row id travels, so the tray and the worker can never disagree
-   * about who asked and about whom. A separate job name rather than a reserved
-   * `reportKey` on the report export: that handler refuses a key it does not
-   * recognise, and widening it would mean the attendance module owning a
-   * platform compliance obligation.
+   * Only the `export_jobs` row id travels, so the tray and the worker can
+   * never disagree about who asked and about whom. The reports module that
+   * once shared this queue is gone (owner, 26 Aug 2026); this is the one
+   * producer the Downloads tray has left.
    */
   'export-employee-data': {
     readonly orgId: string;
@@ -174,11 +141,6 @@ export interface JobPayloads {
 
   /** REQ-X-09: the nightly reorder check. */
   'raise-reorder-requirements': {
-    readonly now?: string;
-  };
-
-  /** D-46: count the exception reports per org; notify the holders when any has rows. */
-  'sweep-exception-reports': {
     readonly now?: string;
   };
 
@@ -307,10 +269,8 @@ export type JobName = keyof JobPayloads;
 
 export const JOB_QUEUE: Record<JobName, QueueName> = {
   'purge-expired-files': QUEUES.MAINTENANCE,
-  'generate-report-export': QUEUES.EXPORT,
   // On the export queue with the jobs it starts, so a backlog of exports also
   // delays the sweep that would add to it rather than racing ahead of it.
-  'run-report-schedules': QUEUES.EXPORT,
   'enqueue-sync-pulls': QUEUES.MAINTENANCE,
   'check-agent-heartbeats': QUEUES.MAINTENANCE,
   'sweep-sync-journal-bodies': QUEUES.MAINTENANCE,
@@ -322,7 +282,6 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'detect-duplicates': QUEUES.MAINTENANCE,
   'sweep-broken-promises': QUEUES.NOTIFICATION,
   'raise-reorder-requirements': QUEUES.MAINTENANCE,
-  'sweep-exception-reports': QUEUES.MAINTENANCE,
   'build-interest-snapshots': QUEUES.MAINTENANCE,
   'snapshot-receivables': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
@@ -433,7 +392,6 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // After the night's pulls have landed and before the purchase team sits down.
   { schedulerId: 'purchase:reorder-sweep', jobName: 'raise-reorder-requirements', pattern: '15 1 * * *' },
   // D-46. After the reorder sweep, still before anyone reads the digest with breakfast.
-  { schedulerId: 'reports:exception-sweep', jobName: 'sweep-exception-reports', pattern: '45 1 * * *' },
   // After the exception sweep, before the working day: the promises that came due yesterday.
   { schedulerId: 'collections:broken-promises', jobName: 'sweep-broken-promises', pattern: '0 3 * * *' },
   // D-22: after the night's pulls and the collections sweep have settled the
@@ -458,7 +416,6 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // set for 06:00 runs somewhere in 06:00-06:14. The sweep asks each
   // organisation what time it is there, so the cron's own timezone decides
   // nothing (NFR-05).
-  { schedulerId: 'reports:run-schedules', jobName: 'run-report-schedules', pattern: '*/15 * * * *' },
   // REQ-R-07's default cadence. The sweep is cheap when nothing is eligible
   // -- one query -- and the one-open-job invariant on sync_jobs means an
   // agent that has been away simply finds the same job still waiting, not
@@ -486,4 +443,7 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // finished. Ahead of the 02:00 escalation sweep, which reads the days this
   // one has just recomputed.
   { schedulerId: 'attendance:sweep-missing-out', jobName: 'sweep-missing-out', pattern: '15 1 * * *' },
+  // After the closeout: whoever still has no attendance day for yesterday never
+  // punched, so the engine marks them ABSENT. 01:30 leaves the closeout its
+  // fifteen minutes and stays ahead of the 02:00 escalation sweep.
 ];

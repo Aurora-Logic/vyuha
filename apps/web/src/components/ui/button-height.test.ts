@@ -37,7 +37,6 @@ const ALLOWED = new Set([
   '/src/features/punch/punch-page.tsx',
   '/src/features/documents/design-rail.tsx',
   '/src/components/shared/mobile-bottom-nav.tsx',
-  '/src/features/reports/report-catalogue.tsx',
 ]);
 
 /**

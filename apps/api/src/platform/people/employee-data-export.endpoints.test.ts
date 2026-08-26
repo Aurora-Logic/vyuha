@@ -82,7 +82,7 @@ async function requestExport(token: string, employeeId: string): Promise<ExportJ
 async function waitForExport(token: string, id: string): Promise<ExportJobSummary> {
   const deadline = Date.now() + 60_000;
   for (;;) {
-    const result = await harness.get<ExportJobSummary>(`/reports/exports/${id}`, { token });
+    const result = await harness.get<ExportJobSummary>(`/exports/${id}`, { token });
     expect(result.status, result.text).toBe(200);
     if (result.body.status === 'DONE' || result.body.status === 'FAILED') return result.body;
     if (Date.now() >= deadline) {
@@ -93,7 +93,7 @@ async function waitForExport(token: string, id: string): Promise<ExportJobSummar
 }
 
 async function downloadText(token: string, id: string): Promise<string> {
-  const link = await harness.get<ExportDownload>(`/reports/exports/${id}/download`, { token });
+  const link = await harness.get<ExportDownload>(`/exports/${id}/download`, { token });
   expect(link.status, link.text).toBe(200);
   const response = await fetch(link.body.url);
   expect(response.status).toBe(200);
@@ -462,7 +462,7 @@ describe('the produced file', () => {
     // Read as bytes, not as `text`: `fetch().text()` decodes through
     // TextDecoder, which strips the BOM -- so asserting on the string would
     // fail for a file that is correct, and pass for one written as UTF-16.
-    const link = await harness.get<ExportDownload>(`/reports/exports/${finished.id}/download`, {
+    const link = await harness.get<ExportDownload>(`/exports/${finished.id}/download`, {
       token: adminToken,
     });
     expect(link.status).toBe(200);
@@ -475,7 +475,7 @@ describe('the produced file', () => {
     // The requester's own tray. `loadForRequester` pins `requestedBy`, so this
     // has to be the account that asked -- that pinning is the control which
     // keeps one person's subject-access file out of another's tray.
-    const tray = await harness.get<{ data: ExportJobSummary[] }>('/reports/exports', {
+    const tray = await harness.get<{ data: ExportJobSummary[] }>('/exports', {
       token: adminToken,
     });
     expect(tray.status).toBe(200);

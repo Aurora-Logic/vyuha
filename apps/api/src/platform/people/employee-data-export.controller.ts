@@ -21,7 +21,7 @@ import { EmployeeDataExportService } from './employee-data-export.service.js';
  * the compliance section.
  *
  * There is no download route here. The file lands in the Downloads tray with
- * every other export (`GET /reports/exports`), and `FileService` issues the
+ * every other export (`GET /exports`), and `FileService` issues the
  * signed URL after its own check. A second delivery route would be a second
  * place for that check to drift.
  */

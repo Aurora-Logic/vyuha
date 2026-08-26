@@ -29,7 +29,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { DASHBOARD_PRESETS } from '@/features/reports/dashboard-v2.presets';
+import { DASHBOARD_PRESETS } from '@/lib/range-presets';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';

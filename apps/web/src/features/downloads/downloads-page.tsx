@@ -8,7 +8,6 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { isToday, isYesterday, parseISO } from 'date-fns';
-import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -28,34 +27,29 @@ import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { EXPORT_STATUS_LABELS, PERMISSIONS, type ExportJobSummary } from '@vyuha/shared';
+import { EXPORT_STATUS_LABELS, type ExportJobSummary } from '@vyuha/shared';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
-import { SchedulesList } from '@/features/reports/schedules-list';
-import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
 
 import { FAMILY_TEXT, toneClasses, type Family } from '@/features/attendance/status';
-import { useDownloadExport, useExportJobs } from '@/features/reports/api';
-import { describeExpiry, formatTimestamp } from '@/features/reports/format';
+import { useDownloadExport, useExportJobs } from './api';
+import { describeExpiry, formatTimestamp } from './format';
 
 /**
- * REQ-J-03's Downloads tray: "Exports run as background jobs and land in a
- * Downloads tray with progress and a 7-day retention."
+ * The Downloads tray: exports run as background jobs and land here with
+ * progress and a 7-day retention.
  *
- * The tray used to be a header and a list and nothing else, which left most of
- * a wide screen empty and gave a reader no way to answer the two questions they
- * actually arrive with: is the thing I asked for ready, and where is it. The
- * counts along the top answer the first and are the filter for the second, so
- * the summary earns its row instead of merely occupying one -- clicking "Failed
- * 2" is how you get to the two that failed.
+ * The reports module that once filled this tray was removed (owner, 26 Aug
+ * 2026); what still lands here is the employee data export (REQ-M-05),
+ * requested from an employee's page by whoever holds employee.manage. The
+ * tray itself needs no permission: every row it shows is the caller's own
+ * request.
  *
- * Rows are grouped by the day they were asked for, the way any downloads tray
- * is. A flat list of "14 Aug 09:12" timestamps makes a reader do the date
- * arithmetic themselves.
- *
- * Still a list of rows rather than a grid of cards, still no card inside a card
- * (CLAUDE.md §3 rule 3), and the same header/toolbar/content structure as every
- * other screen.
+ * The counts along the top answer "is the thing I asked for ready" and are
+ * the filter for "where is it". Rows are grouped by the day they were asked
+ * for, the way any downloads tray is. Still a list of rows rather than a
+ * grid of cards, still no card inside a card (CLAUDE.md §3 rule 3), and the
+ * same header/toolbar/content structure as every other screen.
  */
 
 type Bucket = 'ready' | 'preparing' | 'failed' | 'expired';
@@ -252,8 +246,7 @@ function dayLabel(iso: string): string {
 }
 
 export function DownloadsPage() {
-  const canExport = usePermission(PERMISSIONS.REPORT_EXPORT);
-  const jobs = useExportJobs(canExport);
+  const jobs = useExportJobs();
   const [filter, setFilter] = useState<Bucket | null>(null);
 
   const data = useMemo(() => jobs.data ?? [], [jobs.data]);
@@ -278,49 +271,9 @@ export function DownloadsPage() {
     return [...byDay.entries()];
   }, [data, filter]);
 
-  const action = (
-    // nativeButton={false} because the rendered element is an anchor. Base UI
-    // warns otherwise, and it is right to: a link claiming button semantics
-    // breaks keyboard and screen-reader behaviour.
-    <Button
-      variant="outline"
-      size="sm"
-      nativeButton={false}
-      render={
-        <Link to="/reports">
-          <ACTION_ICONS.create data-icon="inline-start" />
-          New export
-        </Link>
-      }
-    />
-  );
-
-  if (!canExport) {
-    return (
-      <>
-        <PageHeader description="Files produced by an export land here." />
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <TrayIcon />
-            </EmptyMedia>
-            <EmptyTitle>You cannot export reports</EmptyTitle>
-            <EmptyDescription>
-              This tray shows files you asked for. Producing one needs the report export
-              permission, which an administrator grants.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </>
-    );
-  }
-
   return (
     <>
-      <PageHeader
-        description="Files you asked for. Each is kept for seven days, then deleted."
-        action={action}
-      />
+      <PageHeader description="Files you asked for. Each is kept for seven days, then deleted." />
 
       <div className="flex flex-col gap-4">
         {jobs.isSuccess && data.length > 0 ? (
@@ -387,22 +340,15 @@ export function DownloadsPage() {
               </EmptyMedia>
               <EmptyTitle>No downloads yet</EmptyTitle>
               <EmptyDescription>
-                Export a report and the file appears here while it is being prepared. Exports run
-                in the background, so you can leave this screen and come back to it.
+                Request an export -- an employee&rsquo;s data, from their page -- and the file
+                appears here while it is being prepared. Exports run in the background, so you
+                can leave this screen and come back to it.
               </EmptyDescription>
             </EmptyHeader>
-            <EmptyContent>
-              <Button
-                size="sm"
-                nativeButton={false}
-                render={<Link to="/reports">Go to reports</Link>}
-              />
-            </EmptyContent>
           </Empty>
         ) : null}
 
-        {/* Filtered to nothing is a different state from having nothing, and
-            offering "Go to reports" here would answer a question nobody asked. */}
+        {/* Filtered to nothing is a different state from having nothing. */}
         {jobs.isSuccess && data.length > 0 && groups.length === 0 ? (
           <Empty className="border">
             <EmptyHeader>
@@ -437,10 +383,6 @@ export function DownloadsPage() {
           </section>
         ))}
 
-        {/* REQ-J-05, below the tray it delivers into. Somebody wondering why
-            yesterday's register has not arrived finds the timer beside the
-            files rather than two screens away. */}
-        <SchedulesList canExport={canExport} />
       </div>
     </>
   );

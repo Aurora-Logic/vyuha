@@ -49,7 +49,6 @@ export const NOTIFICATION_EVENTS = {
   /** 12 REQ-AA-15: an order has waited for its invoice longer than the configured hours. */
   SALES_INVOICE_WAITING: 'sales.invoice_waiting',
   /** D-46: the morning digest, sent only when an exception report has rows. */
-  REPORTS_EXCEPTIONS_DAILY: 'reports.exceptions_daily',
   /** 15 REQ-AJ-09: promises past their date with nothing against them, each morning. */
   COLLECTIONS_PROMISES_BROKEN: 'collections.promises_broken',
 } as const;
@@ -206,11 +205,6 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Promises not kept',
     note: 'Each morning a promise to pay came due with nothing, or not enough, received against the bills it named.',
   },
-  'reports.exceptions_daily': {
-    group: 'Reports',
-    label: 'Daily exception digest',
-    note: 'Each morning that an exception report is not empty: negative stock, credit breaches, stale pulls, duplicate masters.',
-  },
 };
 
 /**
@@ -256,7 +250,6 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'task.overdue': '/tasks',
   'procurement.stock_arrived': '/sales/orders',
   'sales.invoice_waiting': '/sales/awaiting-invoice',
-  'reports.exceptions_daily': '/reports',
   'collections.promises_broken': '/collections',
 };
 

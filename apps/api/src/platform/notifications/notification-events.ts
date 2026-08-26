@@ -244,14 +244,6 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: () => routeFor('sales.invoice_waiting'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
-  // D-46: the sweep speaks only when there is something to say, so the title
-  // carries the counts rather than a generic "you have exceptions".
-  'reports.exceptions_daily': {
-    title: (p) => `Exception reports: ${text(p, 'summary', 'items need attention')}`,
-    body: (p) => `As of this morning's sweep: ${text(p, 'detail')}. Each report is in the catalogue under Reports.`,
-    path: () => routeFor('reports.exceptions_daily'),
-    defaultChannels: IN_APP_AND_EMAIL,
-  },
   // 15 REQ-AJ-09 / D-38: only when a promise has actually been broken. A daily
   // "nothing broken" trains people to ignore the morning it is not.
   'collections.promises_broken': {

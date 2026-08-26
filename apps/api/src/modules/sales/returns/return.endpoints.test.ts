@@ -441,21 +441,6 @@ describe('Area AK: sales returns', () => {
     expect((reports.body.data ?? []).some((r) => r.key === 'return-rate-by-item')).toBe(false);
   });
 
-  it('reports the return rate by item, by customer and by reason (REQ-AK-10)', async () => {
-    const catalogue = await harness.get<{ data: { key: string }[] }>('/reports', { token: adminToken });
-    for (const key of ['return-rate-by-item', 'return-rate-by-customer', 'returns-by-reason']) {
-      expect(catalogue.body.data.some((r) => r.key === key)).toBe(true);
-    }
-    const byReason = await harness.get<Paginated<Record<string, unknown>>>('/reports/returns-by-reason/rows?page=1&pageSize=25', { token: adminToken });
-    expect(byReason.status).toBe(200);
-    // Three receipts stand, under three different reasons.
-    expect(byReason.body.meta.total).toBeGreaterThanOrEqual(3);
-    const byItem = await harness.get<Paginated<Record<string, unknown>>>('/reports/return-rate-by-item/rows?page=1&pageSize=25', { token: adminToken });
-    expect(byItem.body.meta.total).toBe(1);
-    const byCustomer = await harness.get<Paginated<Record<string, unknown>>>('/reports/return-rate-by-customer/rows?page=1&pageSize=25', { token: adminToken });
-    expect(byCustomer.body.meta.total).toBe(1);
-  });
-
   it('will not cancel a receipt Tally has already credited', async () => {
     const refused = await harness.post<ErrorBody>(`/sales/returns/${returnId}/cancel`, { token: adminToken, body: { reason: 'Raised on the wrong customer' } });
     expect(refused.status).toBe(409);

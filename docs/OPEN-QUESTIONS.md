@@ -506,6 +506,28 @@ back to three keys.
 
 ---
 
+## The reports module was removed (owner, 26 Aug 2026)
+
+The entire reports module — the web shell and dashboards, the API report
+sources, exports of reports, saved views and schedules — was removed at the
+owner's explicit instruction, confirmed with consequences stated. The
+Downloads tray survives for the employee data export (REQ-M-05), served at
+`/exports`. Three orphans were deliberately left rather than destroyed:
+
+- **Database tables** (`report_usage`, `report_views`, `dashboard_layouts`,
+  and `export_jobs` which remains live) keep their schema and data; dropping
+  them is a destructive migration awaiting its own instruction.
+- **Permission keys** (`report.view`, `report.export`, `reports.margin.view`)
+  stay in the vocabulary because stored roles carry them; pruning them is a
+  role-migration decision.
+- **REQ-J and REQ-Y in the PRDs** now describe removed features; the docs
+  are the owner's to amend.
+
+RPT-1, RPT-2, RPT-4 and RPT-5 below fell with the module. RPT-3 (parent_group
+casing) still applies to the interest module and the CFO snapshot.
+
+---
+
 ## Raised during Phase 6a — the receivable snapshot (D-23)
 
 Defaults implemented in `receivable-snapshot.service.ts` and the two nightly

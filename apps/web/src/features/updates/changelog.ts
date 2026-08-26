@@ -116,16 +116,15 @@ export const RELEASES: Release[] = [
         reqs: ['REQ-J-03'],
         route: '/downloads',
         guideStep: 'screen.downloads',
-        permission: PERMISSIONS.REPORT_EXPORT,
       },
       {
         kind: 'added',
         title: 'Reports',
-        body: 'The monthly muster and the summaries payroll needs. This is the hand-off point — no money is calculated here.',
+        // History stands, but the door is gone: the reports module was
+        // removed on 26 Aug 2026, so the entry keeps its story and loses
+        // its link rather than pointing at a 404.
+        body: 'The monthly muster and the summaries payroll needs. This was the hand-off point — no money was calculated here. Removed in a later release.',
         reqs: ['REQ-J-01'],
-        route: '/reports',
-        guideStep: 'screen.reports',
-        permission: PERMISSIONS.REPORT_VIEW,
       },
     ],
   },

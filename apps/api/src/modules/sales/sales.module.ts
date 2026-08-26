@@ -11,7 +11,6 @@ import { FulfilmentController } from './fulfilment/fulfilment.controller.js';
 import { FulfilmentService } from './fulfilment/fulfilment.service.js';
 import { DispatchController } from './dispatch/dispatch.controller.js';
 import { DispatchService } from './dispatch/dispatch.service.js';
-import { SalesReportSource } from './reports/sales-report.source.js';
 import { ApprovalModule } from '../../platform/approvals/approvals.module.js';
 import { CollectionsModule } from '../../platform/collections/collections.module.js';
 import { InvoiceController } from './invoices/invoice.controller.js';
@@ -20,7 +19,6 @@ import { DispatchGoToSource, InvoiceGoToSource, SalesOrderGoToSource } from './o
 import { InvoiceService } from './invoices/invoice.service.js';
 import { ReturnController } from './returns/return.controller.js';
 import { ReturnService } from './returns/return.service.js';
-import { ReturnsReportSource } from './returns/returns-report.source.js';
 
 /**
  * The sales module (08 Areas W and Y). Opens with the estimate (Phase 8a);
@@ -34,6 +32,6 @@ import './schema/constraint-messages.js';
 @Module({
   imports: [ApprovalModule, CollectionsModule],
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController, ReturnController],
-  providers: [CustomerNoticeService, EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource, ReturnService, ReturnsReportSource],
+  providers: [CustomerNoticeService, EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource, ReturnService],
 })
 export class SalesModule {}

@@ -810,7 +810,7 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
             {canConfigureInterest ? (
               <p className="text-muted-foreground text-xs">
                 Per-party overrides — rate and credit days — live on{' '}
-                <Link to="/reports/interest-overrides" className="text-foreground font-medium underline-offset-4 hover:underline">
+                <Link to="/interest-overrides" className="text-foreground font-medium underline-offset-4 hover:underline">
                   their own screen
                 </Link>
                 , beside the parties whose credit terms are missing.

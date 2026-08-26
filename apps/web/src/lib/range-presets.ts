@@ -3,14 +3,16 @@ import { endOfMonth, endOfQuarter, startOfMonth, startOfQuarter, subDays, subMon
 import type { RangePreset } from '@/features/attendance/pickers';
 
 /**
- * The named windows the reports dashboard offers above its calendar.
+ * The named windows a range picker offers above its calendar.
  *
- * A dashboard is read at a few fixed cadences -- the month just gone, the
- * quarter, the year to date -- and typing two dates to get one of them is work
- * nobody should have to do twice a day.
+ * A period is read at a few fixed cadences -- the month just gone, the
+ * quarter, the year to date -- and typing two dates to get one of them is
+ * work nobody should have to do twice a day. Lifted to lib/ when the
+ * reports module that first held them was removed; the attendance dashboard
+ * and the voucher register kept reading them.
  *
- * The financial year runs April to March (REQ-L-01), so "This FY" is not the
- * calendar year and must not be derived from one.
+ * The financial year runs April to March (REQ-L-01), so "This FY" is not
+ * the calendar year and must not be derived from one.
  */
 function financialYearStart(on: Date): Date {
   const year = on.getMonth() >= 3 ? on.getFullYear() : on.getFullYear() - 1;
@@ -41,13 +43,3 @@ export const DASHBOARD_PRESETS: readonly RangePreset[] = [
   { label: 'This FY', range: () => ({ from: financialYearStart(new Date()), to: new Date() }) },
   { label: 'Last 12 months', range: () => ({ from: startOfMonth(subMonths(new Date(), 11)), to: new Date() }) },
 ];
-
-/** What the dashboard opens on: a year is the window most of these reports are read over. */
-export function defaultRange(): { from: Date; to: Date } {
-  return { from: startOfMonth(subMonths(new Date(), 11)), to: new Date() };
-}
-
-/** The API takes date-only strings; `toISOString` would shift the day west of Greenwich. */
-export function asApiDate(value: Date): string {
-  return value.toLocaleDateString('en-CA');
-}

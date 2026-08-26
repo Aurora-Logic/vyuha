@@ -1,12 +1,10 @@
-import { PERMISSIONS, REPORT_DEFINITIONS, SYSTEM_ROLES, type InterestPartySettingView, type PartyInterestSource, type ReportFilters } from '@vyuha/shared';
+import { SYSTEM_ROLES, type InterestPartySettingView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
-import type { Principal } from '../../platform/rbac/principal.js';
 
 import { InterestBuildService } from './interest-build.service.js';
-import { InterestReportSource } from './interest-report.source.js';
 
 /**
  * D-22 end to end: vouchers into the projection, the build service walking
@@ -21,31 +19,15 @@ import { InterestReportSource } from './interest-report.source.js';
  *   4 BOX dispatched Jul 20, the vendor paid in full Jul 16.
  */
 const ORG_ID = '01900000-0000-7000-8000-00000000f0dd';
-const JULY: ReportFilters = { from: '2026-07-01', to: '2026-07-31' };
 
 let harness: ApiHarness;
 let build: InterestBuildService;
-let source: InterestReportSource;
-let principal: Principal;
 let adminToken = '';
 let employeeToken = '';
 let connectionId = '';
 let debtorId = '';
 let creditorId = '';
 let itemId = '';
-
-function principalFor(orgId: string, permissions: string[]): Principal {
-  return {
-    userId: '01900000-0000-7000-8000-0000000000aa',
-    orgId,
-    employeeId: null,
-    email: 'interest@example.test',
-    status: 'ACTIVE',
-    sessionId: '01900000-0000-7000-8000-0000000000bb',
-    roles: [],
-    permissions: new Set(permissions),
-  } as unknown as Principal;
-}
 
 async function voucher(opts: { number: string; type: string; on: string; amount: number; partyId?: string | null }): Promise<string> {
   const rows = await harness.db.execute<{ id: string }>(sql`
@@ -79,8 +61,6 @@ async function inventoryLine(voucherId: string, qty: string, rate: number, amoun
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Interest Org');
   build = harness.resolve(InterestBuildService);
-  source = harness.resolve(InterestReportSource);
-  principal = principalFor(ORG_ID, [PERMISSIONS.INTEREST_VIEW]);
 
   const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
   const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE, { isSystem: true });
@@ -141,78 +121,6 @@ describe('the snapshot build', () => {
   });
 });
 
-describe('interest cost by customer', () => {
-  it('prices within-credit and overdue rupee-days at the org rate', async () => {
-    const page = await source.page(principal, 'party-interest-cost', JULY, 50, 0);
-    expect(page.total).toBe(1);
-    const row = page.rows[0] as PartyInterestSource;
-    expect(row.partyName).toBe('Asha Traders');
-    expect(row.effectiveRatePct).toBe(12);
-    // Within credit: Jul 1-10 at 10,000 plus Jul 11 (age 10, receipt lands
-    // that day) at 6,000 = 106,000 rupee-days -> x12%/365 = 34.85.
-    expect(row.plannedCost).toBe('34.85');
-    // Overdue: Jul 12-31, twenty days at 6,000 = 120,000 -> 39.45. Headline.
-    expect(row.interestLoss).toBe('39.45');
-    // 226,000 closing rupee-days over 10,000 of July sales.
-    expect(row.avgDaysOutstanding).toBe(22.6);
-    expect(row.avgOverdueDays).toBe(12);
-    // 39.45 of loss against 10,000 of turnover.
-    expect(row.lossPctOfTurnover).toBe(0.39);
-    expect(row.creditTerms).toBe('TALLY');
-    expect(row.settlementRule).toBe('FIFO oldest-first');
-    expect(row.asOf).not.toBeNull();
-  });
-});
-
-describe('interest cost of stock', () => {
-  it('funds the shelf only after the vendor credit days pass, at purchase cost', async () => {
-    const page = await source.page(principal, 'stock-interest-cost', JULY, 50, 0);
-    expect(page.total).toBe(1);
-    const row = page.rows[0] as Record<string, unknown>;
-    expect(row.item).toBe('Cat6 cable 305m');
-    // Funded: Jul 17-19 at 20,000 plus Jul 20-31 at 12,000 = 204,000
-    // rupee-days -> x12%/365 = 67.07.
-    expect(row.interest).toBe('67.07');
-    expect(row.closingValue).toBe('12000.00');
-    expect(row.fundedValue).toBe('12000.00');
-    // Last outward Jul 20, series ends Jul 31.
-    expect(row.daysSinceOutward).toBe(11);
-    expect(row.nonMoving).toBe(false);
-  });
-});
-
-describe('the cash cycle', () => {
-  it('adds inventory and receivable days, subtracts payable days, and prices the month', async () => {
-    const page = await source.page(principal, 'cash-cycle', JULY, 50, 0);
-    expect(page.total).toBe(1);
-    const row = page.rows[0] as Record<string, unknown>;
-    expect(row.month).toBe('2026-07');
-    // Stock: 19 days at 20,000 plus 12 at 12,000 = 524,000 over 20,000 purchases.
-    expect(row.inventoryDays).toBe(26.2);
-    // Receivables: 226,000 over 10,000 sales.
-    expect(row.receivableDays).toBe(22.6);
-    // Payables: Jul 1-15 at 20,000 = 300,000 over 20,000 purchases.
-    expect(row.payableDays).toBe(15);
-    expect(row.cashCycleDays).toBe(33.8);
-    // AR overdue 120,000 plus stock funded 204,000 = 324,000 -> 106.52.
-    expect(row.totalInterest).toBe('106.52');
-  });
-});
-
-describe('access and honesty', () => {
-  it('is refused without interest_cost.view, and absent from the catalogue', async () => {
-    const outsider = principalFor(ORG_ID, []);
-    await expect(source.page(outsider, 'party-interest-cost', JULY, 50, 0)).rejects.toThrow();
-    expect(source.visibleDefinitions(outsider)).toEqual([]);
-    expect(source.visibleDefinitions(principal).map((d) => d.key)).toEqual(['party-interest-cost', 'stock-interest-cost', 'cash-cycle']);
-  });
-
-  it('says plainly what the v1 grain and basis are', () => {
-    expect(REPORT_DEFINITIONS['party-interest-cost'].description).toContain('Voucher-grain until Tally bill marks arrive');
-    expect(REPORT_DEFINITIONS['stock-interest-cost'].description).toContain('purchase cost basis');
-  });
-});
-
 describe('per-party overrides', () => {
   it('upserts an override behind interest_cost.configure, audited', async () => {
     const refused = await harness.put(`/interest/party-settings/${debtorId}`, { token: employeeToken, body: { creditDaysOverride: 20 } });
@@ -238,20 +146,12 @@ describe('per-party overrides', () => {
     expect(rated.body.creditDaysOverride).toBe(20);
   });
 
-  it('a scoped rebuild reprices the party under the override', async () => {
+  it('a scoped rebuild walks only the named party', async () => {
+    // The pricing reads lived in the removed report source; what the build
+    // still owes is the scoped walk itself -- one party's days rewritten,
+    // nobody else's, and the org watermark left alone.
     const outcome = await build.buildOrg(ORG_ID, { partyId: debtorId, today: '2026-07-31' });
     expect(outcome).toMatchObject({ partyRows: 31, stockRows: 0 });
-
-    const page = await source.page(principal, 'party-interest-cost', JULY, 50, 0);
-    const row = page.rows[0] as PartyInterestSource;
-    expect(row.creditTerms).toBe('OVERRIDE');
-    expect(row.effectiveRatePct).toBe(18);
-    // Twenty credit days at the 18% override: within Jul 1-10 at 10,000 plus
-    // Jul 11-21 at 6,000 = 166,000 -> x18%/365 = 81.86; overdue Jul 22-31 at
-    // 6,000 = 60,000 -> 29.59. The snapshots held balances only, so the new
-    // rate repriced history without touching them.
-    expect(row.plannedCost).toBe('81.86');
-    expect(row.interestLoss).toBe('29.59');
   });
 
   it('removing the override falls back to the Tally figure', async () => {

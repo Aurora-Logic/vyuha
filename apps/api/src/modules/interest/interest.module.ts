@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 
 import { InterestBuildService } from './interest-build.service.js';
 import { InterestController } from './interest.controller.js';
-import { InterestReportSource } from './interest-report.source.js';
 import { InterestService } from './interest.service.js';
 import { InterestSnapshotHandler } from './interest-snapshot.handler.js';
 
@@ -13,6 +12,6 @@ import { InterestSnapshotHandler } from './interest-snapshot.handler.js';
  */
 @Module({
   controllers: [InterestController],
-  providers: [InterestBuildService, InterestService, InterestSnapshotHandler, InterestReportSource],
+  providers: [InterestBuildService, InterestService, InterestSnapshotHandler],
 })
 export class InterestModule {}

@@ -5,7 +5,6 @@ import { ApprovalModule } from '../../platform/approvals/approvals.module.js';
 import { HolidayModule } from './holidays/holidays.module.js';
 import { LeaveModule } from './leave/leave.module.js';
 import { RegularizationModule } from './regularization/regularization.module.js';
-import { ReportModule } from './reports/reports.module.js';
 import { ShiftModule } from './shifts/shifts.module.js';
 
 import { AttendanceSoftDeletes } from './attendance-soft-deletes.js';
@@ -45,7 +44,6 @@ import { PunchService } from './punch/punch.service.js';
     HolidayModule,
     ApprovalModule,
     LeaveModule,
-    ReportModule,
     RegularizationModule,
   ],
   controllers: [

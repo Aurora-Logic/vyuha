@@ -20,7 +20,29 @@
  * inverts the dependency graph.
  */
 
-import { formatCalendarDate } from '../export/report-cell.js';
+/**
+ * Inlined from the removed reports module's `report-cell.ts` -- the five
+ * patterns are the five the org setting offers, and anything else falls
+ * back to the stored form. Twelve English abbreviations do not justify a
+ * formatting dependency.
+ */
+const MONTH_ABBREVIATIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+function formatCalendarDate(value: string, dateFormat: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (match === null) return value;
+  const [, year = '', month = '', day = ''] = match;
+  if (dateFormat === 'dd-MM-yyyy') return `${day}-${month}-${year}`;
+  if (dateFormat === 'dd/MM/yyyy') return `${day}/${month}/${year}`;
+  if (dateFormat === 'yyyy-MM-dd') return value;
+  if (dateFormat === 'MM/dd/yyyy') return `${month}/${day}/${year}`;
+  if (dateFormat === 'dd MMM yyyy') {
+    const monthName = MONTH_ABBREVIATIONS[Number(month) - 1];
+    // A month outside 01-12 is not a calendar date; keep the stored form.
+    return monthName === undefined ? value : `${day} ${monthName} ${year}`;
+  }
+  return value;
+}
 
 /**
  * The shapes `formatSubjectCell` renders deliberately. It accepts `unknown`

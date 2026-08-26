@@ -16,7 +16,6 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, FIXTURE_OFFICE, scopedEmail } from '../../../test-support/api-harness.js';
-import { addDays } from '../day-engine/calendar-date.js';
 import { consentAcceptances, employees, files } from '../../../platform/db/schema/index.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { attendanceDays, punches, shiftAssignments, shifts } from '../schema/index.js';
@@ -1112,35 +1111,3 @@ describe('acting on a flagged punch from Approvals (owner, 21 Aug 2026)', () => 
   });
 });
 
-describe('attendance analytics (owner, 22 Aug 2026)', () => {
-  it('serves the four reports to an org-wide attendance viewer, and refuses an employee', async () => {
-    for (const key of ['flag-review-log', 'approvals-turnaround', 'early-arrival-leaderboard', 'on-time-rate'] as const) {
-      const page = await harness.get<{ data: Record<string, unknown>[] }>(`/reports/${key}/rows?from=${addDays(today, -1)}&to=${today}`, { token: hrToken });
-      expect(page.status, `${key}: ${page.text}`).toBe(200);
-      const refused = await harness.get(`/reports/${key}/rows`, { token: tokenA });
-      expect(refused.status, key).toBe(403);
-    }
-  });
-
-  it('the flag review log names the admin, the employee and the verdict', async () => {
-    const page = await harness.get<{ data: { adminName: string; employeeName: string; action: string; punchType: string }[] }>(
-      `/reports/flag-review-log/rows?from=${addDays(today, -1)}&to=${today}`,
-      { token: hrToken },
-    );
-    expect(page.status, page.text).toBe(200);
-    const accepted = page.body.data.find((row) => row.employeeName.startsWith('Esha') && row.action === 'ACCEPT');
-    expect(accepted).toBeDefined();
-    expect(accepted?.punchType).toBe('OUT');
-    expect(accepted?.adminName).not.toBe('');
-  });
-
-  it('approvals turnaround counts the flagged punch that was decided', async () => {
-    const page = await harness.get<{ data: { type: string; decided: number; medianHours: number | null }[] }>(
-      `/reports/approvals-turnaround/rows?from=${addDays(today, -1)}&to=${today}`,
-      { token: hrToken },
-    );
-    expect(page.status, page.text).toBe(200);
-    const flagged = page.body.data.find((row) => row.type === 'FLAGGED_PUNCH');
-    expect(flagged?.decided ?? 0).toBeGreaterThanOrEqual(1);
-  });
-});

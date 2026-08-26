@@ -39,7 +39,7 @@ import { sanitizeImage } from '../../../platform/files/image-sanitizer.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
-import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { ScopeService } from '../../../platform/rbac/scope.service.js';
 import { addDays, localDateIn } from '../day-engine/calendar-date.js';
 import { DayEngineRepository, type EmployeeContext } from '../day-engine/day-engine.repository.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
@@ -102,11 +102,10 @@ import {
  * `attendance.view.self`, which is the key that lets an employee open their own
  * punch history.
  */
-export const ATTENDANCE_SCOPE_GRANTS: ScopeGrants = {
-  self: PERMISSIONS.ATTENDANCE_VIEW_SELF,
-  team: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
-  all: PERMISSIONS.ATTENDANCE_VIEW_ALL,
-};
+import { ATTENDANCE_SCOPE_GRANTS } from './attendance-scope.js';
+// Re-exported for the callers that always found it here; the definition
+// moved to its own file to break an import cycle (see attendance-scope.ts).
+export { ATTENDANCE_SCOPE_GRANTS };
 
 /**
  * Flags worth waking HR for. Deliberately excludes `geofence_disabled` and
