@@ -21,7 +21,8 @@ import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from 
  * the data's job picks the form (dataviz §1), not the metric's author.
  */
 
-function kindFor(config: AreaConfig, key: string): Exclude<WidgetKind, 'number'> {
+function kindFor(config: AreaConfig, key: string): Exclude<WidgetKind, 'number' | 'table'> {
+  if (config.areas.includes(key)) return 'area';
   return config.lines.includes(key) ? 'line' : 'bar';
 }
 
@@ -101,12 +102,7 @@ export function AreaPage({ area }: { area: InsightArea }) {
           <div className="grid gap-4 lg:grid-cols-2">
             {query.data.metrics.map((metric) => (
               <div key={metric.key} className={config.wide.includes(metric.key) ? 'lg:col-span-2' : undefined}>
-                <MetricCard
-                  metric={metric}
-                  kind={kindFor(config, metric.key)}
-                  from={query.data.from}
-                  to={query.data.to}
-                />
+                <MetricCard metric={metric} kind={kindFor(config, metric.key)} />
               </div>
             ))}
           </div>

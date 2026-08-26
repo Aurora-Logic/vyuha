@@ -54,6 +54,11 @@ export interface MetricView {
   /** The sentence behind the info glyph: what this figure is and is not. */
   readonly hint: string;
   readonly unit: MetricUnit;
+  /**
+   * What the x axis is made of. Days get date ticks; a category axis (an
+   * ageing bucket) prints its labels verbatim. Absent means day.
+   */
+  readonly xKind?: 'day' | 'category';
   /** Range total or latest value, as text -- exact for money, digits for counts. */
   readonly headline: string;
   readonly series: readonly MetricSeriesDef[];
@@ -70,9 +75,14 @@ export interface AreaInsights {
 
 /* ------------------------------- custom reports ------------------------------- */
 
-export const WIDGET_KINDS = ['bar', 'line', 'donut', 'number'] as const;
+export const WIDGET_KINDS = ['bar', 'barh', 'line', 'area', 'donut', 'number', 'table'] as const;
 
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
+
+/** The named palettes a widget may choose; 'default' is the fresh multi-hue set. */
+export const WIDGET_PALETTES = ['default', 'accent', 'blue', 'violet', 'amber', 'rose', 'teal'] as const;
+
+export type WidgetPalette = (typeof WIDGET_PALETTES)[number];
 
 /** Grid spans, not free resize: 1x1 half width, 2x1 full width, 2x2 full and tall. */
 export const WIDGET_SIZES = ['1x1', '2x1', '2x2'] as const;
@@ -92,8 +102,14 @@ export const customWidgetSchema = z.object({
       dataLabels: z.boolean().default(false),
       /** The figure in a donut's centre, or the whole of a number card. */
       showTotal: z.boolean().default(true),
+      palette: z.enum(WIDGET_PALETTES).default('default'),
+      /** Drop the days on which nothing happened, the way Twenty's builder can. */
+      omitZero: z.boolean().default(false),
+      /** A pinned y range; absent means the data decides. */
+      yMin: z.number().finite().optional(),
+      yMax: z.number().finite().optional(),
     })
-    .default({ legend: true, dataLabels: false, showTotal: true }),
+    .default({ legend: true, dataLabels: false, showTotal: true, palette: 'default', omitZero: false }),
 });
 
 export type CustomWidget = z.infer<typeof customWidgetSchema>;

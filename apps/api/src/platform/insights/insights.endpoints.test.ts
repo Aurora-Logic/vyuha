@@ -33,6 +33,9 @@ beforeAll(async () => {
   // before this file has cleared its own day rows.
   harness = await ApiHarness.start(ORG_ID, 'Insights Org', { preservePeople: true });
   await harness.db.execute(sql`DELETE FROM custom_reports WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM fact_receivable_snapshot WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM interest_daily_party WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM attendance_days WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM voucher_lines WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
@@ -91,6 +94,28 @@ beforeAll(async () => {
       (${ORG_ID}, ${connectionId}, 'PULL', 'voucher', 'DONE',   1, '2026-08-01T05:00:00Z'),
       (${ORG_ID}, ${connectionId}, 'PULL', 'party',   'FAILED', 3, '2026-08-02T05:00:00Z')
   `);
+
+  // The receivable snapshot: two bills for one party, one fresh, one 45 days
+  // overdue -- so the ageing has two buckets to fill.
+  const party = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO parties (org_id, connection_id, name, parent_group)
+    VALUES (${ORG_ID}, ${connectionId}, 'Asha Traders', 'Sundry Debtors') RETURNING id
+  `);
+  const partyId = party.rows[0]?.id ?? '';
+  await harness.db.execute(sql`
+    INSERT INTO fact_receivable_snapshot (org_id, snapshot_date, party_id, bill_ref, amount, outstanding, days_overdue, bucket, source) VALUES
+      (${ORG_ID}, '2026-08-02', ${partyId}, 'B-1', 500, 400.00, 45, '31-60', 'test'),
+      (${ORG_ID}, '2026-08-02', ${partyId}, 'B-2', 300, 100.00, 0,  'current', 'test')
+  `);
+  await harness.db.execute(sql`
+    INSERT INTO interest_daily_party (org_id, party_id, date, closing, within_credit, overdue) VALUES
+      (${ORG_ID}, ${partyId}, '2026-08-01', 500, 350, 150),
+      (${ORG_ID}, ${partyId}, '2026-08-02', 500, 300, 200.50)
+  `);
+  await harness.db.execute(sql`
+    INSERT INTO stock_items (org_id, connection_id, name, unit, parent_group)
+    VALUES (${ORG_ID}, ${connectionId}, 'Cat6 cable 305m', 'BOX', 'Cables')
+  `);
 });
 
 afterAll(async () => {
@@ -123,10 +148,43 @@ describe('GET /insights/:area', () => {
     expect(metric(res.body, 'voucher-mix').headline).toBe('3');
   });
 
+  it('buckets the latest receivable snapshot into ageing, on a category axis', async () => {
+    const res = await harness.get<AreaInsights>('/insights/receivables?from=2026-08-01&to=2026-08-02', { token: adminToken });
+
+    const ageing = metric(res.body, 'customer-ageing');
+    expect(ageing.xKind).toBe('category');
+    expect(ageing.headline).toBe('500.00');
+    const byBucket = Object.fromEntries(ageing.points.map((p) => [p.t, p.outstanding]));
+    expect(byBucket['Not due']).toBe('100.00');
+    expect(byBucket['31-60']).toBe('400.00');
+    expect(ageing.breakdown?.rows[0]?.party).toBe('Asha Traders');
+    expect(ageing.breakdown?.rows[0]?.worst).toBe(45);
+  });
+
+  it('carries the interest module’s daily balances for its key holders', async () => {
+    const res = await harness.get<AreaInsights>('/insights/receivables?from=2026-08-01&to=2026-08-02', { token: adminToken });
+
+    const exposure = metric(res.body, 'interest-exposure');
+    // The latest day's overdue balance, exact.
+    expect(exposure.headline).toBe('200.50');
+    expect(exposure.points[0]?.withinCredit).toBe('350.00');
+    expect(exposure.points[1]?.overdue).toBe('200.50');
+  });
+
   it('reads sales documents by type and buckets sync outcomes', async () => {
     const sales = await harness.get<AreaInsights>('/insights/sales?from=2026-08-01&to=2026-08-02', { token: adminToken });
     expect(metric(sales.body, 'orders-value').headline).toBe('590.00');
     expect(metric(sales.body, 'estimate-funnel').series.map((s) => s.key)).toEqual(['SENT']);
+
+    const stock = metric(sales.body, 'stock-ageing');
+    expect(stock.xKind).toBe('category');
+    // The one item moved on 21 Aug 2026 (INS-S1 has no inventory line, so its
+    // age runs from the projection row's own birth) -- under thirty days at
+    // the time these fixtures were written is not assertable against now(),
+    // so what is held instead is the shape: four buckets, one item in total.
+    expect(stock.points.map((p) => p.t)).toEqual(['Under 30', '31-60', '61-90', 'Over 90']);
+    expect(stock.points.reduce((sum, p) => sum + Number(p.items), 0)).toBe(1);
+    expect(stock.breakdown?.rows[0]?.item).toBe('Cat6 cable 305m');
 
     const sync = await harness.get<AreaInsights>('/insights/sync?from=2026-08-01&to=2026-08-02', { token: adminToken });
     const jobs = metric(sync.body, 'job-outcomes');

@@ -47,6 +47,19 @@ const AREA_RESPONSE = {
       },
     },
     {
+      key: 'customer-ageing',
+      label: 'Customer ageing',
+      hint: 'Outstanding by days overdue.',
+      unit: 'money',
+      xKind: 'category',
+      headline: '500.00',
+      series: [{ key: 'outstanding', label: 'Outstanding' }],
+      points: [
+        { t: 'Not due', outstanding: '100.00' },
+        { t: '31-60', outstanding: '400.00' },
+      ],
+    },
+    {
       key: 'received',
       label: 'Received',
       hint: 'Receipt vouchers summed per day.',
@@ -85,6 +98,15 @@ const REPORT = {
       size: '1x1',
       area: 'sync',
       metric: 'job-outcomes',
+      options: { legend: true, dataLabels: false, showTotal: true },
+    },
+    {
+      id: 'w3',
+      title: 'Ageing table',
+      kind: 'table',
+      size: '1x1',
+      area: 'receivables',
+      metric: 'customer-ageing',
       options: { legend: true, dataLabels: false, showTotal: true },
     },
   ],
@@ -161,6 +183,17 @@ describe('CustomReportPage', () => {
     expect(await screen.findByText('Needs a permission you do not hold')).toBeTruthy();
   });
 
+  it('renders a table widget as rows -- a report that is not a chart', async () => {
+    renderAt(`/reports/custom/${REPORT.id}`, <CustomReportPage />, '/reports/custom/:id');
+
+    await screen.findByText('Ageing table');
+    // The category axis labels become the table's first column, the money its second.
+    expect(await screen.findByText('Not due')).toBeTruthy();
+    expect(screen.getByText('₹400.00')).toBeTruthy();
+    // A widget stored before the palette option existed parses under defaults.
+    expect(screen.queryByText('This metric no longer exists')).toBeNull();
+  });
+
   it('saves exactly the draft: a removed widget is not in the payload', async () => {
     const user = userEvent.setup();
     renderAt(`/reports/custom/${REPORT.id}?edit=1`, <CustomReportPage />, '/reports/custom/:id');
@@ -177,7 +210,7 @@ describe('CustomReportPage', () => {
       expect(putBody).not.toBeNull();
     });
     const body = putBody as { widgets: { id: string }[]; shared: boolean; name: string };
-    expect(body.widgets.map((w) => w.id)).toEqual(['w1']);
+    expect(body.widgets.map((w) => w.id)).toEqual(['w1', 'w3']);
     expect(body.name).toBe('Money week');
   });
 });

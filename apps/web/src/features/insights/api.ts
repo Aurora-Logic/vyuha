@@ -21,6 +21,7 @@ const metricSchema = z.object({
   label: z.string(),
   hint: z.string(),
   unit: z.enum(['count', 'money', 'minutes', 'percent']),
+  xKind: z.enum(['day', 'category']).optional(),
   headline: z.string(),
   series: z.array(z.object({ key: z.string(), label: z.string() })),
   points: z.array(metricPointSchema),
@@ -52,11 +53,21 @@ export type AreaInsightsData = z.infer<typeof areaInsightsSchema>;
 const customWidgetSchema = z.object({
   id: z.string(),
   title: z.string(),
-  kind: z.enum(['bar', 'line', 'donut', 'number']),
+  kind: z.enum(['bar', 'barh', 'line', 'area', 'donut', 'number', 'table']),
   size: z.enum(['1x1', '2x1', '2x2']),
   area: z.enum(['attendance', 'receivables', 'sales', 'sync']),
   metric: z.string(),
-  options: z.object({ legend: z.boolean(), dataLabels: z.boolean(), showTotal: z.boolean() }),
+  // Defaults, not requirements: a widget stored before an option existed
+  // must still parse today.
+  options: z.object({
+    legend: z.boolean().default(true),
+    dataLabels: z.boolean().default(false),
+    showTotal: z.boolean().default(true),
+    palette: z.enum(['default', 'accent', 'blue', 'violet', 'amber', 'rose', 'teal']).default('default'),
+    omitZero: z.boolean().default(false),
+    yMin: z.number().optional(),
+    yMax: z.number().optional(),
+  }),
 });
 
 const customReportSchema = z.object({

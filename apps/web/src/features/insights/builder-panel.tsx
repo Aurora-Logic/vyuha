@@ -1,11 +1,14 @@
 import {
+  ChartBarHorizontalIcon,
   ChartBarIcon,
   ChartDonutIcon,
   ChartLineIcon,
+  ChartLineUpIcon,
   NumberSquareOneIcon,
+  TableIcon,
   TrashIcon,
 } from '@phosphor-icons/react';
-import type { CustomWidget, InsightArea, WidgetKind, WidgetSize } from '@vyuha/shared';
+import { WIDGET_PALETTES, type CustomWidget, type InsightArea, type WidgetKind, type WidgetPalette, type WidgetSize } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
@@ -38,10 +41,47 @@ import { AREA_GATES, AREA_LABELS, AREA_METRICS } from './catalogue';
 
 const KINDS: readonly { kind: WidgetKind; label: string; icon: typeof ChartBarIcon }[] = [
   { kind: 'bar', label: 'Bars', icon: ChartBarIcon },
+  { kind: 'barh', label: 'Horizontal bars', icon: ChartBarHorizontalIcon },
   { kind: 'line', label: 'Line', icon: ChartLineIcon },
+  { kind: 'area', label: 'Area', icon: ChartLineUpIcon },
   { kind: 'donut', label: 'Donut', icon: ChartDonutIcon },
   { kind: 'number', label: 'Number', icon: NumberSquareOneIcon },
+  { kind: 'table', label: 'Table', icon: TableIcon },
 ];
+
+const PALETTE_LABELS: Record<WidgetPalette, string> = {
+  default: 'Fresh (default)',
+  accent: 'Accent shades',
+  blue: 'Blue',
+  violet: 'Violet',
+  amber: 'Amber',
+  rose: 'Rose',
+  teal: 'Teal',
+};
+
+/** The five circles beside a palette's name, the way the reference picks colours. */
+const PALETTE_SWATCHES: Record<WidgetPalette, readonly string[]> = {
+  default: ['var(--slice-1)', 'var(--slice-2)', 'var(--slice-3)', 'var(--slice-4)', 'var(--slice-5)'],
+  accent: ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'],
+  blue: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 250)`),
+  violet: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 295)`),
+  amber: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 75)`),
+  rose: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 15)`),
+  teal: [0.5, 0.58, 0.66, 0.74, 0.82].map((l) => `oklch(${String(l)} 0.17 200)`),
+};
+
+function PaletteRow({ palette }: { palette: WidgetPalette }) {
+  return (
+    <span className="flex w-full items-center justify-between gap-3">
+      <span>{PALETTE_LABELS[palette]}</span>
+      <span aria-hidden className="flex items-center gap-0.5">
+        {PALETTE_SWATCHES[palette].map((colour, index) => (
+          <span key={index} className="size-2.5 rounded-full" style={{ backgroundColor: colour }} />
+        ))}
+      </span>
+    </span>
+  );
+}
 
 const SIZES: readonly { size: WidgetSize; label: string }[] = [
   { size: '1x1', label: 'Half' },
@@ -144,6 +184,29 @@ export function BuilderPanel({
       <p className="text-muted-foreground text-xs font-medium">Style</p>
 
       <Field>
+        <FieldLabel>Colors</FieldLabel>
+        <Select
+          value={widget.options.palette}
+          onValueChange={(value) => {
+            if (value !== null) {
+              onChange({ ...widget, options: { ...widget.options, palette: value } });
+            }
+          }}
+        >
+          <SelectTrigger aria-label="Colour palette">
+            <SelectValue>{(value: string) => PALETTE_LABELS[value as WidgetPalette]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {WIDGET_PALETTES.map((palette) => (
+              <SelectItem key={palette} value={palette}>
+                <PaletteRow palette={palette} />
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field>
         <FieldLabel>Width</FieldLabel>
         <ToggleGroup
           value={[widget.size]}
@@ -176,6 +239,32 @@ export function BuilderPanel({
       </div>
 
       <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="widget-labels" className="text-sm">
+          Data labels
+        </Label>
+        <Switch
+          id="widget-labels"
+          checked={widget.options.dataLabels}
+          onCheckedChange={(dataLabels) => {
+            onChange({ ...widget, options: { ...widget.options, dataLabels } });
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="widget-omit-zero" className="text-sm">
+          Omit zero values
+        </Label>
+        <Switch
+          id="widget-omit-zero"
+          checked={widget.options.omitZero}
+          onCheckedChange={(omitZero) => {
+            onChange({ ...widget, options: { ...widget.options, omitZero } });
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
         <Label htmlFor="widget-total" className="text-sm">
           Show total
         </Label>
@@ -186,6 +275,45 @@ export function BuilderPanel({
             onChange({ ...widget, options: { ...widget.options, showTotal } });
           }}
         />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field>
+          <FieldLabel htmlFor="widget-ymin">Min range</FieldLabel>
+          <Input
+            id="widget-ymin"
+            type="number"
+            inputMode="decimal"
+            placeholder="Auto"
+            value={widget.options.yMin ?? ''}
+            onChange={(event) => {
+              const raw = event.target.value.trim();
+              const { yMin: _yMin, ...rest } = widget.options;
+              onChange({
+                ...widget,
+                options: raw === '' || Number.isNaN(Number(raw)) ? rest : { ...rest, yMin: Number(raw) },
+              });
+            }}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="widget-ymax">Max range</FieldLabel>
+          <Input
+            id="widget-ymax"
+            type="number"
+            inputMode="decimal"
+            placeholder="Auto"
+            value={widget.options.yMax ?? ''}
+            onChange={(event) => {
+              const raw = event.target.value.trim();
+              const { yMax: _yMax, ...rest } = widget.options;
+              onChange({
+                ...widget,
+                options: raw === '' || Number.isNaN(Number(raw)) ? rest : { ...rest, yMax: Number(raw) },
+              });
+            }}
+          />
+        </Field>
       </div>
 
       <Button variant="outline" size="sm" onClick={onRemove}>

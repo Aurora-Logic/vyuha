@@ -31,12 +31,15 @@ export const AREA_METRICS: Record<InsightArea, readonly { key: string; label: st
     { key: 'invoiced', label: 'Invoiced' },
     { key: 'received', label: 'Received' },
     { key: 'voucher-mix', label: 'Vouchers by type' },
+    { key: 'customer-ageing', label: 'Customer ageing' },
+    { key: 'interest-exposure', label: 'Interest-bearing exposure' },
   ],
   sales: [
     { key: 'orders-value', label: 'Sales orders' },
     { key: 'estimate-funnel', label: 'Estimates by state' },
     { key: 'invoices-value', label: 'Invoices' },
     { key: 'purchase-orders', label: 'Purchase orders' },
+    { key: 'stock-ageing', label: 'Stock ageing' },
   ],
   sync: [
     { key: 'job-outcomes', label: 'Sync jobs' },
@@ -49,6 +52,8 @@ export interface AreaConfig {
   readonly description: string;
   /** Metrics drawn as a line rather than bars: rates and ages, not amounts. */
   readonly lines: readonly string[];
+  /** Metrics drawn as a translucent area: balances that flow, not events. */
+  readonly areas: readonly string[];
   /** Cards worth a full row even on wide screens (a breakdown table needs it). */
   readonly wide: readonly string[];
 }
@@ -57,21 +62,25 @@ export const AREA_CONFIG: Record<InsightArea, AreaConfig> = {
   attendance: {
     description: 'The workforce day by day: who was in, who was late, and the overtime the engine credited.',
     lines: ['late-arrivals'],
+    areas: [],
     wide: ['attendance-mix'],
   },
   receivables: {
-    description: 'Money as Tally wrote it: what was invoiced, what actually arrived, and every voucher in between.',
+    description: 'Money as Tally wrote it: what was invoiced, what arrived, the ageing of what has not, and the exposure interest runs on.',
     lines: [],
-    wide: ['invoiced'],
+    areas: ['interest-exposure'],
+    wide: ['invoiced', 'customer-ageing', 'interest-exposure'],
   },
   sales: {
-    description: 'Documents raised here: orders and invoices by value, estimates and purchase orders by where they stand.',
+    description: 'Documents raised here: orders and invoices by value, estimates and purchase orders by where they stand, and the stock that has stopped moving.',
     lines: [],
-    wide: ['orders-value'],
+    areas: [],
+    wide: ['orders-value', 'stock-ageing'],
   },
   sync: {
     description: 'The bridge to Tally: jobs finishing, exceptions raised, and how fresh the last pull is.',
     lines: ['pull-freshness'],
+    areas: [],
     wide: ['job-outcomes'],
   },
 };

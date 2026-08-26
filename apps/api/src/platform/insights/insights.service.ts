@@ -223,11 +223,48 @@ export class InsightsService {
       return `${sign}${String(abs / 100n)}.${String(abs % 100n).padStart(2, '0')}`;
     };
 
+    // Customer ageing reads the latest receivable snapshot the CFO facts hold:
+    // bill-level outstanding bucketed by how many days overdue each bill is.
+    // A snapshot is a photograph, so this is a category axis, not a time one.
+    const ageing = await this.db.execute<DayRow>(sql`
+      WITH latest AS (
+        SELECT max(snapshot_date) AS d FROM fact_receivable_snapshot WHERE org_id = ${principal.orgId}
+      )
+      SELECT CASE
+               WHEN days_overdue <= 0 THEN 'Not due'
+               WHEN days_overdue <= 30 THEN '1-30'
+               WHEN days_overdue <= 60 THEN '31-60'
+               WHEN days_overdue <= 90 THEN '61-90'
+               ELSE 'Over 90'
+             END AS day,
+             'outstanding' AS key,
+             sum(outstanding)::text AS value
+      FROM fact_receivable_snapshot, latest
+      WHERE org_id = ${principal.orgId} AND snapshot_date = latest.d AND outstanding > 0
+      GROUP BY 1
+    `);
+    const ageingParties = await this.db.execute<{ party: string; bills: number; outstanding: string; worst: number }>(sql`
+      WITH latest AS (
+        SELECT max(snapshot_date) AS d FROM fact_receivable_snapshot WHERE org_id = ${principal.orgId}
+      )
+      SELECT coalesce(p.name, 'Unknown party') AS party,
+             count(*)::int AS bills,
+             sum(f.outstanding)::text AS outstanding,
+             max(f.days_overdue)::int AS worst
+      FROM fact_receivable_snapshot f
+      JOIN latest ON f.snapshot_date = latest.d
+      LEFT JOIN parties p ON p.id = f.party_id
+      WHERE f.org_id = ${principal.orgId} AND f.outstanding > 0
+      GROUP BY 1 ORDER BY sum(f.outstanding) DESC LIMIT 8
+    `);
+
     const mixKeys = [...new Set(mix.rows.map((r) => r.key))].sort((a, b) =>
       a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b),
     );
 
-    return [
+    const AGE_BUCKETS = ['Not due', '1-30', '31-60', '61-90', 'Over 90'];
+
+    const metrics: MetricView[] = [
       {
         key: 'invoiced',
         label: 'Invoiced',
@@ -263,7 +300,80 @@ export class InsightsService {
         series: mixKeys.map((k) => ({ key: k, label: k })),
         points: bucketise(mix.rows, days, mixKeys),
       },
+      {
+        key: 'customer-ageing',
+        label: 'Customer ageing',
+        hint: 'Outstanding receivables from the latest snapshot, bucketed by how many days overdue each bill is. A photograph of now, not a series over the period.',
+        unit: 'money',
+        xKind: 'category',
+        headline: sumText(ageing.rows),
+        series: [{ key: 'outstanding', label: 'Outstanding' }],
+        points: bucketise(ageing.rows, AGE_BUCKETS, ['outstanding']),
+        breakdown: {
+          columns: [
+            { key: 'party', label: 'Party' },
+            { key: 'bills', label: 'Bills', numeric: true },
+            { key: 'outstanding', label: 'Outstanding', numeric: true, unit: 'money' },
+            { key: 'worst', label: 'Oldest (days)', numeric: true },
+          ],
+          rows: ageingParties.rows,
+        },
+      },
     ];
+
+    // Interest-bearing exposure rides its own key: the interest module's
+    // daily balances are visible only to interest_cost.view holders, the
+    // same people its own screens admit.
+    if (principal.permissions.has(PERMISSIONS.INTEREST_VIEW)) {
+      const exposure = await this.db.execute<DayRow>(sql`
+        SELECT date::text AS day, key, value::text AS value FROM (
+          SELECT date, 'withinCredit' AS key, sum(within_credit) AS value
+          FROM interest_daily_party
+          WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          GROUP BY 1
+          UNION ALL
+          SELECT date, 'overdue' AS key, sum(overdue) AS value
+          FROM interest_daily_party
+          WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          GROUP BY 1
+        ) balances
+      `);
+      const exposureParties = await this.db.execute<{ party: string; closing: string; overdue: string }>(sql`
+        WITH latest AS (
+          SELECT max(date) AS d FROM interest_daily_party WHERE org_id = ${principal.orgId}
+        )
+        SELECT coalesce(p.name, 'Unknown party') AS party, i.closing::text AS closing, i.overdue::text AS overdue
+        FROM interest_daily_party i
+        JOIN latest ON i.date = latest.d
+        LEFT JOIN parties p ON p.id = i.party_id
+        WHERE i.org_id = ${principal.orgId} AND i.closing > 0
+        ORDER BY i.overdue DESC LIMIT 8
+      `);
+      const overdueRows = exposure.rows.filter((r) => r.key === 'overdue');
+      const latestOverdue = [...overdueRows].sort((a, b) => a.day.localeCompare(b.day)).at(-1);
+      metrics.push({
+        key: 'interest-exposure',
+        label: 'Interest-bearing exposure',
+        hint: 'The interest module’s daily receivable balances: within credit terms against overdue. The headline is the overdue balance on the latest day; the module’s own screens carry the rate arithmetic.',
+        unit: 'money',
+        headline: latestOverdue === undefined ? '' : String(latestOverdue.value),
+        series: [
+          { key: 'withinCredit', label: 'Within credit' },
+          { key: 'overdue', label: 'Overdue' },
+        ],
+        points: bucketise(exposure.rows, days, ['withinCredit', 'overdue']),
+        breakdown: {
+          columns: [
+            { key: 'party', label: 'Party' },
+            { key: 'closing', label: 'Closing', numeric: true, unit: 'money' },
+            { key: 'overdue', label: 'Overdue', numeric: true, unit: 'money' },
+          ],
+          rows: exposureParties.rows,
+        },
+      });
+    }
+
+    return metrics;
   }
 
   /* --------------------------------- sales ---------------------------------- */
@@ -332,6 +442,59 @@ export class InsightsService {
         points: bucketise(invoices.rows, days, ['invoices']),
       },
     ];
+
+    // Stock ageing: how long since each item last moved on a voucher. An item
+    // that has never moved ages from the day it was first pulled from Tally.
+    const stockAgeing = await this.db.execute<DayRow>(sql`
+      WITH movement AS (
+        SELECT s.id,
+               greatest(coalesce(max(v.voucher_date), s.created_at::date), '1900-01-01'::date) AS last_moved
+        FROM stock_items s
+        LEFT JOIN voucher_lines l ON l.stock_item_id = s.id
+        LEFT JOIN vouchers v ON v.id = l.voucher_id AND v.is_cancelled = false
+        WHERE s.org_id = ${principal.orgId}
+        GROUP BY s.id, s.created_at
+      )
+      SELECT CASE
+               WHEN now()::date - last_moved <= 30 THEN 'Under 30'
+               WHEN now()::date - last_moved <= 60 THEN '31-60'
+               WHEN now()::date - last_moved <= 90 THEN '61-90'
+               ELSE 'Over 90'
+             END AS day,
+             'items' AS key,
+             count(*)::int AS value
+      FROM movement GROUP BY 1
+    `);
+    const oldestStock = await this.db.execute<{ item: string; lastMoved: string; idleDays: number }>(sql`
+      SELECT s.name AS item,
+             coalesce(max(v.voucher_date), s.created_at::date)::text AS "lastMoved",
+             (now()::date - coalesce(max(v.voucher_date), s.created_at::date))::int AS "idleDays"
+      FROM stock_items s
+      LEFT JOIN voucher_lines l ON l.stock_item_id = s.id
+      LEFT JOIN vouchers v ON v.id = l.voucher_id AND v.is_cancelled = false
+      WHERE s.org_id = ${principal.orgId}
+      GROUP BY s.id, s.name, s.created_at
+      ORDER BY 3 DESC LIMIT 8
+    `);
+    const STOCK_BUCKETS = ['Under 30', '31-60', '61-90', 'Over 90'];
+    metrics.push({
+      key: 'stock-ageing',
+      label: 'Stock ageing',
+      hint: 'Items by how long since they last appeared on any voucher. The headline is how many have sat idle past ninety days — the shelf money forgets.',
+      unit: 'count',
+      xKind: 'category',
+      headline: String(stockAgeing.rows.filter((r) => r.day === 'Over 90').reduce((sum, r) => sum + Number(r.value), 0)),
+      series: [{ key: 'items', label: 'Items' }],
+      points: bucketise(stockAgeing.rows, STOCK_BUCKETS, ['items']),
+      breakdown: {
+        columns: [
+          { key: 'item', label: 'Item' },
+          { key: 'lastMoved', label: 'Last movement' },
+          { key: 'idleDays', label: 'Idle (days)', numeric: true },
+        ],
+        rows: oldestStock.rows,
+      },
+    });
 
     // Purchase rides on the sales page but behind its own key: a viewer who
     // may see sales and not purchases gets the page minus this card.

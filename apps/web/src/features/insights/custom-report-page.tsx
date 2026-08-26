@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils';
 import { useAreaInsights, useCustomReport, useCustomReportMutations } from './api';
 import { BuilderPanel } from './builder-panel';
 import { AREA_METRICS } from './catalogue';
-import { MetricChart } from './metric-card';
+import { MetricChart, MetricPointsTable } from './metric-card';
 import { defaultRange } from './period';
 import { formatHeadline } from './units';
 
@@ -87,11 +87,21 @@ function WidgetBody({ widget }: { widget: CustomWidget }) {
       </p>
     );
   }
+  if (widget.kind === 'table') {
+    // Some reports are honest as rows, not marks -- an ageing, an interest
+    // working. The breakdown when the metric carries one, the series itself
+    // when it does not.
+    return (
+      <div className={widget.size === '2x2' ? 'max-h-80 overflow-y-auto' : 'max-h-44 overflow-y-auto'}>
+        <MetricPointsTable metric={metric} />
+      </div>
+    );
+  }
   return (
     <MetricChart
       metric={metric}
       kind={widget.kind}
-      legend={widget.options.legend}
+      options={widget.options}
       className={widget.size === '2x2' ? 'h-72' : 'h-40'}
     />
   );
@@ -166,7 +176,7 @@ export function CustomReportPage() {
       size: '1x1',
       area,
       metric: first?.key ?? 'invoiced',
-      options: { legend: true, dataLabels: false, showTotal: true },
+      options: { legend: true, dataLabels: false, showTotal: true, palette: 'default', omitZero: false },
     };
     setDraft((current) => [...(current ?? []), widget]);
     setSelectedId(widget.id);
