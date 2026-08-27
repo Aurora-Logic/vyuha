@@ -367,6 +367,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'The league table: every book priced the same way, against the month\u2019s target.',
   },
   {
+    id: 'screen.reports-desk',
+    route: '/reports/desk',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: "Director's desk",
+    body: 'Which customers to work on today: one ranked list with a reason, the rupees at stake and an owner, and the call sheet behind each name.',
+  },
+  {
     id: 'screen.reports-me',
     route: '/reports/me',
     anchor: ANCHORS.screenHeader,

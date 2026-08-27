@@ -182,3 +182,44 @@ export const cfoTargets = pgTable(
     index('cfo_targets_month_idx').on(t.orgId, t.month),
   ],
 );
+
+/**
+ * Director's Desk (brief Part O). Outcomes are the list's memory (O4.1):
+ * without them it degrades into a static report within a month. The served
+ * log is what the rotation rules read -- cooldown, no repeat within a week.
+ */
+export const cfoDeskOutcomes = pgTable(
+  'cfo_desk_outcomes',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id').notNull(),
+    /** Who logged it, as the owner map spells owners. */
+    ownerRef: text('owner_ref').notNull(),
+    outcome: text('outcome').notNull(),
+    amount: numeric('amount', { precision: 16, scale: 2 }),
+    nextDate: text('next_date'),
+    notes: text('notes').notNull().default(''),
+    loggedOn: text('logged_on').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_desk_outcomes_party_idx').on(t.orgId, t.partyId, t.loggedOn)],
+);
+
+export const cfoDeskServed = pgTable(
+  'cfo_desk_served',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id').notNull(),
+    servedOn: text('served_on').notNull(),
+    score: numeric('score', { precision: 5, scale: 1 }).notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_desk_served_day_uq').on(t.orgId, t.servedOn, t.partyId)],
+);

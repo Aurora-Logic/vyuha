@@ -563,3 +563,17 @@ the stock item master; M13 = split credit allowed, maximum two owners.
 | — | Cost centre / salesperson on vouchers: the OpsTally sync does not pull it yet | Extend the sync to carry a voucher salesperson field; map fills the gap meanwhile | Tally-first attribution (map-only until then) |
 | — | Godown in the fact grain (K2) | Omit until the sync carries godowns | Godown-level analysis |
 | — | ~~Full brief missing Parts O5.2–O7, P, Q, R~~ Resolved 26 Aug: complete brief at docs/16-virtual-cfo-brief.md, Part S at 17, report list at 18 | — | — |
+
+## Virtual CFO — Part O, the Director's Desk (27 Aug 2026)
+
+Shipped: the priority score (O2) with its breakdown on the row, the weekday themes and
+mixed mode (O3), cooldown, no-repeat-within-a-week, owner balance and dormant injection
+(O2.1), the call sheet (O4) and outcome capture (O4.1). Left open, each with its default:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| O-1 | Score weights live as constants in `desk-score.ts` (35/30/20/15, cooldown 40) rather than in Settings | Move to a `desk.*` settings section in the settings pass, with the interest module's descriptor pattern | Nothing — the defaults are the brief's |
+| O-2 | A-band coverage guarantee (every A customer once in 30 days) and the day-30/day-45 first-buyer follow-up are not yet in the rotation | Add both once the served log has a month of history to read | Big accounts crowded out by noisy small ones |
+| O-3 | A `PROMISE_TO_PAY` outcome is logged on the desk but does not yet write a `promises_to_pay` row (that table wants bills and a taker) | Write the promise when the collections module exposes a "promise without bills" path | The promise-kept metric counting desk promises |
+| O-4 | Week planner (O5.2), week close (O5.3) and the Export Centre (O6) are not built | Planner and close next; the Export Centre rides the existing report-schedule job once its handler returns | The Saturday screen; scheduled delivery |
+| O-5 | Opportunity (cross-sell + lost-line ₹) reads zero in the score, and the call sheet's "should buy" says so | Phase 5 prices it | 15 of 100 points |

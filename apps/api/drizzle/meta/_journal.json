@@ -505,6 +505,13 @@
       "when": 1787814885119,
       "tag": "0071_custom_report_description",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1787816232467,
+      "tag": "0072_cfo_desk",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import {
   CalendarDotsIcon,
   ChartBarIcon,
   ChartLineUpIcon,
+  PhoneIcon,
   TrophyIcon,
   HandCoinsIcon,
   UserCircleIcon,
@@ -792,6 +793,15 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Credit',
         items: [
+          {
+            to: '/reports/desk',
+            label: "Director's desk",
+            shortLabel: 'Desk',
+            icon: PhoneIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Part O',
+          },
           {
             to: '/reports/me',
             label: 'My CFO',

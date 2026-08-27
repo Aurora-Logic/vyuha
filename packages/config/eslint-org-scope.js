@@ -36,6 +36,8 @@ export const ORG_SCOPED_TABLES = [
   'crm_pipelines',
   'custom_reports',
   'cfo_targets',
+  'cfo_desk_outcomes',
+  'cfo_desk_served',
   'customer_owner_map',
   'deletion_records',
   'dashboard_layouts',

@@ -364,3 +364,72 @@ describe('GET /cfo/team/:ownerRef (G4 scorecard)', () => {
     expect(missing.status).toBe(404);
   });
 });
+
+describe('the Director’s Desk (Part O)', () => {
+  it('collapses the work lists into one ranked list, one name once, loudest reason first', async () => {
+    await harness.db.execute(sql`DELETE FROM cfo_desk_served WHERE org_id = ${ORG_ID}`);
+    await harness.db.execute(sql`DELETE FROM cfo_desk_outcomes WHERE org_id = ${ORG_ID}`);
+    const res = await harness.get<{
+      theme: { key: string };
+      cap: number;
+      qualified: number;
+      rows: { rank: number; party: string; primary: { key: string }; others: { key: string }[]; score: number; breakdown: { value: number; urgency: number } }[];
+    }>('/cfo/desk?mixed=1&cap=10', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.theme.key).toBe('mixed');
+    const names = res.body.rows.map((r) => r.party);
+    // Every name once.
+    expect(new Set(names).size).toBe(names.length);
+    // Asha: 45 days overdue is the loudest of her reasons; Bharat carries
+    // the limit breach; Deva the decline.
+    const asha = res.body.rows.find((r) => r.party === 'Asha Traders');
+    expect(asha?.primary.key).toBe('overdue-31-60');
+    const bharat = res.body.rows.find((r) => r.party === 'Bharat Cables');
+    expect(bharat?.primary.key).toBe('limit-breach');
+    expect(bharat?.others.map((o) => o.key)).toContain('overdue-1-30');
+    // Ranks are dense and the score explains itself.
+    expect(res.body.rows.map((r) => r.rank)).toEqual(res.body.rows.map((_, i) => i + 1));
+    expect(asha?.breakdown.urgency).toBe(15);
+  });
+
+  it('an outcome is logged, audited, and cools the name down', async () => {
+    const parties = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = 'Asha Traders'
+    `);
+    const ashaId = parties.rows[0]?.id ?? '';
+    const bad = await harness.post(`/cfo/desk/${ashaId}/outcome`, { token: adminToken, body: { outcome: 'CALL_AGAIN' } });
+    expect(bad.status).toBe(400);
+    const ok = await harness.post(`/cfo/desk/${ashaId}/outcome`, {
+      token: adminToken,
+      body: { outcome: 'NO_RESPONSE', notes: 'Rang twice' },
+    });
+    expect(ok.status).toBe(201);
+
+    const sheet = await harness.get<{ lastContact: { outcome: string } | null; numbers: { overdue: string; delayCostPerYear: string }; why: { primary: { key: string } | null } }>(
+      `/cfo/desk/${ashaId}`,
+      { token: adminToken },
+    );
+    expect(sheet.status).toBe(200);
+    expect(sheet.body.lastContact?.outcome).toBe('NO_RESPONSE');
+    expect(sheet.body.numbers.overdue).toBe('60000.00');
+    expect(sheet.body.numbers.delayCostPerYear).toBe('7200.00');
+    expect(sheet.body.why.primary?.key).toBe('overdue-31-60');
+
+    // Served yesterday-or-earlier is a no-repeat; served today is not. Force
+    // the cooldown path instead: the fresh NO_RESPONSE takes forty points.
+    await harness.db.execute(sql`DELETE FROM cfo_desk_served WHERE org_id = ${ORG_ID}`);
+    const again = await harness.get<{ rows: { party: string; breakdown: { cooldown: number } }[] }>('/cfo/desk?mixed=1', { token: adminToken });
+    const asha = again.body.rows.find((r) => r.party === 'Asha Traders');
+    expect(asha?.breakdown.cooldown).toBe(40);
+
+    const audit = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM audit_logs WHERE org_id = ${ORG_ID} AND action = 'cfo.desk.outcome'
+    `);
+    expect(audit.rows[0]?.n).toBeGreaterThanOrEqual(1);
+  });
+
+  it('the desk sits behind the module key', async () => {
+    const denied = await harness.get('/cfo/desk', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});

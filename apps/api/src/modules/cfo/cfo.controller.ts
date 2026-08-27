@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -8,6 +8,7 @@ import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
+import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday } from './desk.service.js';
 import { SalesAnalysisService, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
 
@@ -26,6 +27,20 @@ const salesScopeSchema = creditQuerySchema.extend({
   item: z.string().regex(UUID).optional(),
 });
 class SalesScopeDto extends createZodDto(salesScopeSchema) {}
+
+const deskQuerySchema = z.object({
+  cap: z.coerce.number().int().min(5).max(20).default(10),
+  mixed: z.enum(['0', '1']).default('0'),
+});
+class DeskQueryDto extends createZodDto(deskQuerySchema) {}
+
+const deskOutcomeSchema = z.object({
+  outcome: z.enum(DESK_OUTCOMES),
+  amount: z.string().regex(/^\d{1,14}(\.\d{1,2})?$/u).optional(),
+  nextDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+class DeskOutcomeDto extends createZodDto(deskOutcomeSchema) {}
 
 const targetMonthSchema = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/u) });
 class TargetMonthDto extends createZodDto(targetMonthSchema) {}
@@ -49,6 +64,7 @@ export class CfoController {
     private readonly myCfo: MyCfoService,
     private readonly team: TeamService,
     private readonly salesAnalysis: SalesAnalysisService,
+    private readonly deskService: DeskService,
   ) {}
 
   @Get('receivables')
@@ -121,6 +137,32 @@ export class CfoController {
   salesAnalysisAt(@CurrentUser() principal: Principal, @Query() query: SalesScopeDto): Promise<SalesAnalysis> {
     const { from, to, ...scope } = query;
     return this.salesAnalysis.analyse(principal, from, to, scope);
+  }
+
+  /** Part O: today's ranked, deduplicated, capped list. */
+  @Get('desk')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  desk(@CurrentUser() principal: Principal, @Query() query: DeskQueryDto): Promise<DeskToday> {
+    return this.deskService.today(principal, { cap: query.cap, mixed: query.mixed === '1' });
+  }
+
+  /** O4: the call sheet. */
+  @Get('desk/:partyId')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  callSheet(@CurrentUser() principal: Principal, @Param('partyId') partyId: string): Promise<CallSheet> {
+    return this.deskService.callSheet(principal, partyId);
+  }
+
+  /** O4.1: the outcome that closes the loop. */
+  @Post('desk/:partyId/outcome')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  async outcome(
+    @CurrentUser() principal: Principal,
+    @Param('partyId') partyId: string,
+    @Body() body: DeskOutcomeDto,
+  ): Promise<{ ok: true }> {
+    await this.deskService.logOutcome(principal, partyId, body);
+    return { ok: true };
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

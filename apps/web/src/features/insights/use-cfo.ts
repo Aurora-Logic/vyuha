@@ -317,3 +317,109 @@ export function useSalesAnalysis(
     staleTime: 60_000,
   });
 }
+
+const deskReasonSchema = z.object({ key: z.string(), label: z.string(), reason: z.string(), amount: z.string() });
+
+const deskRowSchema = z.object({
+  rank: z.number(),
+  partyId: z.string(),
+  party: z.string(),
+  ownerRef: z.string().nullable(),
+  ownerLabel: z.string(),
+  primary: deskReasonSchema,
+  others: z.array(deskReasonSchema),
+  atStake: z.string(),
+  score: z.number(),
+  breakdown: z.object({ value: z.number(), urgency: z.number(), risk: z.number(), opportunity: z.number(), cooldown: z.number() }),
+  lastContact: z.object({ on: z.string(), outcome: z.string() }).nullable(),
+});
+
+const deskTodaySchema = z.object({
+  date: z.string(),
+  theme: z.object({ key: z.string(), label: z.string(), hint: z.string() }),
+  mixed: z.boolean(),
+  cap: z.number(),
+  strip: z.object({ called: z.number(), outcomes: z.number(), collected: z.string(), orders: z.number(), orderValue: z.string() }),
+  rows: z.array(deskRowSchema),
+  qualified: z.number(),
+});
+
+export type DeskTodayData = z.infer<typeof deskTodaySchema>;
+export type DeskRowData = z.infer<typeof deskRowSchema>;
+
+const callSheetSchema = z.object({
+  party: z.object({
+    id: z.string(),
+    name: z.string(),
+    ownerLabel: z.string(),
+    creditLimit: z.string().nullable(),
+    since: z.string().nullable(),
+  }),
+  why: z.object({ primary: deskReasonSchema.nullable(), others: z.array(deskReasonSchema) }),
+  numbers: z.object({
+    thisYear: z.string(),
+    lastYear: z.string(),
+    delta: deltaReadingSchema,
+    outstanding: z.string(),
+    overdue: z.string(),
+    ageing: z.record(z.string(), z.string()),
+    maxDaysOverdue: z.number(),
+    delayCostPerYear: z.string(),
+    promisesMade: z.number(),
+    promisesKept: z.number(),
+  }),
+  buys: z.object({
+    top: z.array(z.object({ group: z.string(), share: z.number(), net: z.string() })),
+    stopped: z.array(z.object({ group: z.string(), lastYear: z.string() })),
+    shouldBuy: z.null(),
+  }),
+  lastContact: z.object({ on: z.string(), outcome: z.string(), notes: z.string(), ownerLabel: z.string() }).nullable(),
+  asks: z.array(z.string()),
+  recent: z.array(
+    z.object({ on: z.string(), outcome: z.string(), amount: z.string().nullable(), nextDate: z.string().nullable(), notes: z.string() }),
+  ),
+});
+
+export type CallSheetData = z.infer<typeof callSheetSchema>;
+
+export const DESK_OUTCOME_LABELS: Record<string, string> = {
+  ORDER_PLACED: 'Order placed',
+  PROMISE_TO_PAY: 'Promise to pay',
+  PARTIAL_PAYMENT: 'Partial payment',
+  NO_RESPONSE: 'No response',
+  DISPUTE_RAISED: 'Dispute raised',
+  NOT_INTERESTED: 'Not interested',
+  WRONG_CONTACT: 'Wrong contact',
+  CALL_AGAIN: 'Call again on a date',
+};
+
+export function useDeskToday(options: { cap: number; mixed: boolean; enabled?: boolean }): UseQueryResult<DeskTodayData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'desk', options.cap, options.mixed],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/desk?cap=${String(options.cap)}&mixed=${options.mixed ? '1' : '0'}`, { signal });
+      return parseOrThrow(deskTodaySchema, body, "director's desk");
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useCallSheet(partyId: string | null): UseQueryResult<CallSheetData, Error> {
+  return useQuery({
+    enabled: partyId !== null,
+    queryKey: ['cfo', 'desk', 'sheet', partyId],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/desk/${partyId ?? ''}`, { signal });
+      return parseOrThrow(callSheetSchema, body, 'call sheet');
+    },
+    staleTime: 30_000,
+  });
+}
+
+export async function logDeskOutcome(
+  partyId: string,
+  body: { outcome: string; amount?: string; nextDate?: string; notes?: string },
+): Promise<void> {
+  await apiRequest(`/cfo/desk/${partyId}/outcome`, { method: 'POST', body });
+}
