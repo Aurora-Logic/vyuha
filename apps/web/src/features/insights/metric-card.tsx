@@ -113,8 +113,8 @@ const BAR_MAX = 20;
  * the way the reference blocks do) -- but past this many points only a
  * thinned subset prints, or a month of bars becomes soup.
  */
-export const LABEL_EVERY_LIMIT = 16;
-const LABEL_TARGET = 10;
+export const LABEL_EVERY_LIMIT = 12;
+const LABEL_TARGET = 8;
 
 function seriesColour(key: string, index: number, palette: WidgetPalette): string {
   if (TROUBLE_KEYS.has(key)) return 'var(--destructive)';
@@ -122,6 +122,25 @@ function seriesColour(key: string, index: number, palette: WidgetPalette): strin
   // Never cycled: a sixth identity folds into the muted ink rather than
   // repainting the first colour (dataviz non-negotiable).
   return colours[index] ?? 'var(--muted-foreground)';
+}
+
+
+const SAFE_KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
+const safeKeyOf = (key: string): string => (SAFE_KEY.test(key) ? key : `k_${key.replace(/[^A-Za-z0-9_-]/gu, '_')}`);
+
+/** The same metric with series keys that are legal CSS custom-property names. */
+function safeKeyed(metric: Metric): Metric {
+  if (metric.series.every((s) => SAFE_KEY.test(s.key))) return metric;
+  const rename = new Map(metric.series.map((s) => [s.key, safeKeyOf(s.key)]));
+  return {
+    ...metric,
+    series: metric.series.map((s) => ({ ...s, key: rename.get(s.key) ?? s.key })),
+    points: metric.points.map((point) => {
+      const next: Record<string, string | number> = { t: point.t };
+      for (const [key, value] of Object.entries(point)) if (key !== 't') next[rename.get(key) ?? key] = value;
+      return next as Metric['points'][number];
+    }),
+  };
 }
 
 function chartConfigOf(metric: Metric, palette: WidgetPalette, shift = 0): ChartConfig {
@@ -172,7 +191,7 @@ function xTicks(points: readonly Record<string, string | number>[], category: bo
 }
 
 export function MetricChart({
-  metric,
+  metric: rawMetric,
   kind,
   options = {},
   className,
@@ -193,7 +212,12 @@ export function MetricChart({
       };
   const gradientId = useId();
   const palette = options.palette ?? 'default';
-  const series = keptSeries(metric, options);
+  // Series keys become CSS custom-property names (--color-<key>) inside
+  // ChartContainer; "180+" or "0-30" would be an invalid name and the
+  // series loses its colour silently. Keys are made safe here, once, for
+  // the chart alone -- tables keep the originals.
+  const metric = useMemo(() => safeKeyed(rawMetric), [rawMetric]);
+  const series = keptSeries(metric, { ...options, ...(options.series ? { series: options.series.map(safeKeyOf) } : {}) });
   const shift = series.length === 1 ? (options.colourIndex ?? 0) : 0;
   const config = useMemo(() => chartConfigOf(metric, palette, shift), [metric, palette, shift]);
   const points = useMemo(() => numericPoints(metric, options, series), [metric, options, series]);
@@ -214,8 +238,12 @@ export function MetricChart({
 
   // The number a bar wears when labels are on: the stack's total, printed
   // once at its end rather than once per segment.
-  const totalOf = (point: Record<string, string | number>): string =>
-    formatTick(metric.unit, series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0));
+  // A zero wears no label: thirty "0"s along a baseline say nothing the
+  // baseline does not.
+  const totalOf = (point: Record<string, string | number>): string => {
+    const total = series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0);
+    return total === 0 ? '' : formatTick(metric.unit, total);
+  };
   // Grouped bars have no shared total; each series would need its own label,
   // which is clutter -- labels there mark only the last series.
 
@@ -664,7 +692,7 @@ export function MetricCard({
   action?: ReactNode;
 }) {
   return (
-    <Card data-metric={metric.key}>
+    <Card data-metric={metric.key} className="min-w-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-1.5 text-sm font-medium">
           {metric.label}
@@ -688,7 +716,7 @@ export function MetricCard({
         {action !== undefined ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
-        <p className="text-3xl font-semibold tracking-tight tabular-nums">
+        <p className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">
           {formatHeadline(metric.unit, metric.headline)}
         </p>
         {isEmpty(metric) ? (

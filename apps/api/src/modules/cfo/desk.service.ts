@@ -165,7 +165,7 @@ export class DeskService {
 
   async today(principal: Principal, options: { cap: number; mixed: boolean }): Promise<DeskToday> {
     const today = istDateOf(new Date().toISOString());
-    return this.compose(principal, today, options, true);
+    return this.compose(principal, today, { ...options, fallback: true }, true);
   }
 
   /**
@@ -201,12 +201,20 @@ export class DeskService {
     };
   }
 
-  private async compose(principal: Principal, today: string, options: { cap: number; mixed: boolean }, writeServed: boolean): Promise<DeskToday> {
+  private async compose(principal: Principal, today: string, options: { cap: number; mixed: boolean; fallback?: boolean }, writeServed: boolean): Promise<DeskToday> {
     const weekday = new Date(Date.parse(today)).getUTCDay();
     const themed = weekday >= 1 && weekday <= 5 ? DESK_THEMES[weekday as 1 | 2 | 3 | 4 | 5] : null;
-    const mixed = options.mixed || themed === null;
+    // A theme whose lists have not landed yet (price until M1, grow until
+    // Phase 5) would serve an empty day; the desk falls back to the top
+    // names by score and says so, rather than reading as broken.
+    const themeHasLists = themed !== null && THEME_LISTS[themed.key].length > 0;
+    // The planner keeps a theme's honest emptiness; only the day falls back.
+    const fallback = options.fallback === true && !themeHasLists;
+    const mixed = options.mixed || themed === null || fallback;
     const theme = mixed
-      ? { key: 'mixed' as const, label: weekday === 6 ? 'Week close' : 'Mixed', hint: 'The top names by score, whatever the reason.' }
+      ? themed !== null && fallback && !options.mixed
+        ? { key: 'mixed' as const, label: `${themed.label} (mixed)`, hint: `${themed.hint} Its lists arrive later; today serves the top names by score.` }
+        : { key: 'mixed' as const, label: weekday === 6 ? 'Week close' : 'Mixed', hint: 'The top names by score, whatever the reason.' }
       : { key: themed.key, label: themed.label, hint: themed.hint };
 
     const lists = await this.credit.workLists(principal);
