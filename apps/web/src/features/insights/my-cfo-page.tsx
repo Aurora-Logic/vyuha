@@ -14,6 +14,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -202,7 +203,7 @@ export function MyCfoPage() {
                 { label: 'My sales', value: formatMoney(data.mySales), note: deltaText(data.salesDelta) },
                 { label: 'My collections', value: formatMoney(data.myCollections) },
                 { label: 'My overdue book', value: formatMoney(data.myOverdue), note: `${formatCount(data.overdueParties)} parties` },
-                { label: 'Their delay costs / yr', value: formatMoney(data.delayCostPerYear) },
+                { label: 'Their delay costs / yr', value: formatMoney(data.delayCostPerYear), info: <DefinitionLink id="D17" /> },
                 data.target !== null && data.achievementPct !== null
                   ? { label: 'Target progress', value: `${data.achievementPct}%`, note: `of ${formatMoney(data.target)}` }
                   // Honest placeholders, not fakes (brief G3 rows the

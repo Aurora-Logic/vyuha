@@ -13,6 +13,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ClassBadge, GradeBadge } from '@/components/shared/customer-badges';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { MatrixGrid } from '@/components/shared/matrix-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -88,7 +89,7 @@ export function ClassGradePage() {
               tiles={[
                 { label: 'Key accounts paying late', value: formatCount(concentrated.reduce((n, c) => n + c.count, 0)), note: formatMoney(concentrated.reduce((s, c) => s + Number(c.amount), 0).toFixed(2)) },
                 { label: 'Unclassed on the book', value: formatCount(data.unclassed.count), note: formatMoney(data.unclassed.amount) },
-                { label: 'Classes', value: formatCount(data.classes.length) },
+                { label: 'Classes', value: formatCount(data.classes.length), info: <DefinitionLink id="D18" /> },
               ]}
             />
             <MatrixGrid

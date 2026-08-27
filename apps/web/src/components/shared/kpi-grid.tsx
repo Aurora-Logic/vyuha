@@ -41,6 +41,8 @@ export interface KpiTileProps {
    * modes.
    */
   tone?: 'warning';
+  /** The "how is this calculated?" door beside the label (CFO brief R7): a DefinitionLink. */
+  info?: ReactNode;
 }
 
 export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 6; className?: string }) {
@@ -62,7 +64,7 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
   );
 }
 
-export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon, tone }: KpiTileProps) {
+export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon, tone, info }: KpiTileProps) {
   const delta = current !== undefined && previous !== undefined && previous !== null ? deltaOf(current, previous) : null;
   const good = delta === null ? null : delta.direction === 'flat' ? null : (delta.direction === 'up') !== lowerIsBetter;
   return (
@@ -98,6 +100,7 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
           </span>
         )}
         {label}
+        {info === undefined ? null : <span className="ml-1 inline-flex align-middle">{info}</span>}
       </dt>
       {/*
         A step smaller on a phone, and never truncated: a rupee figure cut in

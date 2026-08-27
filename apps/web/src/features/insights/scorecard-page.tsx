@@ -17,6 +17,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -189,14 +190,14 @@ export function ScorecardPage() {
             <KpiGrid
               columns={5}
               tiles={[
-                { label: 'Sales', value: formatMoney(data.row.sales), note: deltaText(data.row.salesDelta) },
+                { label: 'Sales', value: formatMoney(data.row.sales), note: deltaText(data.row.salesDelta), info: <DefinitionLink id="R05" /> },
                 {
                   label: 'Target',
                   value: data.row.achievementPct === null ? EMPTY_VALUE : `${String(data.row.achievementPct)}%`,
                   note: data.row.target === null ? 'No target set' : `of ${formatMoney(data.row.target)}`,
                 },
                 { label: 'Collections', value: formatMoney(data.row.collections) },
-                { label: 'Overdue in book', value: formatMoney(data.row.overdue) },
+                { label: 'Overdue in book', value: formatMoney(data.row.overdue), info: <DefinitionLink id="D10" /> },
                 { label: 'Book', value: formatCount(data.row.bookSize), note: `of a team of ${formatCount(data.teamSize)}` },
               ]}
             />

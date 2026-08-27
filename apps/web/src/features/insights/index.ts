@@ -13,3 +13,4 @@ export { DeskPage } from './desk-page';
 export { DataQualityPage } from './data-quality-page';
 export { PenetrationPage } from './penetration-page';
 export { ClassGradePage } from './class-grade-page';
+export { DefinitionsPage } from './definitions-page';

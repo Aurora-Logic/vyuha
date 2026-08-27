@@ -12,6 +12,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -148,12 +149,12 @@ export function CreditControlPage() {
             <KpiGrid
               columns={6}
               tiles={[
-                { label: 'Outstanding', value: formatMoney(data.outstanding) },
-                { label: 'Overdue', value: formatMoney(data.overdue) },
-                { label: 'Days sales outstanding', value: days(data.dsoCountback) },
-                { label: 'Best possible', value: days(data.bestPossibleDso) },
-                { label: 'Days late (ADD)', value: days(data.addDays) },
-                { label: 'Collection score (CEI)', value: data.cei === null ? EMPTY_VALUE : formatCount(Math.round(data.cei)) },
+                { label: 'Outstanding', value: formatMoney(data.outstanding), info: <DefinitionLink id="D02" /> },
+                { label: 'Overdue', value: formatMoney(data.overdue), info: <DefinitionLink id="D10" /> },
+                { label: 'Days sales outstanding', value: days(data.dsoCountback), info: <DefinitionLink id="D04" /> },
+                { label: 'Best possible', value: days(data.bestPossibleDso), info: <DefinitionLink id="D05" /> },
+                { label: 'Days late (ADD)', value: days(data.addDays), info: <DefinitionLink id="D07" /> },
+                { label: 'Collection score (CEI)', value: data.cei === null ? EMPTY_VALUE : formatCount(Math.round(data.cei)), info: <DefinitionLink id="D06" /> },
               ]}
             />
 

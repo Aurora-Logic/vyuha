@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker } from '@/components/shared/record-picker';
@@ -270,11 +271,11 @@ export function SalesAnalysisPage() {
             <KpiGrid
               columns={5}
               tiles={[
-                { label: 'Net sales', value: formatMoney(data.summary.net), note: deltaText(data.summary.delta) },
+                { label: 'Net sales', value: formatMoney(data.summary.net), note: deltaText(data.summary.delta), info: <DefinitionLink id="R05" /> },
                 { label: 'Same days last year', value: formatMoney(data.summary.lastYear) },
-                { label: 'Customers', value: formatCount(data.summary.customers) },
+                { label: 'Customers', value: formatCount(data.summary.customers), info: <DefinitionLink id="C01" /> },
                 { label: 'Vouchers', value: formatCount(data.summary.vouchers) },
-                { label: 'Quantity', value: formatCount(Math.round(Number(data.summary.qty))) },
+                { label: 'Quantity', value: formatCount(Math.round(Number(data.summary.qty))), info: <DefinitionLink id="R11" /> },
               ]}
             />
 

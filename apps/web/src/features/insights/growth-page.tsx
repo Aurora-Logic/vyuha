@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/empty';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { DateRangeField } from '@/features/attendance/pickers';
@@ -130,8 +131,9 @@ export function GrowthPage() {
           ) : (
             <Card data-metric="growth-bridge">
               <CardHeader>
-                <CardTitle className="text-sm font-medium">
+                <CardTitle className="flex items-center gap-1 text-sm font-medium">
                   {formatMoney(bridge.data.lastYear.toFixed(2))} → {formatMoney(bridge.data.thisYear.toFixed(2))}
+                  <DefinitionLink id="X01" />
                 </CardTitle>
               </CardHeader>
               <CardContent>

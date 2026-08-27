@@ -31,6 +31,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { ClassBadge } from '@/components/shared/customer-badges';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { DateField } from '@/features/attendance/pickers';
@@ -88,7 +89,7 @@ function ScoreBreakdown({ row }: { row: DeskRowData }) {
             </div>
           ) : null}
         </dl>
-        <p className="text-muted-foreground mt-2 text-xs">Opportunity is priced with Phase 5; until then it reads zero.</p>
+        <p className="text-muted-foreground mt-2 flex items-center gap-1 text-xs">Opportunity is priced with Phase 5; until then it reads zero. <DefinitionLink id="X02" /></p>
       </PopoverContent>
     </Popover>
   );

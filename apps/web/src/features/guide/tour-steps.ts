@@ -391,6 +391,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'What the figures are built on and where they are weak: twelve checks, each with its fix and the records behind it.',
   },
   {
+    id: 'screen.reports-definitions',
+    route: '/reports/definitions',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Definitions',
+    body: 'Every metric\u2019s meaning, formula, source and version in one place; the info icon beside a figure opens the same panel.',
+  },
+  {
     id: 'screen.reports-me',
     route: '/reports/me',
     anchor: ANCHORS.screenHeader,

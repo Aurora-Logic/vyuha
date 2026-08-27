@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/empty';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -107,7 +108,7 @@ export function DataQualityPage() {
             <KpiGrid
               columns={4}
               tiles={[
-                { label: 'Data health', value: data.headline === null ? EMPTY_VALUE : `${String(data.headline)}%`, note: `as of ${formatDate(data.asOf)}` },
+                { label: 'Data health', value: data.headline === null ? EMPTY_VALUE : `${String(data.headline)}%`, note: `as of ${formatDate(data.asOf)}`, info: <DefinitionLink id="Q01" /> },
                 { label: 'Checks measured', value: formatCount(measured.length), note: `of ${formatCount(data.checks.length)}` },
                 { label: 'On target', value: formatCount(measured.filter((c) => (c.health ?? 0) >= 1).length) },
                 { label: 'Broken', value: formatCount(broken) },

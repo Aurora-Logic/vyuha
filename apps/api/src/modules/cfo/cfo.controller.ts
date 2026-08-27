@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { PERMISSIONS, PIVOT_COLUMNS, PIVOT_DIMENSIONS, PIVOT_METRICS } from '@vyuha/shared';
+import { METRIC_REGISTRY, PERMISSIONS, PIVOT_COLUMNS, PIVOT_DIMENSIONS, PIVOT_METRICS, type MetricDefinition } from '@vyuha/shared';
 
 import { createZodDto } from '../../platform/common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../../platform/rbac/principal.js';
@@ -274,6 +274,13 @@ export class CfoController {
   pivot(@CurrentUser() principal: Principal, @Query() query: PivotQueryDto): Promise<PivotResult> {
     const { from, to, rows, columns, metric, top, ...scope } = query;
     return this.salesAnalysis.pivot(principal, from, to, scope, { rows, columns: columns ?? null, metric, top });
+  }
+
+  /** Q4: the registry, for exports and any client that must print a definition. */
+  @Get('metrics')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  metrics(): readonly MetricDefinition[] {
+    return METRIC_REGISTRY;
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

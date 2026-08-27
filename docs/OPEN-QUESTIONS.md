@@ -616,3 +616,18 @@ class, month, business line) with a this-period-vs-last-year column pair, top-N 
 | S-3 | Scheduling a custom report by email (S1.3) and versioning with subscriber notice | Ride the report-schedule job once its handler returns | Delivery |
 | S-4 | Custom KPI cards pinned to a personal dashboard, and custom alerts (S1.4) | KPI cards as a 'number' widget on a personal report is the near equivalent today; alerts after Q5's discipline lands | — |
 | S-5 | Filters on any dimension or metric threshold inside a pivot (S1.1) | Reuse Sales Analysis's scope set as the pivot's filters first; thresholds with S-1 | Filtered pivots |
+
+## Virtual CFO — Part Q4, the metric registry (27 Aug 2026)
+
+Built: the registry as a shared module (`packages/shared/src/metric-registry.ts`) seeded
+with every metric the module draws today plus the C1, C3 and C4 definitions it draws next,
+each with formula, source, unit, good direction, materiality, minimum sample, permission,
+version and effective date; the "How is this calculated?" panel (R7) from an info icon on
+the headline figures; the Definitions screen under Control, which doubles as the change
+log through versions and effective dates. Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| Q4-1 | The registry holds ~30 definitions; the brief's register runs to 183 across C1–C5, D, W and the matrices | Add rows as each metric ships, never ahead of the code that draws it -- a definition without a figure misleads | Nothing |
+| Q4-2 | A definition change is a version bump in code; there is no per-org change-log table or "which reports are affected" join | Keep the code-versioned registry until an org edits a definition (materiality, thresholds); then a `metric_overrides` table with audit | Per-org thresholds |
+| Q4-3 | Labels on older screens (attendance areas, receivables area cards) still come from `catalogue.ts`, not the registry | Fold the area catalogue into the registry when those areas gain definition panels | One source for those labels |
