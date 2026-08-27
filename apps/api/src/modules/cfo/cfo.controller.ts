@@ -51,6 +51,9 @@ class DeskQueryDto extends createZodDto(deskQuerySchema) {}
 const weekQuerySchema = z.object({ week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u) });
 class WeekQueryDto extends createZodDto(weekQuerySchema) {}
 
+const plannerQuerySchema = weekQuerySchema.extend({ cap: z.coerce.number().int().min(5).max(20).default(10) });
+class PlannerQueryDto extends createZodDto(plannerQuerySchema) {}
+
 const exportQuerySchema = salesScopeSchema.extend({ report: z.enum(EXPORT_REPORTS) });
 class ExportQueryDto extends createZodDto(exportQuerySchema) {}
 
@@ -206,6 +209,13 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   desk(@CurrentUser() principal: Principal, @Query() query: DeskQueryDto): Promise<DeskToday> {
     return this.deskService.today(principal, { cap: query.cap, mixed: query.mixed === '1' });
+  }
+
+  /** O5.2: the week ahead, read-only, one column per weekday. */
+  @Get('desk/planner')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  planner(@CurrentUser() principal: Principal, @Query() query: PlannerQueryDto): ReturnType<DeskService['planner']> {
+    return this.deskService.planner(principal, query.week, query.cap);
   }
 
   /** O5.3: the week close, for the week starting on the given Monday. */

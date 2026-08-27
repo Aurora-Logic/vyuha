@@ -44,6 +44,7 @@ import { usePermission } from '@/lib/session/permissions';
 
 import { toApiDate } from './period';
 import { WeekClose } from './week-close';
+import { WeekPlanner } from './week-planner';
 import { ExportButton } from './export-button';
 import { defaultRange } from './period';
 import {
@@ -312,8 +313,12 @@ export function DeskPage() {
       <Tabs defaultValue="today">
         <TabsList>
           <TabsTrigger value="today">Today</TabsTrigger>
+          <TabsTrigger value="planner">Week planner</TabsTrigger>
           <TabsTrigger value="week">Week close</TabsTrigger>
         </TabsList>
+        <TabsContent value="planner">
+          <WeekPlanner cap={cap} />
+        </TabsContent>
         <TabsContent value="week">
           <WeekClose />
         </TabsContent>

@@ -606,3 +606,26 @@ describe('GET /cfo/export (R6, O6)', () => {
     expect(unknown.status).toBe(400);
   });
 });
+
+describe('the week planner (O5.2)', () => {
+  it('lays the week out by theme without writing the served log', async () => {
+    const before = await harness.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM cfo_desk_served WHERE org_id = ${ORG_ID}`);
+    const res = await harness.get<{
+      days: { date: string; theme: { key: string }; rows: { party: string; primary: { key: string } }[]; atStake: string }[];
+      byOwner: { ownerLabel: string; names: number }[];
+    }>('/cfo/desk/planner?week=2026-08-31&cap=10', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.days.map((d) => d.theme.key)).toEqual(['money', 'slipping', 'quiet', 'price', 'grow']);
+    // Monday is money, so any name it serves comes from a money list; the
+    // fixture's two overdue names were served and contacted earlier in this
+    // file, so the rotation rules (no repeat within a week, cooldown) may
+    // leave Monday empty -- that is the planner being honest, not blank.
+    const moneyKeys = ['overdue-90-plus', 'overdue-61-90', 'overdue-31-60', 'limit-breach', 'overdue-1-30', 'due-this-week'];
+    expect(res.body.days[0]?.rows.every((r) => moneyKeys.includes(r.primary.key))).toBe(true);
+    // Thursday's price theme has no list until M1: honestly empty.
+    expect(res.body.days[3]?.rows).toHaveLength(0);
+    expect(res.body.byOwner.reduce((n, o) => n + o.names, 0)).toBe(res.body.days.reduce((n, d) => n + d.rows.length, 0));
+    const after = await harness.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM cfo_desk_served WHERE org_id = ${ORG_ID}`);
+    expect(after.rows[0]?.n).toBe(before.rows[0]?.n);
+  });
+});

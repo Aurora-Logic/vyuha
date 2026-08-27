@@ -658,6 +658,6 @@ About sheet with the standard header block, every export logged. Left:
 
 | # | Question | Recommended default | Blocks |
 |---|---|---|---|
-| O6-1 | Week planner (O5.2): five columns, names movable between days, regenerated Sunday night | Needs the nightly job for regeneration; a read-only planner from the served log and themes can come first | The Monday view of the week |
+| O6-1 | Week planner (O5.2): ~~five columns by theme~~ built read-only on today's reading; names movable between days and manual additions that stick need a planner table | Add `cfo_desk_planner_overrides` (date, party, added_by) when the first director asks to move a name; regeneration rides the nightly job | Moving names |
 | O6-2 | The Export Centre screen (O6): the catalogue with schedule, recipients, last run, bulk ZIP and merged PDF | The on-demand exports are the catalogue's rows; schedules ride the report-schedule job when its handler returns; PDF after the print route grows a report design | Scheduled delivery, "give me everything" |
 | O6-3 | PDF export of a screen (R6) | Reuse the printed-document route with a report design | The monthly close pack (the acceptance test) |

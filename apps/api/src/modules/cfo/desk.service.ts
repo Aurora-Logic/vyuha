@@ -165,6 +165,43 @@ export class DeskService {
 
   async today(principal: Principal, options: { cap: number; mixed: boolean }): Promise<DeskToday> {
     const today = istDateOf(new Date().toISOString());
+    return this.compose(principal, today, options, true);
+  }
+
+  /**
+   * O5.2: the week ahead, one column per weekday with its theme and the
+   * names it would serve today's reading -- so a director sees the week's
+   * workload before Monday. Nothing is written; the served log belongs to
+   * the day itself.
+   */
+  async planner(principal: Principal, weekStart: string, cap: number): Promise<{
+    from: string;
+    to: string;
+    days: readonly { date: string; theme: { key: DeskThemeKey; label: string; hint: string }; rows: readonly DeskRow[]; atStake: string }[];
+    byOwner: readonly { ownerLabel: string; names: number; atStake: string }[];
+  }> {
+    const days: { date: string; theme: { key: DeskThemeKey; label: string; hint: string }; rows: readonly DeskRow[]; atStake: string }[] = [];
+    const owners = new Map<string, { names: number; atStake: number }>();
+    for (let offset = 0; offset < 5; offset += 1) {
+      const date = shiftDays(weekStart, offset);
+      const day = await this.compose(principal, date, { cap, mixed: false }, false);
+      days.push({ date, theme: day.theme, rows: day.rows, atStake: day.rows.reduce((sum, r) => sum + Number(r.atStake), 0).toFixed(2) });
+      for (const r of day.rows) {
+        const entry = owners.get(r.ownerLabel) ?? { names: 0, atStake: 0 };
+        entry.names += 1;
+        entry.atStake += Number(r.atStake);
+        owners.set(r.ownerLabel, entry);
+      }
+    }
+    return {
+      from: weekStart,
+      to: shiftDays(weekStart, 4),
+      days,
+      byOwner: [...owners.entries()].map(([ownerLabel, v]) => ({ ownerLabel, names: v.names, atStake: v.atStake.toFixed(2) })).sort((a, b) => b.names - a.names),
+    };
+  }
+
+  private async compose(principal: Principal, today: string, options: { cap: number; mixed: boolean }, writeServed: boolean): Promise<DeskToday> {
     const weekday = new Date(Date.parse(today)).getUTCDay();
     const themed = weekday >= 1 && weekday <= 5 ? DESK_THEMES[weekday as 1 | 2 | 3 | 4 | 5] : null;
     const mixed = options.mixed || themed === null;
@@ -271,7 +308,7 @@ export class DeskService {
     const rows: DeskRow[] = chosen.sort((a, b) => b.score - a.score).map((r, index) => ({ ...r, rank: index + 1 }));
 
     // The served log is what tomorrow's rotation reads.
-    for (const row of rows) {
+    for (const row of writeServed ? rows : []) {
       await this.db.execute(sql`
         INSERT INTO cfo_desk_served (org_id, party_id, served_on, score, reason)
         VALUES (${principal.orgId}, ${row.partyId}, ${today}, ${row.score}, ${row.primary.key})

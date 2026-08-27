@@ -732,3 +732,31 @@ export function mondayOf(day: string): string {
   d.setUTCDate(d.getUTCDate() - ((weekday + 6) % 7));
   return d.toISOString().slice(0, 10);
 }
+
+const plannerSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  days: z.array(
+    z.object({
+      date: z.string(),
+      theme: z.object({ key: z.string(), label: z.string(), hint: z.string() }),
+      rows: z.array(deskRowSchema),
+      atStake: z.string(),
+    }),
+  ),
+  byOwner: z.array(z.object({ ownerLabel: z.string(), names: z.number(), atStake: z.string() })),
+});
+
+export type PlannerData = z.infer<typeof plannerSchema>;
+
+export function usePlanner(week: string, cap: number, options: { enabled?: boolean } = {}): UseQueryResult<PlannerData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'desk', 'planner', week, cap],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/desk/planner?week=${week}&cap=${String(cap)}`, { signal });
+      return parseOrThrow(plannerSchema, body, 'week planner');
+    },
+    staleTime: 60_000,
+  });
+}
