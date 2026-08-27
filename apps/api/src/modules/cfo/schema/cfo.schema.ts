@@ -153,3 +153,32 @@ export const customerOwnerMap = pgTable(
     index('customer_owner_map_party_idx').on(t.orgId, t.partyId, t.effectiveFrom),
   ],
 );
+
+/**
+ * Targets (brief G5, Phase 3): monthly, at person scope first — brand,
+ * category and customer scopes arrive with their screens. Rupee net-sales
+ * targets only; incentive arithmetic stays out until its own phase, and
+ * payroll stays out of the product entirely.
+ *
+ * `ownerRef` matches the fact table's spelling ('user:<id>' | 'HOUSE') so a
+ * league row joins its target without translation.
+ */
+export const cfoTargets = pgTable(
+  'cfo_targets',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    ownerRef: text('owner_ref').notNull(),
+    /** YYYY-MM. */
+    month: text('month').notNull(),
+    netTarget: numeric('net_target', { precision: 16, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('cfo_targets_owner_month_uq').on(t.orgId, t.ownerRef, t.month),
+    index('cfo_targets_month_idx').on(t.orgId, t.month),
+  ],
+);

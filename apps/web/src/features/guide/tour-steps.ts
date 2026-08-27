@@ -351,6 +351,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Where the change came from — volume, price, mix, new and lost customers — and the matrix naming who it happened to.',
   },
   {
+    id: 'screen.reports-team',
+    route: '/reports/team',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Sales team',
+    body: 'The league table: every book priced the same way, against the month\u2019s target.',
+  },
+  {
     id: 'screen.reports-me',
     route: '/reports/me',
     anchor: ANCHORS.screenHeader,

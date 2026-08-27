@@ -29,7 +29,7 @@ let adminUserId = '';
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'CFO Credit Org', { preservePeople: true });
-  for (const table of ['fact_receivable_snapshot', 'customer_owner_map', 'voucher_lines', 'vouchers', 'parties']) {
+  for (const table of ['fact_receivable_snapshot', 'cfo_targets', 'customer_owner_map', 'voucher_lines', 'vouchers', 'parties']) {
     await harness.db.execute(sql.raw(`DELETE FROM ${table} WHERE org_id = '${ORG_ID}'`));
   }
   await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`);
@@ -232,5 +232,87 @@ describe('GET /cfo/movement', () => {
     // Bands cover the classified set: the heaviest (Asha, 60,000) is A.
     const ashaCell = res.body.cells.find((c) => c.parties.some((p) => p.party === 'Asha Traders'));
     expect(ashaCell?.band).toBe('A');
+  });
+});
+
+describe('targets and the league (G4, G5)', () => {
+  it('setting a target needs cfo.targets.manage, and a bad month is refused', async () => {
+    const denied = await harness.put('/cfo/targets', {
+      token: employeeToken,
+      body: { ownerRef: `user:${adminUserId}`, month: '2026-08', netTarget: '100000' },
+    });
+    expect(denied.status).toBe(403);
+
+    const badMonth = await harness.put('/cfo/targets', {
+      token: adminToken,
+      body: { ownerRef: `user:${adminUserId}`, month: '2026-13', netTarget: '100000' },
+    });
+    expect(badMonth.status).toBe(400);
+  });
+
+  it('a stored target reads back, joins the league, and is audited', async () => {
+    const put = await harness.put('/cfo/targets', {
+      token: adminToken,
+      body: { ownerRef: `user:${adminUserId}`, month: '2026-08', netTarget: '100000' },
+    });
+    expect(put.status).toBe(200);
+
+    const list = await harness.get<{ ownerRef: string; netTarget: string }[]>('/cfo/targets?month=2026-08', {
+      token: adminToken,
+    });
+    expect(list.status).toBe(200);
+    expect(list.body).toEqual([{ ownerRef: `user:${adminUserId}`, month: '2026-08', netTarget: '100000.00' }]);
+
+    const audit = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM audit_logs WHERE org_id = ${ORG_ID} AND action = 'cfo.target.set'
+    `);
+    expect(audit.rows[0]?.n).toBeGreaterThanOrEqual(1);
+  });
+
+  it('the league prices each book: sales, collections, overdue, achievement', async () => {
+    const res = await harness.get<
+      {
+        ownerRef: string;
+        ownerEmail: string | null;
+        bookSize: number;
+        sales: string;
+        collections: string;
+        overdue: string;
+        target: string | null;
+        achievementPct: number | null;
+      }[]
+    >('/cfo/league?from=2026-08-01&to=2026-08-31', { token: adminToken });
+
+    expect(res.status).toBe(200);
+    // One book exists: the owner map gives Asha to the admin. Sales 60,000
+    // against the 100,000 August target reads 60%.
+    expect(res.body).toHaveLength(1);
+    const row = res.body[0];
+    expect(row?.ownerRef).toBe(`user:${adminUserId}`);
+    expect(row?.bookSize).toBe(1);
+    expect(row?.sales).toBe('60000.00');
+    expect(row?.collections).toBe('20000.00');
+    expect(row?.overdue).toBe('60000.00');
+    expect(row?.target).toBe('100000.00');
+    expect(row?.achievementPct).toBe(60);
+  });
+
+  it('a window covering part of a month takes the target by day fraction (B2)', async () => {
+    const res = await harness.get<{ target: string | null }[]>('/cfo/league?from=2026-08-01&to=2026-08-15', {
+      token: adminToken,
+    });
+    // 15 of August's 31 days: 100,000 x 15/31.
+    expect(res.body[0]?.target).toBe('48387.10');
+  });
+
+  it('the target reaches My CFO as achievement on my own book', async () => {
+    const res = await harness.get<MyCfo>('/cfo/me?from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(res.body.target).toBe('100000.00');
+    expect(res.body.achievementPct).toBe(60);
+  });
+
+  it('the league itself sits behind the module key', async () => {
+    const denied = await harness.get('/cfo/league?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(denied.status).toBe(403);
   });
 });

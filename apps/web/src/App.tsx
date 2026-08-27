@@ -53,6 +53,7 @@ const BUILT_ROUTES = new Set([
   '/reports/sales',
   '/reports/sync',
   '/reports/growth',
+  '/reports/team',
   '/reports/me',
   '/reports/credit',
   '/reports/work-lists',
@@ -91,6 +92,7 @@ const CreditControlPage = lazy(() => import('@/features/insights').then((m) => (
 const WorkListsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.WorkListsPage })));
 const MyCfoPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.MyCfoPage })));
 const GrowthPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.GrowthPage })));
+const TeamPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.TeamPage })));
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
 const RecycleBinPage = lazy(() => import('@/features/recycle-bin').then((m) => ({ default: m.RecycleBinPage })));
@@ -249,6 +251,7 @@ export default function App() {
               <Route path="reports/custom" element={<CustomReportsPage />} />
               <Route path="reports/custom/:id" element={<CustomReportPage />} />
               <Route path="reports/growth" element={<GrowthPage />} />
+              <Route path="reports/team" element={<TeamPage />} />
               <Route path="reports/me" element={<MyCfoPage />} />
               <Route path="reports/credit" element={<CreditControlPage />} />
               <Route path="reports/work-lists" element={<WorkListsPage />} />

@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { z } from 'zod';
 
 import { apiRequest } from '@/lib/api/client';
+import { formatMoney } from '@/lib/format';
 import { parseOrThrow } from '@/lib/api/parse';
 
 /**
@@ -145,4 +146,79 @@ export function useMovement(
     },
     staleTime: 60_000,
   });
+}
+
+export const deltaReadingSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('pct'), deltaAbs: z.number(), deltaPct: z.number() }),
+  z.object({ kind: z.literal('abs-only'), deltaAbs: z.number(), reason: z.string() }),
+  z.object({ kind: z.literal('new'), deltaAbs: z.number() }),
+  z.object({ kind: z.literal('none'), reason: z.string() }),
+]);
+
+export type DeltaReadingData = z.infer<typeof deltaReadingSchema>;
+
+/** Q1.1 spoken aloud: a small base gets rupees, never a percentage. */
+export function deltaText(delta: DeltaReadingData): string {
+  switch (delta.kind) {
+    case 'pct':
+      return `${delta.deltaPct >= 0 ? '+' : '\u2212'}${String(Math.abs(Math.round(delta.deltaPct)))}% vs last year`;
+    case 'abs-only':
+      return `${delta.deltaAbs >= 0 ? '+' : '\u2212'}${formatMoney(Math.abs(delta.deltaAbs).toFixed(2))} vs a small base`;
+    case 'new':
+      return 'New \u2014 nothing last year';
+    case 'none':
+      return 'Nothing in either year';
+  }
+}
+
+const leagueSchema = z.array(
+  z.object({
+    ownerRef: z.string(),
+    ownerEmail: z.string().nullable(),
+    bookSize: z.number(),
+    sales: z.string(),
+    salesDelta: deltaReadingSchema,
+    collections: z.string(),
+    overdue: z.string(),
+    target: z.string().nullable(),
+    achievementPct: z.number().nullable(),
+  }),
+);
+
+export type LeagueData = z.infer<typeof leagueSchema>;
+export type LeagueRowData = LeagueData[number];
+
+export function useLeague(
+  range: { from: string; to: string },
+  options: { enabled?: boolean } = {},
+): UseQueryResult<LeagueData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'league', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/league?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(leagueSchema, body, 'league table');
+    },
+    staleTime: 60_000,
+  });
+}
+
+const targetsSchema = z.array(z.object({ ownerRef: z.string(), month: z.string(), netTarget: z.string() }));
+
+export type TargetsData = z.infer<typeof targetsSchema>;
+
+export function useTargets(month: string, options: { enabled?: boolean } = {}): UseQueryResult<TargetsData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'targets', month],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/targets?month=${month}`, { signal });
+      return parseOrThrow(targetsSchema, body, 'targets');
+    },
+    staleTime: 30_000,
+  });
+}
+
+export async function saveTarget(input: { ownerRef: string; month: string; netTarget: string }): Promise<void> {
+  await apiRequest('/cfo/targets', { method: 'PUT', body: input });
 }

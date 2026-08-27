@@ -25,6 +25,7 @@ import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format'
 import { usePermission } from '@/lib/session/permissions';
 
 import type { Metric } from './api';
+import { deltaReadingSchema, deltaText } from './use-cfo';
 import { MetricChart } from './metric-card';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
 
@@ -32,16 +33,11 @@ import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from 
  * My CFO (brief G3): what each person sees about their own book -- the
  * screen that makes the sales team open the module voluntarily. Five cards,
  * the pacing line, then the customers themselves. What is not knowable yet
- * says so rather than pretending: targets arrive with Phase 3, real profit
- * with the valuation decision (M1).
+ * says so rather than pretending: real profit awaits the valuation
+ * decision (M1); a period without a target says so instead of faking 100%.
  */
 
-const deltaSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('pct'), deltaAbs: z.number(), deltaPct: z.number() }),
-  z.object({ kind: z.literal('abs-only'), deltaAbs: z.number(), reason: z.string() }),
-  z.object({ kind: z.literal('new'), deltaAbs: z.number() }),
-  z.object({ kind: z.literal('none'), reason: z.string() }),
-]);
+const deltaSchema = deltaReadingSchema;
 
 const myCfoSchema = z.object({
   bookSize: z.number(),
@@ -51,6 +47,8 @@ const myCfoSchema = z.object({
   myOverdue: z.string(),
   overdueParties: z.number(),
   delayCostPerYear: z.string(),
+  target: z.string().nullable(),
+  achievementPct: z.number().nullable(),
   pacing: z.array(z.object({ t: z.string(), cumulative: z.number(), lastYear: z.number() })),
   customers: z.array(
     z.object({
@@ -67,7 +65,6 @@ const myCfoSchema = z.object({
 });
 
 type MyCfoData = z.infer<typeof myCfoSchema>;
-type Delta = z.infer<typeof deltaSchema>;
 
 function useMyCfo(range: { from: string; to: string }, enabled: boolean): UseQueryResult<MyCfoData, Error> {
   return useQuery({
@@ -82,19 +79,6 @@ function useMyCfo(range: { from: string; to: string }, enabled: boolean): UseQue
 }
 
 /** Q1.1 spoken aloud: a percentage only where the base could carry one. */
-function deltaText(delta: Delta): string {
-  switch (delta.kind) {
-    case 'pct':
-      return `${delta.deltaPct >= 0 ? '+' : '−'}${String(Math.abs(Math.round(delta.deltaPct)))}% vs last year`;
-    case 'abs-only':
-      return `${delta.deltaAbs >= 0 ? '+' : '−'}${formatMoney(Math.abs(delta.deltaAbs).toFixed(2))} vs a small base`;
-    case 'new':
-      return 'New — nothing last year';
-    case 'none':
-      return 'Nothing in either year';
-  }
-}
-
 function pacingMetric(data: MyCfoData): Metric {
   return {
     key: 'my-pacing',
@@ -219,9 +203,11 @@ export function MyCfoPage() {
                 { label: 'My collections', value: formatMoney(data.myCollections) },
                 { label: 'My overdue book', value: formatMoney(data.myOverdue), note: `${formatCount(data.overdueParties)} parties` },
                 { label: 'Their delay costs / yr', value: formatMoney(data.delayCostPerYear) },
-                // Honest placeholders, not fakes (brief G3 rows the module
-                // cannot fill yet say why).
-                { label: 'Target progress', value: EMPTY_VALUE, note: 'Targets arrive with Phase 3' },
+                data.target !== null && data.achievementPct !== null
+                  ? { label: 'Target progress', value: `${data.achievementPct}%`, note: `of ${formatMoney(data.target)}` }
+                  // Honest placeholders, not fakes (brief G3 rows the
+                  // module cannot fill yet say why).
+                  : { label: 'Target progress', value: EMPTY_VALUE, note: 'No target set for this period' },
                 { label: 'Real profit', value: EMPTY_VALUE, note: 'Awaits the valuation decision' },
               ]}
             />

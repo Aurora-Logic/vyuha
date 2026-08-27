@@ -6,6 +6,7 @@ import { SettingsService } from '../../platform/settings/settings.service.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
 import { type Principal } from '../../platform/rbac/principal.js';
 import { readDelta, type DeltaReading } from './robustness.js';
+import { TeamService } from './team.service.js';
 
 /**
  * My CFO (brief G3): what one person sees about their own book — the screen
@@ -15,8 +16,8 @@ import { readDelta, type DeltaReading } from './robustness.js';
  * date everywhere else; this screen is about NOW, so the book is today's.
  *
  * What it deliberately does not show yet, and says so rather than faking:
- * target progress (targets are Phase 3) and real profit (blocked on the
- * valuation method, M1). Q1.1 applies to the deltas — a customer below the
+ * real profit, blocked on the valuation method (M1). Target progress
+ * arrived with Phase 3's targets -- null until someone sets one. Q1.1 applies to the deltas — a customer below the
  * materiality floor gets a rupee change, never a percentage.
  */
 
@@ -41,6 +42,8 @@ export interface MyCfo {
   readonly myOverdue: string;
   readonly overdueParties: number;
   readonly delayCostPerYear: string;
+  readonly target: string | null;
+  readonly achievementPct: number | null;
   readonly pacing: readonly { t: string; cumulative: number; lastYear: number }[];
   readonly customers: readonly MyCustomerRow[];
 }
@@ -50,6 +53,7 @@ export class MyCfoService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly settings: SettingsService,
+    private readonly team: TeamService,
   ) {}
 
   /** The party ids this principal answers for, RM assignment first. */
@@ -80,6 +84,8 @@ export class MyCfoService {
         myOverdue: '0.00',
         overdueParties: 0,
         delayCostPerYear: '0.00',
+        target: null,
+        achievementPct: null,
         pacing: [],
         customers: [],
       };
@@ -203,6 +209,8 @@ export class MyCfoService {
       })
       .sort((a, b) => Number(b.thisPeriod) - Number(a.thisPeriod));
 
+    const target = await this.team.targetForRange(principal, 'user:' + principal.userId, from, to);
+
     return {
       bookSize: book.length,
       mySales: mySales.toFixed(2),
@@ -211,6 +219,8 @@ export class MyCfoService {
       myOverdue: myOverdue.toFixed(2),
       overdueParties: overdue.rows[0]?.parties ?? 0,
       delayCostPerYear: ((myOverdue * rate) / 100).toFixed(2),
+      target,
+      achievementPct: target === null || Number(target) === 0 ? null : Math.round((mySales / Number(target)) * 100),
       pacing,
       customers,
     };
