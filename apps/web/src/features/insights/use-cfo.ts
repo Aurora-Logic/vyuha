@@ -326,6 +326,7 @@ const deskRowSchema = z.object({
   party: z.string(),
   ownerRef: z.string().nullable(),
   ownerLabel: z.string(),
+  tierCode: z.string().nullable(),
   primary: deskReasonSchema,
   others: z.array(deskReasonSchema),
   atStake: z.string(),

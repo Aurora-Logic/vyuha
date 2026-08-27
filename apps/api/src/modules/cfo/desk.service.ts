@@ -9,7 +9,8 @@ import { hasPermission, type Principal } from '../../platform/rbac/principal.js'
 import { SettingsService } from '../../platform/settings/settings.service.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
 import { CreditControlService, type WorkListRow } from './credit-control.service.js';
-import { DESK_THEMES, REASON_PRIORITY, THEME_LISTS, deskScore, type DeskScore, type DeskThemeKey } from './desk-score.js';
+import { CLASS_MULTIPLIER, DESK_THEMES, REASON_PRIORITY, THEME_LISTS, deskScore, type DeskScore, type DeskThemeKey } from './desk-score.js';
+import { TierService } from './tier.service.js';
 import { readDelta, type DeltaReading } from './robustness.js';
 
 /**
@@ -49,6 +50,7 @@ export interface DeskRow {
   readonly party: string;
   readonly ownerRef: string | null;
   readonly ownerLabel: string;
+  readonly tierCode: string | null;
   readonly primary: DeskReason;
   readonly others: readonly DeskReason[];
   readonly atStake: string;
@@ -110,6 +112,7 @@ export class DeskService {
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
     private readonly credit: CreditControlService,
+    private readonly tiers: TierService,
   ) {}
 
   /** Current owner per party, the owner map first, the RM assignment behind it. */
@@ -181,6 +184,7 @@ export class DeskService {
     const ids = candidates.map(([id]) => id);
     const signals = await this.signals(principal, ids, today);
     const owners = await this.ownersOf(principal);
+    const classes = await this.tiers.classAsOf(principal.orgId, ids, today);
     const served = await this.db.execute<{ partyId: string; reason: string }>(sql`
       SELECT party_id AS "partyId", reason FROM cfo_desk_served
       WHERE org_id = ${principal.orgId} AND party_id IN ${ids}
@@ -212,6 +216,7 @@ export class DeskService {
           opportunityValue: 0,
           maxOpportunityValue: 0,
           onCooldown,
+          classMultiplier: CLASS_MULTIPLIER[classes.get(partyId) ?? ''] ?? 1,
         });
         const owner = owners.get(partyId) ?? null;
         return {
@@ -219,6 +224,7 @@ export class DeskService {
           party: entry.party,
           ownerRef: owner?.ref ?? null,
           ownerLabel: owner?.label ?? 'Unassigned',
+          tierCode: classes.get(partyId) ?? null,
           primary,
           others: ordered.slice(1),
           atStake: primary.amount,

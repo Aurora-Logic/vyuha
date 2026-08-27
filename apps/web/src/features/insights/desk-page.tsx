@@ -30,6 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { ClassBadge } from '@/components/shared/customer-badges';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { DateField } from '@/features/attendance/pickers';
@@ -46,6 +47,7 @@ import {
   logDeskOutcome,
   useCallSheet,
   useDeskToday,
+  useTiers,
   type CallSheetData,
   type DeskRowData,
 } from './use-cfo';
@@ -256,6 +258,7 @@ export function DeskPage() {
   const [mixed, setMixed] = useState(false);
   const [openParty, setOpenParty] = useState<{ id: string; name: string } | null>(null);
   const desk = useDeskToday({ cap, mixed, enabled: canView });
+  const tiers = useTiers({ enabled: canView });
   const sheet = useCallSheet(openParty?.id ?? null);
 
   async function assign(row: DeskRowData) {
@@ -364,6 +367,7 @@ export function DeskPage() {
                   <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
                     <span className="text-muted-foreground tabular-nums">{row.rank}.</span>
                     <span className="truncate">{row.party}</span>
+                    <ClassBadge code={row.tierCode} token={tiers.data?.find((t) => t.code === row.tierCode)?.colourToken} label={tiers.data?.find((t) => t.code === row.tierCode)?.label} />
                     <Badge variant="secondary">{row.primary.label}</Badge>
                   </CardTitle>
                   <CardAction className="flex items-center gap-2">

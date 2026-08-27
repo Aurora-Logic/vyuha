@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { deskScore } from './desk-score.js';
+import { CLASS_MULTIPLIER, deskScore } from './desk-score.js';
 
 const base = {
   value12m: 0,
@@ -50,5 +50,15 @@ describe('deskScore (O2)', () => {
   it('opportunity is zero until it is priced, and the breakdown says so by being zero', () => {
     expect(deskScore({ ...base, opportunityValue: 1000, maxOpportunityValue: 0 }).breakdown.opportunity).toBe(0);
     expect(deskScore({ ...base, opportunityValue: 500, maxOpportunityValue: 1000 }).breakdown.opportunity).toBe(7.5);
+  });
+
+  it('the customer class leans the list toward key accounts (P6)', () => {
+    const plain = deskScore({ ...base, value12m: 400_000 });
+    const key = deskScore({ ...base, value12m: 400_000, classMultiplier: CLASS_MULTIPLIER['A+'] });
+    const cash = deskScore({ ...base, value12m: 400_000, classMultiplier: CLASS_MULTIPLIER.D });
+    expect(key.breakdown.value).toBeGreaterThan(plain.breakdown.value);
+    expect(cash.breakdown.value).toBeCloseTo(plain.breakdown.value / 2, 0);
+    // A multiplier never pushes the factor past its ceiling.
+    expect(deskScore({ ...base, value12m: 4_000_000, classMultiplier: 1.5 }).breakdown.value).toBe(35);
   });
 });

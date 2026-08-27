@@ -42,7 +42,12 @@ export interface DeskSignals {
   readonly maxOpportunityValue: number;
   /** Contacted in the last fourteen days without an outcome change. */
   readonly onCooldown: boolean;
+  /** P6: the customer class leans the list toward key accounts; 1 when unclassed. */
+  readonly classMultiplier?: number;
 }
+
+/** P6's multipliers on the value factor, by class code. */
+export const CLASS_MULTIPLIER: Record<string, number> = { 'A+': 1.5, A: 1.25, B: 1, C: 0.8, D: 0.5 };
 
 export interface DeskScore {
   readonly score: number;
@@ -58,7 +63,8 @@ export interface DeskScore {
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
 export function deskScore(s: DeskSignals, w: DeskWeights = DEFAULT_DESK_WEIGHTS): DeskScore {
-  const value = s.maxValue12m <= 0 || s.value12m <= 0 ? 0 : clamp01(Math.log1p(s.value12m) / Math.log1p(s.maxValue12m));
+  const rawValue = s.maxValue12m <= 0 || s.value12m <= 0 ? 0 : Math.log1p(s.value12m) / Math.log1p(s.maxValue12m);
+  const value = clamp01(rawValue * (s.classMultiplier ?? 1));
   const urgency = clamp01(Math.max(s.daysOverdue / 90, s.daysPastGap / 60));
   // Two broken promises are a fully risky name; utilisation counts from the limit up.
   const risk = clamp01(Math.max(Math.min(s.brokenPromises / 2, 1), (s.utilisationPct - 100) / 100));
