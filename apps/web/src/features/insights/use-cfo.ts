@@ -222,3 +222,44 @@ export function useTargets(month: string, options: { enabled?: boolean } = {}): 
 export async function saveTarget(input: { ownerRef: string; month: string; netTarget: string }): Promise<void> {
   await apiRequest('/cfo/targets', { method: 'PUT', body: input });
 }
+
+const radarAxisSchema = z.object({
+  axis: z.string(),
+  mine: z.number().nullable(),
+  team: z.number().nullable(),
+  note: z.string().optional(),
+});
+
+const scorecardSchema = z.object({
+  ownerRef: z.string(),
+  ownerEmail: z.string().nullable(),
+  row: leagueSchema.element,
+  teamSize: z.number(),
+  radar: z.array(radarAxisSchema),
+  bridge: bridgeSchema,
+  movement: movementSchema,
+  ageing: z.record(z.string(), z.string()),
+  promises: z.object({ kept: z.number(), broken: z.number(), open: z.number() }),
+  activity: z.object({ assigned: z.number(), closed: z.number() }),
+});
+
+export type ScorecardData = z.infer<typeof scorecardSchema>;
+
+export function useScorecard(
+  ownerRef: string,
+  range: { from: string; to: string },
+  options: { enabled?: boolean } = {},
+): UseQueryResult<ScorecardData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'scorecard', ownerRef, range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(
+        `/cfo/team/${encodeURIComponent(ownerRef)}?from=${range.from}&to=${range.to}`,
+        { signal },
+      );
+      return parseOrThrow(scorecardSchema, body, 'scorecard');
+    },
+    staleTime: 60_000,
+  });
+}

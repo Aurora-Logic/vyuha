@@ -316,3 +316,51 @@ describe('targets and the league (G4, G5)', () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe('GET /cfo/team/:ownerRef (G4 scorecard)', () => {
+  it('scopes the league engine to one book, and the radar reads the team', async () => {
+    const res = await harness.get<{
+      ownerRef: string;
+      row: { sales: string; achievementPct: number | null };
+      teamSize: number;
+      radar: { axis: string; mine: number | null; team: number | null; note?: string }[];
+      bridge: { thisYear: number; lastYear: number; newCustomerEffect: number; reconciliationError: number };
+      movement: { cells: { state: string; count: number }[] };
+      ageing: Record<string, string>;
+      promises: { kept: number; broken: number; open: number };
+      activity: { assigned: number; closed: number };
+    }>(`/cfo/team/user:${adminUserId}?from=2026-08-01&to=2026-08-31`, { token: adminToken });
+
+    expect(res.status).toBe(200);
+    expect(res.body.row.sales).toBe('60000.00');
+    expect(res.body.teamSize).toBe(1);
+    // The bridge is Asha's alone: her 60,000 this August against nothing
+    // last August -- and it still reconciles exactly.
+    expect(res.body.bridge.thisYear).toBe(60_000);
+    expect(res.body.bridge.lastYear).toBe(0);
+    expect(res.body.bridge.reconciliationError).toBe(0);
+    // Her movement matrix holds only her: growing (July order, no LY base).
+    const populated = res.body.movement.cells.filter((c) => c.count > 0);
+    expect(populated.map((c) => c.state)).toEqual(['growing']);
+    // Her ageing: 60,000 sits in the 31-60 bucket, 40,000 current.
+    expect(res.body.ageing['31-60']).toBe('60000.00');
+    expect(res.body.ageing.current).toBe('40000.00');
+    // The radar: alone in the team, she is the team's best on every knowable axis.
+    const sales = res.body.radar.find((a) => a.axis === 'Sales');
+    expect(sales?.mine).toBe(100);
+    const margin = res.body.radar.find((a) => a.axis === 'Margin');
+    expect(margin?.mine).toBeNull();
+    expect(margin?.note).toContain('M1');
+    expect(res.body.promises).toEqual({ kept: 0, broken: 0, open: 0 });
+    expect(res.body.activity).toEqual({ assigned: 0, closed: 0 });
+  });
+
+  it('another person’s scorecard needs cfo.team.view; an unknown book is 404', async () => {
+    const other = await harness.get(`/cfo/team/user:${adminUserId}?from=2026-08-01&to=2026-08-31`, {
+      token: employeeToken,
+    });
+    expect(other.status).toBe(403);
+    const missing = await harness.get('/cfo/team/HOUSE?from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(missing.status).toBe(404);
+  });
+});

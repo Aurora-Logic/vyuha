@@ -2,11 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
 import { AppError } from '../../platform/common/errors.js';
+import { PERMISSIONS } from '@vyuha/shared';
+
 import { AuditService } from '../../platform/audit/audit.service.js';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
-import { type Principal } from '../../platform/rbac/principal.js';
+import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
 import { sameDayLastYear } from './period/period-resolver.js';
 import { readDelta, type DeltaReading } from './robustness.js';
+import { CreditControlService } from './credit-control.service.js';
+import { type GrowthBridge } from './growth-bridge.js';
 
 /**
  * The league table and targets (brief G4, G5, Phase 3).
@@ -41,6 +45,28 @@ export interface LeagueRow {
   readonly achievementPct: number | null;
 }
 
+export interface RadarAxis {
+  readonly axis: string;
+  /** 0-100, where 100 is the team's best on that axis; null where the figure is not knowable yet. */
+  readonly mine: number | null;
+  readonly team: number | null;
+  readonly note?: string;
+}
+
+export interface Scorecard {
+  readonly ownerRef: string;
+  readonly ownerEmail: string | null;
+  readonly row: LeagueRow;
+  readonly teamSize: number;
+  readonly radar: readonly RadarAxis[];
+  readonly bridge: GrowthBridge;
+  readonly movement: Awaited<ReturnType<CreditControlService['movement']>>;
+  readonly ageing: Record<string, string>;
+  readonly promises: { readonly kept: number; readonly broken: number; readonly open: number };
+  readonly activity: { readonly assigned: number; readonly closed: number };
+}
+
+const BUCKETS = ['current', '0-30', '31-60', '61-90', '91-180', '180+'] as const;
 const MATERIALITY_FLOOR = 25_000;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/u;
 
@@ -64,6 +90,7 @@ export class TeamService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly audit: AuditService,
+    private readonly credit: CreditControlService,
   ) {}
 
   async listTargets(principal: Principal, month: string): Promise<TargetRow[]> {
@@ -121,9 +148,11 @@ export class TeamService {
     return total.toFixed(2);
   }
 
-  async league(principal: Principal, from: string, to: string): Promise<LeagueRow[]> {
-    // Every book: RM assignments plus the owner map's current rows, one
-    // owner per party per source; the union dedupes.
+  /**
+   * Every book: RM assignments plus the owner map's current rows, one
+   * owner per party per source; the union dedupes.
+   */
+  private async books(principal: Principal): Promise<Map<string, string[]>> {
     const books = await this.db.execute<{ ownerRef: string; partyId: string }>(sql`
       SELECT DISTINCT owner_ref AS "ownerRef", party_id AS "partyId" FROM (
         SELECT 'user:' || u.id AS owner_ref, pm.party_id
@@ -142,6 +171,11 @@ export class TeamService {
       list.push(row.partyId);
       byOwner.set(row.ownerRef, list);
     }
+    return byOwner;
+  }
+
+  async league(principal: Principal, from: string, to: string): Promise<LeagueRow[]> {
+    const byOwner = await this.books(principal);
     if (byOwner.size === 0) return [];
 
     const lyFrom = sameDayLastYear(from);
@@ -194,5 +228,106 @@ export class TeamService {
       });
     }
     return rows.sort((a, b) => Number(b.sales) - Number(a.sales));
+  }
+
+  /**
+   * G4: one person's full performance. K3: another person's scorecard needs
+   * team.view; your own needs only the module key. Every figure is the
+   * league's own engine scoped to the book (B3, "same screen, different
+   * scope"), so the scorecard never disagrees with the row above it.
+   */
+  async scorecard(principal: Principal, ownerRef: string, from: string, to: string): Promise<Scorecard> {
+    const isSelf = ownerRef === `user:${principal.userId}`;
+    if (!isSelf && !hasPermission(principal, PERMISSIONS.CFO_TEAM_VIEW)) {
+      throw AppError.forbidden('Another person\u2019s scorecard needs cfo.team.view.');
+    }
+    const league = await this.league(principal, from, to);
+    const row = league.find((r) => r.ownerRef === ownerRef);
+    if (row === undefined) throw AppError.notFound('scorecard', ownerRef);
+    const book = (await this.books(principal)).get(ownerRef) ?? [];
+
+    const [bridge, movement] = await Promise.all([
+      this.credit.bridge(principal, from, to, book),
+      this.credit.movement(principal, from, to, book),
+    ]);
+
+    // New customers per owner, for the radar: the movement engine again,
+    // once per book -- the team is small and the answer is honest.
+    const newByOwner = new Map<string, number>();
+    for (const [ref, parties] of await this.books(principal)) {
+      const cells = ref === ownerRef ? movement : await this.credit.movement(principal, from, to, parties);
+      newByOwner.set(ref, cells.cells.filter((c) => c.state === 'new').reduce((n, c) => n + c.count, 0));
+    }
+
+    // Activity: tasks assigned to each owner's employee in the window, and
+    // how many of those closed.
+    const activity = await this.db.execute<{ ownerRef: string; assigned: number; closed: number }>(sql`
+      SELECT 'user:' || u.id AS "ownerRef",
+             count(*)::int AS assigned,
+             count(*) FILTER (WHERE t.closed_at IS NOT NULL)::int AS closed
+      FROM tasks t JOIN users u ON u.employee_id = t.assignee_id
+      WHERE t.org_id = ${principal.orgId} AND t.deleted_at IS NULL
+        AND t.created_at::date BETWEEN ${from} AND ${to}
+      GROUP BY 1
+    `);
+    const activityOf = (ref: string): { assigned: number; closed: number } =>
+      activity.rows.find((a) => a.ownerRef === ref) ?? { assigned: 0, closed: 0 };
+
+    const ageingRows = await this.db.execute<{ bucket: string; value: string }>(sql`
+      WITH latest AS (
+        SELECT max(snapshot_date) AS d FROM fact_receivable_snapshot WHERE org_id = ${principal.orgId}
+      )
+      SELECT bucket, sum(outstanding)::numeric(16,2)::text AS value
+      FROM fact_receivable_snapshot, latest
+      WHERE org_id = ${principal.orgId} AND snapshot_date = latest.d AND party_id IN ${book}
+      GROUP BY 1
+    `);
+    const ageing: Record<string, string> = {};
+    for (const bucket of BUCKETS) ageing[bucket] = ageingRows.rows.find((r) => r.bucket === bucket)?.value ?? '0.00';
+
+    const promises = await this.db.execute<{ state: string; n: number }>(sql`
+      SELECT state, count(*)::int AS n FROM promises_to_pay
+      WHERE org_id = ${principal.orgId} AND deleted_at IS NULL AND party_id IN ${book}
+        AND promised_date BETWEEN ${from} AND ${to}
+      GROUP BY 1
+    `);
+    const promiseOf = (state: string): number => promises.rows.find((p) => p.state === state)?.n ?? 0;
+
+    // Radar: each axis as a share of the team's best, so a glance separates
+    // the discounting volume seller from the disciplined one (G4). Margin
+    // waits for the valuation decision and says so.
+    const growthOf = (r: LeagueRow): number => (r.salesDelta.kind === 'pct' ? Math.max(r.salesDelta.deltaPct, 0) : 0);
+    const closedRatio = (ref: string): number => {
+      const a = activityOf(ref);
+      return a.assigned === 0 ? 0 : a.closed / a.assigned;
+    };
+    const axis = (name: string, value: (r: LeagueRow) => number, note?: string): RadarAxis => {
+      const values = league.map(value);
+      const best = Math.max(...values, 0);
+      const mean = values.reduce((sum, v) => sum + v, 0) / Math.max(values.length, 1);
+      const pct = (v: number): number => (best === 0 ? 0 : Math.round((v / best) * 100));
+      return { axis: name, mine: pct(value(row)), team: pct(mean), ...(note === undefined ? {} : { note }) };
+    };
+    const radar: RadarAxis[] = [
+      axis('Sales', (r) => Number(r.sales)),
+      axis('Growth', growthOf),
+      axis('Collections', (r) => Number(r.collections)),
+      { axis: 'Margin', mine: null, team: null, note: 'Awaits the valuation decision (M1)' },
+      axis('New customers', (r) => newByOwner.get(r.ownerRef) ?? 0),
+      axis('Activity', (r) => closedRatio(r.ownerRef)),
+    ];
+
+    return {
+      ownerRef,
+      ownerEmail: row.ownerEmail,
+      row,
+      teamSize: league.length,
+      radar,
+      bridge,
+      movement,
+      ageing,
+      promises: { kept: promiseOf('kept') + promiseOf('partially_kept'), broken: promiseOf('broken'), open: promiseOf('open') },
+      activity: activityOf(ownerRef),
+    };
   }
 }

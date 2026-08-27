@@ -219,7 +219,9 @@ export class CreditControlService {
    * negative party-level rows so a returns-heavy customer's story lands in
    * mix or lost, never silently dropped.
    */
-  async bridge(principal: Principal, from: string, to: string): Promise<GrowthBridge> {
+  /** @param partyIds Level 4/5 scope (B3): a person's book, or one account. Company when omitted. */
+  async bridge(principal: Principal, from: string, to: string, partyIds?: readonly string[]): Promise<GrowthBridge> {
+    const scope = partyIds === undefined ? sql`` : sql` AND v.party_id IN ${[...partyIds]}`;
     const window = async (f: string, t: string): Promise<BridgeRow[]> => {
       const rows = await this.db.execute<{ customerKey: string; itemKey: string; qty: string; net: string }>(sql`
         SELECT customer AS "customerKey", item AS "itemKey", sum(qty)::float AS qty, sum(net)::float AS net FROM (
@@ -229,18 +231,18 @@ export class CreditControlService {
                  abs(l.amount) AS net
           FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
           WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
-            AND l.kind = 'inventory' AND v.voucher_date BETWEEN ${f} AND ${t}
+            AND l.kind = 'inventory' AND v.voucher_date BETWEEN ${f} AND ${t}${scope}
           UNION ALL
           SELECT coalesce(v.party_id::text, v.party_name), 'ledger-only', 0, v.amount
           FROM vouchers v
           WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
-            AND v.voucher_date BETWEEN ${f} AND ${t}
+            AND v.voucher_date BETWEEN ${f} AND ${t}${scope}
             AND NOT EXISTS (SELECT 1 FROM voucher_lines l WHERE l.voucher_id = v.id AND l.kind = 'inventory')
           UNION ALL
           SELECT coalesce(v.party_id::text, v.party_name), 'credit-note', 0, -v.amount
           FROM vouchers v
           WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Credit Note'
-            AND v.voucher_date BETWEEN ${f} AND ${t}
+            AND v.voucher_date BETWEEN ${f} AND ${t}${scope}
         ) grains GROUP BY 1, 2
       `);
       return rows.rows.map((r) => ({ customerKey: r.customerKey, itemKey: r.itemKey, qty: Number(r.qty), net: Number(r.net) }));
@@ -263,7 +265,7 @@ export class CreditControlService {
    * of each customer's larger year, A the heaviest -- configurable
    * thresholds arrive with the settings pass.
    */
-  async movement(principal: Principal, from: string, to: string): Promise<{
+  async movement(principal: Principal, from: string, to: string, partyIds?: readonly string[]): Promise<{
     cells: readonly {
       state: string;
       band: string;
@@ -274,6 +276,7 @@ export class CreditControlService {
   }> {
     const lyFrom = sameDayLastYear(from);
     const lyTo = sameDayLastYear(to);
+    const scope = partyIds === undefined ? sql`` : sql` AND v.party_id IN ${[...partyIds]}`;
     const rows = await this.db.execute<{
       partyId: string;
       party: string;
@@ -291,7 +294,7 @@ export class CreditControlService {
              min(v.voucher_date) FILTER (WHERE v.voucher_type = 'Sales' AND v.voucher_date BETWEEN ${from} AND ${to})::text AS "firstIn"
       FROM vouchers v
       WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.party_id IS NOT NULL
-        AND v.voucher_type IN ('Sales', 'Credit Note')
+        AND v.voucher_type IN ('Sales', 'Credit Note')${scope}
       GROUP BY 1
     `);
 

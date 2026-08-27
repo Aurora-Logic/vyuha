@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowsClockwiseIcon, LockKeyIcon, TargetIcon, TrophyIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -31,6 +31,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useMe } from '@/lib/session/use-session';
 
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
 import { deltaText, saveTarget, useLeague, useTargets, type LeagueRowData } from './use-cfo';
@@ -187,6 +188,9 @@ function TargetsSheet({ open, onOpenChange, owners }: {
 export function TeamPage() {
   const canView = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const canSetTargets = usePermission(PERMISSIONS.CFO_TARGETS_MANAGE);
+  const canTeam = usePermission(PERMISSIONS.CFO_TEAM_VIEW);
+  const me = useMe().data;
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const league = useLeague(range, { enabled: canView });
@@ -282,6 +286,12 @@ export function TeamPage() {
             columns={LEAGUE_COLUMNS}
             rows={rows}
             rowKey={(row) => row.ownerRef}
+            // K3: the league is everyone's; the scorecard behind a row is
+            // team.view, or your own.
+            onRowActivate={(row) => {
+              const self = me?.user.id !== undefined && row.ownerRef === `user:${me.user.id}`;
+              if (canTeam || self) void navigate(`/reports/team/${encodeURIComponent(row.ownerRef)}`);
+            }}
             mobilePrimary={(row) => `${String(row.rank)}. ${personLabel(row)}`}
             mobileStatus={(row) =>
               row.achievementPct === null ? null : <span className="tabular-nums">{row.achievementPct}% of target</span>

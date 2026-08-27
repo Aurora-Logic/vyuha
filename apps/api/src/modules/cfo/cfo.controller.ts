@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -8,7 +8,7 @@ import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
-import { TeamService, type LeagueRow, type TargetRow } from './team.service.js';
+import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
 
 const creditQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
@@ -77,6 +77,17 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   league(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<LeagueRow[]> {
     return this.team.league(principal, query.from, query.to);
+  }
+
+  /** G4: one person's scorecard. Self under the module key; anyone else needs team.view (checked in the service). */
+  @Get('team/:ownerRef')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  scorecard(
+    @CurrentUser() principal: Principal,
+    @Param('ownerRef') ownerRef: string,
+    @Query() query: CreditQueryDto,
+  ): Promise<Scorecard> {
+    return this.team.scorecard(principal, ownerRef, query.from, query.to);
   }
 
   /** G5: the month's targets, for the entry sheet. */

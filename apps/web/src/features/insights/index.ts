@@ -7,3 +7,4 @@ export { WorkListsPage } from './work-lists-page';
 export { MyCfoPage } from './my-cfo-page';
 export { GrowthPage } from './growth-page';
 export { TeamPage } from './team-page';
+export { ScorecardPage } from './scorecard-page';
