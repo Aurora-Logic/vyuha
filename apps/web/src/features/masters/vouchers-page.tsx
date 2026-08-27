@@ -1,3 +1,4 @@
+import { useParty } from './use-parties';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -222,6 +223,8 @@ export function VouchersPage() {
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const includeCancelled = searchParams.get('cancelled') === '1';
   const voucherType = searchParams.get('type') ?? '';
+  // R1: a drill from a customer cell arrives here with the party fixed.
+  const partyId = searchParams.get('party') ?? '';
   const from = searchParams.get('from') ?? '';
   const to = searchParams.get('to') ?? '';
   const sort = searchParams.get('sort') ?? '';
@@ -232,7 +235,8 @@ export function VouchersPage() {
     ? { field: sortField, descending: sort.startsWith('-') }
     : null;
   const period: DateRange = { from: fromDateParam(from || null), to: fromDateParam(to || null) };
-  const hasFilters = q !== '' || voucherType !== '' || from !== '' || to !== '' || includeCancelled;
+  const hasFilters = q !== '' || voucherType !== '' || from !== '' || to !== '' || includeCancelled || partyId !== '';
+  const drillParty = useParty(partyId === '' ? null : partyId);
 
   /** Every filter writes through here: one page reset, one replace, one place to read. */
   function setParams(edit: (next: URLSearchParams) => void) {
@@ -279,6 +283,7 @@ export function VouchersPage() {
       page,
       ...(q ? { q } : {}),
       ...(voucherType ? { voucherType } : {}),
+      ...(partyId ? { partyId } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       ...(includeCancelled ? { includeCancelled: true } : {}),
@@ -398,6 +403,23 @@ export function VouchersPage() {
               register is a control that does nothing, which teaches the reader
               to stop trusting the row. The sort is deliberately not cleared --
               it is how the register is being read, not what it is showing. */}
+          {partyId !== '' ? (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              {drillParty.data?.name ?? 'Customer'}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Remove the customer filter"
+                onClick={() => {
+                  setParams((next) => {
+                    next.delete('party');
+                  });
+                }}
+              >
+                <XIcon />
+              </Button>
+            </Badge>
+          ) : null}
           {hasFilters ? (
             <Button
               variant="ghost"
@@ -410,6 +432,7 @@ export function VouchersPage() {
                   next.delete('from');
                   next.delete('to');
                   next.delete('cancelled');
+                  next.delete('party');
                 });
               }}
             >

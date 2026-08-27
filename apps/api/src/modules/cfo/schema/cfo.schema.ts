@@ -274,3 +274,26 @@ export const customerTierAssignments = pgTable(
   },
   (t) => [index('customer_tier_assignments_party_idx').on(t.orgId, t.partyId, t.effectiveFrom)],
 );
+
+/**
+ * Exception reviews (brief F2): an exception is Accepted with a mandatory
+ * reason or sent to Investigate as a task; resolved rows grey out but
+ * remain for audit. Keyed by check and voucher so the nightly list can
+ * skip what a person already answered.
+ */
+export const cfoExceptionReviews = pgTable(
+  'cfo_exception_reviews',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    checkKey: text('check_key').notNull(),
+    voucherId: uuid('voucher_id').notNull(),
+    state: text('state').notNull(),
+    reason: text('reason').notNull().default(''),
+    reviewedBy: uuid('reviewed_by').notNull(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_exception_reviews_uq').on(t.orgId, t.checkKey, t.voucherId)],
+);

@@ -521,3 +521,36 @@ describe('customer classes and the payment grade (Part P, D18)', () => {
     expect(master.status).toBe(403);
   });
 });
+
+describe('exception reports (F2)', () => {
+  it('names the vouchers that look wrong, and a review greys one out', async () => {
+    await harness.db.execute(sql`DELETE FROM cfo_exception_reviews WHERE org_id = ${ORG_ID}`);
+    const res = await harness.get<{
+      open: number;
+      checks: { key: string; available: boolean; rows: { voucherId: string; voucherNumber: string; reason: string; review: unknown }[] }[];
+    }>('/cfo/exceptions?from=2025-08-01&to=2026-08-31', { token: adminToken });
+    expect(res.status).toBe(200);
+    const byKey = new Map(res.body.checks.map((c) => [c.key, c]));
+    // Chetan's single 30,000 sale a year ago is a one-off above materiality.
+    const oneOff = byKey.get('one-off');
+    expect(oneOff?.rows.map((r) => r.voucherNumber)).toContain('S-C0');
+    // The checks the sync cannot feed say so instead of showing an empty list as clean.
+    expect(byKey.get('negative-stock')?.available).toBe(false);
+    expect(res.body.open).toBeGreaterThan(0);
+
+    const target = oneOff?.rows[0];
+    const noReason = await harness.post('/cfo/exceptions/review', { token: adminToken, body: { checkKey: 'one-off', voucherId: target?.voucherId, state: 'accepted', reason: '' } });
+    expect(noReason.status).toBe(400);
+    const ok = await harness.post('/cfo/exceptions/review', { token: adminToken, body: { checkKey: 'one-off', voucherId: target?.voucherId, state: 'accepted', reason: 'Project sale, known' } });
+    expect(ok.status).toBe(201);
+    const again = await harness.get<{ open: number; checks: { key: string; rows: { voucherId: string; review: { state: string } | null }[] }[] }>('/cfo/exceptions?from=2025-08-01&to=2026-08-31', { token: adminToken });
+    const reviewed = again.body.checks.find((c) => c.key === 'one-off')?.rows.find((r) => r.voucherId === target?.voucherId);
+    expect(reviewed?.review?.state).toBe('accepted');
+    expect(again.body.open).toBe(res.body.open - 1);
+  });
+
+  it('sits behind cfo.exceptions.view', async () => {
+    const denied = await harness.get('/cfo/exceptions?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});

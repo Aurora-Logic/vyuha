@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowsClockwiseIcon, GridNineIcon, LockKeyIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ export function PenetrationPage() {
   const canTask = usePermission(PERMISSIONS.CRM_TASK_MANAGE);
   const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const range = rangeFromParams(searchParams);
   const query = usePenetration(range, { enabled: canView });
   const [open, setOpen] = useState<{ partyId: string; party: string; category: string; filled: boolean } | null>(null);
@@ -171,6 +172,11 @@ export function PenetrationPage() {
           <div className="flex flex-col gap-3 px-4 pb-6">
             {open && !open.filled && canTask ? (
               <Button onClick={() => void createTask(open)}>Create a task to open this line</Button>
+            ) : null}
+            {open ? (
+              <Button variant="outline" onClick={() => void navigate(`/masters/vouchers?party=${open.partyId}&from=${range.from}&to=${range.to}`)}>
+                Open their vouchers
+              </Button>
             ) : null}
           </div>
         </SheetContent>

@@ -648,3 +648,52 @@ export const PIVOT_METRIC_LABELS: Record<string, string> = {
   qty: 'Quantity',
   vouchers: 'Vouchers',
 };
+
+const exceptionRowSchema = z.object({
+  checkKey: z.string(),
+  voucherId: z.string(),
+  voucherNumber: z.string(),
+  voucherType: z.string(),
+  voucherDate: z.string(),
+  party: z.string(),
+  partyId: z.string().nullable(),
+  amount: z.string(),
+  reason: z.string(),
+  review: z.object({ state: z.string(), reason: z.string(), reviewedAt: z.string() }).nullable(),
+});
+
+const exceptionsSchema = z.object({
+  asOf: z.string(),
+  from: z.string(),
+  to: z.string(),
+  checks: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      hint: z.string(),
+      rows: z.array(exceptionRowSchema),
+      available: z.boolean(),
+      note: z.string().optional(),
+    }),
+  ),
+  open: z.number(),
+});
+
+export type ExceptionsData = z.infer<typeof exceptionsSchema>;
+export type ExceptionRowData = z.infer<typeof exceptionRowSchema>;
+
+export function useExceptions(range: { from: string; to: string }, options: { enabled?: boolean } = {}): UseQueryResult<ExceptionsData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'exceptions', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/exceptions?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(exceptionsSchema, body, 'exceptions');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export async function reviewException(body: { checkKey: string; voucherId: string; state: 'accepted' | 'investigating'; reason: string }): Promise<void> {
+  await apiRequest('/cfo/exceptions/review', { method: 'POST', body });
+}

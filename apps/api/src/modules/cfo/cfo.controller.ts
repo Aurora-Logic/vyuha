@@ -10,6 +10,7 @@ import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
 import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday } from './desk.service.js';
+import { EXCEPTION_STATES, ExceptionsService, type Exceptions } from './exceptions.service.js';
 import { PenetrationService, type Penetration } from './penetration.service.js';
 import { SalesAnalysisService, type PivotResult, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
@@ -74,6 +75,14 @@ const assignClassSchema = z.object({
 });
 class AssignClassDto extends createZodDto(assignClassSchema) {}
 
+const exceptionReviewSchema = z.object({
+  checkKey: z.string().trim().min(1).max(40),
+  voucherId: z.string().regex(UUID),
+  state: z.enum(EXCEPTION_STATES),
+  reason: z.string().trim().max(500).default(''),
+});
+class ExceptionReviewDto extends createZodDto(exceptionReviewSchema) {}
+
 const deskOutcomeSchema = z.object({
   outcome: z.enum(DESK_OUTCOMES),
   amount: z.string().regex(/^\d{1,14}(\.\d{1,2})?$/u).optional(),
@@ -108,6 +117,7 @@ export class CfoController {
     private readonly quality: DataQualityService,
     private readonly penetration: PenetrationService,
     private readonly tiers: TierService,
+    private readonly exceptions: ExceptionsService,
   ) {}
 
   @Get('receivables')
@@ -281,6 +291,20 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   metrics(): readonly MetricDefinition[] {
     return METRIC_REGISTRY;
+  }
+
+  /** F2: the exception list for a window. */
+  @Get('exceptions')
+  @RequirePermission(PERMISSIONS.CFO_EXCEPTIONS_VIEW)
+  exceptionList(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<Exceptions> {
+    return this.exceptions.list(principal, query.from, query.to);
+  }
+
+  @Post('exceptions/review')
+  @RequirePermission(PERMISSIONS.CFO_EXCEPTIONS_VIEW)
+  async reviewException(@CurrentUser() principal: Principal, @Body() body: ExceptionReviewDto): Promise<{ ok: true }> {
+    await this.exceptions.review(principal, body.checkKey, body.voucherId, body.state, body.reason);
+    return { ok: true };
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

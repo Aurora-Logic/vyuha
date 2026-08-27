@@ -631,3 +631,19 @@ log through versions and effective dates. Left:
 | Q4-1 | The registry holds ~30 definitions; the brief's register runs to 183 across C1–C5, D, W and the matrices | Add rows as each metric ships, never ahead of the code that draws it -- a definition without a figure misleads | Nothing |
 | Q4-2 | A definition change is a version bump in code; there is no per-org change-log table or "which reports are affected" join | Keep the code-versioned registry until an org edits a definition (materiality, thresholds); then a `metric_overrides` table with audit | Per-org thresholds |
 | Q4-3 | Labels on older screens (attendance areas, receivables area cards) still come from `catalogue.ts`, not the registry | Fold the area catalogue into the registry when those areas gain definition panels | One source for those labels |
+
+## Virtual CFO — Part F2, exception reports, and R1's drill (27 Aug 2026)
+
+Built: nine of F2's checks on the voucher projection (duplicate invoice, cancelled,
+same-day sale and return, sales above threshold without GSTIN, backdated, month-end
+concentration, one-off customers above materiality, dormant ledger suddenly active,
+numbering gaps), each with Accept-with-reason and Investigate-as-task, reviewed rows greyed
+and kept; and R1's contract: every customer cell in a sheet, the call sheet, My CFO and the
+class grid opens that customer's vouchers with the period carried. Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| F-1 | Four checks cannot run on what the sync carries: modified after approval (needs Tally's editing user), price override without approval, negative stock (godowns, K2), credit note with no linked invoice (M4) | Shown as "not measurable yet" with the reason; each lights when its feed lands | — |
+| F-2 | Thresholds (₹50,000 no-GSTIN, 7 backdated days, 40% month-end share, ₹25,000 materiality) are named constants in `exceptions.service.ts` | Move to a `compliance.*` settings section, confirmed with the CA, in the compliance pass | Per-org thresholds |
+| F-3 | The list is computed on read; F2 asks for a nightly delivery to admin | Ride the nightly job once `queue.registry.ts` is free; the notification bell is the channel | The morning digest |
+| F-4 | F1 compliance analytics (GSTR, Rule 37, MSME 43B(h), TDS thresholds) need returns data the sync does not carry | Out of scope until a GST returns feed exists; party master hygiene is on Data Quality already | All of F1 |

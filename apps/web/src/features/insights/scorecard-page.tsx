@@ -284,6 +284,7 @@ export function ScorecardPage() {
                 columns={PARTY_COLUMNS}
                 rows={[...openCell.parties]}
                 rowKey={(row) => row.partyId}
+                onRowActivate={(row) => void navigate(`/masters/vouchers?party=${row.partyId}&from=${range.from}&to=${range.to}`)}
                 mobilePrimary={(row) => row.party}
                 mobileSupporting={(row) => `${formatMoney(row.thisYear)} now · ${formatMoney(row.lastYear)} last year`}
               />

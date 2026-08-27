@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArrowsClockwiseIcon, LockKeyIcon } from '@phosphor-icons/react';
+import { useNavigate } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,7 @@ const PARTY_COLUMNS: RecordColumn<Cell['parties'][number]>[] = [
 export function ClassGradePage() {
   const canView = usePermission(PERMISSIONS.CFO_RECEIVABLES_VIEW);
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
   const query = useClassGrade({ enabled: canView });
   const tiers = useTiers({ enabled: canView });
   const [open, setOpen] = useState<Cell | null>(null);
@@ -139,6 +141,7 @@ export function ClassGradePage() {
                 columns={PARTY_COLUMNS}
                 rows={[...open.parties]}
                 rowKey={(row) => row.partyId}
+                onRowActivate={(row) => void navigate(`/masters/vouchers?party=${row.partyId}`)}
                 mobilePrimary={(row) => row.party}
                 mobileSupporting={(row) => `${formatMoney(row.outstanding)} outstanding`}
               />

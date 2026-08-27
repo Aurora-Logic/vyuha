@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowsClockwiseIcon, LockKeyIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,7 @@ export function GrowthPage() {
   const canView = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const range = rangeFromParams(searchParams);
   const bridge = useGrowthBridge(range, { enabled: canView });
   const movement = useMovement(range, { enabled: canView });
@@ -176,6 +177,8 @@ export function GrowthPage() {
                 columns={PARTY_COLUMNS}
                 rows={[...openCell.parties]}
                 rowKey={(row) => row.partyId}
+                // R1: every drill terminates at a voucher.
+                onRowActivate={(row) => void navigate(`/masters/vouchers?party=${row.partyId}&from=${range.from}&to=${range.to}`)}
                 mobilePrimary={(row) => row.party}
                 mobileSupporting={(row) => `${formatMoney(row.thisYear)} vs ${formatMoney(row.lastYear)}`}
               />

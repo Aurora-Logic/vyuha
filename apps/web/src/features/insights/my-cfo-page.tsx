@@ -1,5 +1,5 @@
 import { ArrowsClockwiseIcon, UserCircleIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
 import { z } from 'zod';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
@@ -98,6 +98,7 @@ function pacingMetric(data: MyCfoData): Metric {
 export function MyCfoPage() {
   const canView = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const range = rangeFromParams(searchParams);
   const query = useMyCfo(range, canView);
 
@@ -230,6 +231,7 @@ export function MyCfoPage() {
                 columns={CUSTOMER_COLUMNS}
                 rows={[...data.customers]}
                 rowKey={(row) => row.partyId}
+              onRowActivate={(row) => void navigate(`/masters/vouchers?party=${row.partyId}&from=${range.from}&to=${range.to}`)}
                 mobilePrimary={(row) => row.party}
                 mobileSupporting={(row) => `${formatMoney(row.thisPeriod)} · ${deltaText(row.change)}`}
               />
