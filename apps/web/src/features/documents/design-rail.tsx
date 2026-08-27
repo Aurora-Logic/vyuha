@@ -168,7 +168,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
 
             {/* The rest folds into sections so the rail is not one long scroll;
                 the template is the one choice that stays open above them. */}
-            <Accordion openMultiple defaultValue={['look']} className="border-t">
+            <Accordion multiple defaultValue={['look']} className="border-t">
               <AccordionItem value="look">
                 <AccordionTrigger>Layout and type</AccordionTrigger>
                 <AccordionContent>
