@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/select';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
@@ -72,6 +73,7 @@ export function CustomReportsPage() {
   const { create } = useCustomReportMutations();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [presetId, setPresetId] = useState('blank');
 
   async function createReport() {
@@ -81,11 +83,13 @@ export function CustomReportsPage() {
     try {
       const report = await create.mutateAsync({
         name: trimmed,
+        description: description.trim(),
         shared: false,
         widgets: preset === undefined ? [] : widgetsOf(preset),
       });
       setOpen(false);
       setName('');
+      setDescription('');
       void navigate(`/reports/custom/${report.id}?edit=1`);
     } catch (error) {
       toast.add({
@@ -174,7 +178,7 @@ export function CustomReportsPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New report</DialogTitle>
-            <DialogDescription>Name it; the widgets come next, in the editor.</DialogDescription>
+            <DialogDescription>Name it and say what it is for; the widgets come next, in the editor.</DialogDescription>
           </DialogHeader>
           <Field>
             <FieldLabel htmlFor="new-report-name">Name</FieldLabel>
@@ -191,6 +195,19 @@ export function CustomReportsPage() {
                   event.preventDefault();
                   void createReport();
                 }
+              }}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-report-description">Description</FieldLabel>
+            <Textarea
+              id="new-report-description"
+              value={description}
+              maxLength={500}
+              rows={3}
+              placeholder="What this report is for, and who reads it"
+              onChange={(event) => {
+                setDescription(event.target.value);
               }}
             />
           </Field>

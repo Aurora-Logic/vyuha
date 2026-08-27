@@ -83,6 +83,7 @@ const customWidgetSchema = z.object({
 const customReportSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string(),
   shared: z.boolean(),
   ownerUserId: z.string(),
   ownerName: z.string(),

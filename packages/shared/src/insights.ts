@@ -177,6 +177,7 @@ export type CustomWidget = z.infer<typeof customWidgetSchema>;
 
 export const customReportWriteSchema = z.object({
   name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).default(''),
   /** Shared reports appear for everyone holding report.view; personal ones for their author. */
   shared: z.boolean().default(false),
   widgets: z.array(customWidgetSchema).max(24).default([]),
@@ -187,6 +188,7 @@ export type CustomReportWrite = z.infer<typeof customReportWriteSchema>;
 export interface CustomReportView {
   readonly id: string;
   readonly name: string;
+  readonly description: string;
   readonly shared: boolean;
   readonly ownerUserId: string;
   readonly ownerName: string;

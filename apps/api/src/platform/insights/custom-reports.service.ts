@@ -67,6 +67,7 @@ export class CustomReportsService {
         orgId: principal.orgId,
         ownerUserId: principal.userId,
         name: body.name,
+        description: body.description,
         shared: body.shared,
         widgets: body.widgets,
       })
@@ -91,7 +92,7 @@ export class CustomReportsService {
     const before = await this.owned(principal, id);
     const updated = await this.db
       .update(customReports)
-      .set({ name: body.name, shared: body.shared, widgets: body.widgets, updatedAt: sql`now()` })
+      .set({ name: body.name, description: body.description, shared: body.shared, widgets: body.widgets, updatedAt: sql`now()` })
       .where(and(eq(customReports.id, id), eq(customReports.orgId, principal.orgId)))
       .returning();
     if (updated[0] === undefined) throw AppError.notFound('Report', id);
@@ -147,6 +148,7 @@ export class CustomReportsService {
     return {
       id: row.id,
       name: row.name,
+      description: row.description,
       shared: row.shared,
       ownerUserId: row.ownerUserId,
       ownerName: ownerEmail,

@@ -188,21 +188,41 @@ export function BuilderPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <ToggleGroup
-        value={[widget.kind]}
-        aria-label="Chart type"
-        className="w-full"
-        onValueChange={(value: unknown[]) => {
-          const kind = value[0];
-          if (typeof kind === 'string' && kind !== '') onChange({ ...widget, kind: kind as WidgetKind });
-        }}
-      >
-        {KINDS.map(({ kind, label, icon: Icon }) => (
-          <ToggleGroupItem key={kind} value={kind} aria-label={label} className="flex-1">
-            <Icon />
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <Field>
+        <FieldLabel>Chart type</FieldLabel>
+        <Select
+          value={widget.kind}
+          onValueChange={(value) => {
+            if (value !== null) onChange({ ...widget, kind: value });
+          }}
+        >
+          <SelectTrigger aria-label="Chart type">
+            <SelectValue>
+              {(value: string) => {
+                const entry = KINDS.find((k) => k.kind === value);
+                if (entry === undefined) return value;
+                const Icon = entry.icon;
+                return (
+                  <span className="flex items-center gap-2">
+                    <Icon className="text-muted-foreground size-4" />
+                    {entry.label}
+                  </span>
+                );
+              }}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {KINDS.map(({ kind, label, icon: Icon }) => (
+              <SelectItem key={kind} value={kind}>
+                <span className="flex items-center gap-2">
+                  <Icon className="text-muted-foreground size-4" />
+                  {label}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
 
       <p className="text-muted-foreground text-xs font-medium">Data</p>
 

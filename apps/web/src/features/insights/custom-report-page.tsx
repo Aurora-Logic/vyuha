@@ -8,12 +8,32 @@ import {
   LockKeyIcon,
   PencilSimpleIcon,
   PlusIcon,
+  TextAaIcon,
+  TrashIcon,
 } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { CustomWidget, InsightArea } from '@vyuha/shared';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
@@ -28,13 +48,19 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -100,12 +126,15 @@ function WidgetBody({ widget, range }: { widget: CustomWidget; range: { from: st
     );
   }
   return (
-    <MetricChart
-      metric={metric}
-      kind={widget.kind}
-      options={widget.options}
-      className={widget.size === '2x2' ? 'h-72' : 'h-40'}
-    />
+    <div className="flex flex-col gap-2">
+      <p className="text-2xl font-semibold tracking-tight tabular-nums">{formatHeadline(metric.unit, metric.headline)}</p>
+      <MetricChart
+        metric={metric}
+        kind={widget.kind}
+        options={widget.options}
+        className={widget.size === '2x2' ? 'h-64' : 'h-36'}
+      />
+    </div>
   );
 }
 
@@ -127,6 +156,12 @@ export function CustomReportPage() {
   const [shared, setShared] = useState<boolean | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragId = useRef<string | null>(null);
+  const [renaming, setRenaming] = useState<{ name: string; description: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isMobile = useIsMobile();
+  // The rail is pinned beside the canvas only where there is room for both;
+  // below that it opens as a sheet over the widget it configures.
+  const isWide = useMediaQuery('(min-width: 1280px)');
 
   const report = query.data;
   // Arriving with ?edit=1 in the address arms edit mode before enterEdit ever
@@ -136,7 +171,7 @@ export function CustomReportPage() {
   if (editing && draft === null && report !== undefined) {
     setDraft([...report.widgets]);
     setShared(report.shared);
-    setSelectedId(report.widgets[0]?.id ?? null);
+    setSelectedId(isWide ? (report.widgets[0]?.id ?? null) : null);
   }
   const widgets = editing && draft !== null ? draft : (report?.widgets ?? []);
   const isShared = editing && shared !== null ? shared : (report?.shared ?? false);
@@ -146,7 +181,7 @@ export function CustomReportPage() {
     if (report === undefined) return;
     setDraft([...report.widgets]);
     setShared(report.shared);
-    setSelectedId(report.widgets[0]?.id ?? null);
+    setSelectedId(isWide ? (report.widgets[0]?.id ?? null) : null);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set('edit', '1');
@@ -226,7 +261,7 @@ export function CustomReportPage() {
     try {
       await update.mutateAsync({
         id: report.id,
-        body: { name: report.name, shared: shared ?? report.shared, widgets: draft },
+        body: { name: report.name, description: report.description, shared: shared ?? report.shared, widgets: draft },
       });
       leaveEdit();
       toast.add({ type: 'success', title: 'Report saved' });
@@ -236,6 +271,36 @@ export function CustomReportPage() {
         title: 'Could not save the report',
         description: error instanceof Error ? error.message : 'Try again.',
       });
+    }
+  }
+
+  async function rename() {
+    if (report === undefined || renaming === null) return;
+    const name = renaming.name.trim();
+    if (name === '') return;
+    try {
+      await update.mutateAsync({
+        id: report.id,
+        body: { name, description: renaming.description.trim(), shared: report.shared, widgets: [...report.widgets] },
+      });
+      setRenaming(null);
+      toast.add({ type: 'success', title: 'Report renamed' });
+    } catch (error) {
+      toast.add({
+        type: 'error',
+        title: 'Could not rename the report',
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    }
+  }
+
+  async function deleteReport() {
+    if (report === undefined) return;
+    try {
+      await remove.mutateAsync(report.id);
+      void navigate('/reports/custom');
+    } catch (error) {
+      toast.add({ type: 'error', title: 'Could not delete', description: error instanceof Error ? error.message : 'Try again.' });
     }
   }
 
@@ -275,7 +340,9 @@ export function CustomReportPage() {
         description={
           editing
             ? 'Pick a widget to configure it; drag the grip or use its menu to reorder.'
-            : 'A report composed from the area metrics.'
+            : report.description !== ''
+              ? report.description
+              : 'A report composed from the area metrics.'
         }
         action={
           editing ? (
@@ -297,22 +364,34 @@ export function CustomReportPage() {
             <span className="flex items-center gap-2">
               {report.editable ? (
                 <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void (async () => {
-                        try {
-                          await remove.mutateAsync(report.id);
-                          void navigate('/reports/custom');
-                        } catch (error) {
-                          toast.add({ type: 'error', title: 'Could not delete', description: error instanceof Error ? error.message : 'Try again.' });
-                        }
-                      })();
-                    }}
-                  >
-                    Delete
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button variant="outline" size="icon-sm" aria-label="Report menu">
+                          <DotsThreeVerticalIcon />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setRenaming({ name: report.name, description: report.description });
+                        }}
+                      >
+                        <TextAaIcon />
+                        Rename or describe
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => {
+                          setConfirmDelete(true);
+                        }}
+                      >
+                        <TrashIcon />
+                        Delete report
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button size="sm" onClick={enterEdit}>
                     <PencilSimpleIcon data-icon="inline-start" />
                     Edit
@@ -357,12 +436,18 @@ export function CustomReportPage() {
         <span className="text-muted-foreground text-xs tabular-nums">
           {formatDate(range.from)} → {formatDate(range.to)}
         </span>
+        {editing ? (
+          <Button variant="outline" size="sm" className="ml-auto" onClick={addWidget}>
+            <PlusIcon data-icon="inline-start" />
+            Add widget
+          </Button>
+        ) : null}
       </div>
 
       {/* One scroller: the canvas. The rail is pinned to the viewport edge,
           full height, and scrolls only inside itself -- two independent
           scrolling columns read as two half-broken pages (owner, 26 Aug). */}
-      <div className={cn('flex flex-col gap-4', editing && selected !== null && 'xl:pr-[21rem]')}>
+      <div className={cn('flex flex-col gap-4', editing && selected !== null && isWide && 'xl:pr-[21rem]')}>
         {widgets.length === 0 ? (
           <Empty className="border">
             <EmptyHeader>
@@ -465,20 +550,10 @@ export function CustomReportPage() {
                 </CardContent>
               </Card>
             ))}
-            {editing ? (
-              <Button
-                variant="outline"
-                onClick={addWidget}
-                className="text-muted-foreground hover:text-foreground w-full border-dashed font-normal sm:col-span-2"
-              >
-                <PlusIcon data-icon="inline-start" />
-                Add widget
-              </Button>
-            ) : null}
           </div>
         )}
 
-        {editing && selected !== null ? (
+        {editing && selected !== null && isWide ? (
           <div className="bg-background border p-4 xl:fixed xl:top-14 xl:right-0 xl:bottom-0 xl:z-10 xl:w-80 xl:overflow-y-auto xl:border-t-0 xl:border-r-0 xl:border-b-0">
             <BuilderPanel
               widget={selected}
@@ -492,6 +567,98 @@ export function CustomReportPage() {
           </div>
         ) : null}
       </div>
+
+      <Sheet
+        open={editing && selected !== null && !isWide}
+        onOpenChange={(open) => {
+          if (!open) setSelectedId(null);
+        }}
+      >
+        <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 sm:max-w-sm">
+          <SheetHeader>
+            <SheetTitle>{selected?.title ?? 'Widget'}</SheetTitle>
+            <SheetDescription>Configure this widget; changes land on Save.</SheetDescription>
+          </SheetHeader>
+          {selected !== null ? (
+            <div className="max-h-[70vh] overflow-y-auto px-4 pb-6 sm:max-h-none">
+              <BuilderPanel
+                widget={selected}
+                range={range}
+                onChange={patchWidget}
+                onRemove={() => {
+                  setDraft((current) => (current ?? []).filter((w) => w.id !== selected.id));
+                  setSelectedId(null);
+                }}
+              />
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={renaming !== null} onOpenChange={(open) => { if (!open) setRenaming(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename or describe</DialogTitle>
+            <DialogDescription>The name is how the report is found; the description says what it is for.</DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="report-name">Name</FieldLabel>
+            <Input
+              id="report-name"
+              value={renaming?.name ?? ''}
+              maxLength={80}
+              onChange={(event) => {
+                setRenaming((current) => (current === null ? current : { ...current, name: event.target.value }));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void rename();
+                }
+              }}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="report-description">Description</FieldLabel>
+            <Textarea
+              id="report-description"
+              rows={3}
+              maxLength={500}
+              value={renaming?.description ?? ''}
+              onChange={(event) => {
+                setRenaming((current) => (current === null ? current : { ...current, description: event.target.value }));
+              }}
+            />
+          </Field>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRenaming(null); }}>
+              Cancel
+            </Button>
+            <Button disabled={(renaming?.name.trim() ?? '') === '' || update.isPending} onClick={() => void rename()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this report?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isShared
+                ? 'It is shared: everyone who opens it will lose it. This cannot be undone.'
+                : 'Its widgets go with it. This cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={remove.isPending} onClick={() => void deleteReport()}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -76,6 +76,7 @@ const AREA_RESPONSE = {
 };
 
 const REPORT = {
+  description: '',
   id: '01a00000-0000-7000-8000-00000000c0de',
   name: 'Money week',
   shared: false,

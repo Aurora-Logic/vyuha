@@ -25,6 +25,8 @@ export const customReports = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    /** A sentence on what the report is for (the Supabase reference's create dialog asks for it). */
+    description: text('description').notNull().default(''),
     shared: boolean('shared').notNull().default(false),
     widgets: jsonb('widgets').notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
