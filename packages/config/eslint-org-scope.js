@@ -41,6 +41,7 @@ export const ORG_SCOPED_TABLES = [
   'customer_tiers',
   'customer_tier_assignments',
   'cfo_exception_reviews',
+  'cfo_alert_snoozes',
   'customer_owner_map',
   'deletion_records',
   'dashboard_layouts',

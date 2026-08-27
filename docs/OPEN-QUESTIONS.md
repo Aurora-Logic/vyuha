@@ -661,3 +661,19 @@ About sheet with the standard header block, every export logged. Left:
 | O6-1 | Week planner (O5.2): ~~five columns by theme~~ built read-only on today's reading; names movable between days and manual additions that stick need a planner table | Add `cfo_desk_planner_overrides` (date, party, added_by) when the first director asks to move a name; regeneration rides the nightly job | Moving names |
 | O6-2 | The Export Centre screen (O6): the catalogue with schedule, recipients, last run, bulk ZIP and merged PDF | The on-demand exports are the catalogue's rows; schedules ride the report-schedule job when its handler returns; PDF after the print route grows a report design | Scheduled delivery, "give me everything" |
 | O6-3 | PDF export of a screen (R6) | Reuse the printed-document route with a report design | The monthly close pack (the acceptance test) |
+
+## Virtual CFO — Part L alerts under Q5 discipline (27 Aug 2026)
+
+Built: today's alerts evaluated on read -- limit breach (immediate), top customer down,
+silent churn above the floor, payment grade D/E on overdue money, and company-level DSO,
+CEI, days-late and concentration movements -- one alert per customer carrying every
+reason, ranked by rupees, capped at ten with the rest in a digest line, snoozable with a
+reason and a date (logged). Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| L-1 | Two-evaluation confirmation, hysteresis (clear only past 10%), and three-day escalation need a history of evaluations | Write `cfo_alert_evaluations` nightly once the job runs; until then every alert is a first evaluation and says so | Flapping on the boundary |
+| L-2 | Delivery to the notification bell and the 9 AM digest (Part L cadence) | Same nightly job; the bell already carries per-user preferences | The morning digest |
+| L-3 | Thresholds (20% / ₹25,000 / 5 days / 5 points / 3 days / 5 points) are named constants in `alerts.service.ts` | Settings section with the compliance thresholds in the settings pass | Per-org tuning |
+| L-4 | Credit-grade *migration* to D/E needs yesterday's grade; today's alert is the grade's state | Grade history from the nightly job | Migration alerts |
+| L-5 | Seasonal suppression (compare against the seasonally adjusted expectation) | After a year of fact history exists | — |

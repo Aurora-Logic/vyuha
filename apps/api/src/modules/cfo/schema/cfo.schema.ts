@@ -297,3 +297,21 @@ export const cfoExceptionReviews = pgTable(
   },
   (t) => [uniqueIndex('cfo_exception_reviews_uq').on(t.orgId, t.checkKey, t.voucherId)],
 );
+
+/** Alert snoozes (brief Q5): any alert can be snoozed with a reason and a date; snoozes are logged and reviewed monthly. */
+export const cfoAlertSnoozes = pgTable(
+  'cfo_alert_snoozes',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    alertKey: text('alert_key').notNull(),
+    partyId: uuid('party_id'),
+    until: text('until').notNull(),
+    reason: text('reason').notNull(),
+    snoozedBy: uuid('snoozed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_alert_snoozes_idx').on(t.orgId, t.alertKey, t.partyId)],
+);

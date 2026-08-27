@@ -629,3 +629,31 @@ describe('the week planner (O5.2)', () => {
     expect(after.rows[0]?.n).toBe(before.rows[0]?.n);
   });
 });
+
+describe('alerts (Part L, Q5)', () => {
+  it('one alert per customer carrying every reason, ranked by rupees, capped; a snooze needs a reason', async () => {
+    await harness.db.execute(sql`DELETE FROM cfo_alert_snoozes WHERE org_id = ${ORG_ID}`);
+    const res = await harness.get<{
+      alerts: { partyId: string | null; subject: string; exposure: string; reasons: { key: string; immediate: boolean }[]; action: string; snoozed: unknown }[];
+      digest: { count: number };
+      cap: number;
+    }>('/cfo/alerts', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.cap).toBe(10);
+    // Bharat breaches his limit: fires immediately, with the hold action.
+    const bharat = res.body.alerts.find((a) => a.subject === 'Bharat Cables');
+    expect(bharat?.reasons.map((r) => r.key)).toContain('limit-breach');
+    expect(bharat?.reasons.find((r) => r.key === 'limit-breach')?.immediate).toBe(true);
+    expect(bharat?.action).toContain('Hold');
+    // Every subject once.
+    const subjects = res.body.alerts.map((a) => a.subject);
+    expect(new Set(subjects).size).toBe(subjects.length);
+
+    const noReason = await harness.post('/cfo/alerts/snooze', { token: adminToken, body: { alertKey: 'customer', partyId: bharat?.partyId, until: '2026-09-30', reason: '' } });
+    expect(noReason.status).toBe(400);
+    const ok = await harness.post('/cfo/alerts/snooze', { token: adminToken, body: { alertKey: 'customer', partyId: bharat?.partyId, until: '2026-09-30', reason: 'Limit raise agreed, paperwork pending' } });
+    expect(ok.status).toBe(201);
+    const again = await harness.get<{ alerts: { subject: string; snoozed: { until: string } | null }[] }>('/cfo/alerts', { token: adminToken });
+    expect(again.body.alerts.find((a) => a.subject === 'Bharat Cables')?.snoozed?.until).toBe('2026-09-30');
+  });
+});

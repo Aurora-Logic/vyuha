@@ -9,6 +9,7 @@ import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
+import { AlertsService, type Alerts } from './alerts.service.js';
 import { CfoExportService, EXPORT_REPORTS } from './cfo-export.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
 import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday, type WeekClose } from './desk.service.js';
@@ -56,6 +57,14 @@ class PlannerQueryDto extends createZodDto(plannerQuerySchema) {}
 
 const exportQuerySchema = salesScopeSchema.extend({ report: z.enum(EXPORT_REPORTS) });
 class ExportQueryDto extends createZodDto(exportQuerySchema) {}
+
+const snoozeSchema = z.object({
+  alertKey: z.string().trim().min(1).max(40),
+  partyId: z.string().regex(UUID).nullable().default(null),
+  until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  reason: z.string().trim().min(1).max(500),
+});
+class SnoozeDto extends createZodDto(snoozeSchema) {}
 
 const optionalRangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
@@ -130,6 +139,7 @@ export class CfoController {
     private readonly tiers: TierService,
     private readonly exceptions: ExceptionsService,
     private readonly exporter: CfoExportService,
+    private readonly alerts: AlertsService,
   ) {}
 
   @Get('receivables')
@@ -343,6 +353,20 @@ export class CfoController {
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.setHeader('Cache-Control', 'private, no-store');
     res.end(file.buffer);
+  }
+
+  /** Part L, Q5: today's alerts, disciplined -- capped, deduplicated, snoozable. */
+  @Get('alerts')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  alertList(@CurrentUser() principal: Principal): Promise<Alerts> {
+    return this.alerts.list(principal);
+  }
+
+  @Post('alerts/snooze')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  async snoozeAlert(@CurrentUser() principal: Principal, @Body() body: SnoozeDto): Promise<{ ok: true }> {
+    await this.alerts.snooze(principal, body.alertKey, body.partyId, body.until, body.reason);
+    return { ok: true };
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

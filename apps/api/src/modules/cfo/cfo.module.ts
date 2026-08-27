@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { ReceivableSnapshotHandler } from './receivable-snapshot.handler.js';
 import { SettingsModule } from '../../platform/settings/settings.module.js';
+import { AlertsService } from './alerts.service.js';
 import { CfoExportService } from './cfo-export.service.js';
 import { CfoController } from './cfo.controller.js';
 import { CreditControlService } from './credit-control.service.js';
@@ -26,6 +27,6 @@ import { TeamService } from './team.service.js';
 @Module({
   imports: [SettingsModule],
   controllers: [CfoController],
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService, AlertsService],
 })
 export class CfoModule {}

@@ -15,3 +15,4 @@ export { PenetrationPage } from './penetration-page';
 export { ClassGradePage } from './class-grade-page';
 export { DefinitionsPage } from './definitions-page';
 export { ExceptionsPage } from './exceptions-page';
+export { AlertsPage } from './alerts-page';

@@ -760,3 +760,42 @@ export function usePlanner(week: string, cap: number, options: { enabled?: boole
     staleTime: 60_000,
   });
 }
+
+const alertReasonSchema = z.object({ key: z.string(), label: z.string(), why: z.string(), amount: z.string(), immediate: z.boolean() });
+
+const alertsSchema = z.object({
+  asOf: z.string(),
+  alerts: z.array(
+    z.object({
+      partyId: z.string().nullable(),
+      subject: z.string(),
+      exposure: z.string(),
+      since: z.string().nullable(),
+      reasons: z.array(alertReasonSchema),
+      action: z.string(),
+      snoozed: z.object({ until: z.string(), reason: z.string() }).nullable(),
+    }),
+  ),
+  digest: z.object({ count: z.number(), exposure: z.string() }),
+  companyAlerts: z.array(alertReasonSchema),
+  cap: z.number(),
+});
+
+export type AlertsData = z.infer<typeof alertsSchema>;
+export type AlertData = AlertsData['alerts'][number];
+
+export function useAlerts(options: { enabled?: boolean } = {}): UseQueryResult<AlertsData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'alerts'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/cfo/alerts', { signal });
+      return parseOrThrow(alertsSchema, body, 'alerts');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export async function snoozeAlert(body: { alertKey: string; partyId: string | null; until: string; reason: string }): Promise<void> {
+  await apiRequest('/cfo/alerts/snooze', { method: 'POST', body });
+}
