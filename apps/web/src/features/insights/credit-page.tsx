@@ -24,6 +24,7 @@ import { usePermission } from '@/lib/session/permissions';
 import type { Metric } from './api';
 import { MetricChart } from './metric-card';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { ExportButton } from './export-button';
 import { useCfoReceivables, type CreditOverviewData } from './use-cfo';
 
 /**
@@ -131,6 +132,7 @@ export function CreditControlPage() {
           {data?.asOf ? (
             <span className="text-muted-foreground text-xs tabular-nums">Book as of {formatDate(data.asOf)}</span>
           ) : null}
+          <span className="ml-auto"><ExportButton report="credit" range={range} /></span>
         </div>
 
         {query.isPending ? (

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { z } from 'zod';
 import { METRIC_REGISTRY, PERMISSIONS, PIVOT_COLUMNS, PIVOT_DIMENSIONS, PIVOT_METRICS, type MetricDefinition } from '@vyuha/shared';
 
@@ -8,8 +9,9 @@ import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
+import { CfoExportService, EXPORT_REPORTS } from './cfo-export.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
-import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday } from './desk.service.js';
+import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday, type WeekClose } from './desk.service.js';
 import { EXCEPTION_STATES, ExceptionsService, type Exceptions } from './exceptions.service.js';
 import { PenetrationService, type Penetration } from './penetration.service.js';
 import { SalesAnalysisService, type PivotResult, type SalesAnalysis } from './sales-analysis.service.js';
@@ -45,6 +47,12 @@ const deskQuerySchema = z.object({
   mixed: z.enum(['0', '1']).default('0'),
 });
 class DeskQueryDto extends createZodDto(deskQuerySchema) {}
+
+const weekQuerySchema = z.object({ week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u) });
+class WeekQueryDto extends createZodDto(weekQuerySchema) {}
+
+const exportQuerySchema = salesScopeSchema.extend({ report: z.enum(EXPORT_REPORTS) });
+class ExportQueryDto extends createZodDto(exportQuerySchema) {}
 
 const optionalRangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
@@ -118,6 +126,7 @@ export class CfoController {
     private readonly penetration: PenetrationService,
     private readonly tiers: TierService,
     private readonly exceptions: ExceptionsService,
+    private readonly exporter: CfoExportService,
   ) {}
 
   @Get('receivables')
@@ -197,6 +206,13 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   desk(@CurrentUser() principal: Principal, @Query() query: DeskQueryDto): Promise<DeskToday> {
     return this.deskService.today(principal, { cap: query.cap, mixed: query.mixed === '1' });
+  }
+
+  /** O5.3: the week close, for the week starting on the given Monday. */
+  @Get('desk/week-close')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  weekClose(@CurrentUser() principal: Principal, @Query() query: WeekQueryDto): Promise<WeekClose> {
+    return this.deskService.weekClose(principal, query.week);
   }
 
   /** O4: the call sheet. */
@@ -305,6 +321,18 @@ export class CfoController {
   async reviewException(@CurrentUser() principal: Principal, @Body() body: ExceptionReviewDto): Promise<{ ok: true }> {
     await this.exceptions.review(principal, body.checkKey, body.voucherId, body.state, body.reason);
     return { ok: true };
+  }
+
+  /** R6, O6: export exactly what is on screen, logged. */
+  @Get('export')
+  @RequirePermission(PERMISSIONS.CFO_EXPORT)
+  async exportReport(@CurrentUser() principal: Principal, @Query() query: ExportQueryDto, @Res() res: Response): Promise<void> {
+    const { report, from, to, ...scope } = query;
+    const file = await this.exporter.build(principal, report, { from, to, scope });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.end(file.buffer);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

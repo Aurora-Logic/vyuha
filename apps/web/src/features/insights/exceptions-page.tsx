@@ -36,6 +36,7 @@ import { formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { ExportButton } from './export-button';
 import { reviewException, useExceptions, type ExceptionRowData } from './use-cfo';
 
 /**
@@ -163,6 +164,7 @@ export function ExceptionsPage() {
             }}
           />
           <span className="text-muted-foreground text-xs tabular-nums">{formatDate(range.from)} → {formatDate(range.to)}</span>
+          <span className="ml-auto"><ExportButton report="exceptions" range={range} /></span>
         </div>
 
         {query.isPending ? <Skeleton className="h-64" /> : null}

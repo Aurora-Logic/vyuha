@@ -28,6 +28,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { ClassBadge } from '@/components/shared/customer-badges';
@@ -42,6 +43,9 @@ import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format'
 import { usePermission } from '@/lib/session/permissions';
 
 import { toApiDate } from './period';
+import { WeekClose } from './week-close';
+import { ExportButton } from './export-button';
+import { defaultRange } from './period';
 import {
   DESK_OUTCOME_LABELS,
   deltaText,
@@ -305,6 +309,15 @@ export function DeskPage() {
         title={data ? `${formatDate(data.date)} · ${data.theme.label}` : "Director's desk"}
         description={data?.theme.hint ?? 'Which customers do we work on today? One list, not twenty.'}
       />
+      <Tabs defaultValue="today">
+        <TabsList>
+          <TabsTrigger value="today">Today</TabsTrigger>
+          <TabsTrigger value="week">Week close</TabsTrigger>
+        </TabsList>
+        <TabsContent value="week">
+          <WeekClose />
+        </TabsContent>
+        <TabsContent value="today">
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={desk.isFetching} onClick={() => void desk.refetch()}>
@@ -327,6 +340,7 @@ export function DeskPage() {
           {data ? (
             <span className="text-muted-foreground text-xs">{formatCount(data.qualified)} qualified today</span>
           ) : null}
+          <span className="ml-auto"><ExportButton report="desk" range={defaultRange()} label="Export today's list" /></span>
         </div>
 
         {data ? (
@@ -413,6 +427,8 @@ export function DeskPage() {
           </div>
         ) : null}
       </div>
+        </TabsContent>
+      </Tabs>
 
       <Sheet open={openParty !== null} onOpenChange={(open) => { if (!open) setOpenParty(null); }}>
         <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 sm:max-w-lg">

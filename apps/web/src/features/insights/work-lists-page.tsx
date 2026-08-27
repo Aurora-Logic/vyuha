@@ -15,6 +15,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
+import { ExportButton } from './export-button';
+import { defaultRange } from './period';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { apiRequest } from '@/lib/api/client';
@@ -41,7 +43,10 @@ export function WorkListsPage() {
   if (!canView) {
     return (
       <>
-        <PageHeader description="The standing work lists: who to call, for how much, and why." />
+        <PageHeader
+          description="The standing work lists: who to call, for how much, and why."
+          action={<ExportButton report="work-lists" range={defaultRange()} />}
+        />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">

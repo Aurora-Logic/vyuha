@@ -554,3 +554,55 @@ describe('exception reports (F2)', () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe('the week close (O5.3)', () => {
+  it('counts called against planned and what rolls over', async () => {
+    // Today's desk served Asha and Bharat earlier in this file; Asha has an
+    // outcome, Bharat does not.
+    const today = new Date().toISOString().slice(0, 10);
+    const monday = (() => {
+      const d = new Date(Date.parse(today));
+      const day = d.getUTCDay();
+      d.setUTCDate(d.getUTCDate() - ((day + 6) % 7));
+      return d.toISOString().slice(0, 10);
+    })();
+    const res = await harness.get<{
+      planned: number;
+      called: number;
+      rollovers: { party: string }[];
+      byOwner: { ownerLabel: string; planned: number; called: number }[];
+      outcomes: { outcome: string; count: number }[];
+    }>(`/cfo/desk/week-close?week=${monday}`, { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.planned).toBeGreaterThanOrEqual(1);
+    expect(res.body.called).toBeGreaterThanOrEqual(1);
+    expect(res.body.rollovers.map((r) => r.party)).not.toContain('Asha Traders');
+    expect(res.body.outcomes.map((o) => o.outcome)).toContain('NO_RESPONSE');
+    expect(res.body.byOwner.reduce((n, o) => n + o.planned, 0)).toBe(res.body.planned);
+
+    const bad = await harness.get('/cfo/desk/week-close?week=not-a-date', { token: adminToken });
+    expect(bad.status).toBe(400);
+  });
+});
+
+describe('GET /cfo/export (R6, O6)', () => {
+  it('returns a workbook of what the screen shows, and logs the export', async () => {
+    const res = await harness.getRaw('/cfo/export?report=league&from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('spreadsheetml');
+    expect(res.headers.get('content-disposition')).toContain('League-table-2026-08-01-to-2026-08-31.xlsx');
+    // A zip container: PK.
+    expect(res.body.subarray(0, 2).toString()).toBe('PK');
+    const audit = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM audit_logs WHERE org_id = ${ORG_ID} AND action = 'cfo.export'
+    `);
+    expect(audit.rows[0]?.n).toBeGreaterThanOrEqual(1);
+  });
+
+  it('needs cfo.export, and a viewer cannot export past their own keys', async () => {
+    const denied = await harness.getRaw('/cfo/export?report=league&from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(denied.status).toBe(403);
+    const unknown = await harness.getRaw('/cfo/export?report=ledger&from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(unknown.status).toBe(400);
+  });
+});

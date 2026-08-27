@@ -70,6 +70,19 @@ export interface DeskToday {
   readonly qualified: number;
 }
 
+export interface WeekClose {
+  readonly from: string;
+  readonly to: string;
+  readonly planned: number;
+  readonly called: number;
+  readonly outcomes: readonly { outcome: string; count: number; amount: string }[];
+  readonly targeted: string;
+  readonly collected: string;
+  readonly ordersWon: { count: number; value: string };
+  readonly rollovers: readonly { partyId: string; party: string; reason: string; atStake: string }[];
+  readonly byOwner: readonly { ownerRef: string; ownerLabel: string; planned: number; called: number }[];
+}
+
 export interface CallSheet {
   readonly party: { id: string; name: string; ownerLabel: string; creditLimit: string | null; since: string | null };
   readonly why: { primary: DeskReason | null; others: readonly DeskReason[] };
@@ -484,6 +497,66 @@ export class DeskService {
       lastContact: last === undefined ? null : { on: last.on, outcome: last.outcome, notes: last.notes, ownerLabel: lastOwner?.rows[0]?.email.split('@')[0] ?? 'Former user' },
       asks,
       recent: recent.rows.map((r) => ({ on: r.on, outcome: r.outcome, amount: r.amount, nextDate: r.nextDate, notes: r.notes })),
+    };
+  }
+
+  /**
+   * O5.3: the Saturday screen. Called against planned, outcomes by type,
+   * rupees collected against rupees targeted, orders won, what rolls over,
+   * owner-wise completion -- read from the served log and the outcomes.
+   */
+  async weekClose(principal: Principal, weekStart: string): Promise<WeekClose> {
+    const from = weekStart;
+    const to = shiftDays(weekStart, 6);
+    const served = await this.db.execute<{ partyId: string; party: string; reason: string; score: string; servedOn: string }>(sql`
+      SELECT DISTINCT ON (s.party_id) s.party_id AS "partyId", coalesce(p.name, 'Unknown party') AS party, s.reason, s.score::text AS score, s.served_on AS "servedOn"
+      FROM cfo_desk_served s LEFT JOIN parties p ON p.id = s.party_id
+      WHERE s.org_id = ${principal.orgId} AND s.served_on BETWEEN ${from} AND ${to}
+      ORDER BY s.party_id, s.served_on DESC
+    `);
+    const outcomes = await this.db.execute<{ partyId: string; ownerRef: string; outcome: string; amount: string | null }>(sql`
+      SELECT party_id AS "partyId", owner_ref AS "ownerRef", outcome, amount::text AS amount
+      FROM cfo_desk_outcomes WHERE org_id = ${principal.orgId} AND logged_on BETWEEN ${from} AND ${to}
+    `);
+    const book = await this.myBook(principal);
+    const rows = served.rows.filter((r) => book === null || book.has(r.partyId));
+    const calledSet = new Set(outcomes.rows.map((o) => o.partyId));
+    const byType = new Map<string, { count: number; amount: number }>();
+    for (const o of outcomes.rows) {
+      const entry = byType.get(o.outcome) ?? { count: 0, amount: 0 };
+      entry.count += 1;
+      entry.amount += Number(o.amount ?? 0);
+      byType.set(o.outcome, entry);
+    }
+    const owners = await this.ownersOf(principal);
+    const byOwner = new Map<string, { label: string; planned: number; called: number }>();
+    for (const r of rows) {
+      const owner = owners.get(r.partyId);
+      const key = owner?.ref ?? 'UNASSIGNED';
+      const entry = byOwner.get(key) ?? { label: owner?.label ?? 'Unassigned', planned: 0, called: 0 };
+      entry.planned += 1;
+      if (calledSet.has(r.partyId)) entry.called += 1;
+      byOwner.set(key, entry);
+    }
+    // What was at stake: the lists' amounts for the served names, today's reading.
+    const lists = await this.credit.workLists(principal);
+    const stakeOf = new Map<string, string>();
+    for (const list of lists.lists) for (const row of list.rows) if (row.partyId !== null && !stakeOf.has(`${list.key}:${row.partyId}`)) stakeOf.set(`${list.key}:${row.partyId}`, row.amount);
+    const targeted = rows.reduce((sum, r) => sum + Number(stakeOf.get(`${r.reason}:${r.partyId}`) ?? 0), 0);
+    const listLabel = new Map(lists.lists.map((l) => [l.key, l.label]));
+    return {
+      from,
+      to,
+      planned: rows.length,
+      called: rows.filter((r) => calledSet.has(r.partyId)).length,
+      outcomes: [...byType.entries()].map(([outcome, v]) => ({ outcome, count: v.count, amount: v.amount.toFixed(2) })).sort((a, b) => b.count - a.count),
+      targeted: targeted.toFixed(2),
+      collected: (byType.get('PARTIAL_PAYMENT')?.amount ?? 0).toFixed(2),
+      ordersWon: { count: byType.get('ORDER_PLACED')?.count ?? 0, value: (byType.get('ORDER_PLACED')?.amount ?? 0).toFixed(2) },
+      rollovers: rows
+        .filter((r) => !calledSet.has(r.partyId))
+        .map((r) => ({ partyId: r.partyId, party: r.party, reason: listLabel.get(r.reason) ?? r.reason, atStake: stakeOf.get(`${r.reason}:${r.partyId}`) ?? '0.00' })),
+      byOwner: [...byOwner.entries()].map(([ownerRef, v]) => ({ ownerRef, ownerLabel: v.label, planned: v.planned, called: v.called })).sort((a, b) => b.planned - a.planned),
     };
   }
 

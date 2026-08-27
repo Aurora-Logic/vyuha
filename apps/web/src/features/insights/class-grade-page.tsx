@@ -24,6 +24,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { formatCount, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
+import { ExportButton } from './export-button';
+import { defaultRange } from './period';
 import { useClassGrade, useTiers, type ClassGradeData } from './use-cfo';
 
 /**
@@ -76,9 +78,12 @@ export function ClassGradePage() {
       <PageHeader
         description="How important they are to us, against how they pay. The top-left is where you earn; the top-right is your concentrated risk."
         action={
-          <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
-            <ArrowsClockwiseIcon />
-          </Button>
+          <span className="flex items-center gap-2">
+            <ExportButton report="class-grade" range={defaultRange()} />
+            <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
+              <ArrowsClockwiseIcon />
+            </Button>
+          </span>
         }
       />
       <div className="flex flex-col gap-4">

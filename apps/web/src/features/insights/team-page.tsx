@@ -34,6 +34,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { useMe } from '@/lib/session/use-session';
 
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { ExportButton } from './export-button';
 import { deltaText, saveTarget, useLeague, useTargets, type LeagueRowData } from './use-cfo';
 
 /**
@@ -261,6 +262,7 @@ export function TeamPage() {
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} vs the same days last year
           </span>
+          <span className="ml-auto"><ExportButton report="league" range={range} /></span>
         </div>
 
         {league.isPending ? <Skeleton className="h-64" /> : null}

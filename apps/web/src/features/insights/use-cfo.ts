@@ -697,3 +697,38 @@ export function useExceptions(range: { from: string; to: string }, options: { en
 export async function reviewException(body: { checkKey: string; voucherId: string; state: 'accepted' | 'investigating'; reason: string }): Promise<void> {
   await apiRequest('/cfo/exceptions/review', { method: 'POST', body });
 }
+
+const weekCloseSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  planned: z.number(),
+  called: z.number(),
+  outcomes: z.array(z.object({ outcome: z.string(), count: z.number(), amount: z.string() })),
+  targeted: z.string(),
+  collected: z.string(),
+  ordersWon: z.object({ count: z.number(), value: z.string() }),
+  rollovers: z.array(z.object({ partyId: z.string(), party: z.string(), reason: z.string(), atStake: z.string() })),
+  byOwner: z.array(z.object({ ownerRef: z.string(), ownerLabel: z.string(), planned: z.number(), called: z.number() })),
+});
+
+export type WeekCloseData = z.infer<typeof weekCloseSchema>;
+
+export function useWeekClose(week: string, options: { enabled?: boolean } = {}): UseQueryResult<WeekCloseData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'desk', 'week-close', week],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/desk/week-close?week=${week}`, { signal });
+      return parseOrThrow(weekCloseSchema, body, 'week close');
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** The Monday of the week holding `day` (ISO date), as an ISO date. */
+export function mondayOf(day: string): string {
+  const d = new Date(Date.parse(day));
+  const weekday = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - ((weekday + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}

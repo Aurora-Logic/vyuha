@@ -36,6 +36,7 @@ import { usePermission } from '@/lib/session/permissions';
 import type { Metric } from './api';
 import { MetricChart } from './metric-card';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { ExportButton } from './export-button';
 import { deltaText, useSalesAnalysis, type BreakdownRowData, type SalesAnalysisData, type SalesScope } from './use-cfo';
 
 /**
@@ -186,6 +187,7 @@ export function SalesAnalysisPage() {
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} vs the same days last year
           </span>
+          <span className="ml-auto"><ExportButton report="sales-analysis" range={range} scope={scope} /></span>
         </div>
 
         {/* The level, as a breadcrumb: Company › C&S › Rajesh, every step clickable (B3). */}

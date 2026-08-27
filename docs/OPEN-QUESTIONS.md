@@ -647,3 +647,17 @@ class grid opens that customer's vouchers with the period carried. Left:
 | F-2 | Thresholds (₹50,000 no-GSTIN, 7 backdated days, 40% month-end share, ₹25,000 materiality) are named constants in `exceptions.service.ts` | Move to a `compliance.*` settings section, confirmed with the CA, in the compliance pass | Per-org thresholds |
 | F-3 | The list is computed on read; F2 asks for a nightly delivery to admin | Ride the nightly job once `queue.registry.ts` is free; the notification bell is the channel | The morning digest |
 | F-4 | F1 compliance analytics (GSTR, Rule 37, MSME 43B(h), TDS thresholds) need returns data the sync does not carry | Out of scope until a GST returns feed exists; party master hygiene is on Data Quality already | All of F1 |
+
+## Virtual CFO — Parts O5.3 and O6, week close and export (27 Aug 2026)
+
+Built: the week close (O5.3) as a tab on the desk -- called against planned, outcomes by
+type, collected against targeted, orders won, rollovers, owner-wise completion -- and
+export from the view (R6) for the league, credit control, work lists, desk, exceptions,
+penetration, class × grade, data quality and sales analysis: a data sheet per table and an
+About sheet with the standard header block, every export logged. Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| O6-1 | Week planner (O5.2): five columns, names movable between days, regenerated Sunday night | Needs the nightly job for regeneration; a read-only planner from the served log and themes can come first | The Monday view of the week |
+| O6-2 | The Export Centre screen (O6): the catalogue with schedule, recipients, last run, bulk ZIP and merged PDF | The on-demand exports are the catalogue's rows; schedules ride the report-schedule job when its handler returns; PDF after the print route grows a report design | Scheduled delivery, "give me everything" |
+| O6-3 | PDF export of a screen (R6) | Reuse the printed-document route with a report design | The monthly close pack (the acceptance test) |

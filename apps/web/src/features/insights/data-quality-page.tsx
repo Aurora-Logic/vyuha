@@ -21,6 +21,8 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatCount, formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
+import { ExportButton } from './export-button';
+import { defaultRange } from './period';
 import { useDataQuality, type QualityCheckData } from './use-cfo';
 
 /**
@@ -95,9 +97,12 @@ export function DataQualityPage() {
       <PageHeader
         description="What the figures are built on, and where they are weak. Every check names its fix and opens the records behind it."
         action={
-          <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
-            <ArrowsClockwiseIcon />
-          </Button>
+          <span className="flex items-center gap-2">
+            <ExportButton report="data-quality" range={defaultRange()} />
+            <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
+              <ArrowsClockwiseIcon />
+            </Button>
+          </span>
         }
       />
       <div className="flex flex-col gap-4">

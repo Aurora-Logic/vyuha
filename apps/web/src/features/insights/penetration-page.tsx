@@ -25,6 +25,7 @@ import { formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { ExportButton } from './export-button';
 import { usePenetration, type PenetrationData } from './use-cfo';
 
 /**
@@ -117,6 +118,7 @@ export function PenetrationPage() {
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} · top {formatCount(data?.customers.length ?? 0)} customers
           </span>
+          <span className="ml-auto"><ExportButton report="penetration" range={range} /></span>
         </div>
 
         {query.isPending ? <Skeleton className="h-64" /> : null}
