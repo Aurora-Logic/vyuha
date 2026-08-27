@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   BuildingsIcon,
   LockKeyIcon,
@@ -8,7 +8,7 @@ import {
 } from '@phosphor-icons/react';
 
 import { RecordPicker } from '@/components/shared/record-picker';
-import { SectionHeading } from '@/components/shared/section-heading';
+import { SettingsPanel, SettingsPanelSkeleton, SettingsRow, SettingsSection } from '@/components/shared/settings-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Empty,
@@ -17,15 +17,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  FieldSeparator,
-} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatCoordinate, parseMapsLink, type MapsLinkResult } from '@/features/org-masters/maps-link';
 import { ApiError } from '@/lib/api/client';
@@ -49,13 +41,13 @@ import type { OfficeGeofence } from './use-office-location';
  * It was only ever reachable at Organisation → Locations → Actions → Edit,
  * inside a form about names, codes and timezones. Three levels down is not
  * where anybody looks for "where is our office", and the value decides whether
- * an employee standing in the building is allowed to punch — so it gets a tab.
+ * an employee standing in the building is allowed to punch — so it gets a
+ * page of its own.
  *
- * A tab rather than a block inside Organisation because it edits a different
- * record: the organisation tab is a profile, this is a `locations` row, and
- * the two are saved through different routes. The Save is still the screen's
- * one Save, in the toolbar, because a reader must never have to work out which
- * of two buttons applies to the field they just edited.
+ * Its own page rather than a block inside Organisation because it edits a
+ * different record: the organisation page is a profile, this is a `locations`
+ * row, and the two are saved through different routes. The panel's own footer
+ * saves it, and Ctrl+A saves it with everything else on the screen.
  *
  * Everything the panel knows arrives through `OfficeGeofence`; the only state
  * it owns is the pasted link, which is a shortcut for filling two fields and
@@ -77,13 +69,16 @@ function linkStillShown(
 
 interface OfficeLocationPanelProps {
   office: OfficeGeofence;
-  /** The Attendance tab's outcome setting, and whether anything reads it yet. */
+  /** The Attendance page's outcome setting, and whether anything reads it yet. */
   behaviour: { value: GeofenceBehaviour; enforcedBy: string | null | undefined };
   /** The last failure from saving this panel, if any. */
   saveError: unknown;
+  /** The panel footer, from the screen that owns the writer. */
+  status?: ReactNode;
+  footer?: ReactNode;
 }
 
-export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLocationPanelProps) {
+export function OfficeLocationPanel({ office, behaviour, saveError, status, footer }: OfficeLocationPanelProps) {
   const [link, setLink] = useState('');
   const [parsed, setParsed] = useState<MapsLinkResult>(EMPTY_LINK);
   // The screen around this one already refuses anybody without it, so this is
@@ -111,18 +106,16 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
   }
 
   return (
-    <div className="flex flex-col gap-4 border p-4">
-      <SectionHeading
-        title="Office location"
-        note="The centre and radius that decide where a punch from a phone is accepted."
-      />
-
-      {query.isPending ? <PanelSkeleton /> : null}
+    <SettingsSection
+      title="Office location"
+      note="The centre and radius that decide where a punch from a phone is accepted."
+    >
+      {query.isPending ? <SettingsPanelSkeleton label="Loading the office location" /> : null}
 
       {query.isError ? <LoadFailure error={query.error} onRetry={() => void query.refetch()} /> : null}
 
       {!query.isPending && !query.isError && location === null ? (
-        <Empty>
+        <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <BuildingsIcon />
@@ -164,10 +157,17 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
 
           {saveError ? <SaveFailure error={saveError} /> : null}
 
-          <FieldGroup className="grid gap-5 md:grid-cols-2">
+          <SettingsPanel status={status} footer={footer}>
             {locations.length > 1 ? (
-              <Field className="md:col-span-2">
-                <FieldLabel htmlFor="office-location-pick">Location</FieldLabel>
+              <SettingsRow
+                label="Location"
+                htmlFor="office-location-pick"
+                description={`Each location has its own centre and radius.${
+                  total > locations.length
+                    ? ` Showing the first ${String(locations.length)} of ${String(total)}; the rest are under Organisation → Locations.`
+                    : ''
+                }`}
+              >
                 <RecordPicker
                   id="office-location-pick"
                   label="Location"
@@ -189,20 +189,48 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                     setParsed(EMPTY_LINK);
                   }}
                 />
-                <FieldDescription>
-                  Each location has its own centre and radius.
-                  {total > locations.length
-                    ? ` Showing the first ${String(locations.length)} of ${String(total)}; the rest are under Organisation → Locations.`
-                    : ''}
-                </FieldDescription>
-              </Field>
+              </SettingsRow>
             ) : null}
 
-            {/* The paste field comes first because it is how this gets filled
+            {/* The paste row comes first because it is how this gets filled
                 in practice. Nobody types a latitude — they press Share in
                 Google Maps and paste. */}
-            <Field className="md:col-span-2">
-              <FieldLabel htmlFor="office-maps-link">Paste a Google Maps link</FieldLabel>
+            <SettingsRow
+              label="Paste a Google Maps link"
+              htmlFor="office-maps-link"
+              description="It fills the two fields below. The link itself is not stored, so check the numbers before saving."
+              note={
+                <>
+                  {/* Only while the fields still hold what the link produced.
+                      Discarding the draft, or correcting a wrong read by hand,
+                      puts different numbers in the fields — and a read-back
+                      that no longer describes the fields it points at is worse
+                      than none. */}
+                  {parsed.kind === 'found' && linkStillShown(parsed, draft) ? (
+                    <Alert className="mt-2">
+                      <MapPinIcon />
+                      <AlertTitle>Read from the link</AlertTitle>
+                      <AlertDescription>
+                        {formatCoordinate(parsed.latitude)}, {formatCoordinate(parsed.longitude)} — check
+                        it against the map before saving.
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+
+                  {parsed.kind === 'short-link' || parsed.kind === 'unrecognised' ? (
+                    <Alert variant="destructive" className="mt-2">
+                      <WarningCircleIcon />
+                      <AlertTitle>
+                        {parsed.kind === 'short-link'
+                          ? 'That link hides its coordinates'
+                          : 'No coordinates in that'}
+                      </AlertTitle>
+                      <AlertDescription>{parsed.message}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                </>
+              }
+            >
               <Input
                 id="office-maps-link"
                 placeholder="https://www.google.com/maps/@19.0759837,72.8776559,17z"
@@ -212,41 +240,9 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                   pasteLink(event.target.value);
                 }}
               />
-              <FieldDescription>
-                It fills the two fields below. The link itself is not stored, so check the numbers
-                before saving.
-              </FieldDescription>
-            </Field>
+            </SettingsRow>
 
-            {/* Only while the fields still hold what the link produced.
-                Discarding the draft, or correcting a wrong read by hand, puts
-                different numbers below this alert — and a read-back that no
-                longer describes the fields it points at is worse than none. */}
-            {parsed.kind === 'found' && linkStillShown(parsed, draft) ? (
-              <Alert className="md:col-span-2">
-                <MapPinIcon />
-                <AlertTitle>Read from the link</AlertTitle>
-                <AlertDescription>
-                  {formatCoordinate(parsed.latitude)}, {formatCoordinate(parsed.longitude)} — check
-                  it against the map before saving.
-                </AlertDescription>
-              </Alert>
-            ) : null}
-
-            {parsed.kind === 'short-link' || parsed.kind === 'unrecognised' ? (
-              <Alert variant="destructive" className="md:col-span-2">
-                <WarningCircleIcon />
-                <AlertTitle>
-                  {parsed.kind === 'short-link'
-                    ? 'That link hides its coordinates'
-                    : 'No coordinates in that'}
-                </AlertTitle>
-                <AlertDescription>{parsed.message}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <Field>
-              <FieldLabel htmlFor="office-latitude">Latitude</FieldLabel>
+            <SettingsRow label="Latitude" htmlFor="office-latitude" description="North–south. Between -90 and 90.">
               <Input
                 id="office-latitude"
                 type="number"
@@ -261,11 +257,13 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                   office.edit({ latitude: event.target.value });
                 }}
               />
-              <FieldDescription>North–south. Between -90 and 90.</FieldDescription>
-            </Field>
+            </SettingsRow>
 
-            <Field>
-              <FieldLabel htmlFor="office-longitude">Longitude</FieldLabel>
+            <SettingsRow
+              label="Longitude"
+              htmlFor="office-longitude"
+              description="East–west. Both or neither: clearing both switches geofencing off."
+            >
               <Input
                 id="office-longitude"
                 type="number"
@@ -280,13 +278,18 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                   office.edit({ longitude: event.target.value });
                 }}
               />
-              <FieldDescription>
-                East–west. Both or neither: clearing both switches geofencing off.
-              </FieldDescription>
-            </Field>
+            </SettingsRow>
 
-            <Field className="md:col-span-2" data-disabled={noCentre ? '' : undefined}>
-              <FieldLabel htmlFor="office-radius">Radius (metres)</FieldLabel>
+            <SettingsRow
+              label="Radius (metres)"
+              htmlFor="office-radius"
+              disabled={noCentre}
+              description={
+                noCentre
+                  ? 'A radius does nothing until a centre is set above.'
+                  : `Use about ${String(DEFAULT_GEOFENCE_RADIUS_M)} m. A phone indoors is routinely 30 to 50 metres out, and a tight circle plus a poor fix refuses a real employee standing in the office. The punch already allows for the accuracy the phone reports, so a generous radius is not a hole. Between ${MIN_RADIUS_M.toLocaleString('en-GB')} and ${MAX_RADIUS_M.toLocaleString('en-GB')}.`
+              }
+            >
               <Input
                 id="office-radius"
                 type="number"
@@ -297,26 +300,19 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 // accepts a number nothing will ever read is worse than one
                 // that says so.
                 disabled={!canManage || noCentre}
-                className="tabular-nums md:max-w-xs"
+                className="tabular-nums"
                 value={draft.radiusM}
                 onChange={(event) => {
                   office.edit({ radiusM: event.target.value });
                 }}
               />
-              <FieldDescription>
-                {noCentre
-                  ? 'A radius does nothing until a centre is set above.'
-                  : `Use about ${String(DEFAULT_GEOFENCE_RADIUS_M)} m. A phone indoors is routinely 30 to 50 metres out, and a tight circle plus a poor fix refuses a real employee standing in the office. The punch already allows for the accuracy the phone reports, so a generous radius is not a hole. Between ${MIN_RADIUS_M.toLocaleString('en-GB')} and ${MAX_RADIUS_M.toLocaleString('en-GB')}.`}
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
+            </SettingsRow>
 
-          <FieldSeparator />
-
-          <AllowlistNote location={location} />
+            <AllowlistNote location={location} />
+          </SettingsPanel>
         </>
       ) : null}
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -374,38 +370,24 @@ function AllowlistNote({ location }: { location: LocationSummary }) {
   const count = location.ipAllowlist.length;
 
   return (
-    <div className="flex flex-col gap-1">
-      <h3 className="text-sm font-medium">Office IP allowlist</h3>
-      <p className="text-muted-foreground max-w-prose text-xs">
-        {count === 0
-          ? `Not enforced. No addresses are listed for ${location.name}, so a punch from a browser is not restricted by network — it is accepted and flagged to say the check was off. Geofencing above is the control that decides where a punch may come from.`
-          : `Enforced. ${String(count)} address${count === 1 ? '' : 'es'} listed, so a punch from a browser at ${location.name} is accepted only from ${count === 1 ? 'it' : 'them'}.`}{' '}
-        It is set per location under Organisation → Locations, not here.
-      </p>
-    </div>
-  );
-}
-
-function PanelSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading the office location">
-      <div className="grid gap-5 md:grid-cols-2">
-        {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} aria-hidden className="flex flex-col gap-2">
-            <Skeleton className="h-3 w-28" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-3 w-48" />
-          </div>
-        ))}
-      </div>
-    </div>
+    <SettingsRow
+      layout="end"
+      label="Office IP allowlist"
+      description={`${
+        count === 0
+          ? `No addresses are listed for ${location.name}, so a punch from a browser is not restricted by network — it is accepted and flagged to say the check was off. Geofencing above is the control that decides where a punch may come from.`
+          : `${String(count)} address${count === 1 ? '' : 'es'} listed, so a punch from a browser at ${location.name} is accepted only from ${count === 1 ? 'it' : 'them'}.`
+      } It is set per location under Organisation → Locations, not here.`}
+    >
+      <span className="text-xs font-medium">{count === 0 ? 'Not enforced' : 'Enforced'}</span>
+    </SettingsRow>
   );
 }
 
 /**
  * Reading the list takes `employee.view` while writing takes `settings.manage`
  * (OPEN-QUESTIONS P1-1), so an administrator without the read key reaches this
- * tab and cannot load it. That is worth its own sentence: the shared error
+ * page and cannot load it. That is worth its own sentence: the shared error
  * alert would say the reader is out of scope, which is a different problem.
  */
 function LoadFailure({ error, onRetry }: { error: unknown; onRetry: () => void }) {

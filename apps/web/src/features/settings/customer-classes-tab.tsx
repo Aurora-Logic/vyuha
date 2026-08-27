@@ -18,7 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { ClassBadge } from '@/components/shared/customer-badges';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { SectionHeading } from '@/components/shared/section-heading';
+import { SettingsSection } from '@/components/shared/settings-panel';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { deleteTier, saveTier, useTiers, type TierRowData } from '@/features/insights/use-cfo';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -94,10 +94,10 @@ export function CustomerClassesTab({ canEdit }: { canEdit: boolean }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <SectionHeading
+    <>
+      <SettingsSection
         title="Customer classes"
-        description="How important a customer is to us, A+ to D, set by a person with a reason. Each class carries its default terms, discount ceiling and contact rhythm."
+        note="How important a customer is to us, A+ to D, set by a person with a reason. Each class carries its default terms, discount ceiling and contact rhythm."
         action={
           canEdit ? (
             <Button size="sm" onClick={() => { setDraft({ row: blank((tiers.data?.length ?? 0) + 1), isNew: true, assigned: 0 }); }}>
@@ -106,19 +106,22 @@ export function CustomerClassesTab({ canEdit }: { canEdit: boolean }) {
             </Button>
           ) : undefined
         }
-      />
-      {tiers.isPending ? <Skeleton className="h-40" /> : null}
-      {tiers.error ? <QueryErrorAlert error={tiers.error} subject="customer classes" onRetry={() => void tiers.refetch()} /> : null}
-      {tiers.data ? (
-        <RecordTable
-          columns={COLUMNS}
-          rows={[...tiers.data]}
-          rowKey={(row) => row.code}
-          mobilePrimary={(row) => `${row.code} · ${row.label}`}
-          mobileSupporting={(row) => `${row.creditDays === null ? 'no credit days' : `${formatCount(row.creditDays)} credit days`} · ${formatCount(row.assigned)} customers`}
-          onRowActivate={canEdit ? (row) => { const { assigned, ...rest } = row; setDraft({ row: rest, isNew: false, assigned }); } : undefined}
-        />
-      ) : null}
+      >
+        {tiers.isPending ? <Skeleton className="h-40" /> : null}
+        {tiers.error ? <QueryErrorAlert error={tiers.error} subject="customer classes" onRetry={() => void tiers.refetch()} /> : null}
+        {tiers.data ? (
+          // The table draws its own border, so it stands in the section as the
+          // panel would; a panel around it would be a box in a box.
+          <RecordTable
+            columns={COLUMNS}
+            rows={[...tiers.data]}
+            rowKey={(row) => row.code}
+            mobilePrimary={(row) => `${row.code} · ${row.label}`}
+            mobileSupporting={(row) => `${row.creditDays === null ? 'no credit days' : `${formatCount(row.creditDays)} credit days`} · ${formatCount(row.assigned)} customers`}
+            onRowActivate={canEdit ? (row) => { const { assigned, ...rest } = row; setDraft({ row: rest, isNew: false, assigned }); } : undefined}
+          />
+        ) : null}
+      </SettingsSection>
 
       <Sheet open={draft !== null} onOpenChange={(open) => { if (!open) setDraft(null); }}>
         <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 sm:max-w-md">
@@ -199,6 +202,6 @@ export function CustomerClassesTab({ canEdit }: { canEdit: boolean }) {
           ) : null}
         </SheetContent>
       </Sheet>
-    </div>
+    </>
   );
 }

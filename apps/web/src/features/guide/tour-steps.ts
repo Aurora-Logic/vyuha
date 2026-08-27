@@ -452,7 +452,7 @@ const SCREEN_INTROS: GuideStep[] = [
     anchor: ANCHORS.screenHeader,
     permission: PERMISSIONS.SETTINGS_MANAGE,
     title: 'Settings',
-    body: 'Organisation, attendance policy and photo rules, in four tabs behind one Save. Each field says whether anything reads it yet.',
+    body: 'Organisation, attendance policy and photo rules, one page each on the rail. Every panel saves on its own, and each field says whether anything reads it yet.',
   },
   {
     id: 'screen.roles',

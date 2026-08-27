@@ -21,6 +21,7 @@ import {
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
+  EnvelopeSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
   GearIcon,
@@ -28,7 +29,9 @@ import {
   type Icon,
   ListChecksIcon,
   LockIcon,
+  MapPinAreaIcon,
   PackageIcon,
+  PaintBrushIcon,
   PlugIcon,
   ReceiptIcon,
   ScrollIcon,
@@ -60,6 +63,12 @@ export interface NavItem {
    * icon had not already said, so the tab gets a word that fits instead.
    */
   shortLabel?: string;
+  /**
+   * One line under the name on the administration directory and its rail
+   * sheet: what the screen decides, said the way a settings row says it.
+   * Absent = the name stands alone.
+   */
+  blurb?: string;
   icon: Icon;
   /** Sidebar items are permission-filtered (PRD §6.1). Undefined means always. */
   permission?: PermissionKey;
@@ -235,6 +244,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/organisation',
         label: 'Organisation',
+        blurb: 'Departments, designations and the locations the register filters by.',
         shortLabel: 'Org',
         icon: BuildingsIcon,
         // employee.view, not a manage key: the three masters are what an
@@ -255,6 +265,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/shifts',
         label: 'Shifts and rosters',
+        blurb: 'Shift timings, the roster and weekly offs.',
         shortLabel: 'Shifts',
         icon: ClockIcon,
         permission: PERMISSIONS.SHIFT_MANAGE,
@@ -264,6 +275,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/leave-types',
         label: 'Leave types',
+        blurb: 'Kinds of leave, how they accrue and who may take them.',
         icon: CalendarBlankIcon,
         permission: PERMISSIONS.LEAVE_POLICY_MANAGE,
         phase: 2,
@@ -272,6 +284,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/holidays',
         label: 'Holidays',
+        blurb: 'Holiday calendars by year and location.',
         icon: CalendarDotsIcon,
         permission: PERMISSIONS.HOLIDAY_MANAGE,
         phase: 2,
@@ -281,6 +294,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
         to: '/period-lock',
 
         label: 'Period lock',
+        blurb: 'Close an attendance month so nothing in it moves.',
         shortLabel: 'Lock',
         icon: LockIcon,
         permission: PERMISSIONS.ATTENDANCE_LOCK,
@@ -296,6 +310,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/settings',
         label: 'Settings',
+        blurb: 'Organisation profile, policies, appearance, documents, email and access.',
         icon: GearIcon,
         permission: PERMISSIONS.SETTINGS_MANAGE,
         phase: 4,
@@ -304,6 +319,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/roles',
         label: 'Roles and permissions',
+        blurb: 'Who may do what, role by role.',
         shortLabel: 'Roles',
         icon: ShieldCheckIcon,
         permission: PERMISSIONS.ROLES_MANAGE,
@@ -313,6 +329,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/integrations',
         label: 'Integrations',
+        blurb: 'Tally and the other connections the workspace reads from.',
         icon: PlugIcon,
         permission: PERMISSIONS.INTEGRATION_MANAGE,
         phase: 6,
@@ -321,6 +338,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/audit',
         label: 'Audit log',
+        blurb: 'Every change, who made it and when.',
         shortLabel: 'Audit',
         icon: ScrollIcon,
         permission: PERMISSIONS.AUDIT_VIEW,
@@ -330,6 +348,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/recycle-bin',
         label: 'Recycle bin',
+        blurb: 'Whatever was removed, ready to restore.',
         shortLabel: 'Recycle',
         icon: TrashIcon,
         // REQ-M-04 forbids a hard delete, so everything removed anywhere in the
@@ -343,6 +362,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/downloads',
         label: 'Downloads',
+        blurb: 'Exports ready to collect.',
         icon: DownloadSimpleIcon,
         phase: 3,
         reqs: 'REQ-J-03',
@@ -350,6 +370,149 @@ export const ADMIN_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+/**
+ * The pages inside Settings, one rail entry each. Owner, 27 Aug 2026: the
+ * administration area takes Supabase's settings shape -- a secondary rail
+ * lists pages, a page holds sections, a section holds one panel of rows.
+ * Each `to` carries the `?tab=` the settings screen already reads, so the
+ * addresses the sales and purchase lists deep-link to do not move and a
+ * reload still lands where the person was.
+ *
+ * Deliberately not in `ALL_NAV_ITEMS`: these are views of one route, not
+ * routes, and the router, breadcrumbs and changelog would all be wrong to
+ * treat them as screens of their own.
+ */
+export const SETTINGS_SECTIONS: NavItem[] = [
+  {
+    to: '/settings',
+    label: 'General',
+    blurb: 'Name, time zone, date format, numbers, retention and interest cost.',
+    icon: BuildingsIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-01, REQ-L-02',
+  },
+  {
+    to: '/settings?tab=appearance',
+    label: 'Appearance',
+    blurb: 'Accent, base, density and typeface for everyone here.',
+    icon: PaintBrushIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-04',
+  },
+  {
+    to: '/settings?tab=office',
+    label: 'Office location',
+    blurb: 'Where the office is and how far the geofence reaches.',
+    icon: MapPinAreaIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 1,
+    reqs: 'REQ-D-03',
+  },
+  {
+    to: '/settings?tab=attendance',
+    label: 'Attendance policy',
+    blurb: 'Geofence, device binding, early arrival, regularisation and punch photos.',
+    icon: ClockIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-03, REQ-L-05',
+  },
+  {
+    to: '/settings?tab=sales',
+    label: 'Sales',
+    blurb: 'The discount level that needs an approval.',
+    icon: ReceiptIcon,
+    permission: PERMISSIONS.SALES_DISCOUNT_APPROVE,
+    phase: 7,
+    reqs: 'REQ-S-06',
+  },
+  {
+    to: '/settings?tab=purchase',
+    label: 'Purchase',
+    blurb: 'The approval threshold and how long an invoice may wait.',
+    icon: ShoppingCartIcon,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+    phase: 8,
+    reqs: 'REQ-U-04',
+  },
+  {
+    to: '/settings?tab=classes',
+    label: 'Customer classes',
+    blurb: 'The classes customers are graded into.',
+    icon: TagIcon,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    phase: 8,
+    reqs: 'Virtual CFO brief, Part F',
+  },
+  {
+    to: '/settings?tab=email',
+    label: 'Email',
+    blurb: 'The transport that sends the workspace its mail.',
+    icon: EnvelopeSimpleIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-01',
+  },
+  {
+    to: '/settings?tab=access',
+    label: 'Security and access',
+    blurb: 'Two-step sign-in, sessions and the sign-in window.',
+    icon: ShieldCheckIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-B-05, REQ-AB-02',
+  },
+  {
+    to: '/settings?tab=documents',
+    label: 'Documents',
+    blurb: 'How printed papers look.',
+    icon: FileTextIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 7,
+    reqs: 'REQ-W-01',
+  },
+];
+
+function mayOpen(item: NavItem, granted: ReadonlySet<string>): boolean {
+  return !item.permission || granted.has(item.permission);
+}
+
+/**
+ * The administration rail for one reader: Settings' pages first, then every
+ * workspace destination, each filtered to what they may open. `/settings`
+ * itself is not repeated below its own pages.
+ */
+export function adminRailFor(granted: ReadonlySet<string>): NavGroup[] {
+  const settings = SETTINGS_SECTIONS.filter((item) => mayOpen(item, granted));
+  const rest = ADMIN_GROUPS.map((group) => ({
+    label: group.label,
+    items: group.items.filter((item) => item.to !== '/settings' && mayOpen(item, granted)),
+  })).filter((group) => group.items.length > 0);
+  return settings.length > 0 ? [{ label: 'Settings', items: settings }, ...rest] : rest;
+}
+
+/**
+ * The rail entry the reader is looking at. The path must match and every
+ * query the entry names must be present with that value; among the entries
+ * that fit, the one naming the most queries wins. So `/settings?tab=email`
+ * beats `/settings` while the tab is email and loses to it when there is no
+ * tab -- which is also what the settings screen does with an unknown one.
+ */
+export function activeRailItem(groups: NavGroup[], pathname: string, search: string): NavItem | undefined {
+  const here = new URLSearchParams(search);
+  let best: { item: NavItem; score: number } | undefined;
+  for (const item of groups.flatMap((group) => group.items)) {
+    const [path, query = ''] = item.to.split('?');
+    if (path !== pathname) continue;
+    const wanted = [...new URLSearchParams(query).entries()];
+    if (!wanted.every(([key, value]) => here.get(key) === value)) continue;
+    if (best === undefined || wanted.length > best.score) best = { item, score: wanted.length };
+  }
+  return best?.item;
+}
 
 /**
  * REQ-O-03. One inbox across every approvable thing, so it sits above the

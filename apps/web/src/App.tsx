@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
+import { AdminShell } from '@/features/administration/admin-shell';
 import { SessionGate } from '@/app/session-gate';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
 import { ALL_NAV_ITEMS } from '@/lib/nav';
@@ -181,6 +182,33 @@ export default function App() {
 
             <Route element={<AppShell />}>
               <Route index element={<LandingPage />} />
+
+              {/*
+                Administration is one area with one shell (owner, 27 Aug 2026): a
+                Supabase-shaped rail of settings pages and workspace screens beside
+                the content column. A layout route rather than a wrapper in each
+                screen, so a screen cannot forget it and the rail does not remount
+                when one screen is left for another.
+              */}
+              <Route element={<AdminShell />}>
+                <Route path="administration" element={<AdministrationScreen />} />
+                <Route path="settings" element={<SettingsPage />} />
+                <Route path="organisation" element={<OrgMastersPage />} />
+                <Route path="shifts" element={<ShiftsPage />} />
+                <Route path="leave-types" element={<LeaveTypesPage />} />
+                <Route path="holidays" element={<HolidaysPage />} />
+                <Route path="period-lock" element={<PeriodLockPage />} />
+                <Route path="roles" element={<RolesPage />} />
+                <Route path="integrations" element={<IntegrationsPage />} />
+                <Route path="audit" element={<AuditLogPage />} />
+                <Route path="recycle-bin" element={<RecycleBinPage />} />
+                <Route path="downloads" element={<DownloadsPage />} />
+                {/* D-22's per-party overrides: reached from the Interest cost
+                    section of Settings, not from the sidebar. The address lost
+                    its /reports prefix when that module was removed (owner,
+                    26 Aug 2026). */}
+                <Route path="interest-overrides" element={<InterestOverridesPage />} />
+              </Route>
               {/*
                 The attendance dashboard has its own address now. It used to
                 be "/", which was fine while "/" meant one thing -- then "/"
@@ -197,15 +225,9 @@ export default function App() {
               <Route path="punch" element={<PunchPage />} />
               <Route path="my-leave" element={<MyLeavePage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
-              <Route path="leave-types" element={<LeaveTypesPage />} />
-              <Route path="holidays" element={<HolidaysPage />} />
               <Route path="my-attendance" element={<MyAttendancePage />} />
               <Route path="team-attendance" element={<TeamAttendancePage />} />
-              <Route path="shifts" element={<ShiftsPage />} />
 
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="roles" element={<RolesPage />} />
-              <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="masters/parties" element={<PartiesPage />} />
               <Route path="masters/parties/:id" element={<PartyPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
@@ -251,15 +273,6 @@ export default function App() {
               <Route path="purchase/orders/:id" element={<PurchaseOrderEditorPage />} />
               <Route path="purchase/grns" element={<GrnsPage />} />
               <Route path="purchase/grns/:id" element={<GrnPaperPage />} />
-              <Route path="audit" element={<AuditLogPage />} />
-              <Route path="period-lock" element={<PeriodLockPage />} />
-              {/* D-22's per-party overrides: reached from the Interest cost
-                  section of Settings, not from the sidebar. The address lost
-                  its /reports prefix when that module was removed (owner,
-                  26 Aug 2026). */}
-              <Route path="interest-overrides" element={<InterestOverridesPage />} />
-              <Route path="administration" element={<AdministrationScreen />} />
-              <Route path="downloads" element={<DownloadsPage />} />
               <Route path="reports" element={<InsightsOverviewPage />} />
               <Route path="reports/custom" element={<CustomReportsPage />} />
               <Route path="reports/custom/:id" element={<CustomReportPage />} />
@@ -279,8 +292,6 @@ export default function App() {
               <Route path="reports/receivables" element={<InsightsAreaPage area="receivables" />} />
               <Route path="reports/sales" element={<InsightsAreaPage area="sales" />} />
               <Route path="reports/sync" element={<InsightsAreaPage area="sync" />} />
-              <Route path="recycle-bin" element={<RecycleBinPage />} />
-              <Route path="organisation" element={<OrgMastersPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="regularizations" element={<RegularizationsPage />} />
               <Route path="team-leave" element={<TeamLeavePage />} />

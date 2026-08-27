@@ -1,18 +1,11 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import {
-  BuildingsIcon,
-  ClockIcon,
-  EnvelopeSimpleIcon,
-  LockKeyIcon,
-  MapPinAreaIcon,
-  FileTextIcon,
-  PaperPlaneTiltIcon,
-  WarningCircleIcon, PaintBrushIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon, TagIcon } from '@phosphor-icons/react';
+import { EnvelopeSimpleIcon, LockKeyIcon, PaperPlaneTiltIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { Link, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
-import { SectionHeading } from '@/components/shared/section-heading';
+import { SettingsPanel, SettingsPanelSkeleton, SettingsRow, SettingsSection } from '@/components/shared/settings-panel';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -23,17 +16,9 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  FieldSeparator,
-} from '@/components/ui/field';
+import { FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
@@ -41,21 +26,32 @@ import {
   RecordHistoryButton,
   RecordHistorySheet,
 } from '@/features/audit/record-history-sheet';
+import { PurchaseSettingsPanel } from '@/features/purchase/purchase-settings-panel';
+import { SalesSettingsPanel } from '@/features/sales/sales-settings-panel';
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, type DuplicatesPolicy, type ReturnReasonsPolicy } from '@vyuha/shared';
+import { cn } from '@/lib/utils';
+import {
+  CURRENCY_SYMBOLS,
+  DEVICE_BINDING_MODES,
+  MFA_POLICIES,
+  MFA_POLICY_LABELS,
+  NUMBER_FORMATS,
+  NUMBER_FORMAT_LABELS,
+  PERMISSIONS,
+  SESSION_HOURS_MAX,
+  SESSION_HOURS_MIN,
+  type AccessWindow,
+  type DuplicatesPolicy,
+  type ReturnReasonsPolicy,
+} from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
+import { AppearancePanel } from './appearance-panel';
 import { CustomerClassesTab } from './customer-classes-tab';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
-import { PurchaseSettingsPanel } from '@/features/purchase/purchase-settings-panel';
-import { SalesSettingsPanel } from '@/features/sales/sales-settings-panel';
-
-import { AppearancePanel } from './appearance-panel';
-import { Link, useSearchParams } from 'react-router';
-
 import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField, ReturnReasonsField } from './policy-fields';
 import {
   DATE_FORMATS,
@@ -70,32 +66,42 @@ import {
   MONTH_LABELS,
   TIMEZONE_OPTIONS,
   WEEKDAY_LABELS,
+  type Appearance,
   type AttendancePolicy,
   type InterestPolicy,
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
-  type SettingsPatch, type SecurityPolicy, type Appearance, type WorkspaceLocale, type RetentionPolicy } from './types';
+  type RetentionPolicy,
+  type SecurityPolicy,
+  type SettingsPatch,
+  type WorkspaceLocale,
+} from './types';
 import { useAccessWindowDraft, useSaveAccessWindow } from './use-access-window';
-import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
+import { useOfficeGeofence, useSaveGeofence, type GeofenceWrite } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
 
 /**
- * REQ-L-01 to REQ-L-05 / PRD §5 screen 16, plus the office geofence (REQ-D-08).
+ * REQ-L-01 to REQ-L-05 / PRD §5 screen 16, plus the office geofence (REQ-D-08)
+ * and the sign-in window (12 REQ-AB-02).
  *
- * One Save for the whole screen rather than one per tab. The draft is held for
- * all four settings groups and the request carries only the groups that
- * changed, so saving the timezone cannot blank the punch policy and the reader
- * never has to work out which of four buttons applies to the field they just
- * edited.
+ * One draft for the whole screen, saved a panel at a time (owner, 27 Aug
+ * 2026: the Supabase anatomy -- each panel carries its own status and its
+ * own Save, enabled only while that panel has moved). A panel's request
+ * carries only the groups it owns, so saving the timezone cannot blank the
+ * punch policy, and a panel the reader has not touched is never sent. Ctrl+A,
+ * the Tally Accept key, still saves everything dirty on the screen at once:
+ * the person who has edited three panels should not have to find three
+ * buttons.
  *
- * The office location tab is the one thing here that is not a settings row:
- * the geofence centre lives on a `locations` record, so Save sends a second
- * request to a second endpoint. That stays behind the same button — two Save
- * buttons on one screen is exactly what the paragraph above exists to avoid —
- * but the two requests are independent, and the screen reports which of them
- * landed rather than assuming both did. The access window (12 REQ-AB-02) is
- * the third such row: its own route, the same Save.
+ * The office location and the access window are the two things here that are
+ * not settings rows: the geofence centre lives on a `locations` record and the
+ * window on its own route, so their panels save through their own writers.
+ * All three writers run through one path, and the screen reports which of
+ * them landed rather than assuming all did.
+ *
+ * No tab strip. The administration rail (admin-shell) names the pages and
+ * writes `?tab=`; this screen only reads it and draws the sections it names.
  */
 
 const KB = 1024;
@@ -112,6 +118,21 @@ interface Draft {
   returns: ReturnReasonsPolicy;
   interest: InterestPolicy;
 }
+
+type DraftKey = keyof Draft;
+
+const DRAFT_KEYS: readonly DraftKey[] = [
+  'organisation',
+  'attendance',
+  'photo',
+  'security',
+  'appearance',
+  'locale',
+  'retention',
+  'duplicates',
+  'returns',
+  'interest',
+];
 
 function draftOf(settings: OrgSettings): Draft {
   return {
@@ -164,66 +185,80 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   return patch;
 }
 
-function FormSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading settings" className="border p-4">
-      <div className="grid gap-6 md:grid-cols-2">
-        {Array.from({ length: 5 }, (_, index) => (
-          <div key={index} aria-hidden className="flex flex-col gap-2">
-            <Skeleton className="h-3 w-32" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+/** The part of the patch a panel owns: its groups, and only those that moved. */
+function pickGroups(patch: SettingsPatch, keys: readonly DraftKey[]): SettingsPatch {
+  const picked: SettingsPatch = {};
+  for (const key of keys) {
+    if (patch[key] !== undefined) Object.assign(picked, { [key]: patch[key] });
+  }
+  return picked;
+}
+
+/** `keys` taken from `from`; every other group left as `into` has it. */
+function withGroups(into: Draft, from: Draft, keys: readonly DraftKey[]): Draft {
+  const next = { ...into };
+  for (const key of keys) Object.assign(next, { [key]: from[key] });
+  return next;
 }
 
 /**
- * Owner, 22 Aug 2026: every module's settings live here, one tab each. The
- * tab is in the URL so the sales and purchase list pages can deep-link to
- * theirs, and so a reload lands where the person was.
+ * Owner, 22 Aug 2026: every module's settings live here, one page each. The
+ * page is in the URL so the sales and purchase list pages can deep-link to
+ * theirs, and so a reload lands where the person was. The rail writes it;
+ * this screen reads it.
  */
 const TABS = ['organisation', 'appearance', 'office', 'attendance', 'sales', 'purchase', 'classes', 'documents', 'email', 'access'] as const;
 type SettingsTab = (typeof TABS)[number];
 
-function useSettingsTab(): [SettingsTab, (next: SettingsTab) => void] {
-  const [searchParams, setSearchParams] = useSearchParams();
+function useSettingsTab(): SettingsTab {
+  const [searchParams] = useSearchParams();
   const param = searchParams.get('tab');
-  const tab: SettingsTab = TABS.includes(param as SettingsTab) ? (param as SettingsTab) : 'organisation';
-  const setTab = (next: SettingsTab) => {
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current);
-        if (next === 'organisation') params.delete('tab');
-        else params.set('tab', next);
-        return params;
-      },
-      { replace: true },
-    );
-  };
-  return [tab, setTab];
+  return TABS.includes(param as SettingsTab) ? (param as SettingsTab) : 'organisation';
+}
+
+/**
+ * The page the address names if the reader may see it, else the first they
+ * may -- which is also the row the rail highlights, so the two agree.
+ */
+function visibleTab(tab: SettingsTab, visible: Record<SettingsTab, boolean>): SettingsTab {
+  if (visible[tab]) return tab;
+  return TABS.find((candidate) => visible[candidate]) ?? tab;
 }
 
 export function SettingsPage() {
   const canManage = usePermission(PERMISSIONS.SETTINGS_MANAGE);
   const canSales = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
   const canPurchase = usePermission(PERMISSIONS.PURCHASE_DOCUMENT_APPROVE);
+  // REQ-M-02 and REQ-L-05. Settings are the one record where the diff matters
+  // more than the current value: "what is the retention now" is on the screen,
+  // and "who shortened it, and when" is the question a purged photo raises.
+  const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const query = useSettings({ enabled: canManage });
   const saved = query.data?.value ?? null;
 
   return (
     <>
-      <PageHeader description="Every module's settings in one place: the organisation, how it looks, attendance and photos, sales and purchase thresholds, documents, email, security and the sign-in window." />
+      <PageHeader
+        description="Every module's settings in one place: the organisation, how it looks, attendance and photos, sales and purchase thresholds, documents, email, security and the sign-in window."
+        action={
+          canManage && canReadTrail && saved !== null ? (
+            <RecordHistoryButton
+              onClick={() => {
+                setHistoryOpen(true);
+              }}
+            />
+          ) : undefined
+        }
+      />
 
       {!canManage && (canSales || canPurchase) ? (
         <ModuleSettingsOnly canSales={canSales} canPurchase={canPurchase} />
       ) : canManage ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
           {query.data?.sample ? <SampleDataNotice what="settings" /> : null}
 
-          {query.isPending ? <FormSkeleton /> : null}
+          {query.isPending ? <SettingsPanelSkeleton label="Loading settings" heading /> : null}
 
           {query.isError ? (
             <QueryErrorAlert
@@ -251,93 +286,133 @@ export function SettingsPage() {
           </EmptyHeader>
         </Empty>
       )}
+
+      {saved !== null ? (
+        <RecordHistorySheet
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          entityType="settings"
+          // The organisation row is what every settings write audits against,
+          // including the logo (REQ-L-01), so one id covers every page.
+          entityId={saved.organisation.id}
+          title="Organisation settings"
+          description="Every settings change, with the values before and after."
+        />
+      ) : null}
     </>
   );
 }
 
-/** A sales or purchase approver without settings.manage: their tabs, nothing else. */
+/** A sales or purchase approver without settings.manage: their pages, nothing else. */
 function ModuleSettingsOnly({ canSales, canPurchase }: { canSales: boolean; canPurchase: boolean }) {
-  const [tab, setTab] = useSettingsTab();
-  const first: SettingsTab = canSales ? 'sales' : 'purchase';
-  const value = (tab === 'sales' && canSales) || (tab === 'purchase' && canPurchase) ? tab : first;
+  const tab = visibleTab(useSettingsTab(), {
+    organisation: false,
+    appearance: false,
+    office: false,
+    attendance: false,
+    sales: canSales,
+    purchase: canPurchase,
+    classes: false,
+    documents: false,
+    email: false,
+    access: false,
+  });
+  return tab === 'purchase' ? <PurchaseSettingsPanel /> : <SalesSettingsPanel />;
+}
+
+interface SaveFooterProps {
+  /** Something to send: enables Save. */
+  dirty: boolean;
+  /**
+   * Something to put back. Usually the same as `dirty`, but an office draft
+   * the panel refuses to send has nothing to save and still wants a Cancel.
+   */
+  canCancel?: boolean;
+  /** This panel's own write in flight: what the spinner reports. */
+  saving: boolean;
+  /**
+   * Any write on the screen in flight: what disables the buttons. Two panels
+   * saving at once would race each other for the draft.
+   */
+  busy: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+}
+
+/**
+ * The right half of a panel footer. Every panel here is also saved by Ctrl+A
+ * (PRD §6.4: Accept / Save), so every Save wears the hint.
+ */
+function SaveFooter({ dirty, canCancel = dirty, saving, busy, onCancel, onSave }: SaveFooterProps) {
   return (
-    <Tabs
-      value={value}
-      onValueChange={(next: unknown) => {
-        if (next === 'sales' || next === 'purchase') setTab(next);
-      }}
-      className="gap-4"
-    >
-      <TabsList className="no-scrollbar max-w-full overflow-x-auto">
-        {canSales ? (
-          <TabsTrigger value="sales" className="px-3">
-            <ReceiptIcon data-icon="inline-start" />
-            Sales
-          </TabsTrigger>
-        ) : null}
-        {canPurchase ? (
-          <TabsTrigger value="purchase" className="px-3">
-            <ShoppingCartIcon data-icon="inline-start" />
-            Purchase
-          </TabsTrigger>
-        ) : null}
-      </TabsList>
-      {canSales ? (
-        <TabsContent value="sales">
-          <SalesSettingsPanel />
-        </TabsContent>
+    <>
+      {canCancel ? (
+        <Button variant="outline" size="sm" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
       ) : null}
-      {canPurchase ? (
-        <TabsContent value="purchase">
-          <PurchaseSettingsPanel />
-        </TabsContent>
-      ) : null}
-    </Tabs>
+      <Button size="sm" disabled={!dirty || busy} onClick={onSave}>
+        {saving ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
+        {saving ? 'Saving' : 'Save changes'}
+        <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
+      </Button>
+    </>
   );
 }
 
 function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; canSales: boolean; canPurchase: boolean }) {
-  const [tab, setTab] = useSettingsTab();
   const [draft, setDraft] = useState<Draft>(() => draftOf(saved));
-  const [historyOpen, setHistoryOpen] = useState(false);
   const save = useSaveSettings();
   const office = useOfficeGeofence();
   const saveOffice = useSaveGeofence();
   const accessWindow = useAccessWindowDraft();
   const saveWindow = useSaveAccessWindow();
-  // REQ-M-02 and REQ-L-05. Settings are the one record where the diff matters
-  // more than the current value: "what is the retention now" is on the screen,
-  // and "who shortened it, and when" is the question a purged photo raises.
-  const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
   // The per-party overrides screen needs its own key, so the link to it hides
   // with the screen rather than leading to a refusal.
   const canConfigureInterest = usePermission(PERMISSIONS.INTEREST_CONFIGURE);
   const canSeeClasses = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const canEditClasses = usePermission(PERMISSIONS.CFO_TIER_MASTER);
+  const tab = visibleTab(useSettingsTab(), {
+    organisation: true,
+    appearance: true,
+    office: true,
+    attendance: true,
+    sales: canSales,
+    purchase: canPurchase,
+    classes: canSeeClasses,
+    documents: true,
+    email: true,
+    access: true,
+  });
 
   const patch = patchOf(draft, saved);
   const officeWrite = office.write;
   const windowWrite = accessWindow.write;
-  const changedSections = Object.keys(patch).length + (officeWrite === null ? 0 : 1) + (windowWrite === null ? 0 : 1);
-  const dirty = changedSections > 0;
+  const dirty = Object.keys(patch).length > 0 || officeWrite !== null || windowWrite !== null;
   const saving = save.isPending || saveOffice.isPending || saveWindow.isPending;
   // An office draft the panel refuses to send is not "saved", and the status
   // line would be lying if it said so.
   const officeBlocked = office.change.kind === 'invalid';
 
-  function submit() {
-    if (!dirty || saving) return;
-
-    const settingsPatch = Object.keys(patch).length > 0 ? patch : null;
+  /**
+   * The one write path. A panel's Save names its own groups and nothing
+   * else; Ctrl+A names every group and both records, and what is clean is
+   * simply not sent.
+   */
+  function persist(keys: readonly DraftKey[], officeChange: GeofenceWrite | null, windowChange: AccessWindow | null) {
+    if (saving) return;
+    const settingsPatch = pickGroups(patch, keys);
+    const sendSettings = Object.keys(settingsPatch).length > 0;
+    if (!sendSettings && officeChange === null && windowChange === null) return;
 
     void (async () => {
       // allSettled, not all: a refused geofence must not throw away an edited
       // timezone that the server already accepted, and one rejection must not
       // leave the other promise unhandled.
       const [settingsResult, officeResult, windowResult] = await Promise.allSettled([
-        settingsPatch === null ? Promise.resolve(null) : save.mutateAsync(settingsPatch),
-        officeWrite === null ? Promise.resolve(null) : saveOffice.mutateAsync(officeWrite),
-        windowWrite === null ? Promise.resolve(null) : saveWindow.mutateAsync(windowWrite),
+        sendSettings ? save.mutateAsync(settingsPatch) : Promise.resolve(null),
+        officeChange === null ? Promise.resolve(null) : saveOffice.mutateAsync(officeChange),
+        windowChange === null ? Promise.resolve(null) : saveWindow.mutateAsync(windowChange),
       ]);
 
       const savedSettings = settingsResult.status === 'fulfilled' && settingsResult.value !== null;
@@ -345,7 +420,11 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
       const savedWindow = windowResult.status === 'fulfilled' && windowResult.value !== null;
 
       if (settingsResult.status === 'fulfilled' && settingsResult.value !== null) {
-        setDraft(draftOf(settingsResult.value));
+        // Only the groups that were sent take the server's answer. A panel
+        // that was not part of this save keeps the edits the reader is still
+        // making in it.
+        const fresh = draftOf(settingsResult.value);
+        setDraft((current) => withGroups(current, fresh, keys));
       }
       // The panels derive their fields from the fetched row, so dropping the
       // edits is what makes the server's answer the thing on screen.
@@ -368,6 +447,48 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
     })();
   }
 
+  function submit() {
+    if (!dirty || saving) return;
+    persist(DRAFT_KEYS, officeWrite, windowWrite);
+  }
+
+  function saveGroups(keys: readonly DraftKey[]) {
+    persist(keys, null, null);
+  }
+
+  function resetGroups(keys: readonly DraftKey[]) {
+    setDraft((current) => withGroups(current, draftOf(saved), keys));
+    save.reset();
+  }
+
+  // The patch in flight names the groups it carries, so a panel shows its own
+  // spinner rather than every panel spinning for one save.
+  function inFlight(keys: readonly DraftKey[]): boolean {
+    const sent = save.variables;
+    return save.isPending && sent !== undefined && keys.some((key) => sent[key] !== undefined);
+  }
+
+  /** The footer of a panel that owns `keys`, and nothing else on the screen. */
+  function panelProps(keys: readonly DraftKey[]): { status: string; footer: ReactNode } {
+    const panelDirty = keys.some((key) => patch[key] !== undefined);
+    return {
+      status: panelDirty ? 'Unsaved changes' : 'Saved',
+      footer: (
+        <SaveFooter
+          dirty={panelDirty}
+          saving={inFlight(keys)}
+          busy={saving}
+          onCancel={() => {
+            resetGroups(keys);
+          }}
+          onSave={() => {
+            saveGroups(keys);
+          }}
+        />
+      ),
+    };
+  }
+
   // PRD §6.4: Ctrl+A is Accept / Save, and it fires from inside a field.
   useShortcut({
     id: 'settings.save',
@@ -386,33 +507,40 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
     setDraft((current) => ({ ...current, attendance: { ...current.attendance, ...next } }));
   }
   function patchAppearance(next: Partial<Appearance>) {
-    setDraft((current) => (current === null ? current : { ...current, appearance: { ...current.appearance, ...next } }));
+    setDraft((current) => ({ ...current, appearance: { ...current.appearance, ...next } }));
   }
   function patchLocale(next: Partial<WorkspaceLocale>) {
-    setDraft((current) => (current === null ? current : { ...current, locale: { ...current.locale, ...next } }));
+    setDraft((current) => ({ ...current, locale: { ...current.locale, ...next } }));
   }
   function patchRetention(next: Partial<RetentionPolicy>) {
-    setDraft((current) => (current === null ? current : { ...current, retention: { ...current.retention, ...next } }));
+    setDraft((current) => ({ ...current, retention: { ...current.retention, ...next } }));
   }
   function patchReturns(next: Partial<ReturnReasonsPolicy>) {
-    setDraft((current) => (current === null ? current : { ...current, returns: { ...current.returns, ...next } }));
+    setDraft((current) => ({ ...current, returns: { ...current.returns, ...next } }));
   }
-
   function patchDuplicates(next: Partial<DuplicatesPolicy>) {
-    setDraft((current) => (current === null ? current : { ...current, duplicates: { ...current.duplicates, ...next } }));
+    setDraft((current) => ({ ...current, duplicates: { ...current.duplicates, ...next } }));
   }
   function patchInterest(next: Partial<InterestPolicy>) {
-    setDraft((current) => (current === null ? current : { ...current, interest: { ...current.interest, ...next } }));
+    setDraft((current) => ({ ...current, interest: { ...current.interest, ...next } }));
   }
   function patchSecurity(next: Partial<SecurityPolicy>) {
-    setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
+    setDraft((current) => ({ ...current, security: { ...current.security, ...next } }));
   }
   function patchPhoto(next: Partial<PhotoPolicy>) {
     setDraft((current) => ({ ...current, photo: { ...current.photo, ...next } }));
   }
 
+  // The two security panels share one group, so either footer sends the whole
+  // group; what each one reports as dirty is only its own rows, so an edit to
+  // the session length does not light "Unsaved changes" under two-step sign-in.
+  const mfaDirty = draft.security.mfaPolicy !== saved.security.mfaPolicy;
+  const sessionsDirty =
+    draft.security.sessionHours !== saved.security.sessionHours || draft.security.endSessionOnClose !== saved.security.endSessionOnClose;
+  const securitySaving = inFlight(['security']);
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-8">
       {saved.unreadableKeys.length > 0 ? (
         <Alert variant="destructive">
           <WarningCircleIcon />
@@ -441,128 +569,14 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
         </Alert>
       ) : null}
 
-      {/* Toolbar row (PRD §6.2). The primary action sits here rather than in
-          each tab, because one Save covers the whole draft. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-muted-foreground min-w-0 flex-1 text-xs" aria-live="polite">
-          {dirty
-            ? `Unsaved changes in ${String(changedSections)} section${changedSections === 1 ? '' : 's'}.`
-            : officeBlocked
-              ? 'Nothing to save.'
-              : 'Everything on this screen is saved.'}
-          {officeBlocked ? ' The office location has a problem to fix first.' : ''}
-        </p>
-        {canReadTrail ? (
-          <RecordHistoryButton
-            onClick={() => {
-              setHistoryOpen(true);
-            }}
-          />
-        ) : null}
-        {dirty || officeBlocked ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setDraft(draftOf(saved));
-              office.reset();
-              accessWindow.reset();
-              save.reset();
-              saveOffice.reset();
-              saveWindow.reset();
-            }}
+      {tab === 'organisation' ? (
+        <>
+          <SettingsSection
+            title="Organisation profile"
+            note="These decide how every date on every screen and export is written."
           >
-            Discard changes
-          </Button>
-        ) : null}
-        <Button size="sm" disabled={!dirty || saving} onClick={submit}>
-          {saving ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <ACTION_ICONS.save data-icon="inline-start" />
-          )}
-          {saving ? 'Saving' : 'Save'}
-          <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
-        </Button>
-      </div>
-
-      <Tabs
-        value={tab}
-        onValueChange={(next: unknown) => {
-          if (TABS.includes(next as SettingsTab)) setTab(next as SettingsTab);
-        }}
-        className="gap-4"
-      >
-        {/* Scrolls rather than stretching the page.
-            Four labelled tabs do not fit in 360px, and a TabsList that
-            overflows widens the document -- which then drags the fixed bottom
-            navigation out with it, because a fixed element at width 100% follows
-            the document, not the viewport. The visible symptom was 32px of
-            horizontal scroll on the whole screen, a long way from its cause.
-            The bar itself is hidden -- on a desktop where all five tabs fit,
-            a scrollbar under them is chrome for a scroll that never happens.
-            The overflow stays, so the strip still scrolls by touch at 360px.
-            A scrolling tab strip is the standard mobile answer; wrapping to two
-            rows would push the content down on every phone. */}
-        <TabsList className="no-scrollbar max-w-full overflow-x-auto">
-          <TabsTrigger value="organisation" className="px-3">
-            <BuildingsIcon data-icon="inline-start" />
-            Organisation
-          </TabsTrigger>
-          <TabsTrigger value="appearance" className="px-3">
-            <PaintBrushIcon data-icon="inline-start" />
-            Appearance
-          </TabsTrigger>
-          <TabsTrigger value="office" className="px-3">
-            <MapPinAreaIcon data-icon="inline-start" />
-            Office location
-          </TabsTrigger>
-          <TabsTrigger value="attendance" className="px-3">
-            <ClockIcon data-icon="inline-start" />
-            Attendance
-          </TabsTrigger>
-          {canSales ? (
-            <TabsTrigger value="sales" className="px-3">
-              <ReceiptIcon data-icon="inline-start" />
-              Sales
-            </TabsTrigger>
-          ) : null}
-          {canPurchase ? (
-            <TabsTrigger value="purchase" className="px-3">
-              <ShoppingCartIcon data-icon="inline-start" />
-              Purchase
-            </TabsTrigger>
-          ) : null}
-          {canSeeClasses ? (
-            <TabsTrigger value="classes" className="px-3">
-              <TagIcon data-icon="inline-start" />
-              Customer classes
-            </TabsTrigger>
-          ) : null}
-          <TabsTrigger value="email" className="px-3">
-            <EnvelopeSimpleIcon data-icon="inline-start" />
-            Email
-          </TabsTrigger>
-          <TabsTrigger value="access" className="px-3">
-            <ShieldCheckIcon data-icon="inline-start" />
-            Security &amp; access
-          </TabsTrigger>
-          <TabsTrigger value="documents" className="px-3">
-            <FileTextIcon data-icon="inline-start" />
-            Documents
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="organisation">
-          <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading
-              title="Organisation profile"
-              note="These decide how every date on every screen and export is written."
-            />
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="org-name">Name</FieldLabel>
+            <SettingsPanel {...panelProps(['organisation'])}>
+              <SettingsRow label="Name" htmlFor="org-name" description="Shown in the header and on every export.">
                 <Input
                   id="org-name"
                   value={draft.organisation.name}
@@ -570,11 +584,13 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                     patchOrganisation({ name: event.target.value });
                   }}
                 />
-                <FieldDescription>Shown in the header and on every export.</FieldDescription>
-              </Field>
+              </SettingsRow>
 
-              <Field>
-                <FieldLabel htmlFor="org-legal-name">Legal name</FieldLabel>
+              <SettingsRow
+                label="Legal name"
+                htmlFor="org-legal-name"
+                description="The registered entity name, if it differs. Leave empty to use the name above."
+              >
                 <Input
                   id="org-legal-name"
                   value={draft.organisation.legalName ?? ''}
@@ -583,10 +599,7 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                     patchOrganisation({ legalName: next.length === 0 ? null : event.target.value });
                   }}
                 />
-                <FieldDescription>
-                  The registered entity name, if it differs. Leave empty to use the name above.
-                </FieldDescription>
-              </Field>
+              </SettingsRow>
 
               <PolicyChoiceField
                 id="org-timezone"
@@ -638,12 +651,11 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchOrganisation({ leaveYearStartMonth: Number(next) });
                 }}
               />
-            </FieldGroup>
-          </div>
+            </SettingsPanel>
+          </SettingsSection>
 
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading title="Numbers and money" note="How every figure is written on screen and in exports." />
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+          <SettingsSection title="Numbers and money" note="How every figure is written on screen and in exports.">
+            <SettingsPanel {...panelProps(['locale'])}>
               <PolicyChoiceField
                 id="org-number-format"
                 label="Grouping"
@@ -664,12 +676,14 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchLocale({ currencySymbol: next });
                 }}
               />
-            </FieldGroup>
-          </div>
+            </SettingsPanel>
+          </SettingsSection>
 
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading title="Data retention" note="Punch photos have their own retention under Attendance. The audit trail is append-only and is not retained by policy." />
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+          <SettingsSection
+            title="Data retention"
+            note="Punch photos have their own retention under Attendance. The audit trail is append-only and is not retained by policy."
+          >
+            <SettingsPanel {...panelProps(['retention'])}>
               <PolicyNumberField
                 id="retention-exports"
                 label="Keep downloads for"
@@ -683,23 +697,29 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchRetention({ exportsDays: next });
                 }}
               />
-            </FieldGroup>
-          </div>
+            </SettingsPanel>
+          </SettingsSection>
 
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading title="Return reasons" note="What the return desk may choose from. Free text is always allowed beside the reason, never in place of it — a list of six is what makes the reason report readable." />
-            <ReturnReasonsField
-              reasons={draft.returns.reasons}
-              enforcedBy={saved.enforcement.returns.reasons}
-              onValueChange={(reasons) => {
-                patchReturns({ reasons });
-              }}
-            />
-          </div>
+          <SettingsSection
+            title="Return reasons"
+            note="What the return desk may choose from. Free text is always allowed beside the reason, never in place of it — a list of six is what makes the reason report readable."
+          >
+            <SettingsPanel {...panelProps(['returns'])}>
+              <ReturnReasonsField
+                reasons={draft.returns.reasons}
+                enforcedBy={saved.enforcement.returns.reasons}
+                onValueChange={(reasons) => {
+                  patchReturns({ reasons });
+                }}
+              />
+            </SettingsPanel>
+          </SettingsSection>
 
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading title="Duplicate detection" note="After each pull the detector clusters parties and items Tally holds twice. A shared GSTIN or PAN is always a certain match; this is the floor for the rest." />
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+          <SettingsSection
+            title="Duplicate detection"
+            note="After each pull the detector clusters parties and items Tally holds twice. A shared GSTIN or PAN is always a certain match; this is the floor for the rest."
+          >
+            <SettingsPanel {...panelProps(['duplicates'])}>
               <PolicyNumberField
                 id="duplicates-confidence"
                 label="Show a cluster from"
@@ -713,12 +733,14 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchDuplicates({ confidenceMin: Math.min(1, Math.max(0.5, next / 100)) });
                 }}
               />
-            </FieldGroup>
-          </div>
+            </SettingsPanel>
+          </SettingsSection>
 
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading title="Interest cost" note="What blocked working capital costs, priced from the daily closing series (D-22). Receivables are voucher-grain until Tally bill marks arrive; stock is on a purchase cost basis." />
-            <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <SettingsSection
+            title="Interest cost"
+            note="What blocked working capital costs, priced from the daily closing series (D-22). Receivables are voucher-grain until Tally bill marks arrive; stock is on a purchase cost basis."
+          >
+            <SettingsPanel {...panelProps(['interest'])}>
               <PolicyNumberField
                 id="interest-annual-rate"
                 label="Annual rate"
@@ -815,7 +837,7 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchInterest({ nonMovingDays: next });
                 }}
               />
-            </FieldGroup>
+            </SettingsPanel>
             {canConfigureInterest ? (
               <p className="text-muted-foreground text-xs">
                 Per-party overrides — rate and credit days — live on{' '}
@@ -825,38 +847,57 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 , beside the parties whose credit terms are missing.
               </p>
             ) : null}
-          </div>
-          </div>
-        </TabsContent>
+          </SettingsSection>
+        </>
+      ) : null}
 
-        <TabsContent value="appearance">
-          <AppearancePanel
-            value={draft.appearance}
-            saved={saved.appearance}
-            enforcedBy={saved.enforcement.appearance.accentHue}
-            onChange={patchAppearance}
-          />
-        </TabsContent>
+      {tab === 'appearance' ? (
+        <AppearancePanel
+          value={draft.appearance}
+          saved={saved.appearance}
+          enforcedBy={saved.enforcement.appearance.accentHue}
+          onChange={patchAppearance}
+          {...panelProps(['appearance'])}
+        />
+      ) : null}
 
-        <TabsContent value="office">
-          <OfficeLocationPanel
-            office={office}
-            behaviour={{
-              value: draft.attendance.geofenceBehaviour,
-              enforcedBy: saved.enforcement.attendance.geofenceBehaviour,
-            }}
-            saveError={saveOffice.error}
-          />
-        </TabsContent>
-
-        <TabsContent value="attendance">
-          <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading
-              title="Attendance policy"
-              note="Changing a value here alters behaviour without a redeploy."
+      {tab === 'office' ? (
+        <OfficeLocationPanel
+          office={office}
+          behaviour={{
+            value: draft.attendance.geofenceBehaviour,
+            enforcedBy: saved.enforcement.attendance.geofenceBehaviour,
+          }}
+          saveError={saveOffice.error}
+          status={
+            officeBlocked
+              ? 'Nothing to save. The office location has a problem to fix first.'
+              : officeWrite !== null
+                ? 'Unsaved changes'
+                : 'Saved'
+          }
+          footer={
+            <SaveFooter
+              dirty={officeWrite !== null}
+              canCancel={officeWrite !== null || officeBlocked}
+              saving={saveOffice.isPending}
+              busy={saving}
+              onCancel={() => {
+                office.reset();
+                saveOffice.reset();
+              }}
+              onSave={() => {
+                persist([], officeWrite, null);
+              }}
             />
-            <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          }
+        />
+      ) : null}
+
+      {tab === 'attendance' ? (
+        <>
+          <SettingsSection title="Attendance policy" note="Changing a value here alters behaviour without a redeploy.">
+            <SettingsPanel {...panelProps(['attendance'])}>
               <PolicyChoiceField
                 id="policy-geofence"
                 label="Punch outside the location radius"
@@ -890,8 +931,6 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 }}
               />
 
-              <FieldSeparator className="md:col-span-2 xl:col-span-3" />
-
               <PolicyToggleField
                 id="policy-early-arrival"
                 label="Celebrate early arrivals"
@@ -914,8 +953,6 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchAttendance({ earlyArrivalThresholdMinutes: Math.max(5, next) });
                 }}
               />
-
-              <FieldSeparator className="md:col-span-2 xl:col-span-3" />
 
               <PolicyNumberField
                 id="policy-max-work"
@@ -983,31 +1020,14 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchAttendance({ autoEscalationDays: next });
                 }}
               />
-            </FieldGroup>
-          </div>
-          <div className="flex flex-col gap-4 border p-4">
-            <SectionHeading
-              title="Punch photos"
-              note="Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
-            />
+            </SettingsPanel>
+          </SettingsSection>
 
-            {draft.photo.retentionMonths !== saved.photo.retentionMonths ? (
-              <Alert variant={draft.photo.retentionMonths < saved.photo.retentionMonths ? 'destructive' : 'default'}>
-                <WarningCircleIcon />
-                <AlertTitle>
-                  {draft.photo.retentionMonths < saved.photo.retentionMonths
-                    ? 'Shortening retention removes photos permanently'
-                    : 'Retention is being extended'}
-                </AlertTitle>
-                <AlertDescription>
-                  {draft.photo.retentionMonths < saved.photo.retentionMonths
-                    ? `From ${String(saved.photo.retentionMonths)} months to ${String(draft.photo.retentionMonths)}. The purge job deletes the object and the thumbnail; a purged photo cannot be recovered, and any dispute that relied on it will have no evidence.`
-                    : `From ${String(saved.photo.retentionMonths)} months to ${String(draft.photo.retentionMonths)}. Photos already past their old window may already have been purged.`}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+          <SettingsSection
+            title="Punch photos"
+            note="Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
+          >
+            <SettingsPanel {...panelProps(['photo'])}>
               <PolicyNumberField
                 id="photo-retention"
                 label="Keep punch photos for"
@@ -1023,7 +1043,23 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 onValueChange={(next) => {
                   patchPhoto({ retentionMonths: next });
                 }}
-              />
+              >
+                {draft.photo.retentionMonths !== saved.photo.retentionMonths ? (
+                  <Alert variant={draft.photo.retentionMonths < saved.photo.retentionMonths ? 'destructive' : 'default'} className="mt-2">
+                    <WarningCircleIcon />
+                    <AlertTitle>
+                      {draft.photo.retentionMonths < saved.photo.retentionMonths
+                        ? 'Shortening retention removes photos permanently'
+                        : 'Retention is being extended'}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {draft.photo.retentionMonths < saved.photo.retentionMonths
+                        ? `From ${String(saved.photo.retentionMonths)} months to ${String(draft.photo.retentionMonths)}. The purge job deletes the object and the thumbnail; a purged photo cannot be recovered, and any dispute that relied on it will have no evidence.`
+                        : `From ${String(saved.photo.retentionMonths)} months to ${String(draft.photo.retentionMonths)}. Photos already past their old window may already have been purged.`}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+              </PolicyNumberField>
 
               <PolicyNumberField
                 id="photo-min-bytes"
@@ -1051,117 +1087,146 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 onValueChange={(next) => {
                   patchPhoto({ maxBytes: next * KB });
                 }}
-              />
+              >
+                {draft.photo.minBytes > draft.photo.maxBytes ? (
+                  <Alert variant="destructive" className="mt-2">
+                    <WarningCircleIcon />
+                    <AlertTitle>The size band is inverted</AlertTitle>
+                    <AlertDescription>
+                      The smallest photo cannot be larger than the largest. The server refuses this,
+                      so Save will fail until one of the two moves.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+              </PolicyNumberField>
+            </SettingsPanel>
+          </SettingsSection>
+        </>
+      ) : null}
 
-              {draft.photo.minBytes > draft.photo.maxBytes ? (
-                <Alert variant="destructive">
-                  <WarningCircleIcon />
-                  <AlertTitle>The size band is inverted</AlertTitle>
-                  <AlertDescription>
-                    The smallest photo cannot be larger than the largest. The server refuses this,
-                    so Save will fail until one of the two moves.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-            </FieldGroup>
-          </div>
-          </div>
-        </TabsContent>
+      {tab === 'sales' ? <SalesSettingsPanel /> : null}
+      {tab === 'purchase' ? <PurchaseSettingsPanel /> : null}
 
+      {tab === 'email' ? <EmailTab settings={saved} /> : null}
 
-        {canSales ? (
-          <TabsContent value="sales">
-            <SalesSettingsPanel />
-          </TabsContent>
-        ) : null}
-        {canPurchase ? (
-          <TabsContent value="purchase">
-            <PurchaseSettingsPanel />
-          </TabsContent>
-        ) : null}
-
-        <TabsContent value="email">
-          <EmailTab settings={saved} />
-        </TabsContent>
-
-        <TabsContent value="access">
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-4 border p-4">
-              <SectionHeading
-                title="Two-step sign-in"
-                note="An authenticator app after the password. Anyone may turn it on from their profile; this is who must."
-              />
-              <FieldGroup className="grid gap-5 md:grid-cols-2">
-                <PolicyChoiceField
-                  id="policy-mfa"
-                  label="Required for"
-                  value={draft.security.mfaPolicy}
-                  options={MFA_POLICIES.map((value) => ({ value, label: MFA_POLICY_LABELS[value] }))}
-                  enforcedBy={saved.enforcement.security.mfaPolicy}
-                  onValueChange={(next) => {
-                    patchSecurity({ mfaPolicy: next });
+      {tab === 'access' ? (
+        <>
+          <SettingsSection
+            title="Two-step sign-in"
+            note="An authenticator app after the password. Anyone may turn it on from their profile; this is who must."
+          >
+            <SettingsPanel
+              status={mfaDirty ? 'Unsaved changes' : 'Saved'}
+              footer={
+                <SaveFooter
+                  dirty={mfaDirty}
+                  saving={securitySaving}
+                  busy={saving}
+                  onCancel={() => {
+                    patchSecurity({ mfaPolicy: saved.security.mfaPolicy });
+                    save.reset();
                   }}
-                >
-                  <FieldDescription>
-                    A person whose role is named here is asked to set up the app at their next sign-in, before any screen.
-                  </FieldDescription>
-                </PolicyChoiceField>
-              </FieldGroup>
-            </div>
-
-            <div className="flex flex-col gap-4 border p-4">
-              <SectionHeading title="Sessions" note="How long a sign-in lasts, and whether closing the browser ends it." />
-              <FieldGroup className="grid gap-5 md:grid-cols-2">
-                <PolicyNumberField
-                  id="policy-session-hours"
-                  label="A sign-in lasts"
-                  unit="hours"
-                  help="Renewed by use: an active person is not signed out mid-shift. 720 is thirty days."
-                  min={SESSION_HOURS_MIN}
-                  max={SESSION_HOURS_MAX}
-                  value={draft.security.sessionHours}
-                  enforcedBy={saved.enforcement.security.sessionHours}
-                  onValueChange={(next) => {
-                    patchSecurity({ sessionHours: next });
+                  onSave={() => {
+                    saveGroups(['security']);
                   }}
                 />
-                <PolicyToggleField
-                  id="policy-session-close"
-                  label="Sign out when the browser closes"
-                  help="The sign-in cookie lasts the browser session instead of the hours above. A shared computer wants this on."
-                  value={draft.security.endSessionOnClose}
-                  enforcedBy={saved.enforcement.security.endSessionOnClose}
-                  onValueChange={(next) => {
-                    patchSecurity({ endSessionOnClose: next });
+              }
+            >
+              <PolicyChoiceField
+                id="policy-mfa"
+                label="Required for"
+                value={draft.security.mfaPolicy}
+                options={MFA_POLICIES.map((value) => ({ value, label: MFA_POLICY_LABELS[value] }))}
+                enforcedBy={saved.enforcement.security.mfaPolicy}
+                onValueChange={(next) => {
+                  patchSecurity({ mfaPolicy: next });
+                }}
+              >
+                <FieldDescription>
+                  A person whose role is named here is asked to set up the app at their next sign-in, before any screen.
+                </FieldDescription>
+              </PolicyChoiceField>
+            </SettingsPanel>
+          </SettingsSection>
+
+          <SettingsSection title="Sessions" note="How long a sign-in lasts, and whether closing the browser ends it.">
+            <SettingsPanel
+              status={sessionsDirty ? 'Unsaved changes' : 'Saved'}
+              footer={
+                <SaveFooter
+                  dirty={sessionsDirty}
+                  saving={securitySaving}
+                  busy={saving}
+                  onCancel={() => {
+                    patchSecurity({ sessionHours: saved.security.sessionHours, endSessionOnClose: saved.security.endSessionOnClose });
+                    save.reset();
+                  }}
+                  onSave={() => {
+                    saveGroups(['security']);
                   }}
                 />
-              </FieldGroup>
-            </div>
-            <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
-          </div>
-        </TabsContent>
+              }
+            >
+              <PolicyNumberField
+                id="policy-session-hours"
+                label="A sign-in lasts"
+                unit="hours"
+                help="Renewed by use: an active person is not signed out mid-shift. 720 is thirty days."
+                min={SESSION_HOURS_MIN}
+                max={SESSION_HOURS_MAX}
+                value={draft.security.sessionHours}
+                enforcedBy={saved.enforcement.security.sessionHours}
+                onValueChange={(next) => {
+                  patchSecurity({ sessionHours: next });
+                }}
+              />
+              <PolicyToggleField
+                id="policy-session-close"
+                label="Sign out when the browser closes"
+                help="The sign-in cookie lasts the browser session instead of the hours above. A shared computer wants this on."
+                value={draft.security.endSessionOnClose}
+                enforcedBy={saved.enforcement.security.endSessionOnClose}
+                onValueChange={(next) => {
+                  patchSecurity({ endSessionOnClose: next });
+                }}
+              />
+            </SettingsPanel>
+          </SettingsSection>
 
-        <TabsContent value="documents">
-          <DocumentsPanel />
-        </TabsContent>
-        {canSeeClasses ? (
-          <TabsContent value="classes">
-            <CustomerClassesTab canEdit={canEditClasses} />
-          </TabsContent>
-        ) : null}
-      </Tabs>
+          <AccessWindowPanel
+            window={accessWindow}
+            saveError={saveWindow.error}
+            status={windowWrite !== null ? 'Unsaved changes' : 'Saved'}
+            footer={
+              <SaveFooter
+                dirty={windowWrite !== null}
+                saving={saveWindow.isPending}
+                busy={saving}
+                onCancel={() => {
+                  accessWindow.reset();
+                  saveWindow.reset();
+                }}
+                onSave={() => {
+                  persist([], null, windowWrite);
+                }}
+              />
+            }
+          />
+        </>
+      ) : null}
 
-      <RecordHistorySheet
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        entityType="settings"
-        // The organisation row is what every settings write audits against,
-        // including the logo (REQ-L-01), so one id covers all four tabs.
-        entityId={saved.organisation.id}
-        title="Organisation settings"
-        description="Every settings change, with the values before and after."
-      />
+      {tab === 'documents' ? <DocumentsPanel /> : null}
+      {tab === 'classes' ? <CustomerClassesTab canEdit={canEditClasses} /> : null}
     </div>
+  );
+}
+
+/** A value the screen can only report, at the far right of its row. */
+function ReadOnlyRow({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
+  return (
+    <SettingsRow layout="end" label={label}>
+      <span className={cn('text-xs font-medium tabular-nums', className)}>{children}</span>
+    </SettingsRow>
   );
 }
 
@@ -1177,37 +1242,10 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
   const test = useTestEmail();
 
   return (
-    <div className="flex flex-col gap-4 border p-4">
-      <SectionHeading
-        title="Outbound email"
-        note="Read from the server's own configuration; change it where the service is deployed."
-      />
-
-      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-        <dt className="text-muted-foreground">Transport</dt>
-        <dd className="font-medium">
-          {settings.email.transport === 'smtp'
-            ? 'SMTP'
-            : 'Log only, nothing is delivered'}
-        </dd>
-
-        <dt className="text-muted-foreground">Host</dt>
-        <dd className="font-medium tabular-nums">
-          {settings.email.host}:{settings.email.port}
-        </dd>
-
-        <dt className="text-muted-foreground">TLS</dt>
-        <dd className="font-medium">{settings.email.secure ? 'On' : 'Off'}</dd>
-
-        <dt className="text-muted-foreground">From</dt>
-        <dd className="font-medium break-all">{settings.email.from}</dd>
-
-        <dt className="text-muted-foreground">Credentials</dt>
-        <dd className="font-medium">
-          {settings.email.credentialsConfigured ? 'Configured' : 'None set'}
-        </dd>
-      </dl>
-
+    <SettingsSection
+      title="Outbound email"
+      note="Read from the server's own configuration; change it where the service is deployed."
+    >
       {settings.email.transport === 'log' ? (
         <Alert>
           <EnvelopeSimpleIcon />
@@ -1220,6 +1258,44 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <SettingsPanel
+        status="The message goes to your own address and nowhere else. A test send that accepted any recipient would be a mail relay behind an admin login."
+        footer={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={test.isPending}
+            onClick={() => {
+              test.mutate();
+            }}
+          >
+            {test.isPending ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <PaperPlaneTiltIcon data-icon="inline-start" />
+            )}
+            {test.isPending ? 'Sending' : 'Send a test message'}
+          </Button>
+        }
+      >
+        <ReadOnlyRow label="Transport">
+          {settings.email.transport === 'smtp' ? 'SMTP' : 'Log only, nothing is delivered'}
+        </ReadOnlyRow>
+        <ReadOnlyRow label="Host">
+          {settings.email.host}:{settings.email.port}
+        </ReadOnlyRow>
+        <ReadOnlyRow label="TLS">{settings.email.secure ? 'On' : 'Off'}</ReadOnlyRow>
+        {/* Capped and broken rather than hugging the edge: a From with a
+            display name is the one value here long enough to push a phone
+            sideways. */}
+        <ReadOnlyRow label="From" className="max-w-64 break-all text-right">
+          {settings.email.from}
+        </ReadOnlyRow>
+        <ReadOnlyRow label="Credentials">
+          {settings.email.credentialsConfigured ? 'Configured' : 'None set'}
+        </ReadOnlyRow>
+      </SettingsPanel>
 
       {test.isSuccess ? (
         <Alert>
@@ -1249,27 +1325,6 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
           </AlertDescription>
         </Alert>
       ) : null}
-
-      <div>
-        <Button
-          variant="outline"
-          disabled={test.isPending}
-          onClick={() => {
-            test.mutate();
-          }}
-        >
-          {test.isPending ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <PaperPlaneTiltIcon data-icon="inline-start" />
-          )}
-          {test.isPending ? 'Sending' : 'Send a test message'}
-        </Button>
-        <p className="text-muted-foreground mt-2 text-xs">
-          The message goes to your own address and nowhere else. A test send that accepted any
-          recipient would be a mail relay behind an admin login.
-        </p>
-      </div>
-    </div>
+    </SettingsSection>
   );
 }
