@@ -8,6 +8,7 @@ import {
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -26,7 +27,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
@@ -91,25 +91,6 @@ function useResetPage(): () => void {
       { replace: true },
     );
   };
-}
-
-function ListSkeleton({ label }: { label: string }) {
-  return (
-    <div role="status" aria-busy="true" aria-label={label} className="border">
-      {Array.from({ length: 6 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-36 shrink-0" />
-          <Skeleton className="h-3 w-16 shrink-0" />
-          <Skeleton className="hidden h-3 w-28 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-4 w-8 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 /**
@@ -252,7 +233,7 @@ function DepartmentsTab() {
         )}
       </div>
 
-      {query.isPending ? <ListSkeleton label="Loading departments" /> : null}
+      {query.isPending ? <ListSkeleton rows={6} label="Loading departments" /> : null}
 
       {query.isError ? (
         <QueryErrorAlert
@@ -444,7 +425,7 @@ function DesignationsTab() {
         )}
       </div>
 
-      {query.isPending ? <ListSkeleton label="Loading designations" /> : null}
+      {query.isPending ? <ListSkeleton rows={6} label="Loading designations" /> : null}
 
       {query.isError ? (
         <QueryErrorAlert
@@ -647,7 +628,7 @@ function LocationsTab() {
         )}
       </div>
 
-      {query.isPending ? <ListSkeleton label="Loading locations" /> : null}
+      {query.isPending ? <ListSkeleton rows={6} label="Loading locations" /> : null}
 
       {query.isError ? (
         <QueryErrorAlert

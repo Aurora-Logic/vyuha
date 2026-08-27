@@ -11,6 +11,7 @@ import type { DateRange } from 'react-day-picker';
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { PersonChip } from '@/components/shared/person';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -37,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatClock, formatDuration, toDateParam } from '@/features/attendance/format';
@@ -181,25 +181,6 @@ const PATTERN_COLUMNS: RecordColumn<WeeklyOffPattern>[] = [
     numeric: true,
   },
 ];
-
-function ListSkeleton({ rows, label }: { rows: number; label: string }) {
-  return (
-    <div role="status" aria-busy="true" aria-label={label} className="border">
-      {Array.from({ length: rows }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-28 shrink-0" />
-          <Skeleton className="hidden h-3 w-16 shrink-0 sm:block" />
-          <Skeleton className="h-3 w-12 shrink-0" />
-          <Skeleton className="ml-auto h-4 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /**
  * A write action, or the reason it is unavailable.

@@ -12,6 +12,7 @@ import { addMonths, format, isSameMonth, parseISO, startOfMonth } from 'date-fns
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions } from '@/components/shared/row-actions';
@@ -37,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { MonthField } from '@/features/attendance/pickers';
 import { DeleteMasterDialog, type DeleteTarget } from '@/features/org-masters';
 import { apiErrorCopy } from '@/features/leave/api-error-copy';
@@ -131,31 +131,6 @@ const BASE_COLUMNS: RecordColumn<Holiday>[] = [
       ),
   },
 ];
-
-function CalendarSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading holiday calendars" className="flex flex-col gap-6">
-      {Array.from({ length: 2 }, (_, calendar) => (
-        <div key={calendar} aria-hidden className="flex flex-col gap-3">
-          <Skeleton className="h-4 w-40" />
-          <div className="border">
-            {Array.from({ length: 4 }, (_, row) => (
-              <div
-                key={row}
-                className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-              >
-                <Skeleton className="h-3 w-20 shrink-0" />
-                <Skeleton className="hidden h-3 w-16 shrink-0 sm:block" />
-                <Skeleton className="h-3 w-32 shrink-0" />
-                <Skeleton className="ml-auto h-4 w-16 shrink-0" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /**
  * One calendar, shown a month at a time.
@@ -520,7 +495,7 @@ export function HolidaysPage() {
         ) : null}
       </div>
 
-      {query.isPending ? <CalendarSkeleton /> : null}
+      {query.isPending ? <ListSkeleton rows={4} heading label="Loading holiday calendars" /> : null}
 
       {query.isError ? (
         <Alert variant="destructive">

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowCounterClockwiseIcon, LockKeyIcon, TrashIcon } from '@phosphor-icons/react';
 import { useSearchParams } from 'react-router';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -25,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate } from '@/lib/format';
@@ -58,25 +58,6 @@ const PAGE_SIZE = 25;
 
 function printDeletedAt(value: string): string {
   return formatDate(value.slice(0, 10));
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading the recycle bin" className="border">
-      {Array.from({ length: 5 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-32 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="hidden h-3 w-48 shrink-0 xl:block" />
-          <Skeleton className="ml-auto h-4 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 /** Every record type the caller holds the manage key for. */
@@ -244,7 +225,7 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
           </Select>
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={5} label="Loading the recycle bin" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

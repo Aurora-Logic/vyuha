@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { LockKeyIcon, LockKeyOpenIcon, LockSimpleIcon } from '@phosphor-icons/react';
 import { parseISO } from 'date-fns';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -15,7 +16,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { toDateParam } from '@/features/attendance/format';
 import { MonthField } from '@/features/attendance/pickers';
@@ -101,24 +101,6 @@ const COLUMNS: RecordColumn<PeriodLock>[] = [
     secondary: true,
   },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading period locks" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-28 shrink-0" />
-          <Skeleton className="hidden h-3 w-32 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-4 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function PeriodLockPage() {
   const canLock = usePermission(PERMISSIONS.ATTENDANCE_LOCK);
@@ -218,7 +200,7 @@ function PeriodLockBody({ canLock, canUnlock }: { canLock: boolean; canUnlock: b
           ) : null}
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading period locks" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

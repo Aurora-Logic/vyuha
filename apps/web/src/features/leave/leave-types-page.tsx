@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CalendarBlankIcon, PlusIcon, ScalesIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions } from '@/components/shared/row-actions';
@@ -17,7 +18,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { DeleteMasterDialog, type DeleteTarget } from '@/features/org-masters';
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
@@ -112,26 +112,6 @@ const BASE_COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
     secondary: true,
   },
 ];
-
-function TypesSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading leave types" className="border">
-      {Array.from({ length: 5 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-32 shrink-0" />
-          <Skeleton className="h-3 w-10 shrink-0" />
-          <Skeleton className="hidden h-3 w-16 shrink-0 sm:block" />
-          <Skeleton className="hidden h-3 w-20 shrink-0 xl:block" />
-          <Skeleton className="ml-auto h-4 w-12 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function LeaveTypesPage() {
   const canManage = usePermission(PERMISSIONS.LEAVE_POLICY_MANAGE);
@@ -254,7 +234,7 @@ export function LeaveTypesPage() {
         }
       />
 
-      {query.isPending ? <TypesSkeleton /> : null}
+      {query.isPending ? <ListSkeleton rows={5} label="Loading leave types" /> : null}
 
       {query.isError ? (
         <Alert variant="destructive">

@@ -8,6 +8,7 @@ import {
 import { parseISO } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -29,7 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toDateParam } from '@/features/attendance/format';
 import { DateRangeField } from '@/features/attendance/pickers';
@@ -95,25 +95,6 @@ const COLUMNS: RecordColumn<AuditEntry>[] = [
     secondary: true,
   },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading the audit log" className="border">
-      {Array.from({ length: 10 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-28 shrink-0" />
-          <Skeleton className="h-3 w-40 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-32 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function AuditLogPage() {
   const canView = usePermission(PERMISSIONS.AUDIT_VIEW);
@@ -316,7 +297,7 @@ function AuditLogBody() {
 
         {sample ? <SampleDataNotice what="audit log" /> : null}
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={10} label="Loading the audit log" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert
