@@ -343,6 +343,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Jobs finishing, exceptions raised, and how fresh the last pull from Tally is.',
   },
   {
+    id: 'screen.reports-sales-analysis',
+    route: '/reports/sales-analysis',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Sales analysis',
+    body: 'One sales engine at every scope: drill from the company into a brand, a person, a customer or a product, and climb back by the breadcrumb.',
+  },
+  {
     id: 'screen.reports-growth',
     route: '/reports/growth',
     anchor: ANCHORS.screenHeader,

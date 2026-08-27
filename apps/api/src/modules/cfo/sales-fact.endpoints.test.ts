@@ -31,6 +31,8 @@ let ashaId = '';
 let bharatId = '';
 let rsRef = '';
 let mpRef = '';
+let rsToken = '';
+let mpId = '';
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'CFO Facts Org', { preservePeople: true });
@@ -47,6 +49,8 @@ beforeAll(async () => {
   const mp = await harness.createUser({ email: scopedEmail('cfo-mp'), roleIds: [adminRoleId] });
   rsRef = `user:${rs.id}`;
   mpRef = `user:${mp.id}`;
+  mpId = mp.id;
+  rsToken = (await harness.login(rs.email, rs.password)).token;
 
   facts = harness.resolve(SalesFactService);
   owners = harness.resolve(OwnerMapService);
@@ -216,5 +220,65 @@ describe('owner map rules', () => {
     expect(resolved).toEqual([{ ownerRef: 'HOUSE', share: 100 }]);
     // And the day before it starts, nothing is in force any more for Asha.
     expect(await owners.resolveOwners(ORG_ID, ashaId, '2026-09-30')).toEqual([]);
+  });
+});
+
+describe('GET /cfo/sales-analysis (B3, level-aware)', () => {
+  it('answers the company, then the same engine narrowed to a brand and to a person', async () => {
+    await facts.buildOrgDay(ORG_ID, DAY);
+    type Analysis = {
+      summary: { net: string; customers: number; unassignedNet: string; unassignedPct: number };
+      breakdowns: { level: string; rows: { key: string; label: string; net: string }[] }[];
+      scope: { level: string; label: string }[];
+    };
+    const company = await harness.get<Analysis>(`/cfo/sales-analysis?from=${DAY}&to=${DAY}`, { token: rsToken });
+    expect(company.status).toBe(200);
+    // Asha 10,000 - 500 discount; Bharat 4,130.50 - 130.50 credit note. An
+    // earlier test orphaned Asha, so her 9,500 is the visible Unassigned
+    // bucket -- 70.4% of the company, the footer KPI B3 insists on.
+    expect(company.body.summary.net).toBe('13500.00');
+    expect(company.body.summary.customers).toBe(2);
+    expect(company.body.summary.unassignedNet).toBe('9500.00');
+    expect(company.body.summary.unassignedPct).toBe(70.4);
+    const byBrand = company.body.breakdowns.find((b) => b.level === 'brand');
+    expect(byBrand?.rows.map((r) => [r.key, r.net])).toEqual([
+      ['C&S Electric', '10000.00'],
+      ['Unbranded', '3500.00'],
+    ]);
+    const byPerson = company.body.breakdowns.find((b) => b.level === 'person');
+    expect(byPerson?.rows.map((r) => [r.key, r.net])).toEqual([
+      ['UNASSIGNED', '9500.00'],
+      [rsRef, '2400.00'],
+      [mpRef, '1600.00'],
+    ]);
+    // Persons wear names, not refs.
+    expect(byPerson?.rows[0]?.label).toBe('Unassigned');
+    expect(byPerson?.rows[1]?.label).toContain('cfo-rs');
+
+    const brand = await harness.get<Analysis>(`/cfo/sales-analysis?from=${DAY}&to=${DAY}&brand=${encodeURIComponent('C&S Electric')}`, { token: rsToken });
+    expect(brand.body.summary.net).toBe('10000.00');
+    expect(brand.body.scope).toEqual([{ level: 'brand', key: 'C&S Electric', label: 'C&S Electric' }]);
+    // The brand's breakdowns no longer offer "by brand".
+    expect(brand.body.breakdowns.map((b) => b.level)).toEqual(['person', 'party', 'item']);
+
+    const person = await harness.get<Analysis>(`/cfo/sales-analysis?from=${DAY}&to=${DAY}&person=${mpRef}`, { token: rsToken });
+    expect(person.body.summary.net).toBe('1600.00');
+    expect(person.body.scope[0]?.level).toBe('person');
+  });
+
+  it('a person scope other than your own needs cfo.team.view; a malformed scope is refused', async () => {
+    const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.SALES, { isSystem: true });
+    const sales = await harness.createUser({ email: scopedEmail('cfo-sales-only'), roleIds: [employeeRoleId] });
+    const salesToken = (await harness.login(sales.email, sales.password)).token;
+
+    const other = await harness.get(`/cfo/sales-analysis?from=${DAY}&to=${DAY}&person=user:${mpId}`, { token: salesToken });
+    expect(other.status).toBe(403);
+    const own = await harness.get(`/cfo/sales-analysis?from=${DAY}&to=${DAY}&person=user:${sales.id}`, { token: salesToken });
+    expect(own.status).toBe(200);
+    const company = await harness.get(`/cfo/sales-analysis?from=${DAY}&to=${DAY}`, { token: salesToken });
+    expect(company.status).toBe(200);
+
+    const bad = await harness.get(`/cfo/sales-analysis?from=${DAY}&to=${DAY}&party=not-a-uuid`, { token: rsToken });
+    expect(bad.status).toBe(400);
   });
 });

@@ -263,3 +263,57 @@ export function useScorecard(
     staleTime: 60_000,
   });
 }
+
+const breakdownRowSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  net: z.string(),
+  lastYear: z.string(),
+  qty: z.string(),
+  vouchers: z.number(),
+});
+
+const salesAnalysisSchema = z.object({
+  scope: z.array(z.object({ level: z.string(), key: z.string(), label: z.string() })),
+  summary: z.object({
+    net: z.string(),
+    lastYear: z.string(),
+    delta: deltaReadingSchema,
+    qty: z.string(),
+    customers: z.number(),
+    vouchers: z.number(),
+    unassignedNet: z.string(),
+    unassignedPct: z.number(),
+  }),
+  trend: z.array(z.object({ t: z.string(), net: z.number(), lastYear: z.number() })),
+  breakdowns: z.array(z.object({ level: z.string(), label: z.string(), rows: z.array(breakdownRowSchema) })),
+});
+
+export type SalesAnalysisData = z.infer<typeof salesAnalysisSchema>;
+export type BreakdownRowData = z.infer<typeof breakdownRowSchema>;
+
+export interface SalesScope {
+  brand?: string;
+  person?: string;
+  party?: string;
+  item?: string;
+}
+
+export function useSalesAnalysis(
+  range: { from: string; to: string },
+  scope: SalesScope,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<SalesAnalysisData, Error> {
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  for (const [k, v] of Object.entries(scope)) if (typeof v === 'string' && v !== '') params.set(k, v);
+  const qs = params.toString();
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'sales-analysis', qs],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/sales-analysis?${qs}`, { signal });
+      return parseOrThrow(salesAnalysisSchema, body, 'sales analysis');
+    },
+    staleTime: 60_000,
+  });
+}

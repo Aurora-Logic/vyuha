@@ -176,12 +176,21 @@ export function MetricChart({
   kind,
   options = {},
   className,
+  onActivate,
 }: {
   metric: Metric;
   kind: Exclude<WidgetKind, 'number' | 'table'>;
   options?: ChartOptions;
   className?: string;
+  /** R2: a bar is an entry point. Called with the point's x value. */
+  onActivate?: (t: string) => void;
 }) {
+  const activate = onActivate === undefined
+    ? undefined
+    : (entry: { payload?: { t?: string | number }; t?: string | number }) => {
+        const t = entry.payload?.t ?? entry.t;
+        if (t !== undefined) onActivate(String(t));
+      };
   const gradientId = useId();
   const palette = options.palette ?? 'default';
   const series = keptSeries(metric, options);
@@ -524,6 +533,8 @@ export function MetricChart({
               maxBarSize={BAR_MAX}
               radius={SHARP}
               isAnimationActive={animate}
+              onClick={activate}
+              className={activate ? 'cursor-pointer' : undefined}
             >
               {showLabels && s.key === lastSeries ? totalLabel('right') : null}
             </Bar>
@@ -558,6 +569,8 @@ export function MetricChart({
             maxBarSize={BAR_MAX}
             radius={SHARP}
             isAnimationActive={animate}
+            onClick={activate}
+            className={activate ? 'cursor-pointer' : undefined}
           >
             {showLabels && s.key === lastSeries ? totalLabel('top') : null}
           </Bar>

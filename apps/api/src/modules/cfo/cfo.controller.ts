@@ -8,6 +8,7 @@ import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
+import { SalesAnalysisService, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
 
 const creditQuerySchema = z.object({
@@ -16,6 +17,15 @@ const creditQuerySchema = z.object({
 });
 
 class CreditQueryDto extends createZodDto(creditQuerySchema) {}
+
+const UUID = /^[0-9a-f-]{36}$/u;
+const salesScopeSchema = creditQuerySchema.extend({
+  brand: z.string().trim().min(1).max(120).optional(),
+  person: z.string().regex(/^(user:[0-9a-f-]{36}|HOUSE|UNASSIGNED)$/u).optional(),
+  party: z.string().regex(UUID).optional(),
+  item: z.string().regex(UUID).optional(),
+});
+class SalesScopeDto extends createZodDto(salesScopeSchema) {}
 
 const targetMonthSchema = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/u) });
 class TargetMonthDto extends createZodDto(targetMonthSchema) {}
@@ -38,6 +48,7 @@ export class CfoController {
     private readonly credit: CreditControlService,
     private readonly myCfo: MyCfoService,
     private readonly team: TeamService,
+    private readonly salesAnalysis: SalesAnalysisService,
   ) {}
 
   @Get('receivables')
@@ -102,6 +113,14 @@ export class CfoController {
   async setTarget(@CurrentUser() principal: Principal, @Body() body: TargetSetDto): Promise<{ ok: true }> {
     await this.team.setTarget(principal, body.ownerRef, body.month, body.netTarget);
     return { ok: true };
+  }
+
+  /** B3: Sales Analysis at any scope -- the filters are the level. */
+  @Get('sales-analysis')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  salesAnalysisAt(@CurrentUser() principal: Principal, @Query() query: SalesScopeDto): Promise<SalesAnalysis> {
+    const { from, to, ...scope } = query;
+    return this.salesAnalysis.analyse(principal, from, to, scope);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */
