@@ -31,6 +31,7 @@ import { SalesFactService } from '../src/modules/cfo/sales-fact.service.js';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'host.docker.internal', 'postgres', 'db']);
 const ORG_ID = process.env.CFO_DEMO_ORG;
+const RESET = process.argv.includes('--reset');
 
 const SWITCHGEAR = [
   ['MCB 10A SP B-Curve', 'C&S Electric', 152],
@@ -85,6 +86,17 @@ async function main(): Promise<void> {
     if (org === undefined) throw new Error('No organisation. Run pnpm db:seed first.');
     console.log(`CFO demo data -> ${new URL(connectionString).pathname.slice(1)} / ${org.name}`);
     const orgId = org.id;
+
+    if (RESET) {
+      // Only what this seed wrote: its vouchers carry a 'CFO demo:' narration.
+      await pool.query(`DELETE FROM voucher_lines WHERE org_id = $1 AND voucher_id IN (SELECT id FROM vouchers WHERE org_id = $1 AND narration LIKE 'CFO demo:%')`, [orgId]);
+      await pool.query(`DELETE FROM vouchers WHERE org_id = $1 AND narration LIKE 'CFO demo:%'`, [orgId]);
+      for (const t of ['fact_sales_daily', 'fact_receivable_snapshot', 'customer_owner_map', 'customer_tier_assignments', 'cfo_targets', 'cfo_desk_outcomes', 'cfo_desk_served']) {
+        await pool.query(`DELETE FROM ${t} WHERE org_id = $1`, [orgId]);
+      }
+      await pool.query(`DELETE FROM stock_items WHERE org_id = $1 AND parent_group IN ('C&S Electric', 'BCH Electric')`, [orgId]);
+      console.log('reset: CFO demo rows removed');
+    }
 
     const connection = (await pool.query<{ id: string }>('SELECT id FROM integration_connections WHERE org_id = $1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1', [orgId])).rows[0];
     if (connection === undefined) throw new Error('No Tally connection on the organisation. Run pnpm db:demo first.');
@@ -190,12 +202,16 @@ async function main(): Promise<void> {
     };
     const switchgear = items.filter((it) => it.parentGroup === 'C&S Electric' || it.parentGroup === 'BCH Electric');
     const others = items.filter((it) => !switchgear.includes(it));
-    const basket = (): { item: (typeof items)[number]; qty: number }[] => {
+    // A customer's usual items: three they buy in both years, so the bridge
+    // has customer x SKU pairs to price for volume and price effects.
+    const usual = new Map<string, (typeof items)[number][]>();
+    for (const d of debtors) usual.set(d.id, [pick(switchgear), pick(switchgear), pick(others)]);
+    const basket = (partyId?: string): { item: (typeof items)[number]; qty: number }[] => {
       const n = between(1, 4);
       const lines: { item: (typeof items)[number]; qty: number }[] = [];
+      const mine = partyId === undefined ? [] : (usual.get(partyId) ?? []);
       for (let k = 0; k < n; k += 1) {
-        const fromSwitchgear = rand() < 0.6;
-        const item = fromSwitchgear ? pick(switchgear) : pick(others);
+        const item = mine.length > 0 && rand() < 0.7 ? pick(mine) : rand() < 0.6 ? pick(switchgear) : pick(others);
         const big = Number(item.price ?? 0) > 50_000;
         lines.push({ item, qty: big ? 1 : between(2, 30) });
       }
@@ -210,7 +226,7 @@ async function main(): Promise<void> {
         for (let k = 0; k < n; k += 1) {
           const p = pick(debtors);
           const date = daysAgo(month * 30 + between(0, 27));
-          const s = await sale(p.id, p.name, date, basket(), 'CFO demo: prior year');
+          const s = await sale(p.id, p.name, date, basket(p.id), 'CFO demo: prior year');
           if (rand() < 0.85) await receipt(p.id, p.name, shift(date, between(10, 70)), s.total, 'Payment against invoice');
         }
       }
@@ -223,7 +239,7 @@ async function main(): Promise<void> {
         if (quiet.has(p.id) && day < 120) continue;
         const date = daysAgo(day);
         const discount = rand() < 0.2 ? between(500, 5000) : 0;
-        const s = await sale(p.id, p.name, date, basket(), 'CFO demo: switchgear', { discount });
+        const s = await sale(p.id, p.name, date, basket(p.id), 'CFO demo: switchgear', { discount });
         const roll = rand();
         if (roll < 0.55) await receipt(p.id, p.name, shift(date, between(10, 60)), s.total, 'Payment against invoice');
         else if (roll < 0.75) await receipt(p.id, p.name, shift(date, between(20, 80)), Math.round(s.total * 0.5), 'Part payment');
@@ -253,7 +269,7 @@ async function main(): Promise<void> {
       for (let day = 460; day >= 366; day -= between(2, 4)) {
         const p = rand() < 0.15 ? pick(debtors.slice(-2)) : pick(retained);
         const date = daysAgo(day);
-        const s = await sale(p.id, p.name, date, basket(), 'CFO demo: same days last year', { rateFactor: 0.94 });
+        const s = await sale(p.id, p.name, date, basket(p.id), 'CFO demo: same days last year', { rateFactor: 0.94 });
         if (rand() < 0.8) await receipt(p.id, p.name, shift(date, between(10, 60)), s.total, 'Payment against invoice');
       }
     }
