@@ -254,8 +254,8 @@ export function MetricChart({
       offset={6}
       className="fill-foreground"
       fontSize={10}
-      valueAccessor={(entry: { payload?: Record<string, string | number>; index?: number }) =>
-        entry.payload && labelled(entry.index ?? 0) ? totalOf(entry.payload) : ''
+      valueAccessor={(entry: { payload?: Record<string, string | number> }, index: number) =>
+        entry.payload && labelled(index) ? totalOf(entry.payload) : ''
       }
     />
   );
@@ -466,8 +466,8 @@ export function MetricChart({
                   offset={8}
                   className="fill-foreground"
                   fontSize={10}
-                  valueAccessor={(entry: { value?: unknown; index?: number }) =>
-                    labelled(entry.index ?? 0) && typeof entry.value === 'number'
+                  valueAccessor={(entry: { value?: unknown }, index: number) =>
+                    labelled(index) && typeof entry.value === 'number' && entry.value !== 0
                       ? formatTick(metric.unit, entry.value)
                       : ''
                   }
