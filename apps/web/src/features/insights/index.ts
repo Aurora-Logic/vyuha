@@ -12,3 +12,4 @@ export { SalesAnalysisPage } from './sales-analysis-page';
 export { DeskPage } from './desk-page';
 export { DataQualityPage } from './data-quality-page';
 export { PenetrationPage } from './penetration-page';
+export { ClassGradePage } from './class-grade-page';

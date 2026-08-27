@@ -445,9 +445,12 @@ describe('GET /cfo/data-quality (Q3)', () => {
     // Four debtors, none with a phone number: the check names the count.
     expect(byKey.get('parties-no-phone')?.value).toBe(4);
     expect(byKey.get('parties-no-phone')?.health).toBe(0.6);
-    // Classes arrive with Part P: null, and the note says so.
-    expect(byKey.get('parties-no-class')?.value).toBeNull();
-    expect(byKey.get('parties-no-class')?.note).toContain('Part P');
+    // Classes exist now (Part P): the check counts debtors with no current class.
+    expect(byKey.get('parties-no-class')?.value).not.toBeNull();
+    expect(byKey.get('parties-no-class')?.drill).toBe('/masters/parties');
+    // Negative margin still waits for the valuation decision, and says so.
+    expect(byKey.get('negative-margin')?.value).toBeNull();
+    expect(byKey.get('negative-margin')?.note).toContain('M1');
     // The headline averages only what could be measured.
     expect(res.body.headline).not.toBeNull();
     expect(res.body.checks).toHaveLength(12);
@@ -456,5 +459,65 @@ describe('GET /cfo/data-quality (Q3)', () => {
   it('sits behind cfo.exceptions.view', async () => {
     const denied = await harness.get('/cfo/data-quality', { token: employeeToken });
     expect(denied.status).toBe(403);
+  });
+});
+
+describe('customer classes and the payment grade (Part P, D18)', () => {
+  it('seeds the master, assigns with a reason and a date, refuses to rewrite history', async () => {
+    await harness.db.execute(sql`DELETE FROM customer_tier_assignments WHERE org_id = ${ORG_ID}`);
+    const tiers = await harness.get<{ code: string; assigned: number }[]>('/cfo/tiers', { token: adminToken });
+    expect(tiers.status).toBe(200);
+    expect(tiers.body.map((t) => t.code)).toEqual(['A+', 'A', 'B', 'C', 'D']);
+
+    const parties = await harness.db.execute<{ id: string }>(sql`SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = 'Asha Traders'`);
+    const ashaId = parties.rows[0]?.id ?? '';
+    const noReason = await harness.put(`/cfo/parties/${ashaId}/class`, { token: adminToken, body: { tierCode: 'A+', reason: '', effectiveFrom: '2026-08-01' } });
+    expect(noReason.status).toBe(400);
+    const first = await harness.put(`/cfo/parties/${ashaId}/class`, { token: adminToken, body: { tierCode: 'B', reason: 'Steady buyer', effectiveFrom: '2026-01-01' } });
+    expect(first.status).toBe(200);
+    const promoted = await harness.put(`/cfo/parties/${ashaId}/class`, { token: adminToken, body: { tierCode: 'A+', reason: 'Top 15% by revenue', effectiveFrom: '2026-08-01' } });
+    expect(promoted.status).toBe(200);
+    // Backdating before the current class began is refused: history stands.
+    const backdated = await harness.put(`/cfo/parties/${ashaId}/class`, { token: adminToken, body: { tierCode: 'C', reason: 'Oops', effectiveFrom: '2026-07-01' } });
+    expect(backdated.status).toBe(400);
+
+    const cls = await harness.get<{ current: { tierCode: string; effectiveFrom: string } | null; history: { tierCode: string; effectiveTo: string | null }[]; grade: { grade: string; risk: number } | null }>(
+      `/cfo/parties/${ashaId}/class`,
+      { token: adminToken },
+    );
+    expect(cls.body.current?.tierCode).toBe('A+');
+    expect(cls.body.history.map((h) => [h.tierCode, h.effectiveTo])).toEqual([['A+', null], ['B', '2026-07-31']]);
+    // Asha: 45 days late on the 60,000 that is overdue (payment history 20 of
+    // 40), 60% of her book overdue (ageing 15 of 25), no limit, no broken
+    // promises: risk 35, a B. The grade explains itself.
+    expect(cls.body.grade?.grade).toBe('B');
+    expect(cls.body.grade?.risk).toBe(35);
+
+    // The master will not drop a class with customers in it.
+    const blocked = await harness.del('/cfo/tiers/A+', { token: adminToken });
+    expect(blocked.status).toBe(409);
+  });
+
+  it('the class x grade grid names the A+ / B cell, and counts the unclassed', async () => {
+    const grid = await harness.get<{
+      classes: string[];
+      unclassed: { count: number };
+      cells: { tierCode: string; grade: string; count: number; amount: string; parties: { party: string }[] }[];
+    }>('/cfo/class-grade', { token: adminToken });
+    expect(grid.status).toBe(200);
+    const cell = grid.body.cells.find((c) => c.tierCode === 'A+' && c.grade === 'B');
+    expect(cell?.count).toBe(1);
+    expect(cell?.amount).toBe('100000.00');
+    expect(cell?.parties[0]?.party).toBe('Asha Traders');
+    // Bharat is on the book but unclassed.
+    expect(grid.body.unclassed.count).toBe(1);
+  });
+
+  it('assigning needs cfo.tier.assign; the master needs cfo.tier.master', async () => {
+    const parties = await harness.db.execute<{ id: string }>(sql`SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = 'Bharat Cables'`);
+    const denied = await harness.put(`/cfo/parties/${parties.rows[0]?.id ?? ''}/class`, { token: employeeToken, body: { tierCode: 'B', reason: 'x', effectiveFrom: '2026-08-01' } });
+    expect(denied.status).toBe(403);
+    const master = await harness.put('/cfo/tiers', { token: employeeToken, body: { code: 'Z', label: 'Zed', colourToken: 'fresh-1', creditDays: null, creditLimit: null, maxDiscountPct: null, contactEveryDays: null, sortOrder: 9 } });
+    expect(master.status).toBe(403);
   });
 });

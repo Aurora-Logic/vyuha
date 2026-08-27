@@ -8,7 +8,7 @@ import {
   MapPinAreaIcon,
   FileTextIcon,
   PaperPlaneTiltIcon,
-  WarningCircleIcon, PaintBrushIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon } from '@phosphor-icons/react';
+  WarningCircleIcon, PaintBrushIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon, TagIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -47,6 +47,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, type DuplicatesPolicy, type ReturnReasonsPolicy } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
+import { CustomerClassesTab } from './customer-classes-tab';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
 import { PurchaseSettingsPanel } from '@/features/purchase/purchase-settings-panel';
@@ -184,7 +185,7 @@ function FormSkeleton() {
  * tab is in the URL so the sales and purchase list pages can deep-link to
  * theirs, and so a reload lands where the person was.
  */
-const TABS = ['organisation', 'appearance', 'office', 'attendance', 'sales', 'purchase', 'documents', 'email', 'access'] as const;
+const TABS = ['organisation', 'appearance', 'office', 'attendance', 'sales', 'purchase', 'classes', 'documents', 'email', 'access'] as const;
 type SettingsTab = (typeof TABS)[number];
 
 function useSettingsTab(): [SettingsTab, (next: SettingsTab) => void] {
@@ -311,6 +312,8 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
   // The per-party overrides screen needs its own key, so the link to it hides
   // with the screen rather than leading to a refusal.
   const canConfigureInterest = usePermission(PERMISSIONS.INTEREST_CONFIGURE);
+  const canSeeClasses = usePermission(PERMISSIONS.CFO_SALES_VIEW);
+  const canEditClasses = usePermission(PERMISSIONS.CFO_TIER_MASTER);
 
   const patch = patchOf(draft, saved);
   const officeWrite = office.write;
@@ -528,6 +531,12 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
             <TabsTrigger value="purchase" className="px-3">
               <ShoppingCartIcon data-icon="inline-start" />
               Purchase
+            </TabsTrigger>
+          ) : null}
+          {canSeeClasses ? (
+            <TabsTrigger value="classes" className="px-3">
+              <TagIcon data-icon="inline-start" />
+              Customer classes
             </TabsTrigger>
           ) : null}
           <TabsTrigger value="email" className="px-3">
@@ -1135,6 +1144,11 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
         <TabsContent value="documents">
           <DocumentsPanel />
         </TabsContent>
+        {canSeeClasses ? (
+          <TabsContent value="classes">
+            <CustomerClassesTab canEdit={canEditClasses} />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       <RecordHistorySheet

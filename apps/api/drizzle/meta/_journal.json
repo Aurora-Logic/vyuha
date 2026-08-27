@@ -512,6 +512,13 @@
       "when": 1787816232467,
       "tag": "0072_cfo_desk",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1787817130220,
+      "tag": "0073_customer_tiers",
+      "breakpoints": true
     }
   ]
 }

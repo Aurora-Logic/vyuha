@@ -90,6 +90,8 @@ export const PERMISSIONS = {
   CFO_EXPORT: 'cfo.export',
   CFO_LISTS_ASSIGN: 'cfo.lists.assign',
   CFO_TARGETS_MANAGE: 'cfo.targets.manage',
+  CFO_TIER_ASSIGN: 'cfo.tier.assign',
+  CFO_TIER_MASTER: 'cfo.tier.master',
 
   /**
    * Phase 7 (08 §2.2). Self/all breadths for contacts and deals; tasks are a
@@ -191,6 +193,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'cfo.export': 'Export Virtual CFO reports (every export is logged)',
   'cfo.lists.assign': 'Assign work-list entries and daily-call names to owners',
   'cfo.targets.manage': 'Set and revise monthly sales targets per person',
+  'cfo.tier.assign': 'Set a customer\u2019s class (A+ to D) with a reason and an effective date',
+  'cfo.tier.master': 'Edit the customer class master: labels, terms, discount ceilings, contact frequency',
   'crm.contact.view.self': 'View the contacts and companies you own',
   'crm.contact.view.all': 'View every contact and company',
   'crm.contact.manage': 'Create and edit contacts and companies',
@@ -360,6 +364,7 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.CFO_EXPORT,
   PERMISSIONS.CFO_LISTS_ASSIGN,
   PERMISSIONS.CFO_TARGETS_MANAGE,
+  PERMISSIONS.CFO_TIER_ASSIGN,
 ] as const satisfies readonly PermissionKey[];
 
 /**

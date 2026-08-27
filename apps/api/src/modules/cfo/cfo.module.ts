@@ -12,6 +12,7 @@ import { DeskService } from './desk.service.js';
 import { PenetrationService } from './penetration.service.js';
 import { SalesAnalysisService } from './sales-analysis.service.js';
 import { SalesFactService } from './sales-fact.service.js';
+import { TierService } from './tier.service.js';
 import { TeamService } from './team.service.js';
 
 /**
@@ -23,6 +24,6 @@ import { TeamService } from './team.service.js';
 @Module({
   imports: [SettingsModule],
   controllers: [CfoController],
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService],
 })
 export class CfoModule {}

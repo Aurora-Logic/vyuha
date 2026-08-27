@@ -482,3 +482,108 @@ export function usePenetration(
     staleTime: 60_000,
   });
 }
+
+const tierRowSchema = z.object({
+  code: z.string(),
+  label: z.string(),
+  description: z.string(),
+  colourToken: z.string(),
+  creditDays: z.number().nullable(),
+  creditLimit: z.string().nullable(),
+  maxDiscountPct: z.string().nullable(),
+  contactEveryDays: z.number().nullable(),
+  servicePriority: z.string(),
+  reviewEvery: z.string(),
+  sortOrder: z.number(),
+  assigned: z.number(),
+});
+
+export type TierRowData = z.infer<typeof tierRowSchema>;
+
+export function useTiers(options: { enabled?: boolean } = {}): UseQueryResult<TierRowData[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'tiers'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/cfo/tiers', { signal });
+      return parseOrThrow(z.array(tierRowSchema), body, 'customer classes');
+    },
+    staleTime: 300_000,
+  });
+}
+
+export async function saveTier(row: Omit<TierRowData, 'assigned'>): Promise<void> {
+  await apiRequest('/cfo/tiers', { method: 'PUT', body: row });
+}
+
+export async function deleteTier(code: string): Promise<void> {
+  await apiRequest(`/cfo/tiers/${encodeURIComponent(code)}`, { method: 'DELETE' });
+}
+
+const gradeReadingSchema = z.object({
+  grade: z.enum(['A', 'B', 'C', 'D', 'E']),
+  risk: z.number(),
+  breakdown: z.record(z.string(), z.number()),
+});
+
+const tierAssignmentSchema = z.object({
+  tierCode: z.string(),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable(),
+  assignedBy: z.string(),
+  reason: z.string(),
+});
+
+const partyClassSchema = z.object({
+  partyId: z.string(),
+  current: tierAssignmentSchema.nullable(),
+  history: z.array(tierAssignmentSchema),
+  grade: gradeReadingSchema.nullable(),
+});
+
+export type PartyClassData = z.infer<typeof partyClassSchema>;
+
+export function usePartyClass(partyId: string | null, options: { enabled?: boolean } = {}): UseQueryResult<PartyClassData, Error> {
+  return useQuery({
+    enabled: (options.enabled ?? true) && partyId !== null,
+    queryKey: ['cfo', 'party-class', partyId],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/parties/${partyId ?? ''}/class`, { signal });
+      return parseOrThrow(partyClassSchema, body, 'customer class');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export async function assignClass(partyId: string, body: { tierCode: string; reason: string; effectiveFrom: string }): Promise<void> {
+  await apiRequest(`/cfo/parties/${partyId}/class`, { method: 'PUT', body });
+}
+
+const classGradeSchema = z.object({
+  classes: z.array(z.string()),
+  grades: z.array(z.string()),
+  unclassed: z.object({ count: z.number(), amount: z.string() }),
+  cells: z.array(
+    z.object({
+      tierCode: z.string(),
+      grade: z.string(),
+      count: z.number(),
+      amount: z.string(),
+      parties: z.array(z.object({ partyId: z.string(), party: z.string(), outstanding: z.string() })),
+    }),
+  ),
+});
+
+export type ClassGradeData = z.infer<typeof classGradeSchema>;
+
+export function useClassGrade(options: { enabled?: boolean } = {}): UseQueryResult<ClassGradeData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'class-grade'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/cfo/class-grade', { signal });
+      return parseOrThrow(classGradeSchema, body, 'class and grade grid');
+    },
+    staleTime: 60_000,
+  });
+}

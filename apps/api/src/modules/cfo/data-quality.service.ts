@@ -76,18 +76,23 @@ export class DataQualityService {
       SELECT count(*)::int AS total, count(*) FILTER (WHERE due_date IS NULL)::int AS "noDue"
       FROM fact_receivable_snapshot, latest WHERE org_id = ${org} AND snapshot_date = latest.d
     `);
-    const parties = await this.db.execute<{ total: number; noTerms: number; badGstin: number; noPhone: number }>(sql`
+    const parties = await this.db.execute<{ total: number; noTerms: number; badGstin: number; noPhone: number; noClass: number }>(sql`
       SELECT count(*)::int AS total,
              count(*) FILTER (WHERE credit_days IS NULL AND credit_limit IS NULL)::int AS "noTerms",
              count(*) FILTER (WHERE gstin IS NULL OR gstin = '' OR gstin !~ ${GSTIN})::int AS "badGstin",
-             count(*) FILTER (WHERE phone IS NULL OR phone = '')::int AS "noPhone"
-      FROM parties WHERE org_id = ${org} AND absent_in_tally = false AND parent_group ILIKE '%debtor%'
+             count(*) FILTER (WHERE phone IS NULL OR phone = '')::int AS "noPhone",
+             count(*) FILTER (WHERE NOT EXISTS (
+               SELECT 1 FROM customer_tier_assignments a
+               WHERE a.org_id = p.org_id AND a.party_id = p.id AND a.effective_from <= ${today}
+                 AND (a.effective_to IS NULL OR a.effective_to >= ${today})
+             ))::int AS "noClass"
+      FROM parties p WHERE org_id = ${org} AND absent_in_tally = false AND parent_group ILIKE '%debtor%'
     `);
 
     const s = sales.rows[0];
     const i = items.rows[0] ?? { total: 0, noCost: 0, noBrand: 0, noUnit: 0, noCategory: 0 };
     const b = bills.rows[0] ?? { total: 0, noDue: 0 };
-    const p = parties.rows[0] ?? { total: 0, noTerms: 0, badGstin: 0, noPhone: 0 };
+    const p = parties.rows[0] ?? { total: 0, noTerms: 0, badGstin: 0, noPhone: 0, noClass: 0 };
     const pct = (part: number, whole: number): number | null => (whole === 0 ? null : Math.round((part / whole) * 1000) / 10);
     const netSales = Number(s?.net ?? 0);
 
@@ -110,7 +115,7 @@ export class DataQualityService {
       check('items-no-brand', 'Items without brand', i.noBrand, 'count', 0, 'Map to C&S / BCH / Other in the item group', '/masters/items'),
       check('items-no-category', 'Items without category', i.noCategory, 'count', 0, 'Name the item so its category reads (MCB / MCCB / ACB / RCCB / PQ)', '/masters/items', 'Category is read off the item name until a category master lands'),
       check('items-no-uom', 'Items without a unit', i.noUnit, 'count', 0, 'Add the unit in Tally', '/masters/items'),
-      check('parties-no-class', 'Parties without class', null, 'count', 0, 'Assign a customer class', null, 'Customer classes arrive with Part P'),
+      check('parties-no-class', 'Customers without a class', p.noClass, 'count', 0, 'Set the class on the customer, with a reason', '/masters/parties'),
       check('parties-no-terms', 'Parties without credit terms', p.noTerms, 'count', 0, 'Set credit days or a limit', '/masters/parties'),
       check('parties-bad-gstin', 'Invalid or missing GSTIN', p.badGstin, 'count', 0, 'Correct the master in Tally', '/masters/parties'),
       check('negative-margin', 'Negative margin from bad cost', null, 'count', 0, 'Investigate the cost', null, 'Awaits the valuation decision (M1)'),

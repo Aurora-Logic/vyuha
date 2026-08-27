@@ -297,8 +297,8 @@ export class DeskService {
       WITH latest AS (SELECT max(snapshot_date) AS d FROM fact_receivable_snapshot WHERE org_id = ${principal.orgId})
       SELECT f.party_id AS "partyId", max(f.days_overdue)::int AS days, sum(f.outstanding)::numeric(16,2)::text AS outstanding,
              max(p.credit_limit)::text AS "creditLimit"
-      FROM fact_receivable_snapshot f, latest LEFT JOIN parties p ON true
-      WHERE f.org_id = ${principal.orgId} AND f.snapshot_date = latest.d AND f.party_id IN ${ids} AND p.id = f.party_id
+      FROM fact_receivable_snapshot f LEFT JOIN parties p ON p.id = f.party_id, latest
+      WHERE f.org_id = ${principal.orgId} AND f.snapshot_date = latest.d AND f.party_id IN ${ids}
       GROUP BY 1
     `);
     const gaps = await this.db.execute<{ partyId: string; days: string[] }>(sql`

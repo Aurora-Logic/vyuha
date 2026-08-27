@@ -830,6 +830,15 @@ export const MODULES: ModuleDef[] = [
             reqs: 'CFO brief C4, Phase 2',
           },
           {
+            to: '/reports/class-grade',
+            label: 'Class and grade',
+            shortLabel: 'Classes',
+            icon: SquaresFourIcon,
+            permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q2.2, Part P',
+          },
+          {
             to: '/reports/work-lists',
             label: 'Work lists',
             shortLabel: 'Lists',

@@ -407,6 +407,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'The receivable book as its measures: DSO, days late, the collection score, and whose delay costs the most.',
   },
   {
+    id: 'screen.reports-class-grade',
+    route: '/reports/class-grade',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+    title: 'Class and grade',
+    body: 'How important a customer is to you against how they pay. Key accounts paying late sit in one cell, in one number.',
+  },
+  {
     id: 'screen.reports-work-lists',
     route: '/reports/work-lists',
     anchor: ANCHORS.screenHeader,

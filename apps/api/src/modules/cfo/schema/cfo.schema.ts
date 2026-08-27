@@ -223,3 +223,54 @@ export const cfoDeskServed = pgTable(
   },
   (t) => [uniqueIndex('cfo_desk_served_day_uq').on(t.orgId, t.servedOn, t.partyId)],
 );
+
+/**
+ * Customer tiers (brief Part P): the manual class A+ to D, set by judgment,
+ * never by the system. The master is configurable (P3); the assignment
+ * carries effective dates (P4) because the class is resolved as of the
+ * voucher date, never the current one -- otherwise every historical
+ * comparison shifts each time someone re-grades. A tier is never deleted
+ * while customers are assigned.
+ */
+export const customerTiers = pgTable(
+  'customer_tiers',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    code: text('code').notNull(),
+    label: text('label').notNull(),
+    description: text('description').notNull().default(''),
+    /** A theme token name (fresh-1..5), never a raw colour; the letter always shows. */
+    colourToken: text('colour_token').notNull(),
+    creditDays: integer('credit_days'),
+    creditLimit: numeric('credit_limit', { precision: 16, scale: 2 }),
+    maxDiscountPct: numeric('max_discount_pct', { precision: 5, scale: 2 }),
+    contactEveryDays: integer('contact_every_days'),
+    servicePriority: text('service_priority').notNull().default(''),
+    reviewEvery: text('review_every').notNull().default('Quarterly'),
+    sortOrder: integer('sort_order').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('customer_tiers_code_uq').on(t.orgId, t.code)],
+);
+
+export const customerTierAssignments = pgTable(
+  'customer_tier_assignments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id').notNull(),
+    tierCode: text('tier_code').notNull(),
+    effectiveFrom: text('effective_from').notNull(),
+    effectiveTo: text('effective_to'),
+    assignedBy: uuid('assigned_by').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('customer_tier_assignments_party_idx').on(t.orgId, t.partyId, t.effectiveFrom)],
+);

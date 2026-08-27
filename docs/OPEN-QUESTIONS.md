@@ -584,3 +584,20 @@ mixed mode (O3), cooldown, no-repeat-within-a-week, owner balance and dormant in
 |---|---|---|---|
 | Q-1 | **No category master exists** (S5 lists lifecycle and custom-report masters, not a product category). Tally's stock item carries the brand as its parent group and nothing for MCB / MCCB / ACB / RCCB / PQ. | Read the category off the item name (`category.ts`, MCCB before MCB, word boundaries); count the unplaceable as "Items without category" on Data Quality. Add a `product_category` master with an item mapping when the owner wants overrides. | Nothing today; misnamed items fall to Other and are counted |
 | Q-2 | Data Quality's ninety-day trend needs a nightly row per check | Write `cfo_data_quality_daily` from the nightly job once `queue.registry.ts` is free | The trend column |
+
+## Virtual CFO — Part P, customer classes (27 Aug 2026)
+
+Built: the class master (P3, seeded with the brief's five, editable under Settings ›
+Customer classes, never deletable while worn), dated assignment with a mandatory reason
+(P4, history never rewritten, defaulting to the first of next month per P7), the class and
+payment grade side by side on the customer page (P1), the D18 payment grade engine with
+its breakdown, and the class × payment-grade grid (Q2.2). Left, in the brief's order:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| P-1 | Bulk assign and Excel import (P4) | Bulk from the Customers screen next; import once the first-time classification is scheduled with the sales team | The first full classification |
+| P-2 | Class as a slicer across reports (P6) | Add `class` to Sales Analysis's scope set once assignments exist in numbers | Class mix, ageing by class |
+| P-3 | Wiring into the priority score (value × 1.5/1.25/1/0.8/0.5), coverage guarantee, credit defaults and discount ceilings (P6) | Score multiplier and coverage first; credit defaults when a customer is created in Vyuha; discount ceiling with the approval popup | — |
+| P-4 | Suggested tier job and the mismatch list (P5) | Nightly once `queue.registry.ts` is free; quarterly review surface after | Under- and over-classified lists |
+| P-5 | Class mix, class migration, neglected key accounts, service vs class (P6.1) | Configs on MatrixGrid and the RANK render type | — |
+| P-6 | P8's "sales head sets up to A, proposes A+" is not enforced — `cfo.tier.assign` sets any class | Add the A+ approval task when the approvals module exposes a generic request | A+ by the sales head without the owner |

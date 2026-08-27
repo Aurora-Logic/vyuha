@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { PERMISSIONS } from '@vyuha/shared';
+import { usePermission } from '@/lib/session/permissions';
 import { BooksIcon, LightbulbIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -9,6 +13,28 @@ import { SectionHeading } from '@/components/shared/section-heading';
 import { PortalLinkPanel } from '@/features/portal/portal-link-panel';
 import { RmPanel } from './rm-panel';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldLabel } from '@/components/ui/field';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/components/ui/toast';
+import { ClassBadge, GradeBadge } from '@/components/shared/customer-badges';
+import { DateField } from '@/features/attendance/pickers';
+import { assignClass, usePartyClass, useTiers } from '@/features/insights/use-cfo';
+import { toApiDate } from '@/features/insights/period';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -78,6 +104,29 @@ export function PartyPage() {
   const period = useLifecyclePeriod();
   const lifecycle = usePartyLifecycle(id ?? null);
   const analytics = usePartyAnalytics(id ?? null, period.query);
+  const canSeeClass = usePermission(PERMISSIONS.CFO_SALES_VIEW);
+  const canAssignClass = usePermission(PERMISSIONS.CFO_TIER_ASSIGN);
+  const partyClass = usePartyClass(id ?? null, { enabled: canSeeClass });
+  const tiers = useTiers({ enabled: canSeeClass });
+  const queryClient = useQueryClient();
+  // P7: never mid-month -- a change defaults to the first of next month.
+  const [classDraft, setClassDraft] = useState<{ tierCode: string; reason: string; effectiveFrom: Date } | null>(null);
+  const [savingClass, setSavingClass] = useState(false);
+
+  async function saveClass() {
+    if (id === undefined || classDraft === null || classDraft.tierCode === '' || classDraft.reason.trim() === '') return;
+    setSavingClass(true);
+    try {
+      await assignClass(id, { tierCode: classDraft.tierCode, reason: classDraft.reason.trim(), effectiveFrom: toApiDate(classDraft.effectiveFrom) });
+      await queryClient.invalidateQueries({ queryKey: ['cfo'] });
+      toast.add({ type: 'success', title: `Class ${classDraft.tierCode} from ${toApiDate(classDraft.effectiveFrom)}` });
+      setClassDraft(null);
+    } catch (error) {
+      toast.add({ type: 'error', title: 'Could not change the class', description: error instanceof Error ? error.message : 'Try again.' });
+    } finally {
+      setSavingClass(false);
+    }
+  }
 
   if (lifecycle.isPending) {
     return (
@@ -113,17 +162,87 @@ export function PartyPage() {
         title={
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate">{party.name}</span>
+            {canSeeClass && partyClass.data ? (
+              <span className="flex items-center gap-1">
+                <ClassBadge
+                  code={partyClass.data.current?.tierCode ?? null}
+                  label={tiers.data?.find((t) => t.code === partyClass.data?.current?.tierCode)?.label}
+                  token={tiers.data?.find((t) => t.code === partyClass.data?.current?.tierCode)?.colourToken}
+                />
+                <GradeBadge grade={partyClass.data.grade?.grade ?? null} risk={partyClass.data.grade?.risk} />
+              </span>
+            ) : null}
             {party.absentInTally ? <Badge variant="destructive">Gone from Tally</Badge> : null}
           </span>
         }
         description={facts.join(' · ')}
         action={
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/masters/parties" />}>
-            <BooksIcon data-icon="inline-start" />
-            All parties
-          </Button>
+          <span className="flex items-center gap-2">
+            {canAssignClass ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  setClassDraft({ tierCode: '', reason: '', effectiveFrom: new Date(now.getFullYear(), now.getMonth() + 1, 1) });
+                }}
+              >
+                Set class
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/masters/parties" />}>
+              <BooksIcon data-icon="inline-start" />
+              All parties
+            </Button>
+          </span>
         }
       />
+
+      {canSeeClass && partyClass.data && partyClass.data.history.length > 0 ? (
+        <p className="text-muted-foreground -mt-2 mb-4 text-xs">
+          Class history:{' '}
+          {partyClass.data.history
+            .map((h) => `${h.tierCode} from ${h.effectiveFrom}${h.effectiveTo ? ` to ${h.effectiveTo}` : ''} (${h.assignedBy}: ${h.reason})`)
+            .join(' · ')}
+        </p>
+      ) : null}
+
+      <Dialog open={classDraft !== null} onOpenChange={(open) => { if (!open) setClassDraft(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Set customer class</DialogTitle>
+            <DialogDescription>A class drives credit terms and discount authority, so it needs a reason and takes effect on a date -- history is never rewritten.</DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel>Class</FieldLabel>
+            <Select value={classDraft?.tierCode ?? ''} onValueChange={(v) => { setClassDraft((d) => (d === null ? d : { ...d, tierCode: v === null ? '' : String(v) })); }}>
+              <SelectTrigger aria-label="Class">
+                <SelectValue placeholder="Pick a class">
+                  {(v: string) => (v === '' ? 'Pick a class' : `${v} · ${tiers.data?.find((t) => t.code === v)?.label ?? ''}`)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {(tiers.data ?? []).map((t) => (
+                  <SelectItem key={t.code} value={t.code}>{t.code} · {t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="class-reason">Reason</FieldLabel>
+            <Textarea id="class-reason" rows={2} maxLength={500} value={classDraft?.reason ?? ''} onChange={(e) => { setClassDraft((d) => (d === null ? d : { ...d, reason: e.target.value })); }} />
+          </Field>
+          {classDraft ? (
+            <DateField label="Effective from" showLabel value={classDraft.effectiveFrom} onValueChange={(date) => { setClassDraft((d) => (d === null ? d : { ...d, effectiveFrom: date })); }} />
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setClassDraft(null); }}>Cancel</Button>
+            <Button disabled={savingClass || (classDraft?.tierCode ?? '') === '' || (classDraft?.reason.trim() ?? '') === ''} onClick={() => void saveClass()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <LifecycleFilter period={period} />
 

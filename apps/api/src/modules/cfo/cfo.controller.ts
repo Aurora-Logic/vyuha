@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -13,6 +13,7 @@ import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday } from './de
 import { PenetrationService, type Penetration } from './penetration.service.js';
 import { SalesAnalysisService, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
+import { TierService, type PartyClass, type TierRow } from './tier.service.js';
 
 const creditQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
@@ -41,6 +42,29 @@ const optionalRangeSchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
 });
 class OptionalRangeDto extends createZodDto(optionalRangeSchema) {}
+
+const money = z.string().regex(/^\d{1,14}(\.\d{1,2})?$/u);
+const tierRowSchema = z.object({
+  code: z.string().trim().min(1).max(4),
+  label: z.string().trim().min(1).max(60),
+  description: z.string().trim().max(200).default(''),
+  colourToken: z.enum(['fresh-1', 'fresh-2', 'fresh-3', 'fresh-4', 'fresh-5']),
+  creditDays: z.number().int().min(0).max(365).nullable(),
+  creditLimit: money.nullable(),
+  maxDiscountPct: z.string().regex(/^\d{1,2}(\.\d{1,2})?$/u).nullable(),
+  contactEveryDays: z.number().int().min(1).max(365).nullable(),
+  servicePriority: z.string().trim().max(80).default(''),
+  reviewEvery: z.string().trim().max(40).default('Quarterly'),
+  sortOrder: z.number().int().min(1).max(20),
+});
+class TierRowDto extends createZodDto(tierRowSchema) {}
+
+const assignClassSchema = z.object({
+  tierCode: z.string().trim().min(1).max(4),
+  reason: z.string().trim().min(1).max(500),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+});
+class AssignClassDto extends createZodDto(assignClassSchema) {}
 
 const deskOutcomeSchema = z.object({
   outcome: z.enum(DESK_OUTCOMES),
@@ -75,6 +99,7 @@ export class CfoController {
     private readonly deskService: DeskService,
     private readonly quality: DataQualityService,
     private readonly penetration: PenetrationService,
+    private readonly tiers: TierService,
   ) {}
 
   @Get('receivables')
@@ -187,6 +212,52 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   penetrationGrid(@CurrentUser() principal: Principal, @Query() query: OptionalRangeDto): Promise<Penetration> {
     return this.penetration.read(principal, query.from, query.to);
+  }
+
+  /** P3: the class master. Seeded with the brief's five on first read. */
+  @Get('tiers')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  listTiers(@CurrentUser() principal: Principal): Promise<TierRow[]> {
+    return this.tiers.listTiers(principal);
+  }
+
+  @Put('tiers')
+  @RequirePermission(PERMISSIONS.CFO_TIER_MASTER)
+  async saveTier(@CurrentUser() principal: Principal, @Body() body: TierRowDto): Promise<{ ok: true }> {
+    await this.tiers.saveTier(principal, body);
+    return { ok: true };
+  }
+
+  @Delete('tiers/:code')
+  @RequirePermission(PERMISSIONS.CFO_TIER_MASTER)
+  @HttpCode(204)
+  async deleteTier(@CurrentUser() principal: Principal, @Param('code') code: string): Promise<void> {
+    await this.tiers.deleteTier(principal, code);
+  }
+
+  /** P4: one customer's class, its history, and the payment grade beside it. */
+  @Get('parties/:partyId/class')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  partyClass(@CurrentUser() principal: Principal, @Param('partyId') partyId: string): Promise<PartyClass> {
+    return this.tiers.partyClass(principal, partyId);
+  }
+
+  @Put('parties/:partyId/class')
+  @RequirePermission(PERMISSIONS.CFO_TIER_ASSIGN)
+  async assignClass(
+    @CurrentUser() principal: Principal,
+    @Param('partyId') partyId: string,
+    @Body() body: AssignClassDto,
+  ): Promise<{ ok: true }> {
+    await this.tiers.assign(principal, partyId, body.tierCode, body.reason, body.effectiveFrom);
+    return { ok: true };
+  }
+
+  /** Q2.2: class x payment grade. */
+  @Get('class-grade')
+  @RequirePermission(PERMISSIONS.CFO_RECEIVABLES_VIEW)
+  classGrade(@CurrentUser() principal: Principal): ReturnType<TierService['classGradeGrid']> {
+    return this.tiers.classGradeGrid(principal);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */
