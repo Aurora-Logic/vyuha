@@ -14,7 +14,7 @@ import {
 import { filterScreenGroups } from '@/lib/go-to-filter';
 import { kindOf } from '@/lib/go-to-records';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
-import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, type NavGroup } from '@/lib/nav';
+import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, type NavGroup, type NavItem } from '@/lib/nav';
 import { usePermissions } from '@/lib/session/permissions';
 import { useUiStore } from '@/lib/ui-store';
 import { GO_TO_QUERY_MAX_LENGTH, GO_TO_QUERY_MIN_LENGTH, type GoToRecord } from '@vyuha/shared';
@@ -54,28 +54,40 @@ import { useGoToRecords } from './use-go-to-records';
  * sits under "Inbox" because REQ-O-03's whole argument is that it is one.
  */
 /**
- * One entry per destination, whichever surfaces reach it. A screen can sit in
- * a module sidebar and in the top bar at once (Approvals does, since main
- * re-added it to Work beside REQ-O-03's Inbox), and a palette that listed it
- * twice would make the arrow keys land on the same place two rows apart.
- * First surface wins; the route is what matters, not which door.
+ * One entry per destination, whichever surfaces reach it, and one group per
+ * label, whichever modules use it.
+ *
+ * A screen can sit in a module sidebar and in the top bar at once (Approvals
+ * does, since main re-added it to Work beside REQ-O-03's Inbox), and a palette
+ * that listed it twice would make the arrow keys land on the same place two
+ * rows apart. First surface wins; the route is what matters, not which door.
+ *
+ * Two modules can also both call a group "People" (attendance's employees,
+ * CRM's contacts). The label is the React key and cmdk's group value, so two
+ * groups sharing it rendered as one group twice -- and, worse, left the stale
+ * copy standing after a query had emptied the list, so "Nothing matches that."
+ * never appeared. Merging same-labelled groups makes the key unique by
+ * construction; the position is the first module's, the rows are everyone's.
  */
 function dedupeDestinations(groups: NavGroup[]): NavGroup[] {
   const seen = new Set<string>();
-  return groups
-    .map((group) => ({
-      label: group.label,
-      items: group.items.filter((item) => {
-        // The screen is the pathname: the report catalogue's category links
-        // (/reports?category=…) are doors into one screen, and the palette
-        // lists a screen once.
-        const pathname = item.to.split('?')[0] ?? item.to;
-        if (seen.has(pathname)) return false;
-        seen.add(pathname);
-        return true;
-      }),
-    }))
-    .filter((group) => group.items.length > 0);
+  const merged = new Map<string, NavItem[]>();
+  for (const group of groups) {
+    const items = group.items.filter((item) => {
+      // The screen is the pathname: the report catalogue's category links
+      // (/reports?category=...) are doors into one screen, and the palette
+      // lists a screen once.
+      const pathname = item.to.split('?')[0] ?? item.to;
+      if (seen.has(pathname)) return false;
+      seen.add(pathname);
+      return true;
+    });
+    if (items.length === 0) continue;
+    const existing = merged.get(group.label);
+    if (existing) existing.push(...items);
+    else merged.set(group.label, items);
+  }
+  return [...merged.entries()].map(([label, items]) => ({ label, items }));
 }
 
 const SCREEN_GROUPS: NavGroup[] = dedupeDestinations([
