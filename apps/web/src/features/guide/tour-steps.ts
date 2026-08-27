@@ -351,6 +351,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'One sales engine at every scope: drill from the company into a brand, a person, a customer or a product, and climb back by the breadcrumb.',
   },
   {
+    id: 'screen.reports-penetration',
+    route: '/reports/penetration',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Penetration',
+    body: 'Customer by category: a filled cell is what they buy from us, an empty one is what they buy from someone else.',
+  },
+  {
     id: 'screen.reports-growth',
     route: '/reports/growth',
     anchor: ANCHORS.screenHeader,
@@ -373,6 +381,14 @@ const SCREEN_INTROS: GuideStep[] = [
     permission: PERMISSIONS.CFO_SALES_VIEW,
     title: "Director's desk",
     body: 'Which customers to work on today: one ranked list with a reason, the rupees at stake and an owner, and the call sheet behind each name.',
+  },
+  {
+    id: 'screen.reports-data-quality',
+    route: '/reports/data-quality',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW,
+    title: 'Data quality',
+    body: 'What the figures are built on and where they are weak: twelve checks, each with its fix and the records behind it.',
   },
   {
     id: 'screen.reports-me',

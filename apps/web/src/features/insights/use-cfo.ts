@@ -423,3 +423,62 @@ export async function logDeskOutcome(
 ): Promise<void> {
   await apiRequest(`/cfo/desk/${partyId}/outcome`, { method: 'POST', body });
 }
+
+const qualityCheckSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  value: z.number().nullable(),
+  unit: z.enum(['pct', 'count']),
+  target: z.number(),
+  health: z.number().nullable(),
+  fix: z.string(),
+  drill: z.string().nullable(),
+  note: z.string().optional(),
+});
+
+const dataQualitySchema = z.object({
+  asOf: z.string(),
+  headline: z.number().nullable(),
+  checks: z.array(qualityCheckSchema),
+});
+
+export type DataQualityData = z.infer<typeof dataQualitySchema>;
+export type QualityCheckData = z.infer<typeof qualityCheckSchema>;
+
+export function useDataQuality(options: { enabled?: boolean } = {}): UseQueryResult<DataQualityData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'data-quality'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/cfo/data-quality', { signal });
+      return parseOrThrow(dataQualitySchema, body, 'data quality');
+    },
+    staleTime: 120_000,
+  });
+}
+
+const penetrationSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  categories: z.array(z.string()),
+  customers: z.array(z.object({ partyId: z.string(), party: z.string(), total: z.string(), filled: z.number() })),
+  cells: z.array(z.object({ partyId: z.string(), category: z.string(), count: z.number(), amount: z.string() })),
+  columnTotals: z.record(z.string(), z.object({ count: z.number(), amount: z.string() })),
+});
+
+export type PenetrationData = z.infer<typeof penetrationSchema>;
+
+export function usePenetration(
+  range: { from: string; to: string },
+  options: { enabled?: boolean } = {},
+): UseQueryResult<PenetrationData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'penetration', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/penetration?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(penetrationSchema, body, 'penetration grid');
+    },
+    staleTime: 60_000,
+  });
+}

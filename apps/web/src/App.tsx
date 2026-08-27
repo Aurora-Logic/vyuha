@@ -56,6 +56,8 @@ const BUILT_ROUTES = new Set([
   '/reports/team',
   '/reports/sales-analysis',
   '/reports/desk',
+  '/reports/data-quality',
+  '/reports/penetration',
   '/reports/me',
   '/reports/credit',
   '/reports/work-lists',
@@ -97,6 +99,8 @@ const GrowthPage = lazy(() => import('@/features/insights').then((m) => ({ defau
 const TeamPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.TeamPage })));
 const SalesAnalysisPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.SalesAnalysisPage })));
 const DeskPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.DeskPage })));
+const DataQualityPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.DataQualityPage })));
+const PenetrationPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.PenetrationPage })));
 const ScorecardPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ScorecardPage })));
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
@@ -260,6 +264,8 @@ export default function App() {
               <Route path="reports/team/:ownerRef" element={<ScorecardPage />} />
               <Route path="reports/sales-analysis" element={<SalesAnalysisPage />} />
               <Route path="reports/desk" element={<DeskPage />} />
+              <Route path="reports/data-quality" element={<DataQualityPage />} />
+              <Route path="reports/penetration" element={<PenetrationPage />} />
               <Route path="reports/me" element={<MyCfoPage />} />
               <Route path="reports/credit" element={<CreditControlPage />} />
               <Route path="reports/work-lists" element={<WorkListsPage />} />

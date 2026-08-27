@@ -9,6 +9,7 @@ import {
   CalendarDotsIcon,
   ChartBarIcon,
   ChartLineUpIcon,
+  GridNineIcon,
   PhoneIcon,
   TrophyIcon,
   HandCoinsIcon,
@@ -733,6 +734,14 @@ export const MODULES: ModuleDef[] = [
             reqs: 'CFO brief B3, Phase 3',
           },
           {
+            to: '/reports/penetration',
+            label: 'Penetration',
+            icon: GridNineIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q2.10',
+          },
+          {
             to: '/reports/growth',
             label: 'Growth',
             icon: ChartLineUpIcon,
@@ -828,6 +837,20 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.CFO_SALES_VIEW,
             phase: 6,
             reqs: 'CFO brief E1, E3, Phase 2',
+          },
+        ],
+      },
+      {
+        label: 'Control',
+        items: [
+          {
+            to: '/reports/data-quality',
+            label: 'Data quality',
+            shortLabel: 'Quality',
+            icon: ShieldCheckIcon,
+            permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q3',
           },
         ],
       },

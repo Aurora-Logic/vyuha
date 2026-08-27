@@ -7,7 +7,9 @@ import { CreditControlService } from './credit-control.service.js';
 import { MyCfoService } from './my-cfo.service.js';
 import { OwnerMapService } from './attribution/owner-map.service.js';
 import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
+import { DataQualityService } from './data-quality.service.js';
 import { DeskService } from './desk.service.js';
+import { PenetrationService } from './penetration.service.js';
 import { SalesAnalysisService } from './sales-analysis.service.js';
 import { SalesFactService } from './sales-fact.service.js';
 import { TeamService } from './team.service.js';
@@ -21,6 +23,6 @@ import { TeamService } from './team.service.js';
 @Module({
   imports: [SettingsModule],
   controllers: [CfoController],
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService],
 })
 export class CfoModule {}

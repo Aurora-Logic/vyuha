@@ -1,5 +1,5 @@
 import { ArrowRightIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { PERMISSIONS, type InsightArea } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import { AREA_LABELS } from './catalogue';
 import { MetricChart } from './metric-card';
 import { formatHeadline } from './units';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { useDataQuality } from './use-cfo';
 
 /**
  * The reports overview (owner, 26 Aug 2026, the Supabase Overview shape): a
@@ -132,6 +133,10 @@ export function InsightsOverviewPage() {
   const canReceivables = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
   const canSales = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canSync = usePermission(PERMISSIONS.INTEGRATION_MANAGE);
+  const canExceptions = usePermission(PERMISSIONS.CFO_EXCEPTIONS_VIEW);
+  const navigate = useNavigate();
+  // Q3: the data-health headline sits on the dashboard, for those who may act on it.
+  const quality = useDataQuality({ enabled: canExceptions });
 
   const attendance = useAreaInsights('attendance', range, { enabled: canAttendance });
   const receivables = useAreaInsights('receivables', range, { enabled: canReceivables });
@@ -146,7 +151,12 @@ export function InsightsOverviewPage() {
   ];
   const areas = all.filter((entry) => entry.allowed);
 
-  const tiles = areas.flatMap((entry) => tilesOf(entry.area, entry.data));
+  const tiles = [
+    ...(quality.data?.headline !== null && quality.data?.headline !== undefined
+      ? [{ label: 'Data health', value: `${String(quality.data.headline)}%`, note: 'open the checks', onOpen: () => void navigate('/reports/data-quality') }]
+      : []),
+    ...areas.flatMap((entry) => tilesOf(entry.area, entry.data)),
+  ];
 
   if (areas.length === 0) {
     return (

@@ -10,3 +10,5 @@ export { TeamPage } from './team-page';
 export { ScorecardPage } from './scorecard-page';
 export { SalesAnalysisPage } from './sales-analysis-page';
 export { DeskPage } from './desk-page';
+export { DataQualityPage } from './data-quality-page';
+export { PenetrationPage } from './penetration-page';

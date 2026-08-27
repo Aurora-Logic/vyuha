@@ -1,9 +1,8 @@
 import { Bar, BarChart, Cell, LabelList, XAxis, YAxis } from 'recharts';
 
-import { Button } from '@/components/ui/button';
+import { MatrixGrid } from '@/components/shared/matrix-grid';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
-import { formatCount, formatMoneyShort } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { formatMoneyShort } from '@/lib/format';
 
 import { BANDS, STATES } from './movement-states';
 import type { GrowthBridgeData, MovementCell } from './use-cfo';
@@ -92,49 +91,27 @@ export function BridgeWaterfall({ bridge }: { bridge: GrowthBridgeData }) {
 
 
 export function MovementMatrix({ cells, onCell }: { cells: readonly MovementCell[]; onCell: (cell: MovementCell) => void }) {
-  const cellOf = (state: string, band: string) => cells.find((c) => c.state === state && c.band === band);
-  const max = Math.max(1, ...cells.map((c) => Number(c.amount)));
+  const find = (state: string, band: string) => cells.find((c) => c.state === state && c.band === band);
   return (
-    <div className="overflow-x-auto">
-      <div className="grid min-w-[28rem] grid-cols-[7rem_repeat(3,minmax(0,1fr))] gap-1">
-        <span />
-        {BANDS.map((band) => (
-          <span key={band} className="text-muted-foreground pb-1 text-center text-xs font-medium">
-            {band} band
-          </span>
-        ))}
-        {STATES.map((state) => (
-          <div key={state.key} className="contents">
-            <span className="text-muted-foreground flex items-center text-xs">{state.label}</span>
-            {BANDS.map((band) => {
-              const cell = cellOf(state.key, band);
-              const amount = Number(cell?.amount ?? 0);
-              const empty = (cell?.count ?? 0) === 0;
-              // Intensity carries magnitude only; "Declining x A" -- big
-              // accounts shrinking -- is the loudest cell on the screen.
-              const trouble = state.key === 'declining' || state.key === 'lost';
-              const tone = trouble ? 'var(--destructive)' : 'var(--fresh-1)';
-              const strength = empty ? 0 : Math.max(0.08, (amount / max) * (trouble && band === 'A' ? 0.5 : 0.35));
-              return (
-                <Button
-                  key={band}
-                  variant="outline"
-                  disabled={empty}
-                  onClick={() => {
-                    if (cell) onCell(cell);
-                  }}
-                  className={cn('h-auto flex-col items-start gap-0.5 px-3 py-2', empty && 'opacity-50')}
-                  style={empty ? undefined : { backgroundColor: `color-mix(in oklab, ${tone} ${String(Math.round(strength * 100))}%, transparent)` }}
-                >
-                  <span className="text-base font-semibold tabular-nums">{formatCount(cell?.count ?? 0)}</span>
-                  <span className="text-muted-foreground text-xs tabular-nums">{formatMoneyShort(amount)}</span>
-                </Button>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
+    <MatrixGrid
+      rows={STATES}
+      columns={BANDS.map((b) => ({ key: b, label: `${b} band` }))}
+      cellOf={(state, band) => {
+        const cell = find(state, band);
+        return cell === undefined ? undefined : { count: cell.count, amount: Number(cell.amount) };
+      }}
+      // Intensity carries magnitude only; "Declining x A" -- big accounts
+      // shrinking -- is the loudest cell on the screen.
+      toneOf={(state, band) => {
+        const trouble = state === 'declining' || state === 'lost';
+        return { tone: trouble ? 'var(--destructive)' : 'var(--fresh-1)', emphasis: trouble && band === 'A' ? 0.5 : 0.35 };
+      }}
+      onCell={(state, band) => {
+        const cell = find(state, band);
+        if (cell) onCell(cell);
+      }}
+      className="min-w-0"
+    />
   );
 }
 

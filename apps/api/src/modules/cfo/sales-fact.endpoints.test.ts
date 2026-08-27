@@ -282,3 +282,22 @@ describe('GET /cfo/sales-analysis (B3, level-aware)', () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe('GET /cfo/penetration (Q2.10)', () => {
+  it('fills the cell they buy and leaves the whitespace empty', async () => {
+    const res = await harness.get<{
+      categories: string[];
+      customers: { party: string; filled: number; total: string }[];
+      cells: { partyId: string; category: string; count: number; amount: string }[];
+      columnTotals: Record<string, { count: number; amount: string }>;
+    }>(`/cfo/penetration?from=${DAY}&to=${DAY}`, { token: rsToken });
+    expect(res.status).toBe(200);
+    expect(res.body.categories).toEqual(['MCB', 'MCCB', 'ACB', 'RCCB', 'PQ', 'Other']);
+    // Asha bought MCB 6A: one filled cell, 10,000 on the inventory line.
+    // Bharat's vouchers carried no inventory lines, so he has no row.
+    expect(res.body.customers.map((c) => [c.party, c.filled])).toEqual([['Asha Traders', 1]]);
+    expect(res.body.cells).toEqual([{ partyId: ashaId, category: 'MCB', count: 1, amount: '10000.00' }]);
+    expect(res.body.columnTotals.MCB).toEqual({ count: 1, amount: '10000.00' });
+    expect(res.body.columnTotals.RCCB).toEqual({ count: 0, amount: '0.00' });
+  });
+});

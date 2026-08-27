@@ -8,7 +8,9 @@ import { RequirePermission } from '../../platform/rbac/route-policy.js';
 import { CreditControlService, type CreditOverview, type WorkLists } from './credit-control.service.js';
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
+import { DataQualityService, type DataQuality } from './data-quality.service.js';
 import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday } from './desk.service.js';
+import { PenetrationService, type Penetration } from './penetration.service.js';
 import { SalesAnalysisService, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
 
@@ -33,6 +35,12 @@ const deskQuerySchema = z.object({
   mixed: z.enum(['0', '1']).default('0'),
 });
 class DeskQueryDto extends createZodDto(deskQuerySchema) {}
+
+const optionalRangeSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+});
+class OptionalRangeDto extends createZodDto(optionalRangeSchema) {}
 
 const deskOutcomeSchema = z.object({
   outcome: z.enum(DESK_OUTCOMES),
@@ -65,6 +73,8 @@ export class CfoController {
     private readonly team: TeamService,
     private readonly salesAnalysis: SalesAnalysisService,
     private readonly deskService: DeskService,
+    private readonly quality: DataQualityService,
+    private readonly penetration: PenetrationService,
   ) {}
 
   @Get('receivables')
@@ -163,6 +173,20 @@ export class CfoController {
   ): Promise<{ ok: true }> {
     await this.deskService.logOutcome(principal, partyId, body);
     return { ok: true };
+  }
+
+  /** Q3: the screen that admits what is broken. */
+  @Get('data-quality')
+  @RequirePermission(PERMISSIONS.CFO_EXCEPTIONS_VIEW)
+  dataQuality(@CurrentUser() principal: Principal): Promise<DataQuality> {
+    return this.quality.read(principal);
+  }
+
+  /** Q2.10: the whitespace map. */
+  @Get('penetration')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  penetrationGrid(@CurrentUser() principal: Principal, @Query() query: OptionalRangeDto): Promise<Penetration> {
+    return this.penetration.read(principal, query.from, query.to);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

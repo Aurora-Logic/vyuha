@@ -433,3 +433,28 @@ describe('the Director’s Desk (Part O)', () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe('GET /cfo/data-quality (Q3)', () => {
+  it('admits what is broken, with a null where a check cannot run yet', async () => {
+    const res = await harness.get<{
+      headline: number | null;
+      checks: { key: string; value: number | null; health: number | null; note?: string; drill: string | null }[];
+    }>('/cfo/data-quality', { token: adminToken });
+    expect(res.status).toBe(200);
+    const byKey = new Map(res.body.checks.map((c) => [c.key, c]));
+    // Four debtors, none with a phone number: the check names the count.
+    expect(byKey.get('parties-no-phone')?.value).toBe(4);
+    expect(byKey.get('parties-no-phone')?.health).toBe(0.6);
+    // Classes arrive with Part P: null, and the note says so.
+    expect(byKey.get('parties-no-class')?.value).toBeNull();
+    expect(byKey.get('parties-no-class')?.note).toContain('Part P');
+    // The headline averages only what could be measured.
+    expect(res.body.headline).not.toBeNull();
+    expect(res.body.checks).toHaveLength(12);
+  });
+
+  it('sits behind cfo.exceptions.view', async () => {
+    const denied = await harness.get('/cfo/data-quality', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});

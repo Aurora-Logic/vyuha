@@ -577,3 +577,10 @@ mixed mode (O3), cooldown, no-repeat-within-a-week, owner balance and dormant in
 | O-3 | A `PROMISE_TO_PAY` outcome is logged on the desk but does not yet write a `promises_to_pay` row (that table wants bills and a taker) | Write the promise when the collections module exposes a "promise without bills" path | The promise-kept metric counting desk promises |
 | O-4 | Week planner (O5.2), week close (O5.3) and the Export Centre (O6) are not built | Planner and close next; the Export Centre rides the existing report-schedule job once its handler returns | The Saturday screen; scheduled delivery |
 | O-5 | Opportunity (cross-sell + lost-line ₹) reads zero in the score, and the call sheet's "should buy" says so | Phase 5 prices it | 15 of 100 points |
+
+## Virtual CFO — Part Q, category and data quality (27 Aug 2026)
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| Q-1 | **No category master exists** (S5 lists lifecycle and custom-report masters, not a product category). Tally's stock item carries the brand as its parent group and nothing for MCB / MCCB / ACB / RCCB / PQ. | Read the category off the item name (`category.ts`, MCCB before MCB, word boundaries); count the unplaceable as "Items without category" on Data Quality. Add a `product_category` master with an item mapping when the owner wants overrides. | Nothing today; misnamed items fall to Other and are counted |
+| Q-2 | Data Quality's ninety-day trend needs a nightly row per check | Write `cfo_data_quality_daily` from the nightly job once `queue.registry.ts` is free | The trend column |
