@@ -59,9 +59,13 @@ function Rail({ groups, active }: { groups: NavGroup[]; active: NavItem | undefi
     // scrolling on its own when the list is taller than the window, so the
     // rail never leaves while the page scrolls -- the "fixed menu" of the
     // reference. Text only, as Supabase's is: the icons live in the sheet.
+    // no-scrollbar: on a short window the list still scrolls by wheel and by
+    // keyboard focus, but a grey bar the width of the eyebrow text beside a
+    // menu of twenty short words was the loudest thing in the column (owner,
+    // 27 Aug 2026). Supabase's rail shows none at rest either.
     <nav
       aria-label="Administration"
-      className="bg-background hidden lg:sticky lg:top-14 lg:flex lg:h-[calc(100svh-3.5rem)] lg:flex-col lg:overflow-y-auto lg:border-r"
+      className="bg-background no-scrollbar hidden lg:sticky lg:top-14 lg:flex lg:h-[calc(100svh-3.5rem)] lg:flex-col lg:overflow-y-auto lg:border-r"
     >
       <p className="flex h-12 shrink-0 items-center border-b px-5 text-sm font-semibold">Administration</p>
       {groups.map((group) => (
@@ -138,7 +142,7 @@ function RailSheet({ groups, active }: { groups: NavGroup[]; active: NavItem | u
         {/* min-h-0 is what lets this scroll instead of pushing the header off
             the sheet: a flex child otherwise refuses to be shorter than its
             content. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
+        <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
           {groups.map((group) => (
             <div key={group.label} className="flex flex-col gap-1.5">
               <p className="text-muted-foreground px-1 text-[11px] font-medium tracking-wider uppercase">{group.label}</p>
