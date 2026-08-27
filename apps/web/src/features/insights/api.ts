@@ -1,3 +1,4 @@
+import { INSIGHT_AREAS, PIVOT_COLUMNS, PIVOT_DIMENSIONS, PIVOT_METRICS, WIDGET_KINDS, WIDGET_PALETTES, WIDGET_SIZES } from '@vyuha/shared';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { z } from 'zod';
 import type { CustomReportWrite, InsightArea } from '@vyuha/shared';
@@ -53,15 +54,18 @@ export type AreaInsightsData = z.infer<typeof areaInsightsSchema>;
 const customWidgetSchema = z.object({
   id: z.string(),
   title: z.string(),
-  kind: z.enum(['bar', 'barh', 'line', 'area', 'donut', 'pie', 'radial', 'number', 'table', 'heatmap', 'pivot']),
-  size: z.enum(['1x1', '2x1', '2x2']),
-  area: z.enum(['attendance', 'receivables', 'sales', 'sync']),
+  // The vocabularies come from the shared contract, never a copy here: a
+  // copy drifted once (a palette the server accepted, this screen refused)
+  // and the whole list failed to read.
+  kind: z.enum(WIDGET_KINDS),
+  size: z.enum(WIDGET_SIZES),
+  area: z.enum(INSIGHT_AREAS),
   metric: z.string(),
   pivot: z
     .object({
-      rows: z.enum(['party', 'brand', 'item', 'category', 'salesperson', 'class', 'month', 'business_line']),
-      columns: z.enum(['party', 'brand', 'item', 'category', 'salesperson', 'class', 'month', 'business_line', 'compare']).nullable().default(null),
-      metric: z.enum(['net', 'gross', 'discount', 'returns', 'qty', 'vouchers']).default('net'),
+      rows: z.enum(PIVOT_DIMENSIONS),
+      columns: z.enum(PIVOT_COLUMNS).nullable().default(null),
+      metric: z.enum(PIVOT_METRICS).default('net'),
       top: z.number().default(20),
     })
     .optional(),
@@ -71,9 +75,7 @@ const customWidgetSchema = z.object({
     legend: z.boolean().default(true),
     dataLabels: z.boolean().default(false),
     showTotal: z.boolean().default(true),
-    palette: z
-      .enum(['default', 'accent', 'blue', 'violet', 'amber', 'rose', 'teal', 'gray', 'brown', 'orange', 'yellow', 'green', 'purple', 'pink', 'red'])
-      .default('default'),
+    palette: z.enum(WIDGET_PALETTES).default('default'),
     omitZero: z.boolean().default(false),
     yMin: z.number().optional(),
     yMax: z.number().optional(),
