@@ -61,6 +61,8 @@ const BUILT_ROUTES = new Set([
   '/reports/penetration',
   '/reports/class-grade',
   '/reports/definitions',
+  '/reports/exceptions',
+  '/reports/alerts',
   '/reports/me',
   '/reports/credit',
   '/reports/work-lists',
@@ -106,6 +108,8 @@ const DataQualityPage = lazy(() => import('@/features/insights').then((m) => ({ 
 const PenetrationPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.PenetrationPage })));
 const ClassGradePage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ClassGradePage })));
 const DefinitionsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.DefinitionsPage })));
+const ExceptionsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ExceptionsPage })));
+const AlertsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.AlertsPage })));
 const ScorecardPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ScorecardPage })));
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
@@ -285,6 +289,8 @@ export default function App() {
               <Route path="reports/penetration" element={<PenetrationPage />} />
               <Route path="reports/class-grade" element={<ClassGradePage />} />
               <Route path="reports/definitions" element={<DefinitionsPage />} />
+              <Route path="reports/exceptions" element={<ExceptionsPage />} />
+              <Route path="reports/alerts" element={<AlertsPage />} />
               <Route path="reports/me" element={<MyCfoPage />} />
               <Route path="reports/credit" element={<CreditControlPage />} />
               <Route path="reports/work-lists" element={<WorkListsPage />} />

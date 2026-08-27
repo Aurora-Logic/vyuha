@@ -391,6 +391,22 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'What the figures are built on and where they are weak: twelve checks, each with its fix and the records behind it.',
   },
   {
+    id: 'screen.reports-alerts',
+    route: '/reports/alerts',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Alerts',
+    body: 'What needs a decision today: one alert per customer with every reason, ranked by rupees and capped at ten.',
+  },
+  {
+    id: 'screen.reports-exceptions',
+    route: '/reports/exceptions',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW,
+    title: 'Exceptions',
+    body: 'The vouchers that look wrong, each with a reason: accept with a reason, or investigate as a task.',
+  },
+  {
     id: 'screen.reports-definitions',
     route: '/reports/definitions',
     anchor: ANCHORS.screenHeader,
