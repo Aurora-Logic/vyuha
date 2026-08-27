@@ -33,10 +33,15 @@ export function AdminShell() {
   if (groups.length === 0) return <Outlet />;
 
   return (
-    <div className="flex min-w-0 flex-col gap-6 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start lg:gap-x-10">
+    // On lg the shell steps out of the page padding (-m-6) so the rail can be
+    // what Supabase's is: a bordered column from the header's underside to the
+    // bottom of the window, with the page's inset restored on the content
+    // column alone. min-h keeps the rail's border running to the bottom on a
+    // page shorter than the window.
+    <div className="flex min-w-0 flex-1 flex-col gap-4 lg:-m-6 lg:grid lg:min-h-[calc(100svh-3.5rem)] lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-stretch lg:gap-0">
       <Rail groups={groups} active={active} />
       <RailSheet groups={groups} active={active} />
-      <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-6 lg:p-6">
         {/* The page's chunk arrives inside the column, so the rail is already
             there while it does; suspending the whole shell would blank the
             rail on every first visit to a screen. */}
@@ -49,13 +54,19 @@ export function AdminShell() {
 }
 
 function Rail({ groups, active }: { groups: NavGroup[]; active: NavItem | undefined }) {
-  // top-20 = the sticky 3.5rem app header plus the page's 1.5rem inset, so
-  // the rail parks under the header rather than sliding beneath it.
   return (
-    <nav aria-label="Administration" className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-6 lg:self-start">
+    // Sticky under the 3.5rem header at exactly the window's remaining height,
+    // scrolling on its own when the list is taller than the window, so the
+    // rail never leaves while the page scrolls -- the "fixed menu" of the
+    // reference. Text only, as Supabase's is: the icons live in the sheet.
+    <nav
+      aria-label="Administration"
+      className="bg-background hidden lg:sticky lg:top-14 lg:flex lg:h-[calc(100svh-3.5rem)] lg:flex-col lg:overflow-y-auto lg:border-r"
+    >
+      <p className="flex h-12 shrink-0 items-center border-b px-5 text-sm font-semibold">Administration</p>
       {groups.map((group) => (
-        <div key={group.label} className="flex flex-col gap-1">
-          <p className="text-muted-foreground px-2 text-[11px] font-medium tracking-wider uppercase">{group.label}</p>
+        <div key={group.label} className="flex flex-col gap-1 border-b px-3 py-4 last:border-b-0">
+          <p className="text-muted-foreground px-2 pb-1 text-[10px] font-medium tracking-[0.08em] uppercase">{group.label}</p>
           <ul className="flex flex-col">
             {group.items.map((item) => {
               const current = item === active;
@@ -68,7 +79,7 @@ function Rail({ groups, active }: { groups: NavGroup[]; active: NavItem | undefi
                     to={item.to}
                     aria-current={current ? 'page' : undefined}
                     className={cn(
-                      'focus-visible:ring-ring flex h-8 min-w-0 items-center px-2 text-sm outline-none transition-colors duration-100 focus-visible:ring-2',
+                      'focus-visible:ring-ring flex h-7 min-w-0 items-center px-2 text-xs outline-none transition-colors duration-100 focus-visible:ring-2',
                       current
                         ? 'bg-muted text-foreground font-medium'
                         : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -99,9 +110,13 @@ function RailSheet({ groups, active }: { groups: NavGroup[]; active: NavItem | u
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger
-        render={<Button variant="outline" className="w-full justify-between lg:hidden" aria-label="Administration sections" />}
-      >
+      {/* Pinned under the header on a phone the way the rail is on a desktop:
+          the way to the next screen never scrolls away. -mx-4 spans the page
+          padding so the bar's border runs edge to edge. */}
+      <div className="bg-background sticky top-14 z-10 -mx-4 -mt-4 border-b px-4 py-2 md:-mx-6 md:-mt-6 md:px-6 lg:hidden">
+        <SheetTrigger
+          render={<Button variant="outline" className="w-full justify-between" aria-label="Administration sections" />}
+        >
         <span className="min-w-0 truncate">
           {active ? (
             <>
@@ -112,8 +127,9 @@ function RailSheet({ groups, active }: { groups: NavGroup[]; active: NavItem | u
             'Administration'
           )}
         </span>
-        <CaretUpDownIcon data-icon="inline-end" />
-      </SheetTrigger>
+          <CaretUpDownIcon data-icon="inline-end" />
+        </SheetTrigger>
+      </div>
       <SheetContent side="bottom" className="max-h-[85svh]">
         <SheetHeader>
           <SheetTitle>Administration</SheetTitle>
