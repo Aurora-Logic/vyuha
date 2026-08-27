@@ -117,16 +117,16 @@ function RailSheet({ groups, active }: { groups: NavGroup[]; active: NavItem | u
         <SheetTrigger
           render={<Button variant="outline" className="w-full justify-between" aria-label="Administration sections" />}
         >
-        <span className="min-w-0 truncate">
-          {active ? (
-            <>
-              <span className="text-muted-foreground">{groupLabel} / </span>
-              {active.label}
-            </>
-          ) : (
-            'Administration'
-          )}
-        </span>
+          <span className="min-w-0 truncate">
+            {active ? (
+              <>
+                <span className="text-muted-foreground">{groupLabel} / </span>
+                {active.label}
+              </>
+            ) : (
+              'Administration'
+            )}
+          </span>
           <CaretUpDownIcon data-icon="inline-end" />
         </SheetTrigger>
       </div>
