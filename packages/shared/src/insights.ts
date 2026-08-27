@@ -86,6 +86,7 @@ export const WIDGET_KINDS = [
   'number',
   'table',
   'heatmap',
+  'pivot',
 ] as const;
 
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
@@ -123,6 +124,27 @@ export const WIDGET_SIZES = ['1x1', '2x1', '2x2'] as const;
 
 export type WidgetSize = (typeof WIDGET_SIZES)[number];
 
+/**
+ * S1.1: a pivot is rows x columns x one metric over the sales fact, at
+ * any scope. Dimensions are the level model's; metrics are registered
+ * ones only -- never raw SQL, never a table name.
+ */
+export const PIVOT_DIMENSIONS = ['party', 'brand', 'item', 'category', 'salesperson', 'class', 'month', 'business_line'] as const;
+export type PivotDimension = (typeof PIVOT_DIMENSIONS)[number];
+export const PIVOT_COLUMNS = [...PIVOT_DIMENSIONS, 'compare'] as const;
+export type PivotColumn = (typeof PIVOT_COLUMNS)[number];
+export const PIVOT_METRICS = ['net', 'gross', 'discount', 'returns', 'qty', 'vouchers'] as const;
+export type PivotMetric = (typeof PIVOT_METRICS)[number];
+
+export const pivotSpecSchema = z.object({
+  rows: z.enum(PIVOT_DIMENSIONS),
+  columns: z.enum(PIVOT_COLUMNS).nullable().default(null),
+  metric: z.enum(PIVOT_METRICS).default('net'),
+  /** Rows kept, ranked by the metric; the rest fold into "Other". */
+  top: z.number().int().min(5).max(100).default(20),
+});
+export type PivotSpec = z.infer<typeof pivotSpecSchema>;
+
 export const customWidgetSchema = z.object({
   id: z.string().min(1).max(40),
   title: z.string().trim().min(1).max(80),
@@ -130,6 +152,8 @@ export const customWidgetSchema = z.object({
   size: z.enum(WIDGET_SIZES).default('1x1'),
   area: z.enum(INSIGHT_AREAS),
   metric: z.string().min(1).max(60),
+  /** Present when kind is 'pivot'; the area and metric are then ignored. */
+  pivot: pivotSpecSchema.optional(),
   options: z
     .object({
       legend: z.boolean().default(true),

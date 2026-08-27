@@ -8,6 +8,7 @@ import {
   ChartPolarIcon,
   GridNineIcon,
   NumberSquareOneIcon,
+  SquaresFourIcon,
   TableIcon,
   TrashIcon,
 } from '@phosphor-icons/react';
@@ -36,6 +37,7 @@ import { defaultRange } from './period';
 import { formatCount } from '@/lib/format';
 
 import { AREA_GATES, AREA_LABELS, AREA_METRICS, CHART_PALETTES, PALETTE_LABELS } from './catalogue';
+import { PIVOT_DIMENSION_LABELS, PIVOT_METRIC_LABELS } from './use-cfo';
 
 /**
  * The widget configuration rail (owner, 26 Aug 2026, the Twenty reference):
@@ -60,6 +62,7 @@ const KINDS: readonly { kind: WidgetKind; label: string; icon: typeof ChartBarIc
   { kind: 'number', label: 'Number', icon: NumberSquareOneIcon },
   { kind: 'table', label: 'Table', icon: TableIcon },
   { kind: 'heatmap', label: 'Heatmap', icon: GridNineIcon },
+  { kind: 'pivot', label: 'Pivot table', icon: SquaresFourIcon },
 ];
 
 /** 8340 -> 10000; 61200 -> 70000: one significant step up, for a y-range list. */
@@ -193,7 +196,11 @@ export function BuilderPanel({
         <Select
           value={widget.kind}
           onValueChange={(value) => {
-            if (value !== null) onChange({ ...widget, kind: value });
+            if (value === null) return;
+            const kind = value;
+            // A pivot needs its own spec; the first switch seeds a sensible one.
+            const pivot = kind === 'pivot' && widget.pivot === undefined ? { rows: 'brand' as const, columns: null, metric: 'net' as const, top: 20 } : widget.pivot;
+            onChange({ ...widget, kind, ...(pivot === undefined ? {} : { pivot }) });
           }}
         >
           <SelectTrigger aria-label="Chart type">
@@ -238,6 +245,58 @@ export function BuilderPanel({
         />
       </Field>
 
+      {widget.kind === 'pivot' && widget.pivot !== undefined ? (
+        <>
+          <Field>
+            <FieldLabel>Rows</FieldLabel>
+            <Select value={widget.pivot.rows} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, rows: v } }); }}>
+              <SelectTrigger aria-label="Rows"><SelectValue>{(v: string) => PIVOT_DIMENSION_LABELS[v] ?? v}</SelectValue></SelectTrigger>
+              <SelectContent>
+                {Object.entries(PIVOT_DIMENSION_LABELS).filter(([k]) => k !== 'compare').map(([k, label]) => (
+                  <SelectItem key={k} value={k}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Columns</FieldLabel>
+            <Select value={widget.pivot.columns ?? 'none'} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, columns: v === 'none' ? null : (v as NonNullable<typeof widget.pivot.columns>) } }); }}>
+              <SelectTrigger aria-label="Columns"><SelectValue>{(v: string) => (v === 'none' ? 'Single column' : (PIVOT_DIMENSION_LABELS[v] ?? v))}</SelectValue></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Single column</SelectItem>
+                {Object.entries(PIVOT_DIMENSION_LABELS).filter(([k]) => k !== widget.pivot?.rows).map(([k, label]) => (
+                  <SelectItem key={k} value={k}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Measure</FieldLabel>
+            <Select value={widget.pivot.metric} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, metric: v } }); }}>
+              <SelectTrigger aria-label="Measure"><SelectValue>{(v: string) => PIVOT_METRIC_LABELS[v] ?? v}</SelectValue></SelectTrigger>
+              <SelectContent>
+                {Object.entries(PIVOT_METRIC_LABELS).map(([k, label]) => (
+                  <SelectItem key={k} value={k}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Rows kept</FieldLabel>
+            <Select value={String(widget.pivot.top)} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, top: Number(v) } }); }}>
+              <SelectTrigger aria-label="Rows kept"><SelectValue>{(v: string) => `Top ${v}, rest as Other`}</SelectValue></SelectTrigger>
+              <SelectContent>
+                {[10, 20, 50, 100].map((n) => (
+                  <SelectItem key={n} value={String(n)}>Top {n}, rest as Other</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </>
+      ) : null}
+
+      {widget.kind !== 'pivot' ? (
+      <>
       {/* Searchable, both of them: the metric catalogue is already past a
           dozen entries and grows with every brief part that lands. */}
       <RecordPicker
@@ -269,6 +328,8 @@ export function BuilderPanel({
           }
         }}
       />
+      </>
+      ) : null}
 
       <p className="text-muted-foreground text-xs font-medium">Style</p>
 
@@ -372,7 +433,7 @@ export function BuilderPanel({
         </div>
       ) : null}
 
-      {widget.kind !== 'donut' && widget.kind !== 'number' && widget.kind !== 'table' ? (
+      {widget.kind !== 'donut' && widget.kind !== 'number' && widget.kind !== 'table' && widget.kind !== 'pivot' ? (
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor="widget-grid" className="text-sm">
             Grid lines

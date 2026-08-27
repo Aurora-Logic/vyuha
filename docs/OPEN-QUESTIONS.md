@@ -601,3 +601,18 @@ its breakdown, and the class × payment-grade grid (Q2.2). Left, in the brief's 
 | P-4 | Suggested tier job and the mismatch list (P5) | Nightly once `queue.registry.ts` is free; quarterly review surface after | Under- and over-classified lists |
 | P-5 | Class mix, class migration, neglected key accounts, service vs class (P6.1) | Configs on MatrixGrid and the RANK render type | — |
 | P-6 | P8's "sales head sets up to A, proposes A+" is not enforced — `cfo.tier.assign` sets any class | Add the A+ approval task when the approvals module exposes a generic request | A+ by the sales head without the owner |
+
+## Virtual CFO — Part S1, the custom builder (27 Aug 2026)
+
+Built: the pivot widget (S1.1) -- rows × columns × one registered measure over the sales
+fact, at the level model's dimensions (customer, brand, product, category, salesperson,
+class, month, business line) with a this-period-vs-last-year column pair, top-N rows and an
+"Other" that still ties; dimensions and measures are enums, never SQL (S1.5). Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| S-1 | Calculated fields over registered metrics (S1.2) | An expression grammar over the measure enum with unit checks and a guarded division; after the metric registry (Q4) so units come from one place | Margin % and overdue ÷ outstanding as user fields |
+| S-2 | Sharing with named users or roles (S1.3) — today a report is personal or shared with everyone holding report.view | Add `shared_with` (user and role ids) beside the flag | Targeted sharing |
+| S-3 | Scheduling a custom report by email (S1.3) and versioning with subscriber notice | Ride the report-schedule job once its handler returns | Delivery |
+| S-4 | Custom KPI cards pinned to a personal dashboard, and custom alerts (S1.4) | KPI cards as a 'number' widget on a personal report is the near equivalent today; alerts after Q5's discipline lands | — |
+| S-5 | Filters on any dimension or metric threshold inside a pivot (S1.1) | Reuse Sales Analysis's scope set as the pivot's filters first; thresholds with S-1 | Filtered pivots |

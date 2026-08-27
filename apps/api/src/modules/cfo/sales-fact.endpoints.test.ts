@@ -301,3 +301,39 @@ describe('GET /cfo/penetration (Q2.10)', () => {
     expect(res.body.columnTotals.RCCB).toEqual({ count: 0, amount: '0.00' });
   });
 });
+
+describe('GET /cfo/pivot (S1.1)', () => {
+  it('rows x columns x metric, totals that tie, and a compare column pair', async () => {
+    const res = await harness.get<{
+      rows: { key: string; label: string; total: number }[];
+      columns: { key: string; label: string; total: number }[];
+      cells: { row: string; column: string; value: number }[];
+      grandTotal: number;
+      unit: string;
+    }>(`/cfo/pivot?from=${DAY}&to=${DAY}&rows=brand&columns=salesperson&metric=net`, { token: rsToken });
+    expect(res.status).toBe(200);
+    expect(res.body.grandTotal).toBe(13_500);
+    expect(res.body.rows.map((r) => [r.key, r.total])).toEqual([['C&S Electric', 10_000], ['Unbranded', 3_500]]);
+    // Columns are people by name, the unassigned bucket visible.
+    const labels = res.body.columns.map((c) => c.label);
+    expect(labels).toContain('Unassigned');
+    expect(labels.some((l) => l.startsWith('cfo-rs'))).toBe(true);
+    expect(labels.some((l) => l.startsWith('cfo-mp'))).toBe(true);
+    expect(res.body.columns.reduce((s, c) => s + c.total, 0)).toBe(13_500);
+    expect(res.body.unit).toBe('money');
+
+    const compare = await harness.get<{ columns: { key: string; label: string; total: number }[] }>(
+      `/cfo/pivot?from=${DAY}&to=${DAY}&rows=party&columns=compare&metric=qty`,
+      { token: rsToken },
+    );
+    expect(compare.body.columns.map((c) => c.key)).toEqual(['ty']);
+    expect(compare.body.columns[0]?.label).toBe('This period');
+  });
+
+  it('refuses an unregistered dimension or metric', async () => {
+    const bad = await harness.get(`/cfo/pivot?from=${DAY}&to=${DAY}&rows=ledger_sql&metric=net`, { token: rsToken });
+    expect(bad.status).toBe(400);
+    const badMetric = await harness.get(`/cfo/pivot?from=${DAY}&to=${DAY}&rows=brand&metric=landed_cost`, { token: rsToken });
+    expect(badMetric.status).toBe(400);
+  });
+});

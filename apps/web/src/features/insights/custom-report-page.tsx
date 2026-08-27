@@ -65,6 +65,10 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { useAreaInsights, useCustomReport, useCustomReportMutations } from './api';
+import { HeatmapTable } from '@/components/shared/heatmap-table';
+import { heatGridOf } from '@/components/shared/heat-grid';
+import { formatCount, formatMoneyShort } from '@/lib/format';
+import { usePivot } from './use-cfo';
 import { BuilderPanel } from './builder-panel';
 import { AREA_METRICS } from './catalogue';
 import { MetricChart, MetricPointsTable } from './metric-card';
@@ -86,7 +90,46 @@ import { formatHeadline } from './units';
  * one (PRD §6.4).
  */
 
+/**
+ * S1.1: a pivot draws from the sales fact, not an area metric. Column keys
+ * are prefixed with their rank so the grid keeps the server's order; the
+ * heatmap sorts keys and would otherwise shuffle people and brands.
+ */
+function PivotWidgetBody({ spec, range, tall }: { spec: NonNullable<CustomWidget['pivot']>; range: { from: string; to: string }; tall: boolean }) {
+  const query = usePivot(range, spec);
+  if (query.isPending) return <Skeleton className="h-40 w-full" />;
+  if (query.isError) {
+    return (
+      <div className="text-muted-foreground flex h-40 flex-col items-center justify-center gap-1 border border-dashed text-sm">
+        <LockKeyIcon className="size-5" />
+        Needs a permission you do not hold
+      </div>
+    );
+  }
+  const data = query.data;
+  if (data.rows.length === 0) {
+    return <div className="text-muted-foreground flex h-40 items-center justify-center border border-dashed text-sm">Nothing sold in this period</div>;
+  }
+  const keyOf = new Map(data.columns.map((c, i) => [c.key, `${String(i).padStart(3, '0')}|${c.key}`]));
+  const labelOf = new Map(data.columns.map((c, i) => [`${String(i).padStart(3, '0')}|${c.key}`, c.label]));
+  const grid = heatGridOf(data.cells.map((cell) => ({ category: data.rows.find((r) => r.key === cell.row)?.label ?? cell.row, month: keyOf.get(cell.column) ?? cell.column, value: cell.value, rowId: cell.row })));
+  const show = (v: number) => (data.unit === 'money' ? formatMoneyShort(v) : formatCount(Math.round(v)));
+  return (
+    <div className={tall ? 'max-h-80 overflow-y-auto' : 'max-h-44 overflow-y-auto'}>
+      <HeatmapTable grid={grid} rowLabel="" format={show} columnLabel={(key) => labelOf.get(key) ?? key} />
+      <p className="text-muted-foreground mt-2 text-xs tabular-nums">Total {show(data.grandTotal)} · {formatCount(data.rows.length)} rows</p>
+    </div>
+  );
+}
+
 function WidgetBody({ widget, range }: { widget: CustomWidget; range: { from: string; to: string } }) {
+  if (widget.kind === 'pivot' && widget.pivot !== undefined) {
+    return <PivotWidgetBody spec={widget.pivot} range={range} tall={widget.size === '2x2'} />;
+  }
+  return <MetricWidgetBody widget={widget} range={range} />;
+}
+
+function MetricWidgetBody({ widget, range }: { widget: CustomWidget; range: { from: string; to: string } }) {
   const query = useAreaInsights(widget.area, range);
   const metric = query.data?.metrics.find((m) => m.key === widget.metric);
 
@@ -125,6 +168,7 @@ function WidgetBody({ widget, range }: { widget: CustomWidget; range: { from: st
       </div>
     );
   }
+  if (widget.kind === 'pivot') return null;
   return (
     <div className="flex flex-col gap-2">
       <p className="text-2xl font-semibold tracking-tight tabular-nums">{formatHeadline(metric.unit, metric.headline)}</p>

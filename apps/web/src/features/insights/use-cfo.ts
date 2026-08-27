@@ -588,3 +588,63 @@ export function useClassGrade(options: { enabled?: boolean } = {}): UseQueryResu
     staleTime: 60_000,
   });
 }
+
+const pivotResultSchema = z.object({
+  rows: z.array(z.object({ key: z.string(), label: z.string(), total: z.number() })),
+  columns: z.array(z.object({ key: z.string(), label: z.string(), total: z.number() })),
+  cells: z.array(z.object({ row: z.string(), column: z.string(), value: z.number() })),
+  grandTotal: z.number(),
+  metric: z.string(),
+  unit: z.enum(['money', 'count']),
+});
+
+export type PivotResultData = z.infer<typeof pivotResultSchema>;
+
+export interface PivotSpecInput {
+  rows: string;
+  columns: string | null;
+  metric: string;
+  top: number;
+}
+
+export function usePivot(
+  range: { from: string; to: string },
+  spec: PivotSpecInput,
+  scope: SalesScope = {},
+  options: { enabled?: boolean } = {},
+): UseQueryResult<PivotResultData, Error> {
+  const params = new URLSearchParams({ from: range.from, to: range.to, rows: spec.rows, metric: spec.metric, top: String(spec.top) });
+  if (spec.columns !== null) params.set('columns', spec.columns);
+  for (const [k, v] of Object.entries(scope)) if (typeof v === 'string' && v !== '') params.set(k, v);
+  const qs = params.toString();
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'pivot', qs],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/pivot?${qs}`, { signal });
+      return parseOrThrow(pivotResultSchema, body, 'pivot');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export const PIVOT_DIMENSION_LABELS: Record<string, string> = {
+  party: 'Customer',
+  brand: 'Brand',
+  item: 'Product',
+  category: 'Category',
+  salesperson: 'Salesperson',
+  class: 'Customer class',
+  month: 'Month',
+  business_line: 'Business line',
+  compare: 'This period vs last year',
+};
+
+export const PIVOT_METRIC_LABELS: Record<string, string> = {
+  net: 'Net sales',
+  gross: 'Gross sales',
+  discount: 'Discount',
+  returns: 'Returns',
+  qty: 'Quantity',
+  vouchers: 'Vouchers',
+};

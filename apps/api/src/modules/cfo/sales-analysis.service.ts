@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PERMISSIONS, type PivotSpec } from '@vyuha/shared';
 
 import { AppError } from '../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
 import { sameDayLastYear } from './period/period-resolver.js';
+import { CATEGORY_CASE_SQL } from './category.js';
 import { readDelta, type DeltaReading } from './robustness.js';
+import { TierService } from './tier.service.js';
 
 /**
  * Sales Analysis, level-aware (brief B3, Phase 3 item 14): one metric
@@ -53,6 +55,15 @@ export interface SalesAnalysis {
   readonly breakdowns: readonly { level: string; label: string; rows: readonly BreakdownRow[] }[];
 }
 
+export interface PivotResult {
+  readonly rows: readonly { key: string; label: string; total: number }[];
+  readonly columns: readonly { key: string; label: string; total: number }[];
+  readonly cells: readonly { row: string; column: string; value: number }[];
+  readonly grandTotal: number;
+  readonly metric: string;
+  readonly unit: 'money' | 'count';
+}
+
 const MATERIALITY_FLOOR = 25_000;
 
 const LEVELS: readonly { level: keyof SalesScope; label: string; column: string; labelColumn: string }[] = [
@@ -64,7 +75,10 @@ const LEVELS: readonly { level: keyof SalesScope; label: string; column: string;
 
 @Injectable()
 export class SalesAnalysisService {
-  constructor(@InjectDatabase() private readonly db: Database) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly tiers: TierService,
+  ) {}
 
   private where(principal: Principal, scope: SalesScope, from: string, to: string): SQL {
     const parts: SQL[] = [sql`org_id = ${principal.orgId} AND date BETWEEN ${from} AND ${to}`];
@@ -190,4 +204,118 @@ export class SalesAnalysisService {
     }
     return crumbs;
   }
+
+  /**
+   * S1.1: rows x columns x one metric, at the same scope the analysis
+   * uses. Dimensions map to the fact's columns; category is read off the
+   * item name and class resolved as of the window's end. Rows beyond
+   * `top` fold into "Other" so a 900-customer pivot stays a screen.
+   */
+  async pivot(principal: Principal, from: string, to: string, scope: SalesScope, spec: PivotSpec): Promise<PivotResult> {
+    if (scope.person !== undefined && scope.person !== `user:${principal.userId}` && !hasPermission(principal, PERMISSIONS.CFO_TEAM_VIEW)) {
+      throw AppError.forbidden('Another person’s sales need cfo.team.view.');
+    }
+    const metricSql: Record<PivotSpec['metric'], string> = {
+      net: 'sum(net)', gross: 'sum(gross)', discount: 'sum(discount)', returns: 'sum(returns)', qty: 'sum(qty)', vouchers: 'sum(voucher_count)',
+    };
+    const dimSql = (d: string, alias: string): string => {
+      switch (d) {
+        case 'party': return `coalesce(party_id::text, party_name) AS ${alias}_key, party_name AS ${alias}_label`;
+        case 'brand': return `brand AS ${alias}_key, brand AS ${alias}_label`;
+        case 'item': return `coalesce(item_id::text, item_name) AS ${alias}_key, item_name AS ${alias}_label`;
+        case 'category': return `(${CATEGORY_CASE_SQL}) AS ${alias}_key, (${CATEGORY_CASE_SQL}) AS ${alias}_label`;
+        case 'salesperson': return `salesperson_ref AS ${alias}_key, salesperson_ref AS ${alias}_label`;
+        case 'class': return `party_id::text AS ${alias}_key, party_id::text AS ${alias}_label`;
+        case 'month': return `to_char(date, 'YYYY-MM') AS ${alias}_key, to_char(date, 'YYYY-MM') AS ${alias}_label`;
+        case 'business_line': return `business_line AS ${alias}_key, business_line AS ${alias}_label`;
+        default: return `'all' AS ${alias}_key, 'All' AS ${alias}_label`;
+      }
+    };
+    const compare = spec.columns === 'compare';
+    const colDim = compare || spec.columns === null ? null : spec.columns;
+    const lyFrom = sameDayLastYear(from);
+    const lyTo = sameDayLastYear(to);
+
+    const query = async (f: string, t: string, colKey: string) =>
+      this.db.execute<{ rKey: string | null; rLabel: string | null; cKey: string | null; cLabel: string | null; value: string }>(sql`
+        SELECT r_key AS "rKey", max(r_label) AS "rLabel", c_key AS "cKey", max(c_label) AS "cLabel", ${sql.raw(metricSql[spec.metric])}::numeric(18,3)::text AS value FROM (
+          SELECT ${sql.raw(dimSql(spec.rows, 'r'))},
+                 ${sql.raw(colDim === null ? `'${colKey}' AS c_key, '${colKey}' AS c_label` : dimSql(colDim, 'c'))},
+                 net, gross, discount, returns, qty, voucher_count
+          FROM fact_sales_daily WHERE ${this.where(principal, scope, f, t)}
+        ) g GROUP BY 1, 3
+      `);
+    const results = compare
+      ? [...(await query(from, to, 'ty')).rows, ...(await query(lyFrom, lyTo, 'ly')).rows]
+      : (await query(from, to, 'all')).rows;
+
+    // Labels that live outside the fact: people, classes.
+    const labelOf = new Map<string, string>();
+    const needsPeople = spec.rows === 'salesperson' || colDim === 'salesperson';
+    const needsClass = spec.rows === 'class' || colDim === 'class';
+    if (needsPeople) {
+      const ids = [...new Set(results.flatMap((r) => [r.rKey, r.cKey]).filter((k): k is string => k !== null && k.startsWith('user:')))].map((k) => k.slice(5));
+      const users = ids.length === 0 ? { rows: [] as { id: string; email: string }[] } : await this.db.execute<{ id: string; email: string }>(sql`SELECT id, email FROM users WHERE id IN ${ids}`);
+      for (const u of users.rows) labelOf.set(`user:${u.id}`, u.email.split('@')[0] ?? u.email);
+      labelOf.set('UNASSIGNED', 'Unassigned');
+      labelOf.set('HOUSE', 'House');
+    }
+    const classOf = needsClass
+      ? await this.tiers.classAsOf(principal.orgId, [...new Set(results.flatMap((r) => [r.rKey, r.cKey]).filter((k): k is string => k !== null))], to)
+      : new Map<string, string>();
+    const resolve = (dim: string | null, key: string | null, label: string | null): { key: string; label: string } => {
+      if (key === null) return { key: 'none', label: 'None' };
+      if (dim === 'class') { const c = classOf.get(key) ?? 'Unclassed'; return { key: c, label: c }; }
+      if (dim === 'salesperson') return { key, label: labelOf.get(key) ?? label ?? key };
+      if (compare && dim === null) return { key, label: key === 'ty' ? 'This period' : 'Same days last year' };
+      return { key, label: label ?? key };
+    };
+
+    const cellMap = new Map<string, number>();
+    const rowLabels = new Map<string, string>();
+    const colLabels = new Map<string, string>();
+    for (const r of results) {
+      const row = resolve(spec.rows, r.rKey, r.rLabel);
+      const col = resolve(colDim, r.cKey, r.cLabel);
+      rowLabels.set(row.key, row.label);
+      colLabels.set(col.key, col.label);
+      const k = `${row.key}\u0000${col.key}`;
+      cellMap.set(k, (cellMap.get(k) ?? 0) + Number(r.value));
+    }
+    const rowTotal = new Map<string, number>();
+    const colTotal = new Map<string, number>();
+    for (const [k, v] of cellMap) {
+      const [rk, ck] = k.split('\u0000');
+      rowTotal.set(rk ?? '', (rowTotal.get(rk ?? '') ?? 0) + v);
+      colTotal.set(ck ?? '', (colTotal.get(ck ?? '') ?? 0) + v);
+    }
+    // Top rows by total; the rest fold into Other, which still ties.
+    const ranked = [...rowTotal.entries()].sort((a, b) => b[1] - a[1]);
+    const kept = ranked.slice(0, spec.top).map(([k]) => k);
+    const folded = ranked.slice(spec.top).map(([k]) => k);
+    const rowKeyOf = (k: string): string => (folded.includes(k) ? 'other' : k);
+    const cells = new Map<string, number>();
+    for (const [k, v] of cellMap) {
+      const [rk, ck] = k.split('\u0000');
+      const key = `${rowKeyOf(rk ?? '')}\u0000${ck ?? ''}`;
+      cells.set(key, (cells.get(key) ?? 0) + v);
+    }
+    const rows = [...kept.map((k) => ({ key: k, label: rowLabels.get(k) ?? k, total: round3(rowTotal.get(k) ?? 0) })),
+      ...(folded.length > 0 ? [{ key: 'other', label: `Other (${String(folded.length)})`, total: round3(folded.reduce((s, k) => s + (rowTotal.get(k) ?? 0), 0)) }] : [])];
+    const columns = [...colLabels.entries()]
+      .map(([k, label]) => ({ key: k, label, total: round3(colTotal.get(k) ?? 0) }))
+      .sort((a, b) => (colDim === 'month' || compare ? a.key.localeCompare(b.key) : b.total - a.total));
+    return {
+      rows,
+      columns,
+      cells: [...cells.entries()].map(([k, v]) => { const [row, column] = k.split('\u0000'); return { row: row ?? '', column: column ?? '', value: round3(v) }; }),
+      grandTotal: round3([...rowTotal.values()].reduce((s, v) => s + v, 0)),
+      metric: spec.metric,
+      unit: spec.metric === 'qty' || spec.metric === 'vouchers' ? 'count' : 'money',
+    };
+  }
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }

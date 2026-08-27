@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PERMISSIONS, PIVOT_COLUMNS, PIVOT_DIMENSIONS, PIVOT_METRICS } from '@vyuha/shared';
 
 import { createZodDto } from '../../platform/common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../../platform/rbac/principal.js';
@@ -11,7 +11,7 @@ import { MyCfoService, type MyCfo } from './my-cfo.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
 import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday } from './desk.service.js';
 import { PenetrationService, type Penetration } from './penetration.service.js';
-import { SalesAnalysisService, type SalesAnalysis } from './sales-analysis.service.js';
+import { SalesAnalysisService, type PivotResult, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
 import { TierService, type PartyClass, type TierRow } from './tier.service.js';
 
@@ -30,6 +30,14 @@ const salesScopeSchema = creditQuerySchema.extend({
   item: z.string().regex(UUID).optional(),
 });
 class SalesScopeDto extends createZodDto(salesScopeSchema) {}
+
+const pivotQuerySchema = salesScopeSchema.extend({
+  rows: z.enum(PIVOT_DIMENSIONS),
+  columns: z.enum(PIVOT_COLUMNS).optional(),
+  metric: z.enum(PIVOT_METRICS).default('net'),
+  top: z.coerce.number().int().min(5).max(100).default(20),
+});
+class PivotQueryDto extends createZodDto(pivotQuerySchema) {}
 
 const deskQuerySchema = z.object({
   cap: z.coerce.number().int().min(5).max(20).default(10),
@@ -258,6 +266,14 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_RECEIVABLES_VIEW)
   classGrade(@CurrentUser() principal: Principal): ReturnType<TierService['classGradeGrid']> {
     return this.tiers.classGradeGrid(principal);
+  }
+
+  /** S1.1: rows x columns x metric over the sales fact, at any scope. */
+  @Get('pivot')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  pivot(@CurrentUser() principal: Principal, @Query() query: PivotQueryDto): Promise<PivotResult> {
+    const { from, to, rows, columns, metric, top, ...scope } = query;
+    return this.salesAnalysis.pivot(principal, from, to, scope, { rows, columns: columns ?? null, metric, top });
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

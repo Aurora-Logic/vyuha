@@ -53,10 +53,18 @@ export type AreaInsightsData = z.infer<typeof areaInsightsSchema>;
 const customWidgetSchema = z.object({
   id: z.string(),
   title: z.string(),
-  kind: z.enum(['bar', 'barh', 'line', 'area', 'donut', 'pie', 'radial', 'number', 'table', 'heatmap']),
+  kind: z.enum(['bar', 'barh', 'line', 'area', 'donut', 'pie', 'radial', 'number', 'table', 'heatmap', 'pivot']),
   size: z.enum(['1x1', '2x1', '2x2']),
   area: z.enum(['attendance', 'receivables', 'sales', 'sync']),
   metric: z.string(),
+  pivot: z
+    .object({
+      rows: z.enum(['party', 'brand', 'item', 'category', 'salesperson', 'class', 'month', 'business_line']),
+      columns: z.enum(['party', 'brand', 'item', 'category', 'salesperson', 'class', 'month', 'business_line', 'compare']).nullable().default(null),
+      metric: z.enum(['net', 'gross', 'discount', 'returns', 'qty', 'vouchers']).default('net'),
+      top: z.number().default(20),
+    })
+    .optional(),
   // Defaults, not requirements: a widget stored before an option existed
   // must still parse today.
   options: z.object({
