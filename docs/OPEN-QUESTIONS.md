@@ -1,11 +1,10 @@
-# Open questions
+# Open questions — none. This file is now a decision log.
 
-Per `CLAUDE.md` §7. Nothing here is guessed at in code — where a default is
-stated, the code implements the default and this file records that it was a
-default, not an answer.
-
-Format: question, the REQ it blocks, the phase it blocks, and the recommended
-default being used until answered.
+**28 Aug 2026, owner's session: every open row below was decided or built.**
+The final section ("Zero pending") names each one and its closure; the body
+above it is kept verbatim as the record of how each default became a decision.
+New questions start a new section the day one exists — CLAUDE.md §7 still
+applies.
 
 ---
 
@@ -33,7 +32,7 @@ default being used until answered.
 | # | Question | Blocks | Recommended default in use |
 |---|---|---|---|
 | P1-1 | **No permission key covers departments, designations or locations.** PRD §2.1 names `employee.view` / `employee.manage` for people and `settings.manage` for org settings, but the three masters an employee points at are in neither list, and §5 gives them no screen of their own. | REQ-A-01, REQ-A-02 | **Read: `employee.view`.** Anyone who can see the employee list needs these names to render its filters and its form, so a narrower key would leave Operations looking at a list it cannot filter. **Write, departments and designations: `employee.manage`** — they are people master data and HR owns them. **Write, locations: `settings.manage`** — a location row carries the geofence centre and the IP allowlist (REQ-D-08, REQ-D-09), so whoever can edit one can decide from where a punch is accepted. That is an Admin control, not an HR one. Say the word if locations should sit with HR instead; it is a one-line change per route. |
-| P1-2 | **No delete route exists for any master.** Technical design §6 lists `GET/POST/PATCH` for all four resources and no `DELETE`, and REQ-M-04 forbids a hard delete. | Nothing yet | None built. An employee is retired through REQ-A-05 (status INACTIVE with a last working date), which keeps the history past reports need. A department or designation created by mistake currently cannot be removed from the picker. If that needs fixing, the shape is a soft-delete route guarded by the write key above, refusing while any live employee still points at the row. |
+| P1-2 | **No delete route exists for any master.** Technical design §6 lists `GET/POST/PATCH` for all four resources and no `DELETE`, and REQ-M-04 forbids a hard delete. | Nothing yet | None built. An employee is retired through REQ-A-05 (status INACTIVE with a last working date), which keeps the history past reports need. A department or designation created by mistake currently cannot be removed from the picker. If that needs fixing, the shape is a soft-delete route guarded by the write key above, refusing while any live employee still points at the row. **Resolved: built 13 Aug 2026 as `DELETE /masters/:entityType/:id` (one guarded soft-delete for all masters, with restore and the recycle bin), owner-approved 28 Aug 2026.** Departments and designations delete under `employee.manage`, refuse with 409 naming the employees still pointing at the row, and stamp `deleted_at` plus a deletion record and an audit entry. One refinement landed with the approval: only someone still working blocks the delete — a *retired* employee (INACTIVE) is history, and history may reference a retired master, so a department whose last member left years ago can now be removed. Employees themselves stay retire-only. |
 
 ## Raised during Phase 1 punch screen wiring
 
@@ -723,3 +722,96 @@ until a different number is actually wanted.
 | X-4 | Tally's editing user is not exported by the sync | The four "not measurable yet" exception checks stay labelled | F2 remainder |
 | X-5 | Bulk class assignment has an API and tests but its designed home is the CRM Customers screen (Phase 7); today the paste import and the mismatch list cover the mass paths | Wire the multi-select bulk bar when the Customers screen is built | Nothing today |
 | X-6 | Incentive statements need collected margin (Part K) | After M1 and a collections-applied ledger | Part K payouts |
+
+
+---
+
+## Zero pending — the close-out (owner's session, 28 Aug 2026)
+
+The owner answered every remaining row in this session, one by one. Where the
+answer was "build it", it was built, tested and pushed the same day. Where the
+answer needs a fact only the operator can supply, the row moved to the go-live
+checklist in `07-launch-plan.md` §3b — a checklist item, not a question.
+
+**Named decisions.**
+- P0-1 — the product is **Vyuha**; CLAUDE.md amended.
+- P0-6 — icons are **Phosphor**; CLAUDE.md §3.2 and 05-decisions amended.
+- P0-8, OS-2, P6a-1, P2-5, P0-12 — the phone bottom bar, `/team-leave`, the
+  attendance-setup regroup, PATCH `/settings` and `/auth/me` are folded into
+  the PRD as confirmed decisions.
+- P1-1 — locations write under `settings.manage` stands.
+- P1-3 — the half-day choice is offered on every IN punch; no setting.
+- REQ-G-10 second join — cancelling started leave stays an approver-key act.
+- P2-6 — weekly-off patterns stay two-level (employee, organisation).
+- K-1 — the low-balance warning stays two days, on the crossing.
+- G-1…G-9, G-10 — the guide/updates design decisions and the tooltip'd
+  header chips stand as built.
+- I-2 — integration status stays derived from heartbeats, never the column.
+- P14-1 — doc 14's decisions are cited as D14-1…D14-6; P14-2 — lapse
+  thresholds stay named constants.
+- Q-1 — product categories stay name-derived; the Other count is the
+  pressure to fix names in Tally, where they belong.
+- O-1, F-2, L-3 — desk weights, exception thresholds and alert thresholds
+  stay named constants until a different number is actually wanted.
+- Q4-1/2/3 — registry rows land with the code that draws them; per-org
+  overrides and the label fold wait for the first org that needs them.
+- RPT-1, D-23-3 — the day boundary is IST everywhere until a non-IST org
+  exists; the seam is one function.
+- RPT-4 — quantity reports stay gross; revenue nets credit notes.
+- RPT-2, RPT-5 — died with the reports module (owner, 26 Aug).
+- P6b-2, P6b-3 — snapshots upsert only; price/GST fill when the pull
+  transport lands. P6b-4 — done in Phase 6c.
+- P6b-5 — the historical baseline is one raised-lookback pass (checklist).
+- P8-1, P8-2, P8-3, P8-4 — stand as closed 18 Aug; P8-3's overdue half
+  lights when bill allocations arrive.
+- Two-step sign-in — the replay window is closed (`totp_last_step`); no
+  SMS/email fallback, recovery codes and admin reset stand.
+- Audit trail — append-only forever; archive, never delete.
+- Legal, WS-A-2, 05-decisions rows 1–8/11–13, WS-D-1 — go-live checklist
+  (§3b), including the R2 backup target and counsel review.
+- F-4 / X-3 — GST returns stay out of scope until a source is chosen.
+- X-4 — the four unmeasurable exception checks stay labelled until Tally's
+  editing user is exported. X-5 — the bulk class-assign UI lands with the
+  Phase 7 Customers screen (its API is live and tested). X-6 — incentive
+  statements wait on collected margin, which waits on allocations.
+- O6-1 — the week planner stays a computed reading until a director actually
+  asks to move a name. L-5 — seasonal suppression waits for a year of
+  history, by nature.
+- P-3 remainder / P-6 / P-5's service-vs-class — tier-driven credit
+  defaults, the discount-ceiling popup, the A+ approval gate and the
+  service-vs-class report are Phase 7/8 surfaces by the brief's own design;
+  the score multiplier, coverage guarantee, class slicer and class×grade
+  grid are live today.
+
+**Built this session (each with tests, pushed).**
+- P2-2 — geofence behaviour (block / allow-with-reason / allow-and-flag)
+  consulted by the punch path; escalation days read from settings when a
+  request is raised. The last two "saved but read by nothing" switches are
+  gone.
+- P2-4 — moot: exceljs has been a dependency since the CFO exports; CSV rows
+  elsewhere remain CSV by the reports-module removal.
+- K-3 — was already emitting; verified, closed.
+- P1-2 — was already built (13 Aug, recycle bin); the audit fixed the one
+  gap: a retired employee no longer blocks deleting a master.
+- OS-1 — the leave settings group is writable, validated, audited, on the
+  Settings screen with real enforced-by lines.
+- OS-3 — locations and employees take a holiday calendar from their forms.
+- OS-4 — the five REQ-G-02 types seed idempotently, placeholder notes kept.
+- WS-A-1 — Sentry installed, reporting only when a DSN is set.
+- P6b-1 — a vanished price rate dies on the final chunk of a full re-pull.
+- REQ-AJ-02 — the bill_allocation entity is in the sync contract with a
+  writer, idempotent, skip-counting; the agent-side ask is on the checklist.
+- P-HELP-1 / REQ-AJ-01…05 — the REQ IDs are in the PRD; the
+  unanswered-question path exists: explicit send, recorded, audited,
+  delivered to settings.manage holders' bells.
+- P7-1, P7-2 — crm.task.view.all for Admin; task keys for Employee,
+  Operations and HR.
+- P8-5 — sales.fulfil exists; Pack, Dispatch and the pick queue sit behind
+  it; a Warehouse system role holds exactly what fulfilment needs, and
+  create no longer implies it.
+- O-2, O-3 — the desk keeps the coverage guarantee and writes real promises.
+- O6-2 — "give me everything" is one ZIP of every permitted report.
+- S-1…S-5 — calculated fields, named sharing, custom-report schedules,
+  KPI-card equivalent (number widget, standing), and pivot scope filters.
+- The leave-year control is single-sourced (the settings row the engine
+  reads); the org-profile field that wrote an unread column is gone.

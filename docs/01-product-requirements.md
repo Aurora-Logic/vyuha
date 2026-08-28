@@ -6,6 +6,25 @@ Status: draft for build
 
 ---
 
+
+> **Decisions folded in, 28 Aug 2026 (owner-confirmed).**
+> - §6.1: on phones the sidebar is replaced by a bottom navigation bar of four
+>   per-person, per-device destinations plus More (P0-8) — a hamburger is a
+>   desktop pattern on a phone.
+> - §5/§6.1: the Team leave calendar is a screen at `/team-leave` in the Work
+>   group, gated on `leave.approve.team` (OS-2, REQ-G-12).
+> - §6: `GET /me` is served at `/auth/me`; `/settings` updates are PATCH with
+>   absent-groups-unchanged semantics (P0-12, P2-5).
+> - The Ctrl+F1 answer panel is REQ-AJ-01; its card catalogue REQ-AJ-02; its
+>   permission filtering REQ-AJ-03; the error-code hook REQ-AJ-04; and the
+>   unanswered-question path ("send to your administrator", recorded, audited,
+>   notified) REQ-AJ-05 (P-HELP-1).
+> - Weekly-off patterns exist at employee and organisation level only; the
+>   location and department levels REQ-C-03 sketched are dropped until a real
+>   need appears (P2-6).
+> - Leave cancellation on or after the start date stays an approver-key act
+>   (REQ-G-10 second join: decided, not built as a second approval).
+
 ## 1. Problem and goals
 
 Attendance today is captured informally and reconciled by hand at month end. Payroll runs outside this system and needs a clean, trustworthy monthly input. The organisation also runs on TallyPrime, and staff are fluent in Tally's keyboard-driven way of working.
