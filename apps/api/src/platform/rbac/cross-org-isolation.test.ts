@@ -113,7 +113,9 @@ beforeAll(async () => {
   // locations, shifts, holiday calendars, leave types, weekly-off patterns
   // and people. Without rows in the first organisation there is nothing for
   // the second to be refused.
-  await runSeed(a.db, { orgId: ORG_A, orgName: 'Isolation Org A', adminEmail: scopedEmail('iso-a-seed'), examplePeople: true });
+  // Without leave types the accrual job has nothing to post, so this org's
+  // example people stay deletable and the fixture can reset between runs.
+  await runSeed(a.db, { orgId: ORG_A, orgName: 'Isolation Org A', adminEmail: scopedEmail('iso-a-seed'), examplePeople: true, leaveTypes: false });
 
   // The Tally-side projections have no create endpoint by design (REQ-R-04),
   // so the few rows the masters routes read are written directly. Cleared

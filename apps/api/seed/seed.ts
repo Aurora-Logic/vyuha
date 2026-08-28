@@ -73,6 +73,15 @@ export interface SeedOptions {
    * export, undeletable as soon as anything references them.
    */
   readonly examplePeople?: boolean;
+  /**
+   * The five REQ-G-02 types, on unless a caller says otherwise. A fixture
+   * that must be able to delete its own people opts out: once types exist,
+   * the accrual job posts ledger rows, and `leave_ledger` is append-only by
+   * trigger (REQ-G-03) with a restrict key onto employees -- so an accrued
+   * employee can never be removed again, which is right for a real database
+   * and fatal for a scratch one.
+   */
+  readonly leaveTypes?: boolean;
 }
 
 export interface SeedReport {
@@ -135,7 +144,7 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
     // And after it, because the employee the administrator is joined to does
     // not exist until the line above has run.
     const adminEmployee = await linkAdministratorEmployee(tx, orgId, admin.userId);
-    const leaveTypeReport = await seedLeaveTypes(tx, orgId);
+    const leaveTypeReport = options.leaveTypes === false ? { created: 0, total: 0 } : await seedLeaveTypes(tx, orgId);
 
     return {
       permissions: permissionReport,
