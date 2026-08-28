@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ClockClockwiseIcon, LockKeyIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, ClockClockwiseIcon, LockKeyIcon } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
@@ -40,6 +40,8 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
+import { downloadDocumentFile } from '@/features/documents/download';
+
 import { ExportButton } from './export-button';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
 import { deleteSchedule, saveSchedule, useExportCatalogue, useSchedules, type ScheduleRowData } from './use-cfo';
@@ -64,6 +66,7 @@ export function ExportCentrePage() {
   const schedules = useSchedules({ enabled: canView });
   const [draft, setDraft] = useState<ScheduleDraft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [bundling, setBundling] = useState(false);
 
   async function save() {
     if (draft === null || draft.recipients.trim().length < 3) return;
@@ -141,7 +144,30 @@ export function ExportCentrePage() {
 
   return (
     <>
-      <PageHeader description="The 'give me everything' screen: every report your keys open, exportable for the chosen period or delivered on a cadence. Every export is logged." />
+      <PageHeader
+        description="The 'give me everything' screen: every report your keys open, exportable for the chosen period or delivered on a cadence. Every export is logged."
+        action={
+          <Button
+            size="sm"
+            disabled={bundling}
+            onClick={() => {
+              void (async () => {
+                setBundling(true);
+                try {
+                  await downloadDocumentFile(`/cfo/export-all?from=${range.from}&to=${range.to}`, `vyuha-cfo-pack-${range.from}-to-${range.to}.zip`);
+                } catch (error) {
+                  toast.add({ type: 'error', title: 'Could not build the bundle', description: error instanceof Error ? error.message : 'Try again.' });
+                } finally {
+                  setBundling(false);
+                }
+              })();
+            }}
+          >
+            <DownloadSimpleIcon data-icon="inline-start" />
+            {bundling ? 'Bundling…' : 'Export everything'}
+          </Button>
+        }
+      />
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <DateRangeField

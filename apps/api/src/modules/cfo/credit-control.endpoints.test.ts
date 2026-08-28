@@ -914,3 +914,19 @@ describe('purchases and the cash cycle (W-series)', () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe('export-all (O6-2)', () => {
+  it('bundles every permitted report as one archive, logged once', async () => {
+    const res = await harness.getRaw('/cfo/export-all?from=2026-08-01&to=2026-08-28', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/zip');
+    const bytes = res.body;
+    // A zip starts with a local header and ends with the end-of-central-directory record.
+    expect(bytes.readUInt32LE(0)).toBe(0x04034b50);
+    expect(bytes.readUInt32LE(bytes.length - 22)).toBe(0x06054b50);
+    expect(await harness.waitForAuditAction('cfo.export-all')).toBe(true);
+
+    const denied = await harness.getRaw('/cfo/export-all?from=2026-08-01&to=2026-08-28', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});

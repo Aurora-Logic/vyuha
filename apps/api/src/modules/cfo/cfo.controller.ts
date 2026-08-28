@@ -475,6 +475,17 @@ export class CfoController {
     res.end(file.buffer);
   }
 
+  /** O6-2: every report the caller's keys open, one archive. */
+  @Get('export-all')
+  @RequirePermission(PERMISSIONS.CFO_EXPORT)
+  async exportAll(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto, @Res() res: Response): Promise<void> {
+    const file = await this.exporter.buildAll(principal, { from: query.from, to: query.to });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.end(file.buffer);
+  }
+
   /** Part L, Q5: today's alerts, disciplined -- capped, deduplicated, snoozable. */
   @Get('alerts')
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)

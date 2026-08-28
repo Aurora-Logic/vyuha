@@ -13,6 +13,7 @@ import { CreditControlService } from './credit-control.service.js';
 import { DataQualityService } from './data-quality.service.js';
 import { DeskService } from './desk.service.js';
 import { PurchasesService } from './purchases.service.js';
+import { storeZip } from './store-zip.js';
 import { ExceptionsService } from './exceptions.service.js';
 import { PenetrationService } from './penetration.service.js';
 import { MarginService } from './margin.service.js';
@@ -157,6 +158,40 @@ export class CfoExportService {
       title: REPORT_META[r].title,
       blurb: REPORT_BLURBS[r],
     }));
+  }
+
+  /**
+   * O6-2 (owner, 28 Aug 2026): every report the caller's own keys open, one
+   * click, one archive. Each workbook inside is the same audited build the
+   * single export makes -- the bundle adds no sight the caller lacks, and a
+   * report that fails to build is skipped by name rather than sinking the
+   * rest of the archive.
+   */
+  async buildAll(principal: Principal, params: ExportParams): Promise<{ filename: string; buffer: Buffer; included: string[]; skipped: string[] }> {
+    const allowed = EXPORT_REPORTS.filter((r) => hasPermission(principal, REPORT_META[r].permission));
+    const entries: { name: string; bytes: Buffer }[] = [];
+    const included: string[] = [];
+    const skipped: string[] = [];
+    for (const report of allowed) {
+      try {
+        const file = await this.build(principal, report, params);
+        entries.push({ name: file.filename, bytes: file.buffer });
+        included.push(report);
+      } catch {
+        skipped.push(report);
+      }
+    }
+    if (entries.length === 0) throw AppError.forbidden('None of the reports could be exported with your keys.');
+    await this.audit.write({
+      orgId: principal.orgId,
+      actorUserId: principal.userId,
+      action: 'cfo.export-all',
+      entityType: 'cfo_export',
+      entityId: params.from,
+      before: null,
+      after: { from: params.from, to: params.to, included, skipped },
+    });
+    return { filename: `vyuha-cfo-pack-${params.from}-to-${params.to}.zip`, buffer: storeZip(entries, new Date()), included, skipped };
   }
 
   async build(principal: Principal, report: ExportReport, params: ExportParams): Promise<{ filename: string; buffer: Buffer }> {
