@@ -533,6 +533,13 @@
       "when": 1787820065290,
       "tag": "0075_cfo_alert_snoozes",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1787903924259,
+      "tag": "0076_cfo_nightly_memory",
+      "breakpoints": true
     }
   ]
 }

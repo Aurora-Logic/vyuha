@@ -5,6 +5,7 @@ import { InjectDatabase, type Database } from '../../platform/db/db.provider.js'
 import { JobRegistry, type JobContext, type JobHandler, type JobResult } from '../../platform/jobs/job-handler.js';
 import type { JobPayloads } from '../../platform/jobs/queue.registry.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
+import { CfoNightlyService } from './cfo-nightly.service.js';
 import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
 
 /**
@@ -30,6 +31,7 @@ export class ReceivableSnapshotHandler implements JobHandler<'snapshot-receivabl
     @InjectDatabase() private readonly db: Database,
     private readonly registry: JobRegistry,
     private readonly builder: ReceivableSnapshotService,
+    private readonly nightly: CfoNightlyService,
   ) {}
 
   onModuleInit(): void {
@@ -51,6 +53,10 @@ export class ReceivableSnapshotHandler implements JobHandler<'snapshot-receivabl
     for (const orgId of orgIds) {
       try {
         rows += await this.builder.buildOrgDay(orgId, snapshotDate);
+        // The CFO nightly rides the same occurrence: facts, grades, alert
+        // evaluations, quality history and due schedules for this org-day.
+        const cfo = await this.nightly.run(orgId, snapshotDate);
+        this.logger.log({ msg: 'CFO nightly done', orgId, snapshotDate, ...cfo });
       } catch (error) {
         this.logger.error({ msg: 'Receivable snapshot failed for organisation', orgId, snapshotDate, error });
         failed.push(orgId);

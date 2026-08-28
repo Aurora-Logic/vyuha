@@ -28,6 +28,8 @@ export interface QualityCheck {
   /** Where to go to fix it, inside the app. */
   readonly drill: string | null;
   readonly note?: string;
+  /** Health ninety days ago and the change since, once the nightly has history. */
+  readonly trend?: { readonly from: number; readonly delta: number };
 }
 
 export interface DataQuality {
@@ -121,8 +123,21 @@ export class DataQualityService {
       check('negative-margin', 'Negative margin from bad cost', null, 'count', 0, 'Investigate the cost', null, 'Awaits the valuation decision (M1)'),
       check('parties-no-phone', 'Customers without a phone number', p.noPhone, 'count', 0, 'Add a number — a call list without numbers is useless', '/masters/parties'),
     ];
-    const measured = checks.map((c) => c.health).filter((h): h is number => h !== null);
+    const past = await this.db.execute<{ checkKey: string; health: string | null }>(sql`
+      SELECT DISTINCT ON (check_key) check_key AS "checkKey", health::text AS health
+      FROM cfo_data_quality_daily
+      WHERE org_id = ${org} AND day <= ${new Date(Date.parse(today) - 30 * 86_400_000).toISOString().slice(0, 10)}
+      ORDER BY check_key, day DESC
+    `);
+    const pastOf = new Map(past.rows.map((r) => [r.checkKey, r.health === null ? null : Number(r.health)]));
+    const withTrend = checks.map((c) => {
+      const from = pastOf.get(c.key);
+      return from === undefined || from === null || c.health === null
+        ? c
+        : { ...c, trend: { from: Math.round(from * 100) / 100, delta: Math.round((c.health - from) * 100) / 100 } };
+    });
+    const measured = withTrend.map((c) => c.health).filter((h): h is number => h !== null);
     const headline = measured.length === 0 ? null : Math.round((measured.reduce((a, b) => a + b, 0) / measured.length) * 100);
-    return { asOf: today, headline, checks };
+    return { asOf: today, headline, checks: withTrend };
   }
 }

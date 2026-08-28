@@ -65,8 +65,33 @@ export class AlertsService {
     private readonly tiers: TierService,
   ) {}
 
-  async list(principal: Principal): Promise<Alerts> {
-    const today = istDateOf(new Date().toISOString());
+  /** Tonight's raw candidates, written by the nightly run for Q5's confirmation to read tomorrow. */
+  async writeEvaluations(principal: Principal, day: string): Promise<number> {
+    const { byParty, companyAlerts } = await this.candidates(principal, day);
+    await this.db.execute(sql`DELETE FROM cfo_alert_evaluations WHERE org_id = ${principal.orgId} AND day = ${day}`);
+    let n = 0;
+    for (const [partyId, entry] of byParty) {
+      const exposure = Math.max(...entry.reasons.map((r) => Number(r.amount)), 0);
+      await this.db.execute(sql`
+        INSERT INTO cfo_alert_evaluations (org_id, day, alert_key, party_id, exposure)
+        VALUES (${principal.orgId}, ${day}, 'customer', ${partyId}, ${exposure.toFixed(2)})
+      `);
+      n += 1;
+    }
+    for (const alert of companyAlerts) {
+      await this.db.execute(sql`
+        INSERT INTO cfo_alert_evaluations (org_id, day, alert_key, party_id, exposure)
+        VALUES (${principal.orgId}, ${day}, ${alert.key}, NULL, ${alert.amount})
+      `);
+      n += 1;
+    }
+    return n;
+  }
+
+  private async candidates(principal: Principal, today: string): Promise<{
+    byParty: Map<string, { subject: string; reasons: AlertReason[]; since: string | null }>;
+    companyAlerts: AlertReason[];
+  }> {
     const lists = await this.credit.workLists(principal);
     const listRows = (key: string) => lists.lists.find((l) => l.key === key)?.rows ?? [];
 
@@ -135,6 +160,55 @@ export class AlertsService {
     const c = concentration.rows[0];
     if (c?.share && c.shareLy && Number(c.share) - Number(c.shareLy) > CONCENTRATION_UP_POINTS) {
       companyAlerts.push({ key: 'concentration-up', label: 'Concentration rising', why: `Top five customers are ${c.share}% of sales against ${c.shareLy}% last year`, amount: c.top ?? '0.00', immediate: false });
+    }
+
+    return { byParty, companyAlerts };
+  }
+
+  async list(principal: Principal): Promise<Alerts> {
+    const today = istDateOf(new Date().toISOString());
+    const { byParty, companyAlerts: companyRaw } = await this.candidates(principal, today);
+
+    /*
+     * Q5's confirmation: a non-immediate alert must have been a candidate on
+     * a previous evaluation too. The nightly run writes candidates; until an
+     * organisation has any history at all, everything shows (a fresh deploy
+     * must not go silent for two nights). An alert with an immediate reason
+     * -- a limit breach -- never waits.
+     */
+    const history = await this.db.execute<{ day: string; alertKey: string; partyId: string | null }>(sql`
+      SELECT day, alert_key AS "alertKey", party_id AS "partyId" FROM cfo_alert_evaluations
+      WHERE org_id = ${principal.orgId} AND day < ${today} AND day >= ${shiftDays(today, -3)}
+    `);
+    const hasHistory = (await this.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM cfo_alert_evaluations WHERE org_id = ${principal.orgId} AND day < ${today}
+    `)).rows[0]?.n ?? 0;
+    const confirmed = (key: string, partyId: string | null): boolean =>
+      hasHistory === 0 || history.rows.some((h) => h.alertKey === key && h.partyId === partyId);
+    for (const [partyId, entry] of [...byParty.entries()]) {
+      if (entry.reasons.some((r) => r.immediate)) continue;
+      if (!confirmed('customer', partyId)) byParty.delete(partyId);
+    }
+    const companyAlerts = companyRaw.filter((a) => a.immediate || confirmed(a.key, null));
+
+    // D18: migration into D or E since the last written night is its own event.
+    const migrated = await this.db.execute<{ partyId: string; party: string; grade: string; prev: string; outstanding: string }>(sql`
+      WITH latest AS (SELECT max(day) AS d FROM cfo_grade_history WHERE org_id = ${principal.orgId}),
+           previous AS (SELECT max(day) AS d FROM cfo_grade_history WHERE org_id = ${principal.orgId} AND day < (SELECT d FROM latest))
+      SELECT g.party_id AS "partyId", coalesce(p.name, 'Unknown party') AS party, g.grade, o.grade AS prev,
+             coalesce((SELECT sum(outstanding)::numeric(16,2)::text FROM fact_receivable_snapshot f
+               WHERE f.org_id = g.org_id AND f.party_id = g.party_id AND f.snapshot_date = (SELECT max(snapshot_date) FROM fact_receivable_snapshot WHERE org_id = g.org_id)), '0.00') AS outstanding
+      FROM cfo_grade_history g
+      JOIN cfo_grade_history o ON o.org_id = g.org_id AND o.party_id = g.party_id AND o.day = (SELECT d FROM previous)
+      LEFT JOIN parties p ON p.id = g.party_id
+      WHERE g.org_id = ${principal.orgId} AND g.day = (SELECT d FROM latest)
+        AND g.grade IN ('D', 'E') AND o.grade NOT IN ('D', 'E')
+    `);
+    for (const m of migrated.rows) {
+      if (Number(m.outstanding) < MATERIALITY) continue;
+      const entry = byParty.get(m.partyId) ?? { subject: m.party, reasons: [], since: null };
+      entry.reasons.push({ key: 'grade-migrated', label: `Slipped to grade ${m.grade}`, why: `Payment grade moved from ${m.prev} to ${m.grade} overnight`, amount: m.outstanding, immediate: true });
+      byParty.set(m.partyId, entry);
     }
 
     // Snoozes, then the cap.

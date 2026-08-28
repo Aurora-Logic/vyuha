@@ -315,3 +315,75 @@ export const cfoAlertSnoozes = pgTable(
   },
   (t) => [index('cfo_alert_snoozes_idx').on(t.orgId, t.alertKey, t.partyId)],
 );
+
+/**
+ * The nightly memory (Q5, D18, Q3): alert evaluations so an alert must
+ * persist two nights before it fires and clears with hysteresis; grade
+ * history so migration into D/E is an event, not a state; a data-quality
+ * row per check per night so the screen can show ninety days of trend.
+ */
+export const cfoAlertEvaluations = pgTable(
+  'cfo_alert_evaluations',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    day: text('day').notNull(),
+    alertKey: text('alert_key').notNull(),
+    partyId: uuid('party_id'),
+    exposure: numeric('exposure', { precision: 16, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_alert_evaluations_idx').on(t.orgId, t.day, t.alertKey, t.partyId)],
+);
+
+export const cfoGradeHistory = pgTable(
+  'cfo_grade_history',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    day: text('day').notNull(),
+    partyId: uuid('party_id').notNull(),
+    grade: text('grade').notNull(),
+    risk: numeric('risk', { precision: 5, scale: 1 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_grade_history_uq').on(t.orgId, t.day, t.partyId)],
+);
+
+export const cfoDataQualityDaily = pgTable(
+  'cfo_data_quality_daily',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    day: text('day').notNull(),
+    checkKey: text('check_key').notNull(),
+    value: numeric('value', { precision: 16, scale: 3 }),
+    health: numeric('health', { precision: 5, scale: 3 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_data_quality_daily_uq').on(t.orgId, t.day, t.checkKey)],
+);
+
+/** O6.3: a report delivered on a cadence, by the nightly run, over email. */
+export const cfoReportSchedules = pgTable(
+  'cfo_report_schedules',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    report: text('report').notNull(),
+    cadence: text('cadence').notNull(),
+    recipients: text('recipients').notNull(),
+    createdBy: uuid('created_by').notNull(),
+    lastRunOn: text('last_run_on'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_report_schedules_idx').on(t.orgId, t.cadence)],
+);

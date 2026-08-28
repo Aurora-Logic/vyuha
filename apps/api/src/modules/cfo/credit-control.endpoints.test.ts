@@ -6,6 +6,7 @@ import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import type { CreditOverview, WorkLists } from './credit-control.service.js';
 import type { MyCfo } from './my-cfo.service.js';
 import { OwnerMapService } from './attribution/owner-map.service.js';
+import { CfoNightlyService } from './cfo-nightly.service.js';
 
 /**
  * Phase 2's credit endpoints on hand-computed fixtures.
@@ -655,5 +656,48 @@ describe('alerts (Part L, Q5)', () => {
     expect(ok.status).toBe(201);
     const again = await harness.get<{ alerts: { subject: string; snoozed: { until: string } | null }[] }>('/cfo/alerts', { token: adminToken });
     expect(again.body.alerts.find((a) => a.subject === 'Bharat Cables')?.snoozed?.until).toBe('2026-09-30');
+  });
+});
+
+describe('the CFO nightly (Q5 memory, D18 history, Q3 trend)', () => {
+  it('writes facts, grades, evaluations and quality history for the org-day', async () => {
+    const nightly = harness.resolve(CfoNightlyService);
+    const today = new Date().toISOString().slice(0, 10);
+    await harness.db.execute(sql`DELETE FROM cfo_alert_evaluations WHERE org_id = ${ORG_ID}`);
+    await harness.db.execute(sql`DELETE FROM cfo_grade_history WHERE org_id = ${ORG_ID}`);
+    const report = await nightly.run(ORG_ID, today);
+    expect(report.qualityRows).toBe(12);
+    expect(report.evaluations).toBeGreaterThan(0);
+    expect(report.grades).toBeGreaterThan(0);
+    const grades = await harness.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM cfo_grade_history WHERE org_id = ${ORG_ID} AND day = ${today}`);
+    expect(grades.rows[0]?.n).toBe(report.grades);
+  });
+
+  it('confirmation: with history, a non-immediate alert fires only when yesterday saw it too', async () => {
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    // History exists, but names no customers: every non-immediate customer
+    // alert waits; Bharat's limit breach fires regardless.
+    await harness.db.execute(sql`DELETE FROM cfo_alert_evaluations WHERE org_id = ${ORG_ID} AND day = ${yesterday}`);
+    await harness.db.execute(sql`
+      INSERT INTO cfo_alert_evaluations (org_id, day, alert_key, party_id, exposure) VALUES (${ORG_ID}, ${yesterday}, 'placeholder', NULL, 0)
+    `);
+    const res = await harness.get<{ alerts: { subject: string; reasons: { key: string; immediate: boolean }[] }[] }>('/cfo/alerts', { token: adminToken });
+    for (const alert of res.body.alerts) {
+      expect(alert.reasons.some((r) => r.immediate)).toBe(true);
+    }
+    expect(res.body.alerts.map((a) => a.subject)).toContain('Bharat Cables');
+  });
+
+  it('a party that slipped into grade D overnight is an immediate event', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const parties = await harness.db.execute<{ id: string }>(sql`SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = 'Asha Traders'`);
+    const ashaId = parties.rows[0]?.id ?? '';
+    await harness.db.execute(sql`DELETE FROM cfo_grade_history WHERE org_id = ${ORG_ID} AND party_id = ${ashaId}`);
+    await harness.db.execute(sql`INSERT INTO cfo_grade_history (org_id, day, party_id, grade, risk) VALUES (${ORG_ID}, ${yesterday}, ${ashaId}, 'A', 10)`);
+    await harness.db.execute(sql`INSERT INTO cfo_grade_history (org_id, day, party_id, grade, risk) VALUES (${ORG_ID}, ${today}, ${ashaId}, 'D', 70)`);
+    const res = await harness.get<{ alerts: { subject: string; reasons: { key: string }[] }[] }>('/cfo/alerts', { token: adminToken });
+    const asha = res.body.alerts.find((a) => a.subject === 'Asha Traders');
+    expect(asha?.reasons.map((r) => r.key)).toContain('grade-migrated');
   });
 });

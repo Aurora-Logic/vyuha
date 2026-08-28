@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 
 import { ReceivableSnapshotHandler } from './receivable-snapshot.handler.js';
+import { MailModule } from '../../platform/mail/mail.module.js';
 import { SettingsModule } from '../../platform/settings/settings.module.js';
+import { CfoNightlyService } from './cfo-nightly.service.js';
 import { AlertsService } from './alerts.service.js';
 import { CfoExportService } from './cfo-export.service.js';
 import { CfoController } from './cfo.controller.js';
@@ -25,8 +27,8 @@ import { TeamService } from './team.service.js';
  * later, so the recorder ships first and the UI catches up.
  */
 @Module({
-  imports: [SettingsModule],
+  imports: [SettingsModule, MailModule],
   controllers: [CfoController],
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService, AlertsService],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService, AlertsService, CfoNightlyService],
 })
 export class CfoModule {}
