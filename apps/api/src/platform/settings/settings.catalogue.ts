@@ -14,7 +14,7 @@ import {
   type Appearance,
   type RetentionPolicy,
   type WorkspaceLocale, DEFAULT_DUPLICATES_POLICY, duplicatesPolicySchema, type DuplicatesPolicy,
-  DEFAULT_RETURN_REASONS_POLICY, returnReasonsPolicySchema, type ReturnReasonsPolicy } from '@vyuha/shared';
+  DEFAULT_RETURN_REASONS_POLICY, returnReasonsPolicySchema, type ReturnReasonsPolicy, GEOFENCE_BEHAVIOURS } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -42,14 +42,9 @@ import { z } from 'zod';
  * imported -- `settings.catalogue.test.ts` fails if a consumer renames one.
  */
 
-/**
- * REQ-L-02 names "geofence behaviour" beside punch window behaviour, and the
- * three outcomes are the same three. Declared here rather than in
- * `@vyuha/shared` because nothing reads it yet (see `enforcedBy`), and a
- * contract-package enum implies a contract somebody honours.
- */
-export const GEOFENCE_BEHAVIOURS = ['BLOCK', 'ALLOW_WITH_REASON', 'ALLOW_AND_FLAG'] as const;
-export type GeofenceBehaviour = (typeof GEOFENCE_BEHAVIOURS)[number];
+// The behaviour enum lives in @vyuha/shared now that the punch pipeline
+// honours it (P2-2, closed 28 Aug 2026); re-exported for existing importers.
+export { GEOFENCE_BEHAVIOURS, type GeofenceBehaviour } from '@vyuha/shared';
 
 const KB = 1024;
 
@@ -80,9 +75,11 @@ export const ATTENDANCE_SETTINGS = {
   geofenceBehaviour: {
     key: 'attendance.geofence_behaviour',
     help: 'What happens to a punch outside the location radius (REQ-D-08).',
-    // REQ-D-08 and 05-decisions fix this to a hard block, and the punch
-    // service implements the block directly rather than reading a row.
-    enforcedBy: null,
+    // P2-2, closed 28 Aug 2026: the punch pipeline consults the row on every
+    // outside verdict. BLOCK refuses as before; ALLOW_WITH_REASON records
+    // with a typed reason or answers PUNCH_REASON_REQUIRED; ALLOW_AND_FLAG
+    // records and flags for Approvals.
+    enforcedBy: 'Punch',
   },
   deviceBindingMode: {
     key: 'attendance.device_binding_mode',
@@ -131,7 +128,10 @@ export const ATTENDANCE_SETTINGS = {
   autoEscalationDays: {
     key: 'attendance.auto_escalation_days',
     help: 'An untouched approval escalates to HR after this many days (REQ-G-09).',
-    enforcedBy: null,
+    // P2-2, closed 28 Aug 2026: read when a request is raised; the sweep then
+    // honours what the request carries. A malformed row falls back to the
+    // shared default rather than stopping requests being raised.
+    enforcedBy: 'Approvals framework',
   },
 } as const satisfies Record<string, SettingDescriptor>;
 
@@ -302,6 +302,10 @@ export const APPEARANCE_SETTINGS = {
   accentChroma: { key: 'appearance.accent_chroma', help: 'How saturated the accent is.', enforcedBy: 'Shell' },
   base: { key: 'appearance.base', help: 'The neutral ramp: stone, zinc, neutral, gray or slate -- the five shadcn ships.', enforcedBy: 'Shell' },
   density: { key: 'appearance.density', help: 'Comfortable or compact spacing; type size does not change.', enforcedBy: 'Shell' },
+  // df1d3df added the typeface to the shared contract without this row, so
+  // PATCH refused the very key the screen offered -- masked until the stale
+  // shared dist was rebuilt. The catalogue test now catches the drift.
+  font: { key: 'appearance.font', help: 'The workspace typeface, the same four the printed documents offer.', enforcedBy: 'Shell' },
 } as const satisfies Record<string, SettingDescriptor>;
 
 export const appearancePolicySchema = appearanceSchema;

@@ -1,6 +1,8 @@
 import {
   DEVICE_BINDING_MODES,
+  GEOFENCE_BEHAVIOURS,
   type DeviceBindingMode,
+  type GeofenceBehaviour,
 } from '@vyuha/shared';
 import { z } from 'zod';
 
@@ -20,6 +22,7 @@ import { z } from 'zod';
 
 export const PUNCH_SETTING_KEYS = {
   deviceBindingMode: 'attendance.device_binding_mode',
+  geofenceBehaviour: 'attendance.geofence_behaviour',
   photoMinBytes: 'attendance.photo_min_bytes',
   photoMaxBytes: 'attendance.photo_max_bytes',
   photoRetentionMonths: 'attendance.photo_retention_months',
@@ -29,6 +32,8 @@ export type PunchSettingKey = (typeof PUNCH_SETTING_KEYS)[keyof typeof PUNCH_SET
 
 export interface PunchSettings {
   readonly deviceBindingMode: DeviceBindingMode;
+  /** REQ-D-08 and REQ-L-02: what an outside-the-radius punch becomes. */
+  readonly geofenceBehaviour: GeofenceBehaviour;
   /** REQ-D-03a: the band the stored photo should land in. */
   readonly photoMinBytes: number;
   readonly photoMaxBytes: number;
@@ -40,6 +45,7 @@ const KB = 1024;
 
 export const DEFAULT_PUNCH_SETTINGS: PunchSettings = {
   deviceBindingMode: 'WARN',
+  geofenceBehaviour: 'BLOCK',
   photoMinBytes: 80 * KB,
   photoMaxBytes: 150 * KB,
   // REQ-L-03's default, the same 12 the settings catalogue states.
@@ -92,6 +98,9 @@ export function resolvePunchSettings(values: ReadonlyMap<string, unknown>): Punc
     deviceBindingMode:
       read(values, PUNCH_SETTING_KEYS.deviceBindingMode, z.enum(DEVICE_BINDING_MODES)) ??
       DEFAULT_PUNCH_SETTINGS.deviceBindingMode,
+    geofenceBehaviour:
+      read(values, PUNCH_SETTING_KEYS.geofenceBehaviour, z.enum(GEOFENCE_BEHAVIOURS)) ??
+      DEFAULT_PUNCH_SETTINGS.geofenceBehaviour,
     photoMinBytes,
     photoMaxBytes,
     photoRetentionMonths:

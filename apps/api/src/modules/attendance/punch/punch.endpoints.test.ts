@@ -937,6 +937,40 @@ describe('the geofence is enforced on the server (owner, 21 Aug 2026)', () => {
     expect(await countPunches(employeeBId)).toBe(before);
   });
 
+  it('P2-2: the behaviour setting is consulted -- flag, reason, then block again', async () => {
+    const setBehaviour = async (value: string) => harness.db.execute(sql`
+      INSERT INTO settings (org_id, scope, scope_id, key, value, created_by, updated_by)
+      VALUES (${ORG_ID}, 'ORG', NULL, 'attendance.geofence_behaviour', ${JSON.stringify(value)}::jsonb, NULL, NULL)
+      ON CONFLICT (org_id, scope, (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)), key) WHERE deleted_at IS NULL
+      DO UPDATE SET value = EXCLUDED.value
+    `);
+    const outside = { latitude: FIXTURE_OFFICE.latitude + 0.01, longitude: FIXTURE_OFFICE.longitude, gpsAccuracyM: 5 };
+    try {
+      // ALLOW_AND_FLAG: recorded, flagged, Approvals decides -- the
+      // out-of-window rule, applied to place.
+      await setBehaviour('ALLOW_AND_FLAG');
+      const flagged = await punchIn(tokenB, `pt-geo-flag-${runId}`, { ...outside });
+      expect(flagged.status, JSON.stringify(flagged.body)).toBe(201);
+      expect(flagged.body.punch.flags).toContain('outside_geofence');
+
+      // ALLOW_WITH_REASON: no reason is a 422 asking for one, not a recorded
+      // punch; with a reason it records and still wears the flag.
+      await setBehaviour('ALLOW_WITH_REASON');
+      const asked = await punchIn(tokenB, `pt-geo-noreason-${runId}`, { ...outside, type: 'OUT' });
+      expect(asked.status, JSON.stringify(asked.body)).toBe(422);
+      expect(asked.body.error.code).toBe('PUNCH_REASON_REQUIRED');
+      const reasoned = await punchIn(tokenB, `pt-geo-reason-${runId}`, { ...outside, type: 'OUT', reason: 'Customer visit at Ambad MIDC' });
+      expect(reasoned.status, JSON.stringify(reasoned.body)).toBe(201);
+      expect(reasoned.body.punch.flags).toContain('outside_geofence');
+    } finally {
+      await setBehaviour('BLOCK');
+    }
+    // And with BLOCK restored the refusal is exactly the first test's.
+    const refused = await punchIn(tokenB, `pt-geo-block-again-${runId}`, { ...outside });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.code).toBe('PUNCH_OUTSIDE_GEOFENCE');
+  });
+
   it('refuses a punch that carries no position at all', async () => {
     const result = await punchIn(tokenB, `pt-geo-none-${runId}`, {
       latitude: undefined,

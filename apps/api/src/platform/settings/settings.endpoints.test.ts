@@ -104,8 +104,10 @@ describe('GET /settings (REQ-L-01, REQ-L-02)', () => {
     // from this row (REQ-L-03).
     expect(read.body.enforcement.photo.retentionMonths).toBe('Punch photo pipeline');
     // Still a decoration, and the screen still says so: REQ-D-08 fixes the
-    // geofence to a hard block and the punch service implements it directly.
-    expect(read.body.enforcement.attendance.geofenceBehaviour).toBeNull();
+    // P2-2, closed 28 Aug 2026: the punch pipeline consults the behaviour
+    // row on every outside verdict, and escalation reads its window when a
+    // request is raised.
+    expect(read.body.enforcement.attendance.geofenceBehaviour).toBe('Punch');
   });
 
   it('never returns SMTP credentials', async () => {

@@ -219,7 +219,12 @@ export class ApprovalService {
       );
     }
 
-    const escalateAfterDays = input.escalateAfterDays ?? DEFAULT_APPROVAL_ESCALATION_DAYS;
+    // REQ-G-09 / P2-2 (closed 28 Aug 2026): the org's configured escalation
+    // window, read when the request is raised so every step it ever takes
+    // carries one consistent number. A malformed or absent row falls back to
+    // the shared default -- an approval must never fail to be raised because
+    // a setting cannot parse.
+    const escalateAfterDays = input.escalateAfterDays ?? (await this.configuredEscalationDays(ctx.orgId));
     if (escalateAfterDays < 0 || escalateAfterDays > MAX_APPROVAL_ESCALATION_DAYS) {
       throw AppError.validation(
         `Escalation must be between 0 and ${String(MAX_APPROVAL_ESCALATION_DAYS)} days; 0 disables it.`,
@@ -552,6 +557,19 @@ export class ApprovalService {
    * `ApprovalSweepRepository`. Every write below goes through a scoped
    * repository built with the org id the sweep returned.
    */
+  private async configuredEscalationDays(orgId: string): Promise<number> {
+    const row = await this.db.execute<{ value: unknown }>(sql`
+      SELECT value FROM settings
+      WHERE org_id = ${orgId} AND scope = 'ORG' AND scope_id IS NULL AND deleted_at IS NULL
+        AND key = 'attendance.auto_escalation_days'
+      LIMIT 1
+    `);
+    const value = Number(row.rows[0]?.value);
+    return Number.isInteger(value) && value >= 1 && value <= MAX_APPROVAL_ESCALATION_DAYS
+      ? value
+      : DEFAULT_APPROVAL_ESCALATION_DAYS;
+  }
+
   async escalateStale(now: Date): Promise<EscalationOutcome> {
     const candidates = await new ApprovalSweepRepository(this.db).stale(now, ESCALATION_BATCH);
 
