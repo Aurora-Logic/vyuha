@@ -26,14 +26,14 @@ import { PageHeader } from '@/components/shared/page-header';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatCount, formatDate, formatMoney, formatMoneyShort } from '@/lib/format';
+import { formatCount, formatDate, formatMoney, formatMoneyShort } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import type { Metric } from './api';
 import { ExportButton } from './export-button';
 import { MetricChart } from './metric-card';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
-import { deltaText, deleteSlab, saveSlab, useBrands, type BrandRowData, type SlabRowData } from './use-cfo';
+import { deltaText, deleteSlab, saveSlab, useBrands, type BrandRowData } from './use-cfo';
 
 /**
  * Brand performance (brief G2) -- where a switchgear distributor actually
@@ -188,12 +188,12 @@ export function BrandsPage() {
                 {row.slabs.length > 0 ? (
                   <div className="flex flex-col gap-2 border-t pt-2">
                     {row.slabs.map((slab) => (
-                      <button
+                      <Button
                         key={slab.id}
-                        type="button"
+                        variant="ghost"
                         disabled={!canManage}
                         onClick={() => { setDraft({ id: slab.id, brand: slab.brand, label: slab.label, threshold: slab.threshold, reward: slab.reward, active: slab.active }); }}
-                        className="flex flex-col gap-1 text-left"
+                        className="h-auto flex-col items-stretch gap-1 px-2 py-1.5 text-left font-normal"
                       >
                         <span className="flex items-center justify-between gap-2 text-xs">
                           <span className="font-medium">{slab.label}{slab.active ? '' : ' (inactive)'}</span>
@@ -205,7 +205,7 @@ export function BrandsPage() {
                         </span>
                         <Progress value={Math.min(slab.attainedPct, 100)} className="h-1.5" />
                         {slab.reward ? <span className="text-muted-foreground text-xs">{slab.reward} · basis: {slab.basis}, FY to date</span> : null}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 ) : null}
