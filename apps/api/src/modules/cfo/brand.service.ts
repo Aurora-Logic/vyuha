@@ -15,7 +15,7 @@ import { TeamService } from './team.service.js';
 /**
  * Brand performance (brief G2) -- where a switchgear distributor actually
  * earns. Per principal: sales against the same days last year, margin on
- * the proxy where the caller may see rupees (K3), the category split,
+ * margin where the caller may see rupees (K3), the category split,
  * price realisation, target against achievement, and the slabs: distance
  * to the next one in rupees and days, because a push in the last week can
  * be worth more than the month's trading margin. Slabs are all-or-nothing

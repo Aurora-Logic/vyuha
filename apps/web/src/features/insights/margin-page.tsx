@@ -29,7 +29,7 @@ import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from 
 import { useMargin, type MarginData } from './use-cfo';
 
 /**
- * Margin on the proxy basis (brief C2): the pocket-price waterfall from
+ * Margin (brief C2): the pocket-price waterfall from
  * the master's list rate down to pocket margin, always beside its
  * coverage -- the share of net the cost could actually be read on -- and
  * never a rupee of it without cfo.margin.view (K3). M13's zero tolerance:
@@ -81,7 +81,7 @@ export function MarginPage() {
 
   return (
     <>
-      <PageHeader description="From the master's list rate down to pocket margin, on the proxy cost until the valuation decision -- always beside its coverage." />
+      <PageHeader description="From the master's list rate down to pocket margin, on the confirmed Tally item-cost basis -- always beside its coverage." />
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
@@ -110,7 +110,7 @@ export function MarginPage() {
             <KpiGrid
               columns={4}
               tiles={[
-                { label: 'Pocket margin (proxy)', value: formatMoney(data.waterfall.find((w) => w.key === 'margin')?.amount ?? '0'), info: <DefinitionLink id="M07" /> },
+                { label: 'Pocket margin', value: formatMoney(data.waterfall.find((w) => w.key === 'margin')?.amount ?? '0'), info: <DefinitionLink id="M07" /> },
                 { label: 'Pocket price', value: formatMoney(data.waterfall.find((w) => w.key === 'pocket')?.amount ?? '0'), info: <DefinitionLink id="M05" /> },
                 { label: 'Cost coverage', value: `${String(data.coveragePct)}%`, note: 'of net sits on costed grains', info: <DefinitionLink id="M06" /> },
                 { label: 'Sold below cost', value: formatCount(data.negativeGrains.length), note: 'grains named below', info: <DefinitionLink id="M13" /> },

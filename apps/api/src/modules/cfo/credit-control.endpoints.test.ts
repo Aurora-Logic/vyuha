@@ -349,10 +349,10 @@ describe('GET /cfo/team/:ownerRef (G4 scorecard)', () => {
     // The radar: alone in the team, she is the team's best on every knowable axis.
     const sales = res.body.radar.find((a) => a.axis === 'Sales');
     expect(sales?.mine).toBe(100);
-    // The admin holds margin.view, so the axis is real and wears the proxy note.
+    // The admin holds margin.view, so the axis is real and names its basis.
     const margin = res.body.radar.find((a) => a.axis === 'Margin %');
     expect(typeof margin?.mine).toBe('number');
-    expect(margin?.note).toContain('M1');
+    expect(margin?.note).toContain('M07');
     expect(res.body.promises).toEqual({ kept: 0, broken: 0, open: 0 });
     expect(res.body.activity).toEqual({ assigned: 0, closed: 0 });
   });

@@ -728,8 +728,8 @@ export const PIVOT_DIMENSION_LABELS: Record<string, string> = {
 
 export const PIVOT_METRIC_LABELS: Record<string, string> = {
   net: 'Net sales',
-  landed: 'Landed cost (proxy)',
-  margin: 'Pocket margin (proxy)',
+  landed: 'Landed cost',
+  margin: 'Pocket margin',
   gross: 'Gross sales',
   discount: 'Discount',
   returns: 'Returns',

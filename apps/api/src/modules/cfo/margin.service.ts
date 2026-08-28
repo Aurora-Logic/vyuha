@@ -7,11 +7,12 @@ import { CATEGORY_CASE_SQL } from './category.js';
 import { type SalesScope } from './sales-analysis.service.js';
 
 /**
- * The pocket-price waterfall and the margin slices (brief C2), on the M6
- * proxy: landed cost is the master\'s cost price until M1 answers the
- * valuation question, and every figure travels with its coverage -- the
- * share of net that sits on costed grains. A margin without its coverage
- * is how a dashboard lies politely.
+ * The pocket-price waterfall and the margin slices (brief C2). Landed
+ * cost is the Tally item master's cost price -- the owner confirmed it
+ * as the authoritative basis on 28 Aug 2026, closing open decision M1 --
+ * and every figure travels with its coverage: the share of net that
+ * sits on costed grains. A margin without its coverage is how a
+ * dashboard lies politely.
  */
 
 export interface MarginRead {
@@ -61,8 +62,8 @@ export class MarginService {
       // margin exists only on costed grains, so the uncosted net leaves
       // the walk here instead of masquerading as margin.
       { key: 'uncosted', label: 'Net on uncosted grains (no margin read)', amount: (-(net - Number(t?.costedNet ?? 0))).toFixed(2) },
-      { key: 'landed', label: 'Landed cost (proxy, M1 pending)', amount: (-Number(t?.landed ?? 0)).toFixed(2) },
-      { key: 'margin', label: 'Pocket margin (proxy)', amount: Number(t?.margin ?? 0).toFixed(2) },
+      { key: 'landed', label: 'Landed cost', amount: (-Number(t?.landed ?? 0)).toFixed(2) },
+      { key: 'margin', label: 'Pocket margin', amount: Number(t?.margin ?? 0).toFixed(2) },
     ];
 
     const slices: { level: string; label: string; rows: { key: string; label: string; net: string; margin: string | null; marginPct: number | null }[] }[] = [];

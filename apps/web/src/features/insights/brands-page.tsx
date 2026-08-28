@@ -37,7 +37,7 @@ import { deltaText, deleteSlab, saveSlab, useBrands, type BrandRowData } from '.
 
 /**
  * Brand performance (brief G2) -- where a switchgear distributor actually
- * earns. Per principal: sales against the same days last year, the proxy
+ * earns. Per principal: sales against the same days last year, the
  * margin where the viewer may see rupees, the category split, price
  * realisation, target against achievement, and the slabs: "so much to the
  * next slab, so many days left" is the most profitable number here.
@@ -120,7 +120,7 @@ export function BrandsPage() {
   return (
     <>
       <PageHeader
-        description="Where the trade actually earns: each principal's sales, realisation, proxy margin and the distance to its next slab."
+        description="Where the trade actually earns: each principal's sales, realisation, margin and the distance to its next slab."
         action={canManage ? (
           <Button variant="outline" size="sm" onClick={() => { setDraft({ brand: data?.brands[0]?.brand ?? '', label: '', threshold: '', reward: '', active: true }); }}>
             <PlusIcon data-icon="inline-start" />

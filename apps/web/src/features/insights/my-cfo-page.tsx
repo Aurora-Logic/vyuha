@@ -212,7 +212,7 @@ export function MyCfoPage() {
                   // module cannot fill yet say why).
                   : { label: 'Target progress', value: EMPTY_VALUE, note: 'No target set for this period' },
                 data.marginPct !== null
-                  ? { label: 'Margin % (proxy)', value: `${String(data.marginPct)}%`, note: 'own book, costed grains', info: <DefinitionLink id="M07" /> }
+                  ? { label: 'Margin %', value: `${String(data.marginPct)}%`, note: 'own book, costed grains', info: <DefinitionLink id="M07" /> }
                   : { label: 'Margin %', value: EMPTY_VALUE, note: 'No costed grains in the period', info: <DefinitionLink id="M07" /> },
               ]}
             />

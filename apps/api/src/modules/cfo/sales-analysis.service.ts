@@ -223,7 +223,7 @@ export class SalesAnalysisService {
     if (scope.person !== undefined && scope.person !== `user:${principal.userId}` && !hasPermission(principal, PERMISSIONS.CFO_TEAM_VIEW)) {
       throw AppError.forbidden('Another person’s sales need cfo.team.view.');
     }
-    // K3: rupee margin is a separate sight. The proxy note lives in the registry (M07).
+    // K3: rupee margin is a separate sight. The cost basis lives in the registry (M07).
     // S1.2: a calculated field is an expression over registered measures,
     // parsed and unit-checked before any SQL is written.
     let expr: ExprNode | null = null;

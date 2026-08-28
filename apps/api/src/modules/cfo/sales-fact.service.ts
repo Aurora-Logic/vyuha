@@ -69,7 +69,7 @@ interface FactAccumulator {
   gross: Paise;
   discount: Paise;
   returns: Paise;
-  /** Proxy landed cost in paise (M6 via the master's cost price, until M1); null once any grain line lacks a cost, or the goods are unknowable. */
+  /** Landed cost in paise (M6: the master's cost price, the confirmed basis); null once any grain line lacks a cost, or the goods are unknowable. */
   landed: Paise | null;
   vouchers: Set<string>;
 }
@@ -177,7 +177,7 @@ export class SalesFactService {
           g.qty += toMilli(quantity);
           const amount = toPaise(line.amount);
           g.gross += amount < 0n ? -amount : amount;
-          // M6 proxy until M1 answers the valuation question: the master's
+          // M6 on the confirmed basis (M1 closed 28 Aug 2026): the master's
           // cost price. One costless line poisons the grain's margin to
           // null -- a partly-costed margin is a wrong number, not a lower one.
           if (line.costPrice === null) g.landed = null;

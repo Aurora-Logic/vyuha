@@ -217,7 +217,7 @@ function ClosePackSections({ month }: { month: string }) {
 
       {canMargin ? (
         <section className="flex flex-col gap-3 break-inside-avoid">
-          <SectionHeading title="Margin waterfall (proxy basis)" note="Landed cost is the Tally item cost price until the valuation method is confirmed with the CA (open decision M1); treat the rupees as directional." />
+          <SectionHeading title="Margin waterfall" note="Landed cost is the Tally item master's cost price, the confirmed basis (M1, closed 28 Aug 2026)." />
           {margin.data ? (
             <>
               <PackTable head={['Step', 'Amount']} rows={margin.data.waterfall.map((w) => [w.label, formatMoney(w.amount)])} />

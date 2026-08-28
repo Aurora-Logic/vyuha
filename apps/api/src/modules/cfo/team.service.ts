@@ -43,7 +43,7 @@ export interface LeagueRow {
   readonly overdue: string;
   readonly target: string | null;
   readonly achievementPct: number | null;
-  /** Rupees only for cfo.margin.view holders (K3); the proxy note is M07's. */
+  /** Rupees only for cfo.margin.view holders (K3); the basis note is M07's. */
   readonly margin: string | null;
   /** Percent on the caller's own row for everyone; every row for margin.view. */
   readonly marginPct: number | null;
@@ -333,7 +333,7 @@ export class TeamService {
       axis('Growth', growthOf),
       axis('Collections', (r) => Number(r.collections)),
       hasPermission(principal, PERMISSIONS.CFO_MARGIN_VIEW) || isSelf
-        ? axis('Margin %', (r) => r.marginPct ?? 0, 'Proxy landed cost until M1 (M07)')
+        ? axis('Margin %', (r) => r.marginPct ?? 0, 'On the Tally item-cost basis (M07)')
         : { axis: 'Margin', mine: null, team: null, note: 'Needs cfo.margin.view' },
       axis('New customers', (r) => newByOwner.get(r.ownerRef) ?? 0),
       axis('Activity', (r) => closedRatio(r.ownerRef)),

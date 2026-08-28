@@ -708,11 +708,15 @@ Closed by this pass, superseding rows above:
 
 Still open, and why:
 
+Decided by the owner in session, 28 Aug 2026: **M1 closed** — the Tally item master's
+cost price IS the landed cost (registry M06/M07 bumped to v2, proxy labels removed);
+**purchase sync commissioned** (X-2 in progress); GST returns stay out of scope; the bulk
+class-assign UI waits for the Phase 7 Customers screen; thresholds stay named constants
+until a different number is actually wanted.
+
 | # | Question | Recommended default | Blocks |
 |---|---|---|---|
-| X-1 | True landed cost needs the Tally valuation method (open decision M1) | Ask the CA; until then margin is labelled proxy everywhere it appears | Honest rupee margin |
-| X-2 | Purchase vouchers are not in the projection | Extend the sync when purchase-side metrics (DPO, cash cycle, MSME ageing) are commissioned | W-series, F1 MSME |
-| X-3 | GST returns feed does not exist | Out of scope until a returns source is chosen | All of F1 |
+| X-3 | GST returns feed does not exist | Out of scope until a returns source is chosen (owner confirmed 28 Aug 2026) | All of F1 |
 | X-4 | Tally's editing user is not exported by the sync | The four "not measurable yet" exception checks stay labelled | F2 remainder |
 | X-5 | Bulk class assignment has an API and tests but its designed home is the CRM Customers screen (Phase 7); today the paste import and the mismatch list cover the mass paths | Wire the multi-select bulk bar when the Customers screen is built | Nothing today |
 | X-6 | Incentive statements need collected margin (Part K) | After M1 and a collections-applied ledger | Part K payouts |

@@ -79,7 +79,7 @@ const LEAGUE_COLUMNS: RecordColumn<LeagueRowData & { rank: number }>[] = [
   // otherwise); the percentage appears on the caller's own row for everyone.
   {
     key: 'margin',
-    header: 'Margin (proxy)',
+    header: 'Margin',
     cell: (row) =>
       row.margin !== null ? (
         <span className="tabular-nums">{formatMoney(row.margin)}{row.marginPct === null ? '' : ` · ${String(row.marginPct)}%`}</span>
