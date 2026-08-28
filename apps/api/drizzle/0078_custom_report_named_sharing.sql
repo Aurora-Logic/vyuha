@@ -1,0 +1,1 @@
+ALTER TABLE "custom_reports" ADD COLUMN "shared_with" jsonb DEFAULT '[]'::jsonb NOT NULL;

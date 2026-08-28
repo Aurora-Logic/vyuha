@@ -28,6 +28,8 @@ export const customReports = pgTable(
     /** A sentence on what the report is for (the Supabase reference's create dialog asks for it). */
     description: text('description').notNull().default(''),
     shared: boolean('shared').notNull().default(false),
+    /** User ids the author named; visibility is shared OR listed here. */
+    sharedWith: jsonb('shared_with').notNull().default([]),
     widgets: jsonb('widgets').notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -198,6 +198,7 @@ export function CustomReportPage() {
   const editing = searchParams.get('edit') === '1' && query.data?.editable === true;
   const [draft, setDraft] = useState<CustomWidget[] | null>(null);
   const [shared, setShared] = useState<boolean | null>(null);
+  const [sharedWithText, setSharedWithText] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragId = useRef<string | null>(null);
   const [renaming, setRenaming] = useState<{ name: string; description: string } | null>(null);
@@ -215,6 +216,7 @@ export function CustomReportPage() {
   if (editing && draft === null && report !== undefined) {
     setDraft([...report.widgets]);
     setShared(report.shared);
+    setSharedWithText(report.sharedWith.map((share) => share.email).join(', '));
     setSelectedId(isWide ? (report.widgets[0]?.id ?? null) : null);
   }
   const widgets = editing && draft !== null ? draft : (report?.widgets ?? []);
@@ -225,6 +227,7 @@ export function CustomReportPage() {
     if (report === undefined) return;
     setDraft([...report.widgets]);
     setShared(report.shared);
+    setSharedWithText(report.sharedWith.map((share) => share.email).join(', '));
     setSelectedId(isWide ? (report.widgets[0]?.id ?? null) : null);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -236,6 +239,7 @@ export function CustomReportPage() {
   function leaveEdit() {
     setDraft(null);
     setShared(null);
+    setSharedWithText(null);
     setSelectedId(null);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -305,7 +309,15 @@ export function CustomReportPage() {
     try {
       await update.mutateAsync({
         id: report.id,
-        body: { name: report.name, description: report.description, shared: shared ?? report.shared, widgets: draft },
+        body: {
+          name: report.name,
+          description: report.description,
+          shared: shared ?? report.shared,
+          // The comma-separated field becomes a list here; the server
+          // refuses an email that matches nobody rather than dropping it.
+          sharedWith: (sharedWithText ?? '').split(/[\s,;]+/u).filter((email) => email !== ''),
+          widgets: draft,
+        },
       });
       leaveEdit();
       toast.add({ type: 'success', title: 'Report saved' });
@@ -376,6 +388,11 @@ export function CustomReportPage() {
           <span className="flex items-center gap-2">
             {report.name}
             {isShared ? <Badge variant="secondary">Shared</Badge> : null}
+            {!editing && report.editable && !report.shared && report.sharedWith.length > 0 ? (
+              <span className="text-muted-foreground text-xs">
+                shared with {report.sharedWith.length === 1 ? (report.sharedWith[0]?.email ?? '') : `${String(report.sharedWith.length)} colleagues`}
+              </span>
+            ) : null}
             {!report.editable ? (
               <span className="text-muted-foreground text-xs">by {report.ownerName}</span>
             ) : null}
@@ -446,6 +463,21 @@ export function CustomReportPage() {
           )
         }
       />
+
+      {editing ? (
+        <div className="mb-4 flex max-w-xl flex-col gap-1.5">
+          <Label htmlFor="report-shared-with">Also visible to</Label>
+          <Input
+            id="report-shared-with"
+            placeholder="colleague@company.in, another@company.in"
+            value={sharedWithText ?? ''}
+            onChange={(e) => { setSharedWithText(e.target.value); }}
+          />
+          <p className="text-muted-foreground text-xs">
+            Work emails, comma separated. They can open the report, not edit it. The Shared switch shows it to everyone instead.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button

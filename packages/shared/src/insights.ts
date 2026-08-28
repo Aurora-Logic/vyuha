@@ -211,16 +211,29 @@ export const customReportWriteSchema = z.object({
   description: z.string().trim().max(500).default(''),
   /** Shared reports appear for everyone holding report.view; personal ones for their author. */
   shared: z.boolean().default(false),
+  /**
+   * Named sharing: emails of specific colleagues who may see the report
+   * without it being shared with everyone. Resolved server-side to org
+   * members; an email that matches nobody is refused, not dropped.
+   */
+  sharedWith: z.array(z.email().max(254)).max(50).optional(),
   widgets: z.array(customWidgetSchema).max(24).default([]),
 });
 
 export type CustomReportWrite = z.infer<typeof customReportWriteSchema>;
+
+export interface CustomReportShare {
+  readonly userId: string;
+  readonly email: string;
+}
 
 export interface CustomReportView {
   readonly id: string;
   readonly name: string;
   readonly description: string;
   readonly shared: boolean;
+  /** Who the author named; only the author sees the list. */
+  readonly sharedWith: readonly CustomReportShare[];
   readonly ownerUserId: string;
   readonly ownerName: string;
   /** Whether the caller may edit -- true only for the author. */

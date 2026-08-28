@@ -96,6 +96,8 @@ const customReportSchema = z.object({
   name: z.string(),
   description: z.string(),
   shared: z.boolean(),
+  // Only the author gets a non-empty list; readers see [].
+  sharedWith: z.array(z.object({ userId: z.string(), email: z.string() })).default([]),
   ownerUserId: z.string(),
   ownerName: z.string(),
   editable: z.boolean(),

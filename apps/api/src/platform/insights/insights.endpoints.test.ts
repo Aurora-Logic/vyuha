@@ -20,6 +20,7 @@ let harness: ApiHarness;
 let adminToken = '';
 let employeeToken = '';
 let secondAdminToken = '';
+let secondAdminEmail = '';
 
 const metric = (body: AreaInsights, key: string) => {
   const found = body.metrics.find((m) => m.key === key);
@@ -52,6 +53,7 @@ beforeAll(async () => {
   const employee = await harness.createUser({ email: scopedEmail('insights-employee'), roleIds: [employeeRoleId] });
   adminToken = (await harness.login(admin.email, admin.password)).token;
   secondAdminToken = (await harness.login(second.email, second.password)).token;
+  secondAdminEmail = second.email;
   employeeToken = (await harness.login(employee.email, employee.password)).token;
 
   await harness.db.execute(sql`DELETE FROM employees WHERE org_id = ${ORG_ID} AND employee_code = 'INS-1'`);
@@ -281,6 +283,47 @@ describe('custom reports', () => {
     const sharedView = await harness.get<CustomReportView>(`/insights/custom-reports/${shared.body.id}`, { token: secondAdminToken });
     expect(sharedView.status).toBe(200);
     expect(sharedView.body.editable).toBe(false);
+  });
+
+  it('shares by name: the listed colleague sees it, the list stays the author\u2019s secret', async () => {
+    const created = await harness.post<CustomReportView>('/insights/custom-reports', {
+      token: adminToken,
+      body: { name: 'For one colleague', shared: false, sharedWith: [secondAdminEmail.toUpperCase()], widgets: [widget] },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.sharedWith.map((share) => share.email)).toEqual([secondAdminEmail]);
+
+    const theirList = await harness.get<CustomReportView[]>('/insights/custom-reports', { token: secondAdminToken });
+    expect(theirList.body.map((r) => r.name)).toContain('For one colleague');
+    const theirView = await harness.get<CustomReportView>(`/insights/custom-reports/${created.body.id}`, { token: secondAdminToken });
+    expect(theirView.status).toBe(200);
+    expect(theirView.body.editable).toBe(false);
+    // Who else a report is shared with is the author's business, not the reader's.
+    expect(theirView.body.sharedWith).toEqual([]);
+
+    // A save that never mentions sharedWith leaves the shares alone.
+    const renamed = await harness.put<CustomReportView>(`/insights/custom-reports/${created.body.id}`, {
+      token: adminToken,
+      body: { name: 'For one colleague', shared: false, widgets: [widget] },
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.sharedWith.map((share) => share.email)).toEqual([secondAdminEmail]);
+
+    const unshared = await harness.put<CustomReportView>(`/insights/custom-reports/${created.body.id}`, {
+      token: adminToken,
+      body: { name: 'For one colleague', shared: false, sharedWith: [], widgets: [widget] },
+    });
+    expect(unshared.status).toBe(200);
+    const afterRevoke = await harness.get(`/insights/custom-reports/${created.body.id}`, { token: secondAdminToken });
+    expect(afterRevoke.status).toBe(404);
+  });
+
+  it('refuses an email that matches no colleague instead of dropping it', async () => {
+    const res = await harness.post('/insights/custom-reports', {
+      token: adminToken,
+      body: { name: 'Typo share', shared: false, sharedWith: ['nobody@example.invalid'], widgets: [] },
+    });
+    expect(res.status).toBe(400);
   });
 
   it('refuses a second report under the same name for one author', async () => {
