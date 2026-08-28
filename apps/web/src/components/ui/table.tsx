@@ -69,8 +69,12 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
+      // Muted small caps, so the header row reads as labels over the data rather
+      // than as another data row -- Supabase's table voice, adopted app-wide with
+      // the administration redesign (D-64): one table pattern means every table
+      // or none (CLAUDE.md section 3 rule 4).
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        "h-10 px-2 text-left align-middle text-[10px] font-medium tracking-wider uppercase whitespace-nowrap text-muted-foreground [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
