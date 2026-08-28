@@ -729,3 +729,26 @@ describe('margin on the proxy basis (C2, K3)', () => {
     expect(league.body.length).toBeGreaterThan(0);
   });
 });
+
+describe('the export centre (O6)', () => {
+  it('lists only what the caller may open, and a schedule is kept and audited', async () => {
+    const cat = await harness.get<{ report: string; title: string; blurb: string }[]>('/cfo/export-catalogue', { token: adminToken });
+    expect(cat.status).toBe(200);
+    expect(cat.body.map((c) => c.report)).toContain('league');
+    expect(cat.body.every((c) => c.blurb.length > 0)).toBe(true);
+
+    await harness.db.execute(sql`DELETE FROM cfo_report_schedules WHERE org_id = ${ORG_ID}`);
+    const put = await harness.put('/cfo/schedules', { token: adminToken, body: { report: 'credit', cadence: 'weekly', recipients: 'owner@example.test' } });
+    expect(put.status).toBe(200);
+    const list = await harness.get<{ id: string; report: string; cadence: string; lastRunOn: string | null }[]>('/cfo/schedules', { token: adminToken });
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0]?.lastRunOn).toBeNull();
+    const del = await harness.del(`/cfo/schedules/${list.body[0]?.id ?? ''}`, { token: adminToken });
+    expect(del.status).toBe(204);
+  });
+
+  it('the centre sits behind cfo.export', async () => {
+    const denied = await harness.get('/cfo/export-catalogue', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});

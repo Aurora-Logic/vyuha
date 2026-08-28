@@ -61,6 +61,14 @@ class PlannerQueryDto extends createZodDto(plannerQuerySchema) {}
 const exportQuerySchema = salesScopeSchema.extend({ report: z.enum(EXPORT_REPORTS) });
 class ExportQueryDto extends createZodDto(exportQuerySchema) {}
 
+const scheduleSchema = z.object({
+  id: z.string().regex(UUID).optional(),
+  report: z.enum(EXPORT_REPORTS),
+  cadence: z.enum(['daily', 'weekly', 'monthly']),
+  recipients: z.string().trim().min(3).max(500),
+});
+class ScheduleDto extends createZodDto(scheduleSchema) {}
+
 const slabSchema = z.object({
   id: z.string().regex(UUID).optional(),
   brand: z.string().trim().min(1).max(120),
@@ -357,6 +365,34 @@ export class CfoController {
   async reviewException(@CurrentUser() principal: Principal, @Body() body: ExceptionReviewDto): Promise<{ ok: true }> {
     await this.exceptions.review(principal, body.checkKey, body.voucherId, body.state, body.reason);
     return { ok: true };
+  }
+
+  /** O6: the catalogue, filtered to what the caller's own keys open. */
+  @Get('export-catalogue')
+  @RequirePermission(PERMISSIONS.CFO_EXPORT)
+  exportCatalogue(@CurrentUser() principal: Principal): { report: string; title: string; blurb: string }[] {
+    return this.exporter.catalogue(principal);
+  }
+
+  /** O6.3: a report on a cadence, delivered by the nightly as a summary with a link. */
+  @Get('schedules')
+  @RequirePermission(PERMISSIONS.CFO_EXPORT)
+  async schedules(@CurrentUser() principal: Principal): Promise<{ id: string; report: string; cadence: string; recipients: string; lastRunOn: string | null }[]> {
+    return this.exporter.listSchedules(principal);
+  }
+
+  @Put('schedules')
+  @RequirePermission(PERMISSIONS.CFO_EXPORT)
+  async saveSchedule(@CurrentUser() principal: Principal, @Body() body: ScheduleDto): Promise<{ ok: true }> {
+    await this.exporter.saveSchedule(principal, body);
+    return { ok: true };
+  }
+
+  @Delete('schedules/:id')
+  @RequirePermission(PERMISSIONS.CFO_EXPORT)
+  @HttpCode(204)
+  async deleteSchedule(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.exporter.deleteSchedule(principal, id);
   }
 
   /** R6, O6: export exactly what is on screen, logged. */

@@ -964,3 +964,34 @@ export function useConcentration(options: { enabled?: boolean } = {}): UseQueryR
     staleTime: 300_000,
   });
 }
+
+const catalogueSchema = z.array(z.object({ report: z.string(), title: z.string(), blurb: z.string() }));
+const scheduleRowSchema = z.object({ id: z.string(), report: z.string(), cadence: z.string(), recipients: z.string(), lastRunOn: z.string().nullable() });
+
+export type ScheduleRowData = z.infer<typeof scheduleRowSchema>;
+
+export function useExportCatalogue(options: { enabled?: boolean } = {}): UseQueryResult<z.infer<typeof catalogueSchema>, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'export-catalogue'],
+    queryFn: async ({ signal }) => parseOrThrow(catalogueSchema, await apiRequest<unknown>('/cfo/export-catalogue', { signal }), 'export catalogue'),
+    staleTime: 300_000,
+  });
+}
+
+export function useSchedules(options: { enabled?: boolean } = {}): UseQueryResult<ScheduleRowData[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'schedules'],
+    queryFn: async ({ signal }) => parseOrThrow(z.array(scheduleRowSchema), await apiRequest<unknown>('/cfo/schedules', { signal }), 'schedules'),
+    staleTime: 60_000,
+  });
+}
+
+export async function saveSchedule(body: { id?: string; report: string; cadence: string; recipients: string }): Promise<void> {
+  await apiRequest('/cfo/schedules', { method: 'PUT', body });
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  await apiRequest(`/cfo/schedules/${id}`, { method: 'DELETE' });
+}

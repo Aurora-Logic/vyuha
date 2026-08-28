@@ -1071,6 +1071,15 @@ export const MODULES: ModuleDef[] = [
             reqs: 'CFO brief F2',
           },
           {
+            to: '/reports/export-centre',
+            label: 'Export centre',
+            shortLabel: 'Exports',
+            icon: DownloadSimpleIcon,
+            permission: PERMISSIONS.CFO_EXPORT,
+            phase: 6,
+            reqs: 'CFO brief O6',
+          },
+          {
             to: '/reports/definitions',
             label: 'Definitions',
             icon: BookOpenTextIcon,

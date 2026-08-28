@@ -19,3 +19,4 @@ export { AlertsPage } from './alerts-page';
 export { MarginPage } from './margin-page';
 export { BrandsPage } from './brands-page';
 export { AnalyticsPage } from './analytics-page';
+export { ExportCentrePage } from './export-centre-page';

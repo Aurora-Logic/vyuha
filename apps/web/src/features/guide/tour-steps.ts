@@ -431,6 +431,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'The vouchers that look wrong, each with a reason: accept with a reason, or investigate as a task.',
   },
   {
+    id: 'screen.reports-export-centre',
+    route: '/reports/export-centre',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_EXPORT,
+    title: 'Export centre',
+    body: 'Every report your keys open, exportable for a period or delivered on a cadence; every export is logged.',
+  },
+  {
     id: 'screen.reports-definitions',
     route: '/reports/definitions',
     anchor: ANCHORS.screenHeader,

@@ -56,6 +56,21 @@ interface Sheet {
   readonly rows: readonly (string | number | null)[][];
 }
 
+const REPORT_BLURBS: Record<ExportReport, string> = {
+  league: 'Every book priced the same way, with targets',
+  credit: 'The receivable book as its measures, and the top overdue',
+  'work-lists': 'Who to call, for how much, and why -- every list',
+  desk: "Today's ranked call list with scores and reasons",
+  exceptions: 'The vouchers that look wrong, with reviews',
+  penetration: 'Customer by category: count and value grids',
+  'class-grade': 'Class against payment grade, with the names',
+  'data-quality': 'Every check, its value, target and fix',
+  'sales-analysis': 'Summary, day trend and every breakdown',
+  margin: 'The pocket-price waterfall, slices and below-cost grains',
+  brands: 'Each principal with slabs and achievement',
+  analytics: 'Price bands, ABC-XYZ, cohorts and concentration',
+};
+
 const REPORT_META: Record<ExportReport, { title: string; permission: PermissionKey; metrics: readonly string[] }> = {
   league: { title: 'League table', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['R05', 'D10'] },
   credit: { title: 'Credit control', permission: PERMISSIONS.CFO_RECEIVABLES_VIEW, metrics: ['D02', 'D04', 'D05', 'D06', 'D07', 'D17'] },
@@ -88,6 +103,57 @@ export class CfoExportService {
     private readonly brandService: BrandService,
     private readonly analytics: AnalyticsService,
   ) {}
+
+  async listSchedules(principal: Principal): Promise<{ id: string; report: string; cadence: string; recipients: string; lastRunOn: string | null }[]> {
+    const rows = await this.db.execute<{ id: string; report: string; cadence: string; recipients: string; lastRunOn: string | null }>(sql`
+      SELECT id, report, cadence, recipients, last_run_on AS "lastRunOn" FROM cfo_report_schedules
+      WHERE org_id = ${principal.orgId} ORDER BY report, cadence
+    `);
+    return rows.rows;
+  }
+
+  async saveSchedule(principal: Principal, body: { id?: string; report: ExportReport; cadence: string; recipients: string }): Promise<void> {
+    if (!hasPermission(principal, REPORT_META[body.report].permission)) {
+      throw AppError.forbidden(`Scheduling ${REPORT_META[body.report].title} needs ${REPORT_META[body.report].permission}.`);
+    }
+    if (body.id !== undefined) {
+      const updated = await this.db.execute<{ id: string }>(sql`
+        UPDATE cfo_report_schedules SET report = ${body.report}, cadence = ${body.cadence}, recipients = ${body.recipients}
+        WHERE org_id = ${principal.orgId} AND id = ${body.id} RETURNING id
+      `);
+      if (updated.rows[0] === undefined) throw AppError.notFound('schedule', body.id);
+    } else {
+      await this.db.execute(sql`
+        INSERT INTO cfo_report_schedules (org_id, report, cadence, recipients, created_by)
+        VALUES (${principal.orgId}, ${body.report}, ${body.cadence}, ${body.recipients}, ${principal.userId})
+      `);
+    }
+    await this.audit.write({
+      orgId: principal.orgId,
+      actorUserId: principal.userId,
+      action: 'cfo.schedule.saved',
+      entityType: 'cfo_report_schedule',
+      entityId: body.report,
+      before: null,
+      after: { report: body.report, cadence: body.cadence, recipients: body.recipients },
+    });
+  }
+
+  async deleteSchedule(principal: Principal, id: string): Promise<void> {
+    const gone = await this.db.execute<{ id: string }>(sql`
+      DELETE FROM cfo_report_schedules WHERE org_id = ${principal.orgId} AND id = ${id} RETURNING id
+    `);
+    if (gone.rows[0] === undefined) throw AppError.notFound('schedule', id);
+    await this.audit.write({ orgId: principal.orgId, actorUserId: principal.userId, action: 'cfo.schedule.deleted', entityType: 'cfo_report_schedule', entityId: id, before: null, after: null });
+  }
+
+  catalogue(principal: Principal): { report: ExportReport; title: string; blurb: string }[] {
+    return EXPORT_REPORTS.filter((r) => hasPermission(principal, REPORT_META[r].permission)).map((r) => ({
+      report: r,
+      title: REPORT_META[r].title,
+      blurb: REPORT_BLURBS[r],
+    }));
+  }
 
   async build(principal: Principal, report: ExportReport, params: ExportParams): Promise<{ filename: string; buffer: Buffer }> {
     const meta = REPORT_META[report];
