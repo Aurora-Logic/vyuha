@@ -272,15 +272,49 @@ export function BuilderPanel({
           </Field>
           <Field>
             <FieldLabel>Measure</FieldLabel>
-            <Select value={widget.pivot.metric} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, metric: v } }); }}>
-              <SelectTrigger aria-label="Measure"><SelectValue>{(v: string) => PIVOT_METRIC_LABELS[v] ?? v}</SelectValue></SelectTrigger>
+            <Select
+              value={widget.pivot.expr === undefined ? widget.pivot.metric : 'custom'}
+              onValueChange={(v) => {
+                if (v === null || !widget.pivot) return;
+                if (v === 'custom') {
+                  onChange({ ...widget, pivot: { ...widget.pivot, expr: 'net / vouchers' } });
+                } else {
+                  const { expr: _dropped, ...rest } = widget.pivot;
+                  onChange({ ...widget, pivot: { ...rest, metric: v } });
+                }
+              }}
+            >
+              <SelectTrigger aria-label="Measure"><SelectValue>{(v: string) => (v === 'custom' ? 'Custom formula' : (PIVOT_METRIC_LABELS[v] ?? v))}</SelectValue></SelectTrigger>
               <SelectContent>
                 {Object.entries(PIVOT_METRIC_LABELS).map(([k, label]) => (
                   <SelectItem key={k} value={k}>{label}</SelectItem>
                 ))}
+                <SelectItem value="custom">Custom formula</SelectItem>
               </SelectContent>
             </Select>
           </Field>
+          {widget.pivot.expr !== undefined ? (
+            <Field>
+              <FieldLabel>Formula</FieldLabel>
+              {/* Committed on blur or Enter, not per keystroke: the preview
+                  refetches on every spec change, and a half-typed formula is
+                  a 400 the person never meant to send. */}
+              <Input
+                key={widget.id}
+                aria-label="Formula"
+                defaultValue={widget.pivot.expr}
+                placeholder="net / vouchers"
+                onBlur={(e) => {
+                  const next = e.target.value.trim();
+                  if (widget.pivot && next !== '' && next !== widget.pivot.expr) onChange({ ...widget, pivot: { ...widget.pivot, expr: next } });
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Combine measures with + - * / and brackets: {Object.keys(PIVOT_METRIC_LABELS).join(', ')}.
+              </p>
+            </Field>
+          ) : null}
           <Field>
             <FieldLabel>Rows kept</FieldLabel>
             <Select value={String(widget.pivot.top)} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, top: Number(v) } }); }}>

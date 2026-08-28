@@ -413,3 +413,19 @@ describe('the analytics depth (M10, Q2.9, Q2.21, C10)', () => {
     expect(conc.body.hhi).toBeGreaterThan(0);
   });
 });
+
+describe('calculated pivot fields (S1.2)', () => {
+  it('evaluates a guarded expression per cell and refuses nonsense at the door', async () => {
+    const res = await harness.get<{ rows: { key: string; total: number }[]; grandTotal: number; unit: string }>(
+      `/cfo/pivot?from=${DAY}&to=${DAY}&rows=brand&expr=${encodeURIComponent('net / vouchers')}`,
+      { token: rsToken },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.unit).toBe('money');
+    expect(res.body.rows.length).toBeGreaterThan(0);
+    const bad = await harness.get(`/cfo/pivot?from=${DAY}&to=${DAY}&rows=brand&expr=${encodeURIComponent('net + qty')}`, { token: rsToken });
+    expect(bad.status).toBe(400);
+    const sqlish = await harness.get(`/cfo/pivot?from=${DAY}&to=${DAY}&rows=brand&expr=${encodeURIComponent('drop table users')}`, { token: rsToken });
+    expect(sqlish.status).toBe(400);
+  });
+});

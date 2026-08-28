@@ -113,7 +113,7 @@ function PivotWidgetBody({ spec, range, tall }: { spec: NonNullable<CustomWidget
   const keyOf = new Map(data.columns.map((c, i) => [c.key, `${String(i).padStart(3, '0')}|${c.key}`]));
   const labelOf = new Map(data.columns.map((c, i) => [`${String(i).padStart(3, '0')}|${c.key}`, c.label]));
   const grid = heatGridOf(data.cells.map((cell) => ({ category: data.rows.find((r) => r.key === cell.row)?.label ?? cell.row, month: keyOf.get(cell.column) ?? cell.column, value: cell.value, rowId: cell.row })));
-  const show = (v: number) => (data.unit === 'money' ? formatMoneyShort(v) : formatCount(Math.round(v)));
+  const show = (v: number) => (data.unit === 'money' ? formatMoneyShort(v) : data.unit === 'ratio' ? v.toFixed(2) : formatCount(Math.round(v)));
   return (
     <div className={tall ? 'max-h-80 overflow-y-auto' : 'max-h-44 overflow-y-auto'}>
       <HeatmapTable grid={grid} rowLabel="" format={show} columnLabel={(key) => labelOf.get(key) ?? key} />

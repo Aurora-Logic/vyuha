@@ -140,6 +140,13 @@ export const pivotSpecSchema = z.object({
   rows: z.enum(PIVOT_DIMENSIONS),
   columns: z.enum(PIVOT_COLUMNS).nullable().default(null),
   metric: z.enum(PIVOT_METRICS).default('net'),
+  /**
+   * S1.2: an optional arithmetic expression over the registered measures,
+   * e.g. "net / vouchers". Parsed and unit-checked server-side; when
+   * present it replaces the metric as the cell value (the metric still
+   * ranks the top-N fold).
+   */
+  expr: z.string().trim().min(1).max(200).optional(),
   /** Rows kept, ranked by the metric; the rest fold into "Other". */
   top: z.number().int().min(5).max(100).default(20),
 });

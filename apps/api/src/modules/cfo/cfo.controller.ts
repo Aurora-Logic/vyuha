@@ -39,6 +39,7 @@ const salesScopeSchema = creditQuerySchema.extend({
 class SalesScopeDto extends createZodDto(salesScopeSchema) {}
 
 const pivotQuerySchema = salesScopeSchema.extend({
+  expr: z.string().trim().min(1).max(200).optional(),
   rows: z.enum(PIVOT_DIMENSIONS),
   columns: z.enum(PIVOT_COLUMNS).optional(),
   metric: z.enum(PIVOT_METRICS).default('net'),
@@ -342,8 +343,8 @@ export class CfoController {
   @Get('pivot')
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   pivot(@CurrentUser() principal: Principal, @Query() query: PivotQueryDto): Promise<PivotResult> {
-    const { from, to, rows, columns, metric, top, ...scope } = query;
-    return this.salesAnalysis.pivot(principal, from, to, scope, { rows, columns: columns ?? null, metric, top });
+    const { from, to, rows, columns, metric, top, expr, ...scope } = query;
+    return this.salesAnalysis.pivot(principal, from, to, scope, { rows, columns: columns ?? null, metric, top, ...(expr === undefined ? {} : { expr }) });
   }
 
   /** Q4: the registry, for exports and any client that must print a definition. */

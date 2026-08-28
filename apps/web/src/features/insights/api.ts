@@ -66,6 +66,7 @@ const customWidgetSchema = z.object({
       rows: z.enum(PIVOT_DIMENSIONS),
       columns: z.enum(PIVOT_COLUMNS).nullable().default(null),
       metric: z.enum(PIVOT_METRICS).default('net'),
+      expr: z.string().optional(),
       top: z.number().default(20),
     })
     .optional(),

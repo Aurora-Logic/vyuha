@@ -7,6 +7,7 @@ import { InjectDatabase, type Database } from '../../platform/db/db.provider.js'
 import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
 import { sameDayLastYear } from './period/period-resolver.js';
 import { CATEGORY_CASE_SQL } from './category.js';
+import { ExprError, evaluate, measuresOf, parseExpression, unitOf, type ExprNode } from './pivot-expression.js';
 import { readDelta, type DeltaReading } from './robustness.js';
 import { TierService } from './tier.service.js';
 
@@ -61,7 +62,7 @@ export interface PivotResult {
   readonly cells: readonly { row: string; column: string; value: number }[];
   readonly grandTotal: number;
   readonly metric: string;
-  readonly unit: 'money' | 'count';
+  readonly unit: 'money' | 'count' | 'ratio';
 }
 
 const MATERIALITY_FLOOR = 25_000;
@@ -211,12 +212,25 @@ export class SalesAnalysisService {
    * item name and class resolved as of the window's end. Rows beyond
    * `top` fold into "Other" so a 900-customer pivot stays a screen.
    */
-  async pivot(principal: Principal, from: string, to: string, scope: SalesScope, spec: PivotSpec): Promise<PivotResult> {
+  async pivot(principal: Principal, from: string, to: string, scope: SalesScope, spec: PivotSpec & { expr?: string }): Promise<PivotResult> {
     if (scope.person !== undefined && scope.person !== `user:${principal.userId}` && !hasPermission(principal, PERMISSIONS.CFO_TEAM_VIEW)) {
       throw AppError.forbidden('Another person’s sales need cfo.team.view.');
     }
     // K3: rupee margin is a separate sight. The proxy note lives in the registry (M07).
-    if ((spec.metric === 'margin' || spec.metric === 'landed') && !hasPermission(principal, PERMISSIONS.CFO_MARGIN_VIEW)) {
+    // S1.2: a calculated field is an expression over registered measures,
+    // parsed and unit-checked before any SQL is written.
+    let expr: ExprNode | null = null;
+    if (spec.expr !== undefined) {
+      try {
+        expr = parseExpression(spec.expr);
+      } catch (error) {
+        if (error instanceof ExprError) throw AppError.validation(error.message);
+        throw error;
+      }
+    }
+    const usedMeasures = expr === null ? [spec.metric] : measuresOf(expr);
+    if (usedMeasures.length === 0) throw AppError.validation('The formula must use at least one measure.');
+    if (usedMeasures.some((m) => m === 'margin' || m === 'landed') && !hasPermission(principal, PERMISSIONS.CFO_MARGIN_VIEW)) {
       throw AppError.forbidden('Margin in rupees needs cfo.margin.view.');
     }
     const metricSql: Record<PivotSpec['metric'], string> = {
@@ -241,9 +255,10 @@ export class SalesAnalysisService {
     const lyFrom = sameDayLastYear(from);
     const lyTo = sameDayLastYear(to);
 
+    const valueSelect = usedMeasures.map((m, i) => `${metricSql[m]}::numeric(18,3)::text AS v${String(i)}`).join(', ');
     const query = async (f: string, t: string, colKey: string) =>
-      this.db.execute<{ rKey: string | null; rLabel: string | null; cKey: string | null; cLabel: string | null; value: string }>(sql`
-        SELECT r_key AS "rKey", max(r_label) AS "rLabel", c_key AS "cKey", max(c_label) AS "cLabel", ${sql.raw(metricSql[spec.metric])}::numeric(18,3)::text AS value FROM (
+      this.db.execute<{ rKey: string | null; rLabel: string | null; cKey: string | null; cLabel: string | null } & Record<string, string | null>>(sql`
+        SELECT r_key AS "rKey", max(r_label) AS "rLabel", c_key AS "cKey", max(c_label) AS "cLabel", ${sql.raw(valueSelect)} FROM (
           SELECT ${sql.raw(dimSql(spec.rows, 'r'))},
                  ${sql.raw(colDim === null ? `'${colKey}' AS c_key, '${colKey}' AS c_label` : dimSql(colDim, 'c'))},
                  net, gross, discount, returns, qty, voucher_count
@@ -276,7 +291,7 @@ export class SalesAnalysisService {
       return { key, label: label ?? key };
     };
 
-    const cellMap = new Map<string, number>();
+    const sums = new Map<string, (number | null)[]>();
     const rowLabels = new Map<string, string>();
     const colLabels = new Map<string, string>();
     for (const r of results) {
@@ -285,7 +300,23 @@ export class SalesAnalysisService {
       rowLabels.set(row.key, row.label);
       colLabels.set(col.key, col.label);
       const k = `${row.key}\u0000${col.key}`;
-      cellMap.set(k, (cellMap.get(k) ?? 0) + Number(r.value));
+      const acc = sums.get(k) ?? usedMeasures.map(() => null as number | null);
+      usedMeasures.forEach((_, i) => {
+        const v = (r as Record<string, string | null>)[`v${String(i)}`];
+        if (v !== null && v !== undefined) acc[i] = (acc[i] ?? 0) + Number(v);
+      });
+      sums.set(k, acc);
+    }
+    const cellMap = new Map<string, number>();
+    for (const [k, acc] of sums) {
+      let value: number | null;
+      if (expr === null) value = acc[0] ?? null;
+      else {
+        const named: Partial<Record<PivotSpec['metric'], number | null>> = {};
+        usedMeasures.forEach((m, i) => { named[m] = acc[i]; });
+        value = evaluate(expr, named);
+      }
+      if (value !== null) cellMap.set(k, value);
     }
     const rowTotal = new Map<string, number>();
     const colTotal = new Map<string, number>();
@@ -315,8 +346,10 @@ export class SalesAnalysisService {
       columns,
       cells: [...cells.entries()].map(([k, v]) => { const [row, column] = k.split('\u0000'); return { row: row ?? '', column: column ?? '', value: round3(v) }; }),
       grandTotal: round3([...rowTotal.values()].reduce((s, v) => s + v, 0)),
-      metric: spec.metric,
-      unit: spec.metric === 'qty' || spec.metric === 'vouchers' ? 'count' : 'money',
+      metric: spec.expr ?? spec.metric,
+      unit: expr !== null
+        ? (() => { const u = unitOf(expr); return u === 'money' ? 'money' : u === 'count' ? 'count' : 'ratio'; })()
+        : spec.metric === 'qty' || spec.metric === 'vouchers' ? 'count' : 'money',
     };
   }
 }

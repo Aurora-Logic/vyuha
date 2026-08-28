@@ -597,7 +597,7 @@ const pivotResultSchema = z.object({
   cells: z.array(z.object({ row: z.string(), column: z.string(), value: z.number() })),
   grandTotal: z.number(),
   metric: z.string(),
-  unit: z.enum(['money', 'count']),
+  unit: z.enum(['money', 'count', 'ratio']),
 });
 
 export type PivotResultData = z.infer<typeof pivotResultSchema>;
@@ -606,6 +606,7 @@ export interface PivotSpecInput {
   rows: string;
   columns: string | null;
   metric: string;
+  expr?: string | undefined;
   top: number;
 }
 
@@ -617,6 +618,7 @@ export function usePivot(
 ): UseQueryResult<PivotResultData, Error> {
   const params = new URLSearchParams({ from: range.from, to: range.to, rows: spec.rows, metric: spec.metric, top: String(spec.top) });
   if (spec.columns !== null) params.set('columns', spec.columns);
+  if (spec.expr !== undefined && spec.expr.trim() !== '') params.set('expr', spec.expr.trim());
   for (const [k, v] of Object.entries(scope)) if (typeof v === 'string' && v !== '') params.set(k, v);
   const qs = params.toString();
   return useQuery({
