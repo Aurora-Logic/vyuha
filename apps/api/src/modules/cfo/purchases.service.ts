@@ -123,7 +123,7 @@ export class PurchasesService {
       FROM parties p
       LEFT JOIN vouchers v ON v.party_id = p.id AND v.is_cancelled = false
         AND v.voucher_type IN ('Purchase', 'Payment', 'Debit Note')
-      WHERE p.org_id = ${principal.orgId} AND p.parent_group LIKE 'Sundry Creditors%'
+      WHERE p.org_id = ${principal.orgId} AND lower(p.parent_group) LIKE 'sundry creditors%'
       GROUP BY 1, 2
       HAVING (coalesce(p.opening_balance, 0) + coalesce(sum(
         CASE WHEN v.voucher_type = 'Purchase' THEN v.amount

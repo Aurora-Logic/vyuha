@@ -137,7 +137,7 @@ export class InterestBuildService {
         FROM parties p
         LEFT JOIN interest_party_settings s
           ON s.org_id = p.org_id AND s.party_id = p.id AND s.deleted_at IS NULL
-       WHERE p.org_id = ${orgId} AND p.parent_group IN ('Sundry Debtors', 'Sundry Creditors') ${partyFilter}
+       WHERE p.org_id = ${orgId} AND (lower(p.parent_group) LIKE 'sundry debtors%' OR lower(p.parent_group) LIKE 'sundry creditors%') ${partyFilter}
     `);
 
     const voucherFilter: SQL = partyId === undefined ? sql`` : sql`AND v.party_id = ${partyId}`;
@@ -179,7 +179,7 @@ export class InterestBuildService {
 
     let written = 0;
     for (const party of parties.rows) {
-      const isDebtor = party.parent_group === 'Sundry Debtors';
+      const isDebtor = party.parent_group.toLowerCase().startsWith('sundry debtors');
       const billTypes = isDebtor ? DEBTOR_BILLS : CREDITOR_BILLS;
       const settleTypes = isDebtor ? DEBTOR_SETTLEMENTS : CREDITOR_SETTLEMENTS;
       const bills: BillEvent[] = [];

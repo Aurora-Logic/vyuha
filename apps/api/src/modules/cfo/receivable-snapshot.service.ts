@@ -142,7 +142,7 @@ export class ReceivableSnapshotService {
        WHERE b.org_id = ${orgId}
          AND b.ref_type IN ('new', 'against')
          AND b.party_id IS NOT NULL
-         AND p.parent_group = 'Sundry Debtors'
+         AND lower(p.parent_group) LIKE 'sundry debtors%'
          AND NOT v.is_cancelled
          AND v.voucher_date <= ${snapshotDate}::date
        GROUP BY b.party_id, b.bill_name, p.credit_days
@@ -201,7 +201,7 @@ export class ReceivableSnapshotService {
     const debtors = await this.db.execute<DebtorRow>(sql`
       SELECT p.id, p.credit_days, p.opening_balance::text AS opening_balance
         FROM parties p
-       WHERE p.org_id = ${orgId} AND p.parent_group = 'Sundry Debtors'
+       WHERE p.org_id = ${orgId} AND lower(p.parent_group) LIKE 'sundry debtors%'
     `);
 
     const vouchers = await this.db.execute<VoucherRow>(sql`
@@ -210,7 +210,7 @@ export class ReceivableSnapshotService {
         FROM vouchers v
         JOIN parties p ON p.id = v.party_id
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled
-         AND p.parent_group = 'Sundry Debtors'
+         AND lower(p.parent_group) LIKE 'sundry debtors%'
          AND v.voucher_type IN ('Sales', 'Receipt', 'Credit Note')
          AND v.voucher_date <= ${snapshotDate}::date
        ORDER BY v.voucher_date, v.created_at
