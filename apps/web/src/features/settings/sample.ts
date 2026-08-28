@@ -53,7 +53,7 @@ export function sampleSettings(): OrgSettings {
     recomputeWindowDays: 90,
     nonMovingDays: 90,
   },
-    appearance: { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable' },
+    appearance: { accentHue: 277, accentChroma: 0.24, font: 'sans', base: 'stone', density: 'comfortable' },
     email: {
       transport: 'log',
       host: 'localhost',
