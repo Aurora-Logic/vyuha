@@ -215,8 +215,13 @@ export class SalesAnalysisService {
     if (scope.person !== undefined && scope.person !== `user:${principal.userId}` && !hasPermission(principal, PERMISSIONS.CFO_TEAM_VIEW)) {
       throw AppError.forbidden('Another person’s sales need cfo.team.view.');
     }
+    // K3: rupee margin is a separate sight. The proxy note lives in the registry (M07).
+    if ((spec.metric === 'margin' || spec.metric === 'landed') && !hasPermission(principal, PERMISSIONS.CFO_MARGIN_VIEW)) {
+      throw AppError.forbidden('Margin in rupees needs cfo.margin.view.');
+    }
     const metricSql: Record<PivotSpec['metric'], string> = {
       net: 'sum(net)', gross: 'sum(gross)', discount: 'sum(discount)', returns: 'sum(returns)', qty: 'sum(qty)', vouchers: 'sum(voucher_count)',
+      landed: 'sum(landed_cost)', margin: 'sum(pocket_margin)',
     };
     const dimSql = (d: string, alias: string): string => {
       switch (d) {

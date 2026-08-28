@@ -63,6 +63,7 @@ function trendMetric(data: SalesAnalysisData): Metric {
   return {
     key: 'sales-trend',
     label: 'Net sales',
+    hint: 'Net sales per day at this scope, against the same days last year.',
     unit: 'money',
     headline: data.summary.net,
     series: [
@@ -78,6 +79,7 @@ function rankMetric(level: string, rows: readonly BreakdownRowData[]): Metric {
   return {
     key: `by-${level}`,
     label: `By ${level}`,
+    hint: `Net sales for the period split by ${level}; the chart draws the top fifteen, the table has the rest.`,
     unit: 'money',
     headline: rows.reduce((sum, r) => sum + Number(r.net), 0).toFixed(2),
     series: [{ key: 'net', label: 'Net sales' }],
@@ -187,7 +189,7 @@ export function SalesAnalysisPage() {
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} vs the same days last year
           </span>
-          <span className="ml-auto"><ExportButton report="sales-analysis" range={range} scope={scope} /></span>
+          <span className="ml-auto"><ExportButton report="sales-analysis" range={range} scope={{ ...scope }} /></span>
         </div>
 
         {/* The level, as a breadcrumb: Company › C&S › Rajesh, every step clickable (B3). */}

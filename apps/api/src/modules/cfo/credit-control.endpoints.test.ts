@@ -349,8 +349,9 @@ describe('GET /cfo/team/:ownerRef (G4 scorecard)', () => {
     // The radar: alone in the team, she is the team's best on every knowable axis.
     const sales = res.body.radar.find((a) => a.axis === 'Sales');
     expect(sales?.mine).toBe(100);
-    const margin = res.body.radar.find((a) => a.axis === 'Margin');
-    expect(margin?.mine).toBeNull();
+    // The admin holds margin.view, so the axis is real and wears the proxy note.
+    const margin = res.body.radar.find((a) => a.axis === 'Margin %');
+    expect(typeof margin?.mine).toBe('number');
     expect(margin?.note).toContain('M1');
     expect(res.body.promises).toEqual({ kept: 0, broken: 0, open: 0 });
     expect(res.body.activity).toEqual({ assigned: 0, closed: 0 });
@@ -699,5 +700,32 @@ describe('the CFO nightly (Q5 memory, D18 history, Q3 trend)', () => {
     const res = await harness.get<{ alerts: { subject: string; reasons: { key: string }[] }[] }>('/cfo/alerts', { token: adminToken });
     const asha = res.body.alerts.find((a) => a.subject === 'Asha Traders');
     expect(asha?.reasons.map((r) => r.key)).toContain('grade-migrated');
+  });
+});
+
+describe('margin on the proxy basis (C2, K3)', () => {
+  it('the waterfall reconciles pocket price to gross minus discount and returns, and coverage is stated', async () => {
+    const res = await harness.get<{
+      coveragePct: number;
+      waterfall: { key: string; amount: string }[];
+      slices: { level: string; rows: { marginPct: number | null }[] }[];
+    }>('/cfo/margin?from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(res.status).toBe(200);
+    const of = (key: string) => Number(res.body.waterfall.find((w) => w.key === key)?.amount ?? NaN);
+    expect(of('pocket')).toBeCloseTo(of('invoice') + of('discount') + of('returns'), 2);
+    // Below full coverage the uncosted wedge keeps the walk exact.
+    expect(of('margin')).toBeCloseTo(of('pocket') + of('uncosted') + of('landed'), 2);
+    expect(res.body.coveragePct).toBeGreaterThanOrEqual(0);
+    expect(res.body.slices.map((s) => s.level)).toEqual(['brand', 'category', 'person', 'party']);
+  });
+
+  it('rupee margin needs cfo.margin.view: the pivot refuses, the margin screen refuses', async () => {
+    const denied = await harness.get(`/cfo/pivot?from=2026-08-01&to=2026-08-31&rows=brand&metric=margin`, { token: employeeToken });
+    expect(denied.status).toBe(403);
+    const margin = await harness.get('/cfo/margin?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(margin.status).toBe(403);
+    const league = await harness.get<{ margin: string | null; marginPct: number | null }[]>('/cfo/league?from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(league.status).toBe(200);
+    expect(league.body.length).toBeGreaterThan(0);
   });
 });

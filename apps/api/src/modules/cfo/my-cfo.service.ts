@@ -44,6 +44,8 @@ export interface MyCfo {
   readonly delayCostPerYear: string;
   readonly target: string | null;
   readonly achievementPct: number | null;
+  /** Percent on the own book (K3); null while the book's grains carry no cost. */
+  readonly marginPct: number | null;
   readonly pacing: readonly { t: string; cumulative: number; lastYear: number }[];
   readonly customers: readonly MyCustomerRow[];
 }
@@ -86,6 +88,7 @@ export class MyCfoService {
         delayCostPerYear: '0.00',
         target: null,
         achievementPct: null,
+        marginPct: null,
         pacing: [],
         customers: [],
       };
@@ -210,6 +213,16 @@ export class MyCfoService {
       .sort((a, b) => Number(b.thisPeriod) - Number(a.thisPeriod));
 
     const target = await this.team.targetForRange(principal, 'user:' + principal.userId, from, to);
+    const marginRow = await this.db.execute<{ margin: string | null; net: string | null }>(sql`
+      SELECT sum(pocket_margin)::numeric(16,2)::text AS margin,
+             sum(net) FILTER (WHERE pocket_margin IS NOT NULL)::numeric(16,2)::text AS net
+      FROM fact_sales_daily
+      WHERE org_id = ${principal.orgId} AND salesperson_ref = ${'user:' + principal.userId} AND date BETWEEN ${from} AND ${to}
+    `);
+    const marginPct =
+      marginRow.rows[0]?.margin == null || Number(marginRow.rows[0].net ?? 0) === 0
+        ? null
+        : Math.round((Number(marginRow.rows[0].margin) / Number(marginRow.rows[0].net)) * 1000) / 10;
 
     return {
       bookSize: book.length,
@@ -221,6 +234,7 @@ export class MyCfoService {
       delayCostPerYear: ((myOverdue * rate) / 100).toFixed(2),
       target,
       achievementPct: target === null || Number(target) === 0 ? null : Math.round((mySales / Number(target)) * 100),
+      marginPct,
       pacing,
       customers,
     };

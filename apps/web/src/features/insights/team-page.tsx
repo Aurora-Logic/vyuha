@@ -75,6 +75,22 @@ const LEAGUE_COLUMNS: RecordColumn<LeagueRowData & { rank: number }>[] = [
   { key: 'vsLy', header: 'vs last year', cell: (row) => deltaText(row.salesDelta), secondary: true },
   { key: 'collections', header: 'Collections', cell: (row) => formatMoney(row.collections), numeric: true },
   { key: 'overdue', header: 'Overdue', cell: (row) => formatMoney(row.overdue), numeric: true },
+  // K3: rupees only under cfo.margin.view (the server blanks them
+  // otherwise); the percentage appears on the caller's own row for everyone.
+  {
+    key: 'margin',
+    header: 'Margin (proxy)',
+    cell: (row) =>
+      row.margin !== null ? (
+        <span className="tabular-nums">{formatMoney(row.margin)}{row.marginPct === null ? '' : ` · ${String(row.marginPct)}%`}</span>
+      ) : row.marginPct !== null ? (
+        `${String(row.marginPct)}%`
+      ) : (
+        <span className="text-muted-foreground">{EMPTY_VALUE}</span>
+      ),
+    numeric: true,
+    secondary: true,
+  },
   {
     key: 'achievement',
     header: 'Target',

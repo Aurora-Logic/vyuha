@@ -43,6 +43,10 @@ export interface LeagueRow {
   readonly overdue: string;
   readonly target: string | null;
   readonly achievementPct: number | null;
+  /** Rupees only for cfo.margin.view holders (K3); the proxy note is M07's. */
+  readonly margin: string | null;
+  /** Percent on the caller's own row for everyone; every row for margin.view. */
+  readonly marginPct: number | null;
 }
 
 export interface RadarAxis {
@@ -215,6 +219,16 @@ export class TeamService {
 
       const sales = of('sales');
       const target = await this.targetForRange(principal, ownerRef, from, to);
+      const marginRow = await this.db.execute<{ margin: string | null; net: string | null }>(sql`
+        SELECT sum(pocket_margin)::numeric(16,2)::text AS margin,
+               sum(net) FILTER (WHERE pocket_margin IS NOT NULL)::numeric(16,2)::text AS net
+        FROM fact_sales_daily
+        WHERE org_id = ${principal.orgId} AND salesperson_ref = ${ownerRef} AND date BETWEEN ${from} AND ${to}
+      `);
+      const marginValue = marginRow.rows[0]?.margin ?? null;
+      const marginNet = Number(marginRow.rows[0]?.net ?? 0);
+      const canRupees = hasPermission(principal, PERMISSIONS.CFO_MARGIN_VIEW);
+      const isOwnRow = ownerRef === `user:${principal.userId}`;
       rows.push({
         ownerRef,
         ownerEmail: owner.rows[0]?.email ?? null,
@@ -225,6 +239,12 @@ export class TeamService {
         overdue: overdue.rows[0]?.value ?? '0.00',
         target,
         achievementPct: target === null || Number(target) === 0 ? null : Math.round((sales / Number(target)) * 100),
+        // K3's two deliberate choices, enforced where the row is built.
+        margin: canRupees ? marginValue : null,
+        marginPct:
+          marginValue === null || marginNet === 0 || !(canRupees || isOwnRow)
+            ? null
+            : Math.round((Number(marginValue) / marginNet) * 1000) / 10,
       });
     }
     return rows.sort((a, b) => Number(b.sales) - Number(a.sales));
@@ -312,7 +332,9 @@ export class TeamService {
       axis('Sales', (r) => Number(r.sales)),
       axis('Growth', growthOf),
       axis('Collections', (r) => Number(r.collections)),
-      { axis: 'Margin', mine: null, team: null, note: 'Awaits the valuation decision (M1)' },
+      hasPermission(principal, PERMISSIONS.CFO_MARGIN_VIEW) || isSelf
+        ? axis('Margin %', (r) => r.marginPct ?? 0, 'Proxy landed cost until M1 (M07)')
+        : { axis: 'Margin', mine: null, team: null, note: 'Needs cfo.margin.view' },
       axis('New customers', (r) => newByOwner.get(r.ownerRef) ?? 0),
       axis('Activity', (r) => closedRatio(r.ownerRef)),
     ];

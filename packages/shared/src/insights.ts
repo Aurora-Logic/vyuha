@@ -133,7 +133,7 @@ export const PIVOT_DIMENSIONS = ['party', 'brand', 'item', 'category', 'salesper
 export type PivotDimension = (typeof PIVOT_DIMENSIONS)[number];
 export const PIVOT_COLUMNS = [...PIVOT_DIMENSIONS, 'compare'] as const;
 export type PivotColumn = (typeof PIVOT_COLUMNS)[number];
-export const PIVOT_METRICS = ['net', 'gross', 'discount', 'returns', 'qty', 'vouchers'] as const;
+export const PIVOT_METRICS = ['net', 'gross', 'discount', 'returns', 'qty', 'vouchers', 'landed', 'margin'] as const;
 export type PivotMetric = (typeof PIVOT_METRICS)[number];
 
 export const pivotSpecSchema = z.object({

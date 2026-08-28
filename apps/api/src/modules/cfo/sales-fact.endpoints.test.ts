@@ -77,6 +77,8 @@ beforeAll(async () => {
     VALUES (${ORG_ID}, ${connectionId}, 'MCB 6A', 'Nos', 'C&S Electric') RETURNING id
   `);
   const itemId = item.rows[0]?.id ?? '';
+  // A master cost, so the proxy margin has something to read (M6 until M1).
+  await harness.db.execute(sql`UPDATE stock_items SET cost_price = 60 WHERE id = ${itemId}`);
 
   await owners.assign(ORG_ID, null, ashaId, [{ ownerRef: rsRef, share: 100 }], '2026-08-01');
   await owners.assign(ORG_ID, null, bharatId, [{ ownerRef: rsRef, share: 60 }, { ownerRef: mpRef, share: 40 }], '2026-08-01');
@@ -335,5 +337,31 @@ describe('GET /cfo/pivot (S1.1)', () => {
     expect(bad.status).toBe(400);
     const badMetric = await harness.get(`/cfo/pivot?from=${DAY}&to=${DAY}&rows=brand&metric=landed_cost`, { token: rsToken });
     expect(badMetric.status).toBe(400);
+  });
+});
+
+describe('the proxy margin in the fact (M6 pending M1)', () => {
+  it('prices the costed grain and refuses to half-price the rest', async () => {
+    await facts.buildOrgDay(ORG_ID, DAY);
+    const rows = await harness.db.execute<{ itemName: string; salespersonRef: string; landed: string | null; pocket: string | null; net: string }>(sql`
+      SELECT item_name AS "itemName", salesperson_ref AS "salespersonRef",
+             landed_cost::text AS landed, pocket_margin::text AS pocket, net::text AS net
+      FROM fact_sales_daily WHERE org_id = ${ORG_ID} AND date = ${DAY} ORDER BY item_name, salesperson_ref
+    `);
+    // Asha's MCB grain: 2 units at a 60 cost -- landed 120, pocket = net - 120.
+    const mcb = rows.rows.find((r) => r.itemName === 'MCB 6A');
+    expect(mcb?.landed).toBe('120.00');
+    expect(Number(mcb?.pocket)).toBeCloseTo(Number(mcb?.net) - 120, 2);
+    // Asha's discount grain moved no goods but is a pure price cut: cost 0
+    // is the truth there, and its pocket margin is the negative discount.
+    // Bharat's ledger-only voucher and every credit note carry goods whose
+    // cost is unknowable: margin stays null rather than reading as free.
+    void rows;
+    const bharat = await harness.db.execute<{ landed: string | null; pocket: string | null }>(sql`
+      SELECT landed_cost::text AS landed, pocket_margin::text AS pocket FROM fact_sales_daily
+      WHERE org_id = ${ORG_ID} AND date = ${DAY} AND party_id = ${bharatId}
+    `);
+    expect(bharat.rows.length).toBeGreaterThan(0);
+    expect(bharat.rows.every((r) => r.landed === null && r.pocket === null)).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import { MyCfoService, type MyCfo } from './my-cfo.service.js';
 import { AlertsService, type Alerts } from './alerts.service.js';
 import { CfoExportService, EXPORT_REPORTS } from './cfo-export.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
+import { MarginService, type MarginRead } from './margin.service.js';
 import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday, type WeekClose } from './desk.service.js';
 import { EXCEPTION_STATES, ExceptionsService, type Exceptions } from './exceptions.service.js';
 import { PenetrationService, type Penetration } from './penetration.service.js';
@@ -140,6 +141,7 @@ export class CfoController {
     private readonly exceptions: ExceptionsService,
     private readonly exporter: CfoExportService,
     private readonly alerts: AlertsService,
+    private readonly margin: MarginService,
   ) {}
 
   @Get('receivables')
@@ -367,6 +369,14 @@ export class CfoController {
   async snoozeAlert(@CurrentUser() principal: Principal, @Body() body: SnoozeDto): Promise<{ ok: true }> {
     await this.alerts.snooze(principal, body.alertKey, body.partyId, body.until, body.reason);
     return { ok: true };
+  }
+
+  /** C2: the pocket-price waterfall and margin slices, rupees behind cfo.margin.view. */
+  @Get('margin')
+  @RequirePermission(PERMISSIONS.CFO_MARGIN_VIEW)
+  marginRead(@CurrentUser() principal: Principal, @Query() query: SalesScopeDto): Promise<MarginRead> {
+    const { from, to, ...scope } = query;
+    return this.margin.read(principal, from, to, scope);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

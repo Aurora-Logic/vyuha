@@ -115,3 +115,55 @@ export function MovementMatrix({ cells, onCell }: { cells: readonly MovementCell
   );
 }
 
+
+export interface WaterfallInput {
+  readonly name: string;
+  readonly value: number;
+  /** An absolute landing (drawn from zero) rather than a floating delta. */
+  readonly total?: boolean;
+}
+
+/** The margin walk and any other additive story, drawn by the bridge's rules. */
+function stepsOf(steps: readonly WaterfallInput[]): { name: string; base: number; delta: number; signed: number; kind: 'total' | 'up' | 'down' }[] {
+  let running = 0;
+  return steps.map((step) => {
+    if (step.total) {
+      running = step.value;
+      return { name: step.name, base: 0, delta: Math.abs(step.value), signed: step.value, kind: 'total' as const };
+    }
+    const next = running + step.value;
+    const row = { name: step.name, base: Math.min(running, next), delta: Math.abs(step.value), signed: step.value, kind: step.value >= 0 ? ('up' as const) : ('down' as const) };
+    running = next;
+    return row;
+  });
+}
+
+export function StepsWaterfall({ steps }: { steps: readonly WaterfallInput[] }) {
+  const data = stepsOf(steps);
+  const fillOf = (kind: 'total' | 'up' | 'down'): string => (kind === 'total' ? 'var(--fresh-1)' : kind === 'up' ? 'var(--fresh-4)' : 'var(--destructive)');
+  return (
+    <ChartContainer config={WATERFALL_CONFIG} className="aspect-auto h-64 w-full min-w-0">
+      <BarChart accessibilityLayer data={data} margin={{ left: 4, right: 12, top: 20 }} barCategoryGap="18%">
+        <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} interval={0} />
+        <YAxis width={56} tickLine={false} axisLine={false} tick={{ fontSize: 11 }} tickFormatter={(v: number) => formatMoneyShort(v)} />
+        <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
+        <Bar dataKey="delta" stackId="w" isAnimationActive={false}>
+          {data.map((row) => (
+            <Cell key={row.name} fill={fillOf(row.kind)} fillOpacity={row.kind === 'total' ? 0.85 : 0.7} />
+          ))}
+          <LabelList
+            position="top"
+            offset={6}
+            className="fill-foreground"
+            fontSize={10}
+            valueAccessor={(entry: { payload?: { signed?: number; kind?: string } }) => {
+              const signed = entry.payload?.signed ?? 0;
+              const sign = entry.payload?.kind === 'total' ? '' : signed >= 0 ? '+' : '−';
+              return `${sign}${formatMoneyShort(Math.abs(signed))}`;
+            }}
+          />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}

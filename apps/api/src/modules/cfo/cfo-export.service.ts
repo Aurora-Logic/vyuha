@@ -12,6 +12,7 @@ import { DataQualityService } from './data-quality.service.js';
 import { DeskService } from './desk.service.js';
 import { ExceptionsService } from './exceptions.service.js';
 import { PenetrationService } from './penetration.service.js';
+import { MarginService } from './margin.service.js';
 import { SalesAnalysisService, type SalesScope } from './sales-analysis.service.js';
 import { TeamService } from './team.service.js';
 import { TierService } from './tier.service.js';
@@ -35,6 +36,7 @@ export const EXPORT_REPORTS = [
   'class-grade',
   'data-quality',
   'sales-analysis',
+  'margin',
 ] as const;
 export type ExportReport = (typeof EXPORT_REPORTS)[number];
 
@@ -60,6 +62,7 @@ const REPORT_META: Record<ExportReport, { title: string; permission: PermissionK
   'class-grade': { title: 'Class and payment grade', permission: PERMISSIONS.CFO_RECEIVABLES_VIEW, metrics: ['D18'] },
   'data-quality': { title: 'Data quality', permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW, metrics: ['Q01'] },
   'sales-analysis': { title: 'Sales analysis', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['R05', 'R07', 'R11', 'C01'] },
+  margin: { title: 'Margin', permission: PERMISSIONS.CFO_MARGIN_VIEW, metrics: ['M05', 'M06', 'M07', 'M13'] },
 };
 
 @Injectable()
@@ -75,6 +78,7 @@ export class CfoExportService {
     private readonly tiers: TierService,
     private readonly quality: DataQualityService,
     private readonly sales: SalesAnalysisService,
+    private readonly marginService: MarginService,
   ) {}
 
   async build(principal: Principal, report: ExportReport, params: ExportParams): Promise<{ filename: string; buffer: Buffer }> {
@@ -194,6 +198,14 @@ export class CfoExportService {
           { name: 'Summary', columns: ['Measure', 'Value'], rows: [['Net sales', Number(a.summary.net)], ['Same days last year', Number(a.summary.lastYear)], ['Customers', a.summary.customers], ['Vouchers', a.summary.vouchers], ['Quantity', Number(a.summary.qty)], ['Unassigned', Number(a.summary.unassignedNet)]] },
           { name: 'By day', columns: ['Day', 'Net', 'Last year'], rows: a.trend.map((t) => [t.t, t.net, t.lastYear]) },
           ...a.breakdowns.map((b) => ({ name: `By ${b.label}`, columns: ['Name', 'Net', 'Last year', 'Qty', 'Vouchers'], rows: b.rows.map((r) => [r.label, Number(r.net), Number(r.lastYear), Number(r.qty), r.vouchers]) })),
+        ];
+      }
+      case 'margin': {
+        const m = await this.marginService.read(principal, from, to, params.scope ?? {});
+        return [
+          { name: 'Waterfall', columns: ['Layer', 'Amount'], rows: m.waterfall.map((w) => [w.label, Number(w.amount)]) },
+          ...m.slices.map((slice) => ({ name: `By ${slice.label}`, columns: ['Name', 'Net', 'Margin', 'Margin %'], rows: slice.rows.map((r) => [r.label, Number(r.net), r.margin === null ? null : Number(r.margin), r.marginPct]) })),
+          { name: 'Negative grains', columns: ['Day', 'Customer', 'Item', 'Net', 'Margin'], rows: m.negativeGrains.map((g) => [g.day, g.party, g.item, Number(g.net), Number(g.margin)]) },
         ];
       }
       default:

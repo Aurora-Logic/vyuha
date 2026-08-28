@@ -69,6 +69,8 @@ interface FactAccumulator {
   gross: Paise;
   discount: Paise;
   returns: Paise;
+  /** Proxy landed cost in paise (M6 via the master's cost price, until M1); null once any grain line lacks a cost, or the goods are unknowable. */
+  landed: Paise | null;
   vouchers: Set<string>;
 }
 
@@ -106,11 +108,12 @@ export class SalesFactService {
       actualQty: string | null;
       amount: string;
       brand: string | null;
+      costPrice: string | null;
     }>(sql`
       SELECT l.voucher_id AS "voucherId", l.kind, l.ledger_name AS "ledgerName",
              l.stock_item_id AS "stockItemId", l.stock_item_name AS "stockItemName",
              l.billed_qty AS "billedQty", l.actual_qty AS "actualQty", l.amount,
-             s.parent_group AS brand
+             s.parent_group AS brand, s.cost_price::text AS "costPrice"
       FROM voucher_lines l
       JOIN vouchers v ON v.id = l.voucher_id
       LEFT JOIN stock_items s ON s.id = l.stock_item_id
@@ -141,6 +144,7 @@ export class SalesFactService {
         gross: 0n,
         discount: 0n,
         returns: 0n,
+        landed: 0n,
         vouchers: new Set<string>(),
       };
       groups.set(key, fresh);
@@ -153,6 +157,7 @@ export class SalesFactService {
       if (voucher.voucherType === 'Credit Note') {
         // R03 whole, at party grain, until natures classify R04 out of it.
         const g = group('Credit Note', voucher.partyId, voucher.partyName, null, '', 'Unbranded');
+        g.landed = null;
         g.returns += toPaise(voucher.amount);
         g.vouchers.add(voucher.id);
         continue;
@@ -161,6 +166,8 @@ export class SalesFactService {
       const inventory = voucherLines.filter((l) => l.kind === 'inventory');
       if (inventory.length === 0) {
         const g = group('Sales', voucher.partyId, voucher.partyName, null, '', 'Unbranded');
+        // A ledger-only voucher carries no goods, so no cost can be resolved.
+        g.landed = null;
         g.gross += toPaise(voucher.amount);
         g.vouchers.add(voucher.id);
       } else {
@@ -170,6 +177,11 @@ export class SalesFactService {
           g.qty += toMilli(quantity);
           const amount = toPaise(line.amount);
           g.gross += amount < 0n ? -amount : amount;
+          // M6 proxy until M1 answers the valuation question: the master's
+          // cost price. One costless line poisons the grain's margin to
+          // null -- a partly-costed margin is a wrong number, not a lower one.
+          if (line.costPrice === null) g.landed = null;
+          else if (g.landed !== null) g.landed += (toMilli(quantity) * toPaise(line.costPrice) + 500n) / 1000n;
           g.vouchers.add(voucher.id);
         }
       }
@@ -195,7 +207,8 @@ export class SalesFactService {
       return result;
     };
 
-    interface FactRow extends Omit<FactAccumulator, 'vouchers'> {
+    interface FactRow extends Omit<FactAccumulator, 'vouchers' | 'landed'> {
+      landed: bigint | null;
       salespersonRef: string;
       voucherCount: number;
     }
@@ -208,6 +221,7 @@ export class SalesFactService {
       let grossLeft = g.gross;
       let discountLeft = g.discount;
       let returnsLeft = g.returns;
+      let landedLeft = g.landed ?? 0n;
       owners.forEach((owner, index) => {
         const last = index === owners.length - 1;
         const cut = (left: bigint, whole: bigint): bigint => (last ? left : (whole * BigInt(owner.share)) / 100n);
@@ -215,10 +229,12 @@ export class SalesFactService {
         const gross = cut(grossLeft, g.gross);
         const discount = cut(discountLeft, g.discount);
         const returns = cut(returnsLeft, g.returns);
+        const landed = g.landed === null ? null : cut(landedLeft, g.landed);
         qtyLeft -= qty;
         grossLeft -= gross;
         discountLeft -= discount;
         returnsLeft -= returns;
+        landedLeft -= landed ?? 0n;
         rows.push({
           voucherType: g.voucherType,
           partyId: g.partyId,
@@ -230,6 +246,7 @@ export class SalesFactService {
           gross,
           discount,
           returns,
+          landed,
           salespersonRef: owner.ownerRef,
           voucherCount: g.vouchers.size,
         });
@@ -240,15 +257,20 @@ export class SalesFactService {
       await tx.execute(sql`DELETE FROM fact_sales_daily WHERE org_id = ${orgId} AND date = ${day}`);
       for (const row of rows) {
         const net = row.gross - row.discount - row.returns;
+        const landed = row.landed;
+        const pocket = landed === null ? null : net - landed;
         await tx.execute(sql`
           INSERT INTO fact_sales_daily
             (org_id, date, party_id, party_name, item_id, item_name, brand, business_line,
-             salesperson_ref, voucher_type, qty, gross, discount, returns, rate_diff, net, voucher_count)
+             salesperson_ref, voucher_type, qty, gross, discount, returns, rate_diff, net,
+             landed_cost, pocket_margin, voucher_count)
           VALUES
             (${orgId}, ${day}, ${row.partyId}, ${row.partyName}, ${row.itemId}, ${row.itemName},
              ${row.brand}, 'DOMESTIC', ${row.salespersonRef}, ${row.voucherType},
              ${fromMilli(row.qty)}::numeric, ${fromPaise(row.gross)}::numeric, ${fromPaise(row.discount)}::numeric,
-             ${fromPaise(row.returns)}::numeric, 0, ${fromPaise(net)}::numeric, ${row.voucherCount})
+             ${fromPaise(row.returns)}::numeric, 0, ${fromPaise(net)}::numeric,
+             ${landed === null ? null : fromPaise(landed)}::numeric, ${pocket === null ? null : fromPaise(pocket)}::numeric,
+             ${row.voucherCount})
         `);
       }
     });

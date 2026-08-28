@@ -351,6 +351,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'One sales engine at every scope: drill from the company into a brand, a person, a customer or a product, and climb back by the breadcrumb.',
   },
   {
+    id: 'screen.reports-margin',
+    route: '/reports/margin',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_MARGIN_VIEW,
+    title: 'Margin',
+    body: 'The pocket-price waterfall on the proxy cost, beside its coverage; grains sold below cost are named.',
+  },
+  {
     id: 'screen.reports-penetration',
     route: '/reports/penetration',
     anchor: ANCHORS.screenHeader,

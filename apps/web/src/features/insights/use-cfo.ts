@@ -182,6 +182,8 @@ const leagueSchema = z.array(
     overdue: z.string(),
     target: z.string().nullable(),
     achievementPct: z.number().nullable(),
+    margin: z.string().nullable(),
+    marginPct: z.number().nullable(),
   }),
 );
 
@@ -642,6 +644,8 @@ export const PIVOT_DIMENSION_LABELS: Record<string, string> = {
 
 export const PIVOT_METRIC_LABELS: Record<string, string> = {
   net: 'Net sales',
+  landed: 'Landed cost (proxy)',
+  margin: 'Pocket margin (proxy)',
   gross: 'Gross sales',
   discount: 'Discount',
   returns: 'Returns',
@@ -798,4 +802,38 @@ export function useAlerts(options: { enabled?: boolean } = {}): UseQueryResult<A
 
 export async function snoozeAlert(body: { alertKey: string; partyId: string | null; until: string; reason: string }): Promise<void> {
   await apiRequest('/cfo/alerts/snooze', { method: 'POST', body });
+}
+
+const marginSchema = z.object({
+  coveragePct: z.number(),
+  waterfall: z.array(z.object({ key: z.string(), label: z.string(), amount: z.string() })),
+  slices: z.array(
+    z.object({
+      level: z.string(),
+      label: z.string(),
+      rows: z.array(z.object({ key: z.string(), label: z.string(), net: z.string(), margin: z.string().nullable(), marginPct: z.number().nullable() })),
+    }),
+  ),
+  negativeGrains: z.array(z.object({ day: z.string(), party: z.string(), item: z.string(), net: z.string(), margin: z.string() })),
+});
+
+export type MarginData = z.infer<typeof marginSchema>;
+
+export function useMargin(
+  range: { from: string; to: string },
+  scope: SalesScope = {},
+  options: { enabled?: boolean } = {},
+): UseQueryResult<MarginData, Error> {
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  for (const [k, v] of Object.entries(scope)) if (typeof v === 'string' && v !== '') params.set(k, v);
+  const qs = params.toString();
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'margin', qs],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/margin?${qs}`, { signal });
+      return parseOrThrow(marginSchema, body, 'margin');
+    },
+    staleTime: 60_000,
+  });
 }

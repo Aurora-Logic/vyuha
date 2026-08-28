@@ -50,6 +50,7 @@ const myCfoSchema = z.object({
   delayCostPerYear: z.string(),
   target: z.string().nullable(),
   achievementPct: z.number().nullable(),
+  marginPct: z.number().nullable(),
   pacing: z.array(z.object({ t: z.string(), cumulative: z.number(), lastYear: z.number() })),
   customers: z.array(
     z.object({
@@ -210,7 +211,9 @@ export function MyCfoPage() {
                   // Honest placeholders, not fakes (brief G3 rows the
                   // module cannot fill yet say why).
                   : { label: 'Target progress', value: EMPTY_VALUE, note: 'No target set for this period' },
-                { label: 'Real profit', value: EMPTY_VALUE, note: 'Awaits the valuation decision' },
+                data.marginPct !== null
+                  ? { label: 'Margin % (proxy)', value: `${String(data.marginPct)}%`, note: 'own book, costed grains', info: <DefinitionLink id="M07" /> }
+                  : { label: 'Margin %', value: EMPTY_VALUE, note: 'No costed grains in the period', info: <DefinitionLink id="M07" /> },
               ]}
             />
 
