@@ -60,6 +60,7 @@ const BUILT_ROUTES = new Set([
   '/reports/brands',
   '/reports/analytics',
   '/reports/export-centre',
+  '/reports/close-pack',
   '/reports/desk',
   '/reports/data-quality',
   '/reports/penetration',
@@ -118,6 +119,8 @@ const MarginPage = lazy(() => import('@/features/insights').then((m) => ({ defau
 const BrandsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.BrandsPage })));
 const CfoAnalyticsPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.AnalyticsPage })));
 const ExportCentrePage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ExportCentrePage })));
+const ClosePackPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ClosePackPage })));
+const ClosePackPrintPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ClosePackPrintPage })));
 const ScorecardPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ScorecardPage })));
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
@@ -190,6 +193,7 @@ export default function App() {
           <Suspense fallback={null}>
           <Routes>
             {/* The paper and nothing else: printed from its own tab, outside the shell (REQ-W-01, print and PDF). */}
+            <Route path="print/close-pack" element={<ClosePackPrintPage />} />
             <Route path="print/:kind/:id" element={<DocumentPrintPage />} />
 
             <Route element={<AppShell />}>
@@ -296,6 +300,7 @@ export default function App() {
               <Route path="reports/brands" element={<BrandsPage />} />
               <Route path="reports/analytics" element={<CfoAnalyticsPage />} />
               <Route path="reports/export-centre" element={<ExportCentrePage />} />
+              <Route path="reports/close-pack" element={<ClosePackPage />} />
               <Route path="reports/desk" element={<DeskPage />} />
               <Route path="reports/data-quality" element={<DataQualityPage />} />
               <Route path="reports/penetration" element={<PenetrationPage />} />

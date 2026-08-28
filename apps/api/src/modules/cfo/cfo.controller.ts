@@ -17,6 +17,7 @@ import { DataQualityService, type DataQuality } from './data-quality.service.js'
 import { MarginService, type MarginRead } from './margin.service.js';
 import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday, type WeekClose } from './desk.service.js';
 import { EXCEPTION_STATES, ExceptionsService, type Exceptions } from './exceptions.service.js';
+import { NarrativeService, type Narrative } from './narrative.service.js';
 import { PenetrationService, type Penetration } from './penetration.service.js';
 import { SalesAnalysisService, type PivotResult, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
@@ -170,6 +171,7 @@ export class CfoController {
     private readonly deskService: DeskService,
     private readonly quality: DataQualityService,
     private readonly penetration: PenetrationService,
+    private readonly narrative: NarrativeService,
     private readonly tiers: TierService,
     private readonly exceptions: ExceptionsService,
     private readonly exporter: CfoExportService,
@@ -401,6 +403,13 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   metrics(): readonly MetricDefinition[] {
     return METRIC_REGISTRY;
+  }
+
+  /** Part L: the narrative -- computed outputs arranged into sentences, never raw rows. */
+  @Get('narrative')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  narrativeRead(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<Narrative> {
+    return this.narrative.read(principal, query.from, query.to);
   }
 
   /** F2: the exception list for a window. */

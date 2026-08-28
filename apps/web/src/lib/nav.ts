@@ -26,6 +26,7 @@ import {
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
+  FilePdfIcon,
   EnvelopeSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
@@ -1078,6 +1079,15 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.CFO_EXPORT,
             phase: 6,
             reqs: 'CFO brief O6',
+          },
+          {
+            to: '/reports/close-pack',
+            label: 'Close pack',
+            shortLabel: 'Close pack',
+            icon: FilePdfIcon,
+            permission: PERMISSIONS.CFO_EXPORT,
+            phase: 6,
+            reqs: 'CFO brief Part L',
           },
           {
             to: '/reports/definitions',

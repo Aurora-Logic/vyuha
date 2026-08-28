@@ -439,6 +439,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Every report your keys open, exportable for a period or delivered on a cadence; every export is logged.',
   },
   {
+    id: 'screen.reports-close-pack',
+    route: '/reports/close-pack',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_EXPORT,
+    title: 'Close pack',
+    body: 'The monthly bundle the CA works from: register, bridges, movement, ageing and the narrative, printed to PDF from the browser.',
+  },
+  {
     id: 'screen.reports-definitions',
     route: '/reports/definitions',
     anchor: ANCHORS.screenHeader,

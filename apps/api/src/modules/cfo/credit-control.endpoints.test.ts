@@ -838,3 +838,31 @@ describe('bulk class tools (P4, P5, O2.1)', () => {
     expect(forbidden.status).toBe(403);
   });
 });
+
+describe('the narrative (Part L)', () => {
+  it('states only numbers it was given, names names, and links every action to its list', async () => {
+    const res = await harness.get<{
+      headline: string;
+      bridge: { label: string; amount: string }[];
+      right: { name: string; detail: string }[];
+      wrong: { name: string; detail: string }[];
+      cash: string[];
+      actions: { text: string; owner: string; link: string }[];
+    }>(`/cfo/narrative?from=2026-08-01&to=2026-08-31`, { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.headline).toMatch(/Net sales ₹/u);
+    expect(res.body.bridge.map((b) => b.label)).toEqual(['Volume', 'Price', 'Mix', 'New customers', 'Lost customers']);
+    expect(res.body.cash.some((line) => line.startsWith('Outstanding'))).toBe(true);
+    // The purchase side is missing from the projection; the narrative says so
+    // rather than inventing a cash cycle.
+    expect(res.body.cash.some((line) => line.includes('purchase-side'))).toBe(true);
+    for (const action of res.body.actions) {
+      expect(action.link).toMatch(/^\/reports\/work-lists\?list=/u);
+      expect(action.owner.length).toBeGreaterThan(0);
+    }
+    expect(res.body.actions.length).toBeLessThanOrEqual(5);
+
+    const denied = await harness.get('/cfo/narrative?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});

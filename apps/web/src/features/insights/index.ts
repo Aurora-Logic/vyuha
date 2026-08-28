@@ -20,3 +20,4 @@ export { MarginPage } from './margin-page';
 export { BrandsPage } from './brands-page';
 export { AnalyticsPage } from './analytics-page';
 export { ExportCentrePage } from './export-centre-page';
+export { ClosePackPage, ClosePackPrintPage } from './close-pack-page';

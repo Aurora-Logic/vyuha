@@ -750,6 +750,32 @@ const exceptionRowSchema = z.object({
   review: z.object({ state: z.string(), reason: z.string(), reviewedAt: z.string() }).nullable(),
 });
 
+const narrativeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  headline: z.string(),
+  bridge: z.array(z.object({ label: z.string(), amount: z.string() })),
+  reconciliationError: z.string(),
+  right: z.array(z.object({ name: z.string(), detail: z.string() })),
+  wrong: z.array(z.object({ name: z.string(), detail: z.string() })),
+  cash: z.array(z.string()),
+  actions: z.array(z.object({ text: z.string(), owner: z.string(), link: z.string() })),
+});
+
+export type NarrativeData = z.infer<typeof narrativeSchema>;
+
+export function useNarrative(range: { from: string; to: string }, options: { enabled?: boolean } = {}): UseQueryResult<NarrativeData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'narrative', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/narrative?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(narrativeSchema, body, 'narrative');
+    },
+    staleTime: 60_000,
+  });
+}
+
 const exceptionsSchema = z.object({
   asOf: z.string(),
   from: z.string(),
