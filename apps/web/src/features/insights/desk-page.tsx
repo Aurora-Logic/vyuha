@@ -94,7 +94,7 @@ function ScoreBreakdown({ row }: { row: DeskRowData }) {
             </div>
           ) : null}
         </dl>
-        <p className="text-muted-foreground mt-2 flex items-center gap-1 text-xs">Opportunity is priced with Phase 5; until then it reads zero. <DefinitionLink id="X02" /></p>
+        <p className="text-muted-foreground mt-2 flex items-center gap-1 text-xs">Opportunity is the class’s cross-sell estimate. <DefinitionLink id="X02" /></p>
       </PopoverContent>
     </Popover>
   );
@@ -221,7 +221,11 @@ function CallSheetBody({ sheet, onLogged }: { sheet: CallSheetData; onLogged: ()
         {sheet.buys.stopped.length > 0 ? (
           <p>Stopped: {sheet.buys.stopped.map((s) => `${s.group} (${formatMoney(s.lastYear)} last year)`).join(' · ')}</p>
         ) : null}
-        <p className="text-muted-foreground text-xs">Should buy: cross-sell arrives with Phase 5.</p>
+        {sheet.buys.shouldBuy.length > 0 ? (
+          <p>Should buy: {sheet.buys.shouldBuy.slice(0, 3).map((b) => `${b.category} — ${String(b.adoptionPct)}% of similar customers do (est ${formatMoney(b.estimate)}/yr)`).join(' · ')}</p>
+        ) : (
+          <p className="text-muted-foreground text-xs">No cross-sell gap the class can price yet.</p>
+        )}
       </section>
 
       <section className="flex flex-col gap-1">

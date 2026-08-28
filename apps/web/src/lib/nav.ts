@@ -11,6 +11,7 @@ import {
   BookOpenTextIcon,
   BellRingingIcon,
   ChartLineUpIcon,
+  ChartScatterIcon,
   MedalIcon,
   PercentIcon,
   WarningDiamondIcon,
@@ -916,6 +917,14 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.CFO_MARGIN_VIEW,
             phase: 6,
             reqs: 'CFO brief C2, Phase 4 (M6 proxy)',
+          },
+          {
+            to: '/reports/analytics',
+            label: 'Analytics',
+            icon: ChartScatterIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Phase 5: M10, Q2.9, Q2.21, C10',
           },
           {
             to: '/reports/penetration',

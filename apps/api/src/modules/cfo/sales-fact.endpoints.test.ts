@@ -392,3 +392,24 @@ describe('brand performance and slabs (G2)', () => {
     expect(cs?.categories.map((c) => c.category)).toContain('MCB');
   });
 });
+
+describe('the analytics depth (M10, Q2.9, Q2.21, C10)', () => {
+  it('answers price bands, ABC-XYZ, cohorts and concentration on the fixtures', async () => {
+    const bands = await harness.get<{ item: string; median: string; recoverable: string }[]>(`/cfo/price-bands?from=2025-01-01&to=2026-12-31`, { token: rsToken });
+    expect(bands.status).toBe(200);
+    const abc = await harness.get<{ cells: { abc: string; xyz: string; count: number }[] }>('/cfo/abc-xyz', { token: rsToken });
+    expect(abc.status).toBe(200);
+    expect(abc.body.cells).toHaveLength(9);
+    // The fixture's one costly item is the A of its tiny catalogue.
+    expect(abc.body.cells.filter((c) => c.abc === 'A').reduce((n, c) => n + c.count, 0)).toBeGreaterThan(0);
+    const cohorts = await harness.get<{ cohort: string; size: number; retention: number[] }[]>('/cfo/cohorts', { token: rsToken });
+    expect(cohorts.status).toBe(200);
+    for (const row of cohorts.body) {
+      expect(row.retention[0]).toBe(100);
+    }
+    const conc = await harness.get<{ top5Pct: number; hhi: number }>('/cfo/concentration', { token: rsToken });
+    expect(conc.status).toBe(200);
+    expect(conc.body.top5Pct).toBeGreaterThan(0);
+    expect(conc.body.hhi).toBeGreaterThan(0);
+  });
+});

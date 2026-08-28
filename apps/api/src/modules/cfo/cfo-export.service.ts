@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { METRIC_REGISTRY, PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 
 import { AppError } from '../../platform/common/errors.js';
+import { AnalyticsService } from './analytics.service.js';
 import { AuditService } from '../../platform/audit/audit.service.js';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
@@ -39,6 +40,7 @@ export const EXPORT_REPORTS = [
   'sales-analysis',
   'margin',
   'brands',
+  'analytics',
 ] as const;
 export type ExportReport = (typeof EXPORT_REPORTS)[number];
 
@@ -66,6 +68,7 @@ const REPORT_META: Record<ExportReport, { title: string; permission: PermissionK
   'sales-analysis': { title: 'Sales analysis', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['R05', 'R07', 'R11', 'C01'] },
   margin: { title: 'Margin', permission: PERMISSIONS.CFO_MARGIN_VIEW, metrics: ['M05', 'M06', 'M07', 'M13'] },
   brands: { title: 'Brand performance', permission: PERMISSIONS.CFO_BRAND_VIEW, metrics: ['R05', 'M07'] },
+  analytics: { title: 'Analytics', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['M10', 'M11', 'C10', 'C11'] },
 };
 
 @Injectable()
@@ -83,6 +86,7 @@ export class CfoExportService {
     private readonly sales: SalesAnalysisService,
     private readonly marginService: MarginService,
     private readonly brandService: BrandService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   async build(principal: Principal, report: ExportReport, params: ExportParams): Promise<{ filename: string; buffer: Buffer }> {
@@ -202,6 +206,22 @@ export class CfoExportService {
           { name: 'Summary', columns: ['Measure', 'Value'], rows: [['Net sales', Number(a.summary.net)], ['Same days last year', Number(a.summary.lastYear)], ['Customers', a.summary.customers], ['Vouchers', a.summary.vouchers], ['Quantity', Number(a.summary.qty)], ['Unassigned', Number(a.summary.unassignedNet)]] },
           { name: 'By day', columns: ['Day', 'Net', 'Last year'], rows: a.trend.map((t) => [t.t, t.net, t.lastYear]) },
           ...a.breakdowns.map((b) => ({ name: `By ${b.label}`, columns: ['Name', 'Net', 'Last year', 'Qty', 'Vouchers'], rows: b.rows.map((r) => [r.label, Number(r.net), Number(r.lastYear), Number(r.qty), r.vouchers]) })),
+        ];
+      }
+      case 'analytics': {
+        const [bands, abc, cohorts, conc] = await Promise.all([
+          this.analytics.priceBands(principal, from, to),
+          this.analytics.abcXyz(principal),
+          this.analytics.cohorts(principal),
+          this.analytics.concentration(principal),
+        ]);
+        return [
+          { name: 'Price bands', columns: ['Item', 'Qty', 'Net', 'Min', 'P25', 'Median', 'P75', 'Max', 'Recoverable'],
+            rows: bands.map((b) => [b.item, Number(b.qty), Number(b.net), Number(b.min), Number(b.p25), Number(b.median), Number(b.p75), Number(b.max), Number(b.recoverable)]) },
+          { name: 'ABC-XYZ', columns: ['ABC', 'XYZ', 'Items', 'Net (12m)'], rows: abc.cells.map((c) => [c.abc, c.xyz, c.count, Number(c.net)]) },
+          { name: 'Cohorts', columns: ['Cohort', 'Size', ...Array.from({ length: 13 }, (_, i) => `M+${String(i)}`)],
+            rows: cohorts.map((c) => [c.cohort, c.size, ...c.retention]) },
+          { name: 'Concentration', columns: ['Measure', 'Value'], rows: [['Top-5 %', conc.top5Pct], ['Top-10 %', conc.top10Pct], ['HHI', conc.hhi], ['Top-5 % (LY)', conc.top5PctLy], ['HHI (LY)', conc.hhiLy]] },
         ];
       }
       case 'brands': {

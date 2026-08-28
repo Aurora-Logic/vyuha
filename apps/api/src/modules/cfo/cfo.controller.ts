@@ -10,6 +10,7 @@ import { CreditControlService, type CreditOverview, type WorkLists } from './cre
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
 import { AlertsService, type Alerts } from './alerts.service.js';
+import { AnalyticsService, type AbcXyzCell, type CohortRow, type Concentration, type PriceBand } from './analytics.service.js';
 import { BrandService, type BrandRow, type SlabRow } from './brand.service.js';
 import { CfoExportService, EXPORT_REPORTS } from './cfo-export.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
@@ -154,6 +155,7 @@ export class CfoController {
     private readonly alerts: AlertsService,
     private readonly margin: MarginService,
     private readonly brands: BrandService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   @Get('receivables')
@@ -416,6 +418,34 @@ export class CfoController {
   @HttpCode(204)
   async deleteSlab(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
     await this.brands.deleteSlab(principal, id);
+  }
+
+  /** M10, M11: bands of what each SKU actually sold at, and the gap to the median. */
+  @Get('price-bands')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  priceBands(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<PriceBand[]> {
+    return this.analytics.priceBands(principal, query.from, query.to);
+  }
+
+  /** Q2.9: revenue contribution against demand steadiness, a stocking policy per cell. */
+  @Get('abc-xyz')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  abcXyz(@CurrentUser() principal: Principal): Promise<{ cells: AbcXyzCell[] }> {
+    return this.analytics.abcXyz(principal);
+  }
+
+  /** Q2.21: whether newly won customers are getting better or worse. */
+  @Get('cohorts')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  cohorts(@CurrentUser() principal: Principal): Promise<CohortRow[]> {
+    return this.analytics.cohorts(principal);
+  }
+
+  /** C10, C11: how much of the business a handful of names carries. */
+  @Get('concentration')
+  @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
+  concentration(@CurrentUser() principal: Principal): Promise<Concentration> {
+    return this.analytics.concentration(principal);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

@@ -10,6 +10,7 @@ import { SettingsService } from '../../platform/settings/settings.service.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
 import { CreditControlService, type WorkListRow } from './credit-control.service.js';
 import { CLASS_MULTIPLIER, DESK_THEMES, REASON_PRIORITY, THEME_LISTS, deskScore, type DeskScore, type DeskThemeKey } from './desk-score.js';
+import { AnalyticsService, type CrossSellSuggestion } from './analytics.service.js';
 import { TierService } from './tier.service.js';
 import { readDelta, type DeltaReading } from './robustness.js';
 
@@ -101,8 +102,8 @@ export interface CallSheet {
   readonly buys: {
     top: readonly { group: string; share: number; net: string }[];
     stopped: readonly { group: string; lastYear: string }[];
-    /** Cross-sell arrives with Phase 5; null says so rather than guessing. */
-    shouldBuy: null;
+    /** "71% of similar customers do": the class's adoption and median spend. */
+    shouldBuy: readonly CrossSellSuggestion[];
   };
   readonly lastContact: { on: string; outcome: string; notes: string; ownerLabel: string } | null;
   readonly asks: readonly string[];
@@ -126,6 +127,7 @@ export class DeskService {
     private readonly settings: SettingsService,
     private readonly credit: CreditControlService,
     private readonly tiers: TierService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   /** Current owner per party, the owner map first, the RM assignment behind it. */
@@ -243,6 +245,8 @@ export class DeskService {
     const signals = await this.signals(principal, ids, today);
     const owners = await this.ownersOf(principal);
     const classes = await this.tiers.classAsOf(principal.orgId, ids, today);
+    const crossSell = await this.analytics.crossSell(principal, today);
+    const maxOpportunity = Math.max(0, ...[...crossSell.values()].map((s) => s.reduce((sum, x) => sum + Number(x.estimate), 0)));
     const served = await this.db.execute<{ partyId: string; reason: string }>(sql`
       SELECT party_id AS "partyId", reason FROM cfo_desk_served
       WHERE org_id = ${principal.orgId} AND party_id IN ${ids}
@@ -271,8 +275,8 @@ export class DeskService {
           daysPastGap: sig?.daysPastGap ?? 0,
           brokenPromises: sig?.brokenPromises ?? 0,
           utilisationPct: sig?.utilisationPct ?? 0,
-          opportunityValue: 0,
-          maxOpportunityValue: 0,
+          opportunityValue: (crossSell.get(partyId) ?? []).reduce((sum, x) => sum + Number(x.estimate), 0),
+          maxOpportunityValue: maxOpportunity,
           onCooldown,
           classMultiplier: CLASS_MULTIPLIER[classes.get(partyId) ?? ''] ?? 1,
         });
@@ -538,7 +542,7 @@ export class DeskService {
         promisesMade: promises.rows[0]?.made ?? 0,
         promisesKept: promises.rows[0]?.kept ?? 0,
       },
-      buys: { top, stopped, shouldBuy: null },
+      buys: { top, stopped, shouldBuy: (await this.analytics.crossSell(principal)).get(partyId) ?? [] },
       lastContact: last === undefined ? null : { on: last.on, outcome: last.outcome, notes: last.notes, ownerLabel: lastOwner?.rows[0]?.email.split('@')[0] ?? 'Former user' },
       asks,
       recent: recent.rows.map((r) => ({ on: r.on, outcome: r.outcome, amount: r.amount, nextDate: r.nextDate, notes: r.notes })),

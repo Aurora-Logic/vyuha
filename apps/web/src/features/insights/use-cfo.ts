@@ -374,7 +374,7 @@ const callSheetSchema = z.object({
   buys: z.object({
     top: z.array(z.object({ group: z.string(), share: z.number(), net: z.string() })),
     stopped: z.array(z.object({ group: z.string(), lastYear: z.string() })),
-    shouldBuy: z.null(),
+    shouldBuy: z.array(z.object({ partyId: z.string(), party: z.string(), category: z.string(), adoptionPct: z.number(), estimate: z.string() })),
   }),
   lastContact: z.object({ on: z.string(), outcome: z.string(), notes: z.string(), ownerLabel: z.string() }).nullable(),
   asks: z.array(z.string()),
@@ -893,4 +893,74 @@ export async function saveSlab(body: { id?: string; brand: string; label: string
 
 export async function deleteSlab(id: string): Promise<void> {
   await apiRequest(`/cfo/brand-slabs/${id}`, { method: 'DELETE' });
+}
+
+const priceBandSchema = z.object({
+  itemId: z.string(),
+  item: z.string(),
+  qty: z.string(),
+  net: z.string(),
+  min: z.string(),
+  p25: z.string(),
+  median: z.string(),
+  p75: z.string(),
+  max: z.string(),
+  recoverable: z.string(),
+});
+
+export type PriceBandData = z.infer<typeof priceBandSchema>;
+
+export function usePriceBands(range: { from: string; to: string }, options: { enabled?: boolean } = {}): UseQueryResult<PriceBandData[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'price-bands', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/price-bands?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(z.array(priceBandSchema), body, 'price bands');
+    },
+    staleTime: 60_000,
+  });
+}
+
+const abcXyzSchema = z.object({
+  cells: z.array(z.object({ abc: z.string(), xyz: z.string(), count: z.number(), net: z.string(), items: z.array(z.object({ itemId: z.string(), item: z.string(), net: z.string() })) })),
+});
+
+export type AbcXyzData = z.infer<typeof abcXyzSchema>;
+
+export function useAbcXyz(options: { enabled?: boolean } = {}): UseQueryResult<AbcXyzData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'abc-xyz'],
+    queryFn: async ({ signal }) => parseOrThrow(abcXyzSchema, await apiRequest<unknown>('/cfo/abc-xyz', { signal }), 'ABC-XYZ'),
+    staleTime: 300_000,
+  });
+}
+
+const cohortSchema = z.object({ cohort: z.string(), size: z.number(), retention: z.array(z.number()) });
+
+export function useCohorts(options: { enabled?: boolean } = {}): UseQueryResult<z.infer<typeof cohortSchema>[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'cohorts'],
+    queryFn: async ({ signal }) => parseOrThrow(z.array(cohortSchema), await apiRequest<unknown>('/cfo/cohorts', { signal }), 'cohorts'),
+    staleTime: 300_000,
+  });
+}
+
+const concentrationSchema = z.object({
+  top5Pct: z.number(),
+  top10Pct: z.number(),
+  hhi: z.number(),
+  top5PctLy: z.number().nullable(),
+  hhiLy: z.number().nullable(),
+});
+
+export function useConcentration(options: { enabled?: boolean } = {}): UseQueryResult<z.infer<typeof concentrationSchema>, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'concentration'],
+    queryFn: async ({ signal }) => parseOrThrow(concentrationSchema, await apiRequest<unknown>('/cfo/concentration', { signal }), 'concentration'),
+    staleTime: 300_000,
+  });
 }

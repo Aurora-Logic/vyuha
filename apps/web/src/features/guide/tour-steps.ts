@@ -367,6 +367,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'The pocket-price waterfall on the proxy cost, beside its coverage; grains sold below cost are named.',
   },
   {
+    id: 'screen.reports-analytics',
+    route: '/reports/analytics',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    title: 'Analytics',
+    body: 'Price bands, seasonality, ABC-XYZ, cohort retention and concentration -- pricing, stocking and risk from the fact.',
+  },
+  {
     id: 'screen.reports-penetration',
     route: '/reports/penetration',
     anchor: ANCHORS.screenHeader,
