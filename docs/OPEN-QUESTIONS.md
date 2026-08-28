@@ -705,7 +705,7 @@ Closed by this pass, superseding rows above:
 - **Custom report sharing** — named sharing by work email (resolved server-side,
   typos refused, ids stored), absent-means-unchanged on update.
 
-Still open, and why:
+Deferred by decision — each waits on a fact from outside this repository, not on an answer:
 
 Decided by the owner in session, 28 Aug 2026: **M1 closed** — the Tally item master's
 cost price IS the landed cost (registry M06/M07 bumped to v2, proxy labels removed);
@@ -718,7 +718,7 @@ until a different number is actually wanted.
 
 | # | Question | Recommended default | Blocks |
 |---|---|---|---|
-| X-3 | GST returns feed does not exist | Out of scope until a returns source is chosen (owner confirmed 28 Aug 2026) | All of F1 |
+| X-3 | GST returns feed does not exist (waits on a source being chosen) | Out of scope until a returns source is chosen (owner confirmed 28 Aug 2026) | All of F1 |
 | X-4 | Tally's editing user is not exported by the sync | The four "not measurable yet" exception checks stay labelled | F2 remainder |
 | X-5 | Bulk class assignment has an API and tests but its designed home is the CRM Customers screen (Phase 7); today the paste import and the mismatch list cover the mass paths | Wire the multi-select bulk bar when the Customers screen is built | Nothing today |
 | X-6 | Incentive statements need collected margin (Part K) | After M1 and a collections-applied ledger | Part K payouts |
