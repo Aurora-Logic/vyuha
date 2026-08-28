@@ -62,9 +62,8 @@ const COLUMNS: RecordColumn<Dispatch>[] = [
 /** `stage="delivered"` is the Delivered screen: the same list, only what the customer has signed for. */
 export function DispatchesPage({ stage }: { stage?: 'delivered' } = {}) {
   const delivered = stage === 'delivered';
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
+  // P8-5: dispatches are the floor's list, gated like their endpoint.
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 

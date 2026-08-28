@@ -205,11 +205,19 @@ describe('seed', () => {
     expect(ROLE_PERMISSION_MATRIX.Admin).toContain(PERMISSIONS.ROLES_MANAGE);
     expect(ROLE_PERMISSION_MATRIX.HR).not.toContain(PERMISSIONS.ROLES_MANAGE);
     expect(ROLE_PERMISSION_MATRIX.Operations).not.toContain(PERMISSIONS.ROLES_MANAGE);
+    // P7-2 (owner, 28 Aug 2026): an employee can now be handed a task and
+    // work their own list -- the two task keys are the only additions, and
+    // still nothing that manages anybody else.
     expect(ROLE_PERMISSION_MATRIX.Employee).toEqual([
       PERMISSIONS.PUNCH_SELF,
       PERMISSIONS.ATTENDANCE_VIEW_SELF,
       PERMISSIONS.LEAVE_APPLY_SELF,
+      PERMISSIONS.CRM_TASK_VIEW_SELF,
+      PERMISSIONS.CRM_TASK_MANAGE,
     ]);
+    // P8-5: the Warehouse seed is the floor and nothing else -- no create key.
+    expect(ROLE_PERMISSION_MATRIX.Warehouse).toContain(PERMISSIONS.SALES_FULFIL);
+    expect(ROLE_PERMISSION_MATRIX.Warehouse).not.toContain(PERMISSIONS.SALES_DOCUMENT_CREATE);
   });
 
   it('the printed password actually works against the stored hash', async () => {

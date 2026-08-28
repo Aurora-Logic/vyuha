@@ -108,12 +108,27 @@ export const PERMISSIONS = {
   CRM_PIPELINE_MANAGE: 'crm.pipeline.manage',
   CRM_TASK_VIEW_SELF: 'crm.task.view.self',
   CRM_TASK_VIEW_TEAM: 'crm.task.view.team',
+  /**
+   * P7-1 (owner, 28 Aug 2026). 08 §2.2 deliberately stopped at `.team`, and
+   * then the question it could not answer arrived: who closes the task of
+   * someone who has left, and who even sees a task whose owner has no
+   * employee record? A holder of this key sees — and may reassign — every
+   * task in the organisation. Seeded to Admin only.
+   */
+  CRM_TASK_VIEW_ALL: 'crm.task.view.all',
   CRM_TASK_MANAGE: 'crm.task.manage',
 
   /** Phase 8a (08 §2.2). Documents are the estimate now; orders, challans and invoices as they land. */
   SALES_DOCUMENT_VIEW_SELF: 'sales.document.view.self',
   SALES_DOCUMENT_VIEW_ALL: 'sales.document.view.all',
   SALES_DOCUMENT_CREATE: 'sales.document.create',
+  /**
+   * P8-5 (owner, 28 Aug 2026): the floor is not the desk. Pick, pack and
+   * dispatch answer to this key alone, so raising documents no longer implies
+   * handling boxes — a Warehouse role holds this without any create key, and
+   * a create key no longer opens the floor's screens.
+   */
+  SALES_FULFIL: 'sales.fulfil',
   SALES_DOCUMENT_ALTER: 'sales.document.alter',
   SALES_DISCOUNT_APPROVE: 'sales.discount.approve',
   /** 08 REQ-W-09: release an order blocked by the party's credit position, with a reason. */
@@ -204,10 +219,12 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'crm.pipeline.manage': 'Configure pipelines and their stages',
   'crm.task.view.self': 'View tasks assigned to you or owned by you',
   'crm.task.view.team': 'View your team’s tasks',
+  'crm.task.view.all': 'View and reassign every task in the organisation',
   'crm.task.manage': 'Create, assign and close tasks',
   'sales.document.view.self': 'View the sales documents you own',
   'sales.document.view.all': 'View every sales document',
   'sales.document.create': 'Raise estimates, sales orders and challans',
+  'sales.fulfil': 'Work the floor: pick, pack, dispatch and deliver',
   'sales.document.alter': 'Alter an accepted document (re-pushed against its GUID)',
   'sales.discount.approve': 'Approve a discount above the threshold',
   'sales.credit.override': 'Release a sales order blocked by the party’s credit limit, with a reason',
@@ -262,6 +279,11 @@ export const SYSTEM_ROLES = {
   RELATIONSHIP_MANAGER: 'Relationship manager',
   PURCHASE: 'Purchase',
   ACCOUNTS: 'Accounts',
+  /**
+   * P8-5: the person at the bench with a box, not a book. Holds `sales.fulfil`
+   * and the read the floor's screens rest on — nothing that raises a document.
+   */
+  WAREHOUSE: 'Warehouse',
 } as const;
 
 export type SystemRoleName = (typeof SYSTEM_ROLES)[keyof typeof SYSTEM_ROLES];
@@ -270,6 +292,11 @@ const EMPLOYEE_PERMISSIONS = [
   PERMISSIONS.PUNCH_SELF,
   PERMISSIONS.ATTENDANCE_VIEW_SELF,
   PERMISSIONS.LEAVE_APPLY_SELF,
+  // P7-2 (owner, 28 Aug 2026): REQ-V-02 hangs a task off any employee and
+  // REQ-V-07 makes tasks a landing screen, so anyone must be assignable and
+  // able to work their own list. Operations and HR inherit these by spread.
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 const OPERATIONS_PERMISSIONS = [
@@ -335,9 +362,20 @@ const SALES_PERMISSIONS = [
   PERMISSIONS.CFO_SALES_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
+/**
+ * P8-5: the Sales seed keeps fulfilment so nothing an existing salesperson
+ * does breaks — but through its own key, and outside the shared base above,
+ * because the Relationship manager spreads that base and was deliberately
+ * not granted the floor.
+ */
+const SALES_WITH_FULFILMENT = [
+  ...SALES_PERMISSIONS,
+  PERMISSIONS.SALES_FULFIL,
+] as const satisfies readonly PermissionKey[];
+
 /** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
 const SALES_MANAGER_PERMISSIONS = [
-  ...SALES_PERMISSIONS,
+  ...SALES_WITH_FULFILMENT,
   PERMISSIONS.CRM_CONTACT_VIEW_ALL,
   PERMISSIONS.CRM_DEAL_VIEW_ALL,
   PERMISSIONS.CRM_PIPELINE_MANAGE,
@@ -435,16 +473,29 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.INTEREST_CONFIGURE,
 ] as const satisfies readonly PermissionKey[];
 
+/**
+ * P8-5: exactly the floor. `sales.fulfil` opens pick, pack and dispatch;
+ * `sales.document.view.all` is the one read those screens rest on — the pack
+ * step reads the order itself, and D-26 makes the queue shared, so self scope
+ * would show a warehouse hand nothing. No create key: a 403 on raising an
+ * order is the point of the role.
+ */
+const WAREHOUSE_PERMISSIONS = [
+  PERMISSIONS.SALES_FULFIL,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+] as const satisfies readonly PermissionKey[];
+
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
   Employee: EMPLOYEE_PERMISSIONS,
   Operations: OPERATIONS_PERMISSIONS,
   HR: HR_PERMISSIONS,
   Admin: ADMIN_PERMISSIONS,
-  Sales: SALES_PERMISSIONS,
+  Sales: SALES_WITH_FULFILMENT,
   'Sales manager': SALES_MANAGER_PERMISSIONS,
   'Relationship manager': RELATIONSHIP_MANAGER_PERMISSIONS,
   Purchase: PURCHASE_PERMISSIONS,
   Accounts: ACCOUNTS_PERMISSIONS,
+  Warehouse: WAREHOUSE_PERMISSIONS,
 };
 
 /**

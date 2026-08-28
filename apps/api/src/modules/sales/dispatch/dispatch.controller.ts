@@ -27,7 +27,8 @@ import { DispatchService } from './dispatch.service.js';
 class DispatchListQueryDto extends createZodDto(dispatchListQuerySchema.extend({ delivered: z.enum(['yes', 'no']).optional() })) {}
 class MarkNotificationDto extends createZodDto(markNotificationSentSchema) {}
 
-const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
+// P8-5 (owner, 28 Aug 2026): dispatch is the floor's work, behind sales.fulfil
+// alone — raising documents no longer implies shipping them.
 /**
  * The files service refuses anything over 3 MB (technical design §7), so
  * multer stops at the same line: an 8 MB ceiling here only let a large
@@ -57,20 +58,20 @@ export class DispatchController {
   ) {}
 
   @Get('dispatches')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   list(@CurrentUser() principal: Principal, @Query() query: DispatchListQueryDto): Promise<Paginated<DispatchView>> {
     return this.dispatches.list(principal, query);
   }
 
   @Get('dispatches/:id')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   find(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<DispatchView> {
     return this.dispatches.find(principal, id);
   }
 
   /** The delivery note as a workbook: what left, in quantities. */
   @Get('dispatches/:id/export.xlsx')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   async exportXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
     const dispatch = await this.dispatches.find(principal, id);
     await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'DELIVERY_NOTE', {
@@ -86,7 +87,7 @@ export class DispatchController {
   }
 
   @Get('dispatches/:id/attachments/:fileId/url')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   attachmentUrl(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
@@ -96,7 +97,7 @@ export class DispatchController {
   }
 
   @Post('orders/:id/dispatches')
-  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor([{ name: 'box', maxCount: 6 }, { name: 'lr', maxCount: 3 }], { limits: { fileSize: MAX_PHOTO_BYTES, files: 9, fields: 4 } }),
@@ -123,7 +124,7 @@ export class DispatchController {
 
   /** D-47: the door step — who received it, with the photograph taken there. */
   @Post('dispatches/:id/deliver')
-  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 3 }], { limits: { fileSize: MAX_PHOTO_BYTES, files: 3, fields: 4 } }))
   deliver(
@@ -145,7 +146,7 @@ export class DispatchController {
   }
 
   @Post('dispatches/:id/notifications/:notificationId')
-  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   @HttpCode(HttpStatus.OK)
   markNotification(
     @CurrentUser() principal: Principal,
@@ -157,7 +158,7 @@ export class DispatchController {
   }
 
   @Post('dispatches/:id/push')
-  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   @HttpCode(HttpStatus.OK)
   push(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<DispatchView> {
     return this.dispatches.push(principal, id);

@@ -56,10 +56,10 @@ const COLUMNS: RecordColumn<PackRecord>[] = [
 
 export function PackedPage() {
   const navigate = useNavigate();
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
-  const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  // P8-5: sight and act are both sales.fulfil here (the scan behind the
+  // action button is a fulfilment route too).
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
+  const canCreate = canView;
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);

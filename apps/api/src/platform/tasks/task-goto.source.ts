@@ -9,7 +9,11 @@ import { TaskService } from './task.service.js';
 @Injectable()
 export class TaskGoToSource implements GoToSource, OnModuleInit {
   readonly recordType = 'task';
-  readonly permissions = [PERMISSIONS.CRM_TASK_VIEW_SELF, PERMISSIONS.CRM_TASK_VIEW_TEAM] as const;
+  readonly permissions = [
+    PERMISSIONS.CRM_TASK_VIEW_SELF,
+    PERMISSIONS.CRM_TASK_VIEW_TEAM,
+    PERMISSIONS.CRM_TASK_VIEW_ALL,
+  ] as const;
 
   constructor(
     private readonly registry: GoToSourceRegistry,

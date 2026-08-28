@@ -759,6 +759,10 @@ export const MODULES: ModuleDef[] = [
     // The group keeps its name so every breadcrumb under it stays put.
     groups: [
       {
+        // P8-5 (owner, 28 Aug 2026): the floor's own screens gate on
+        // sales.fulfil, matching their endpoints. Awaiting invoice keeps the
+        // document keys -- the billing handshake is the accountant's -- and
+        // Returns keeps returns.view.
         label: 'Fulfilment',
         items: [
           // Owner, 22 Aug 2026: each stage is its own entry -- "we don't need
@@ -770,7 +774,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Pick queue',
             shortLabel: 'Pick',
             icon: BarcodeIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07, D-48',
           },
@@ -779,7 +783,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Packed',
             shortLabel: 'Packed',
             icon: PackageIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'D-47',
           },
@@ -797,7 +801,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Dispatches',
             shortLabel: 'Shipped',
             icon: TruckIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
           },
@@ -815,7 +819,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Delivered',
             shortLabel: 'Delivered',
             icon: CheckCircleIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'D-47',
           },
@@ -824,7 +828,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Scan a slip',
             shortLabel: 'Scan',
             icon: ScanIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_CREATE,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'D-47',
           },

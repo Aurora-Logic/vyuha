@@ -27,10 +27,9 @@ import { useSalesOrder } from './use-estimates';
  */
 export function DispatchPaperPage() {
   const params = useParams<{ id?: string }>();
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
-  const canAct = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  // P8-5: the delivery note and its re-push are fulfilment work.
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
+  const canAct = canView;
   const dispatch = useDispatch(canView ? (params.id ?? null) : null);
   const order = useSalesOrder(dispatch.data?.documentId ?? null);
   const push = usePushDispatch();

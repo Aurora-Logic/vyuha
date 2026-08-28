@@ -36,10 +36,10 @@ import { BoardColumnRepository, TaskRepository } from './task.repository.js';
  * Tasks (REQ-V-01…V-08).
  *
  * Who sees a task: `crm.task.view.self` covers what is assigned to you or
- * owned by you; `.team` extends both to your reporting chain. There is no
- * `.all` in 08 §2.2, deliberately — a task list is personal work, not a
- * register — so `ScopeService` is asked twice, once per person column, and
- * the two fragments are OR-ed.
+ * owned by you; `.team` extends both to your reporting chain; `.all` (P7-1,
+ * owner 28 Aug 2026) is the whole register — including a task whose owner or
+ * assignee has no employee record, which no chain can reach. `ScopeService`
+ * is asked twice, once per person column, and the two fragments are OR-ed.
  *
  * Every write is one audit entry (REQ-V-06): a drag on the board is a PATCH
  * with `columnId`, which lands here like any other edit and is recorded as
@@ -49,6 +49,7 @@ import { BoardColumnRepository, TaskRepository } from './task.repository.js';
 const TASK_GRANTS: ScopeGrants = {
   self: PERMISSIONS.CRM_TASK_VIEW_SELF,
   team: PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  all: PERMISSIONS.CRM_TASK_VIEW_ALL,
 };
 
 const SQL_TRUE = sql`true`;
@@ -332,7 +333,8 @@ export class TaskService {
 
   /**
    * Who the task is for. Absent means the creator; naming somebody needs
-   * `crm.task.manage` and they must be a current employee of the org.
+   * `crm.task.manage` — or `crm.task.view.all`, whose P7-1 grant is "sees and
+   * may reassign every task" — and they must be a current employee of the org.
    */
   private async resolveAssignee(
     principal: Principal,
@@ -342,7 +344,10 @@ export class TaskService {
     if (requested === undefined) return principal.employeeId;
     if (requested === null) return options.allowNull === true ? null : principal.employeeId;
     if (requested === principal.employeeId) return requested;
-    if (!hasPermission(principal, PERMISSIONS.CRM_TASK_MANAGE)) {
+    if (
+      !hasPermission(principal, PERMISSIONS.CRM_TASK_MANAGE) &&
+      !hasPermission(principal, PERMISSIONS.CRM_TASK_VIEW_ALL)
+    ) {
       throw AppError.forbidden('Assigning a task to somebody else needs crm.task.manage.');
     }
     const rows = await this.db

@@ -43,9 +43,10 @@ const COLUMNS: RecordColumn<PickQueueEntry>[] = [
 ];
 
 export function PickQueuePage() {
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
+  // P8-5: the queue is the floor's, and the endpoint behind it answers to
+  // sales.fulfil -- so the screen asks the same key rather than a document
+  // key that would show a shell the API then refuses.
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const openId = params.id ?? null;
