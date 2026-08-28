@@ -561,6 +561,13 @@
       "when": 1787927565507,
       "tag": "0079_totp_last_step",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1787929349209,
+      "tag": "0080_help_questions",
+      "breakpoints": true
     }
   ]
 }

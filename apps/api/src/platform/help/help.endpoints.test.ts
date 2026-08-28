@@ -1,5 +1,9 @@
 import { PERMISSIONS, SYSTEM_ROLES, type HelpCardsResponse } from '@vyuha/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'drizzle-orm';
+import { vi } from 'vitest';
+
+import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { HELP_CARDS } from './help.cards.js';
@@ -113,5 +117,38 @@ describe('GET /help/cards', () => {
     expect(card?.aliases.length).toBeGreaterThan(2);
     expect(card?.errorCodes).toContain('PUNCH_OUTSIDE_GEOFENCE');
     expect(card?.tourStep).toBe('screen.punch');
+  });
+});
+
+describe('POST /help/questions (REQ-AJ-05)', () => {
+  it('records the question, tells settings.manage holders, and refuses junk', async () => {
+    // The spy replaces the BullMQ enqueue, the way the staleness suite does:
+    // this test owns who is addressed, not delivery.
+    const emitted: { type: string; audience: unknown; payload?: Record<string, unknown> }[] = [];
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
+      emitted.push(event as never);
+      return Promise.resolve('spied');
+    });
+
+    const sent = await harness.post('/help/questions', {
+      token: employeeToken,
+      body: { question: 'How do I change my weekly off day?' },
+    });
+    expect(sent.status).toBe(201);
+
+    const rows = await harness.db.execute<{ question: string }>(sql`
+      SELECT question FROM help_questions WHERE org_id = ${ORG_ID}
+    `);
+    expect(rows.rows.map((r) => r.question)).toContain('How do I change my weekly off day?');
+    expect(await harness.waitForAuditAction('help.question_asked')).toBe(true);
+
+    // Addressed to settings.manage holders, carrying the question itself.
+    const event = emitted.find((e) => e.type === 'help.question_asked');
+    expect(event?.audience).toEqual({ kind: 'permission', key: 'settings.manage' });
+    expect(event?.payload?.question).toBe('How do I change my weekly off day?');
+
+    const junk = await harness.post('/help/questions', { token: employeeToken, body: { question: '  ' } });
+    expect(junk.status).toBe(400);
   });
 });

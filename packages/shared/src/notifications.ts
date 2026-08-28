@@ -44,6 +44,9 @@ export const NOTIFICATION_EVENTS = {
   TASK_DUE_TODAY: 'task.due_today',
   TASK_OVERDUE: 'task.overdue',
 
+  /** REQ-AJ-05: a question the help panel could not answer, sent on by its asker. */
+  HELP_QUESTION_ASKED: 'help.question_asked',
+
   /** 13 REQ-X-28: stock arrived for an order that was waiting on it. */
   PROCUREMENT_STOCK_ARRIVED: 'procurement.stock_arrived',
   /** 12 REQ-AA-15: an order has waited for its invoice longer than the configured hours. */
@@ -86,6 +89,7 @@ export const NOTIFICATION_EVENT_GROUPS = [
   'Orders',
   'Reports',
   'Receivables',
+  'Workspace',
 ] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
@@ -165,6 +169,11 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Period unlocked',
     note: 'When a closed month is reopened, with the reason.',
   },
+  'help.question_asked': {
+    group: 'Workspace',
+    label: 'Unanswered help question',
+    note: 'When somebody sends the help panel a question it could not answer (REQ-AJ-05).',
+  },
   'sync.agent_stale': {
     group: 'Integrations',
     label: 'Tally agent gone quiet',
@@ -243,6 +252,10 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'approval.overdue': '/approvals',
   'period.locked': '/period-lock',
   'period.unlocked': '/period-lock',
+  // An honest downgrade the way punch.flagged takes /approvals: no admin
+  // screen lists help questions yet, so the bell carries the question itself
+  // and lands on the organisation screen.
+  'help.question_asked': '/organisation',
   'sync.agent_stale': '/integrations',
   'sync.agent_recovered': '/integrations',
   'task.assigned': '/tasks',

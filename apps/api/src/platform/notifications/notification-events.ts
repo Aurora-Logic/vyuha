@@ -194,6 +194,14 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
    * quiet is precisely the situation where nobody is looking at the app, and
    * the person who can fix it is at the Tally machine, not the bell.
    */
+  'help.question_asked': {
+    // The bell carries the question itself: no admin screen lists these yet,
+    // so the notification IS the delivery (REQ-AJ-05, owner 28 Aug 2026).
+    title: (p) => `Help question from ${text(p, 'askedBy', 'a colleague')}`,
+    body: (p) => `"${text(p, 'question', 'A question the panel could not answer.')}" — the help panel had no card for it.`,
+    path: () => routeFor('help.question_asked'),
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
   'sync.agent_stale': {
     title: (p) => `Tally agent for ${text(p, 'connectionName', 'a connection')} has gone quiet`,
     body: (p) =>

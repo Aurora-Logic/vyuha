@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  timestamp,
   smallint,
   text,
   uniqueIndex,
@@ -107,3 +108,19 @@ export const settings = pgTable(
       .where(ALIVE),
   ],
 );
+
+/**
+ * REQ-AJ-05 (owner, 28 Aug 2026): a question the help panel could not answer,
+ * sent on by its asker with an explicit action -- never silent logging, since
+ * the text is employee free text. The notification to settings.manage holders
+ * is the delivery; this table is the record behind it.
+ */
+export const helpQuestions = pgTable('help_questions', {
+  id: primaryId(),
+  orgId: uuid('org_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'restrict' }),
+  userId: uuid('user_id').notNull(),
+  question: text('question').notNull(),
+  askedAt: timestamp('asked_at', { withTimezone: true }).notNull().defaultNow(),
+});
