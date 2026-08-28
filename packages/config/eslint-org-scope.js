@@ -68,6 +68,7 @@ export const ORG_SCOPED_TABLES = [
   'files',
   'grn_lines',
   'grns',
+  'help_questions',
   'holiday_calendars',
   'holidays',
   'integration_connections',

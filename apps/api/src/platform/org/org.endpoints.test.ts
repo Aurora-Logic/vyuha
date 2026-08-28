@@ -382,12 +382,17 @@ describe('locations (REQ-A-01)', () => {
         VALUES (${FOREIGN_CALENDAR_ORG_ID}, 'Org Masters Foreign Calendar Org')
         ON CONFLICT (id) DO NOTHING
       `);
+      // Rerun-safe against the persistent dev database: the calendar may
+      // already exist from a previous run of this very test.
       const foreign = await harness.db.execute<{ id: string }>(sql`
         INSERT INTO holiday_calendars (org_id, name, year)
         VALUES (${FOREIGN_CALENDAR_ORG_ID}, 'Foreign 2026', 2026)
+        ON CONFLICT DO NOTHING
         RETURNING id
       `);
-      const foreignCalendarId = foreign.rows[0]?.id ?? '';
+      const foreignCalendarId = foreign.rows[0]?.id ?? (await harness.db.execute<{ id: string }>(sql`
+        SELECT id FROM holiday_calendars WHERE org_id = ${FOREIGN_CALENDAR_ORG_ID} AND name = 'Foreign 2026' AND year = 2026
+      `)).rows[0]?.id ?? '';
       expect(foreignCalendarId).not.toBe('');
 
       const rejected = await harness.patch<ErrorBody>(`/locations/${headOfficeId}`, {
