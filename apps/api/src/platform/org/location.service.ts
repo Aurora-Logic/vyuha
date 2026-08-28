@@ -5,11 +5,9 @@ import {
   pageSlice,
   paginated,
   parseSort,
-  type CreateLocationInput,
   type LocationSummary,
   type MasterListQuery,
   type Paginated,
-  type UpdateLocationInput,
 } from '@vyuha/shared';
 import { eq } from 'drizzle-orm';
 
@@ -20,8 +18,10 @@ import { isUniqueViolation } from '../db/pg-error.js';
 import { locations } from '../db/schema/index.js';
 import { ScopedRepository, type Row } from '../db/scoped-repository.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
+import { assertHolidayCalendarInOrg } from './holiday-calendar-ref.js';
 import { codeTakenError } from './master-errors.js';
 import { masterOrderBy, masterSearch } from './master-query.js';
+import type { CreateLocationBody, UpdateLocationBody } from './org.dto.js';
 
 /**
  * Locations (REQ-A-01).
@@ -39,6 +39,15 @@ import { masterOrderBy, masterSearch } from './master-query.js';
 
 const SORT_COLUMNS = { name: locations.name, code: locations.code } as const;
 
+/**
+ * `LocationSummary` plus the holiday calendar link (OS-3, REQ-H-02). Declared
+ * beside the service rather than in `@vyuha/shared` for the reason the DTO
+ * gives: the id is validated against an attendance-owned table.
+ */
+export interface LocationView extends LocationSummary {
+  readonly holidayCalendarId: string | null;
+}
+
 @Injectable()
 export class LocationService {
   constructor(
@@ -46,7 +55,7 @@ export class LocationService {
     private readonly auditContext: AuditContext,
   ) {}
 
-  async list(principal: Principal, query: MasterListQuery): Promise<Paginated<LocationSummary>> {
+  async list(principal: Principal, query: MasterListQuery): Promise<Paginated<LocationView>> {
     const repository = this.repository(principal);
     const { limit, offset } = pageSlice(query);
     const where =
@@ -67,12 +76,13 @@ export class LocationService {
     return paginated(rows.map(toSummary), query, await repository.count(where));
   }
 
-  async create(principal: Principal, input: CreateLocationInput): Promise<LocationSummary> {
+  async create(principal: Principal, input: CreateLocationBody): Promise<LocationView> {
     const repository = this.repository(principal);
     if ((await this.findIdByCode(repository, input.code)) !== null) {
       throw codeTakenError('location', input.code);
     }
     assertGeofenceIsWholeOrAbsent(input.geofenceLat ?? null, input.geofenceLng ?? null);
+    await assertHolidayCalendarInOrg(this.db, principal.orgId, input.holidayCalendarId);
 
     let created: Row<typeof locations>;
     try {
@@ -97,8 +107,8 @@ export class LocationService {
   async update(
     principal: Principal,
     id: string,
-    input: UpdateLocationInput,
-  ): Promise<LocationSummary> {
+    input: UpdateLocationBody,
+  ): Promise<LocationView> {
     const repository = this.repository(principal);
     const existing = await repository.findById(id);
     if (existing === null) throw AppError.notFound('Location', id);
@@ -115,6 +125,7 @@ export class LocationService {
       input.geofenceLat !== undefined ? input.geofenceLat : existing.geofenceLat,
       input.geofenceLng !== undefined ? input.geofenceLng : existing.geofenceLng,
     );
+    await assertHolidayCalendarInOrg(this.db, principal.orgId, input.holidayCalendarId);
 
     const updated = await repository.update(id, input);
     if (updated === null) throw AppError.notFound('Location', id);
@@ -152,7 +163,7 @@ function assertGeofenceIsWholeOrAbsent(lat: number | null, lng: number | null): 
   });
 }
 
-function toSummary(row: Row<typeof locations>): LocationSummary {
+function toSummary(row: Row<typeof locations>): LocationView {
   return {
     id: row.id,
     name: row.name,
@@ -163,5 +174,6 @@ function toSummary(row: Row<typeof locations>): LocationSummary {
     geofenceLng: row.geofenceLng,
     geofenceRadiusM: row.geofenceRadiusM,
     ipAllowlist: row.ipAllowlist,
+    holidayCalendarId: row.holidayCalendarId,
   };
 }

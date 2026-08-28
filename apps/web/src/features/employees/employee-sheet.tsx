@@ -50,13 +50,14 @@ import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import {
   EMPLOYMENT_TYPES,
   employeeDisplayName,
-  type EmployeeDetail,
   type EmployeeListItem,
   type EmploymentType,
 } from '@vyuha/shared';
 
+import { useHolidayCalendarOptions } from '@/features/holidays/use-holidays';
+
 import { useDepartments } from './use-departments';
-import { useEmployee } from './use-employee';
+import { useEmployee, type EmployeeRecord } from './use-employee';
 import {
   useCreateEmployee,
   useDesignationOptions,
@@ -211,7 +212,7 @@ function EmployeeForm({
   onClose,
 }: {
   /** Null when creating. */
-  employee: EmployeeDetail | null;
+  employee: EmployeeRecord | null;
   onClose: () => void;
 }) {
   const existing = employee;
@@ -230,6 +231,7 @@ function EmployeeForm({
     locationId: existing?.location?.id ?? null,
     reportingManagerId: existing?.reportingManager?.id ?? null,
     isFieldStaff: existing?.isFieldStaff ?? false,
+    holidayCalendarId: existing?.holidayCalendarId ?? null,
   }));
   const [touched, setTouched] = useState(false);
 
@@ -237,6 +239,7 @@ function EmployeeForm({
   const designations = useDesignationOptions();
   const locations = useLocationOptions();
   const managers = useManagerOptions();
+  const calendars = useHolidayCalendarOptions();
 
   const create = useCreateEmployee();
   const update = useUpdateEmployee();
@@ -268,6 +271,13 @@ function EmployeeForm({
     label: row.name,
     ...(row.hint === undefined ? {} : { hint: row.hint }),
   }));
+  // The year rides as the hint: calendars are per-year, and two years of
+  // "Maharashtra" are otherwise indistinguishable in the list.
+  const calendarOptions: PickerOption[] = (calendars.data ?? []).map((row) => ({
+    id: row.id,
+    label: row.name,
+    hint: String(row.year),
+  }));
   // REQ-A-07: nobody reports to themselves. The server checks the whole chain;
   // this removes the one case reachable in a single click.
   const managerOptions: PickerOption[] = (managers.data ?? [])
@@ -296,6 +306,7 @@ function EmployeeForm({
       locationId: draft.locationId,
       reportingManagerId: draft.reportingManagerId,
       isFieldStaff: draft.isFieldStaff,
+      holidayCalendarId: draft.holidayCalendarId,
     };
 
     const onSuccess = (saved: { firstName: string; lastName: string | null; employeeCode: string }) => {
@@ -551,6 +562,29 @@ function EmployeeForm({
                 />
                 <FieldDescription>
                   Decides the geofence and the holiday calendar this person inherits.
+                </FieldDescription>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="employee-calendar">Holiday calendar</FieldLabel>
+                <RecordPicker
+                  id="employee-calendar"
+                  label="Holiday calendar"
+                  placeholder="The location's calendar"
+                  searchPlaceholder="Search calendars"
+                  emptyMessage="No calendar matches that."
+                  options={calendarOptions}
+                  loading={calendars.isPending}
+                  clearable
+                  clearLabel="The location's calendar"
+                  value={find(calendarOptions, draft.holidayCalendarId)}
+                  onValueChange={(next) => {
+                    setDraft((current) => ({ ...current, holidayCalendarId: next?.id ?? null }));
+                  }}
+                />
+                <FieldDescription>
+                  An override for this one person (REQ-H-02). Left empty, the location above
+                  decides.
                 </FieldDescription>
               </Field>
 

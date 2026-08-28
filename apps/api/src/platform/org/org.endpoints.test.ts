@@ -5,11 +5,12 @@ import {
   type LocationSummary,
   type Paginated,
 } from '@vyuha/shared';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { locations } from '../db/schema/index.js';
+import type { LocationView } from './location.service.js';
 
 /**
  * Departments, designations and locations (REQ-A-01, REQ-A-02) over real HTTP.
@@ -23,6 +24,12 @@ import { locations } from '../db/schema/index.js';
  */
 
 const ORG_ID = '01900000-0000-7000-8000-0000000000c2';
+/**
+ * A second organisation whose holiday calendar the location tests try -- and
+ * fail -- to attach (OS-3). Never reset by a harness, so it only ever holds
+ * the one calendar row.
+ */
+const FOREIGN_CALENDAR_ORG_ID = '01900000-0000-7000-8000-0000000000c7';
 
 interface ErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> };
@@ -317,6 +324,120 @@ describe('locations (REQ-A-01)', () => {
       body: { timezone: 'Asia/Nowhere' },
     });
     expect(rejected.status).toBe(400);
+  });
+
+  describe('the holiday calendar link (OS-3, REQ-H-02)', () => {
+    let calendarId = '';
+
+    beforeAll(async () => {
+      // Raw SQL rather than the drizzle table: holiday_calendars belongs to
+      // modules/attendance, which platform files -- this one included -- must
+      // not import (technical design §1).
+      const created = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO holiday_calendars (org_id, name, year)
+        VALUES (${ORG_ID}, 'Maharashtra 2026', 2026)
+        RETURNING id
+      `);
+      calendarId = created.rows[0]?.id ?? '';
+      expect(calendarId).not.toBe('');
+    });
+
+    it('attaches a calendar of this organisation, and clears it with null', async () => {
+      const patched = await harness.patch<LocationView>(`/locations/${headOfficeId}`, {
+        token: adminToken,
+        body: { holidayCalendarId: calendarId },
+      });
+
+      expect(patched.status, patched.text).toBe(200);
+      expect(patched.body.holidayCalendarId).toBe(calendarId);
+
+      const listed = await harness.get<Paginated<LocationView>>('/locations', {
+        token: adminToken,
+      });
+      expect(listed.body.data.find((row) => row.id === headOfficeId)?.holidayCalendarId).toBe(
+        calendarId,
+      );
+
+      const cleared = await harness.patch<LocationView>(`/locations/${headOfficeId}`, {
+        token: adminToken,
+        body: { holidayCalendarId: null },
+      });
+      expect(cleared.status, cleared.text).toBe(200);
+      expect(cleared.body.holidayCalendarId).toBeNull();
+    });
+
+    it('refuses an id that names no calendar', async () => {
+      const rejected = await harness.patch<ErrorBody>(`/locations/${headOfficeId}`, {
+        token: adminToken,
+        body: { holidayCalendarId: '01900000-0000-7000-8000-00000000dead' },
+      });
+
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error.code).toBe('VALIDATION_FAILED');
+    });
+
+    it('refuses a calendar belonging to another organisation', async () => {
+      await harness.db.execute(sql`
+        INSERT INTO organizations (id, name)
+        VALUES (${FOREIGN_CALENDAR_ORG_ID}, 'Org Masters Foreign Calendar Org')
+        ON CONFLICT (id) DO NOTHING
+      `);
+      const foreign = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO holiday_calendars (org_id, name, year)
+        VALUES (${FOREIGN_CALENDAR_ORG_ID}, 'Foreign 2026', 2026)
+        RETURNING id
+      `);
+      const foreignCalendarId = foreign.rows[0]?.id ?? '';
+      expect(foreignCalendarId).not.toBe('');
+
+      const rejected = await harness.patch<ErrorBody>(`/locations/${headOfficeId}`, {
+        token: adminToken,
+        body: { holidayCalendarId: foreignCalendarId },
+      });
+
+      // The same answer as a nonexistent id, on purpose: a different status
+      // would confirm that the guessed id names a real calendar somewhere.
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error.code).toBe('VALIDATION_FAILED');
+
+      const unchanged = await harness.get<Paginated<LocationView>>('/locations', {
+        token: adminToken,
+      });
+      expect(unchanged.body.data.find((row) => row.id === headOfficeId)?.holidayCalendarId).toBeNull();
+    });
+
+    it('refuses a soft-deleted calendar; the foreign key alone would accept it', async () => {
+      await harness.db.execute(sql`
+        UPDATE holiday_calendars SET deleted_at = now() WHERE id = ${calendarId}
+      `);
+
+      const rejected = await harness.patch<ErrorBody>(`/locations/${headOfficeId}`, {
+        token: adminToken,
+        body: { holidayCalendarId: calendarId },
+      });
+      expect(rejected.status).toBe(400);
+
+      await harness.db.execute(sql`
+        UPDATE holiday_calendars SET deleted_at = NULL WHERE id = ${calendarId}
+      `);
+    });
+
+    it('accepts a calendar on create as well', async () => {
+      const created = await harness.post<LocationView>('/locations', {
+        token: adminToken,
+        body: { name: 'Warehouse', code: 'OM-WH', holidayCalendarId: calendarId },
+      });
+
+      expect(created.status, created.text).toBe(201);
+      expect(created.body.holidayCalendarId).toBe(calendarId);
+
+      // Removed so the earlier list assertions about this fixture's locations
+      // stay true for the tests that follow.
+      await harness.db
+        .update(locations)
+        .set({ deletedAt: new Date() })
+        .where(eq(locations.id, created.body.id));
+    });
   });
 
   it('lets HR read a location but not write one', async () => {

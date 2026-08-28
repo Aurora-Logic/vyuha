@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@/test-support/render-shell';
 import { ApiError } from '@/lib/api/client';
-import type { LocationSummary, Paginated } from '@vyuha/shared';
+import type { LocationSummary } from '@/features/org-masters/types';
+import type { Paginated } from '@vyuha/shared';
 
 import { OfficeLocationPanel } from './office-location-panel';
 import { useOfficeGeofence } from './use-office-location';
@@ -46,6 +47,7 @@ const HEAD_OFFICE: LocationSummary = {
   geofenceLng: 72.8777,
   geofenceRadiusM: 100,
   ipAllowlist: [],
+  holidayCalendarId: null,
 };
 
 /** The panel needs the hook's shape, and the hook needs a component to live in. */

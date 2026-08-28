@@ -48,6 +48,10 @@ import {
   DEFAULT_INTEREST_POLICY,
   interestPolicySchema,
   type InterestPolicy,
+  LEAVE_SETTINGS,
+  DEFAULT_LEAVE_POLICY,
+  leavePolicySchema,
+  type LeavePolicy,
 } from './settings.catalogue.js';
 import type { UpdateSettingsInput } from './settings.dto.js';
 import { SettingsRepository, type OrgProfilePatch, type OrgProfileRow } from './settings.repository.js';
@@ -87,6 +91,8 @@ export interface OrgSettingsView {
   readonly returns: ReturnReasonsPolicyRow;
   /** D-22: the interest cost module's rate, basis and windows. */
   readonly interest: InterestPolicy;
+  /** OS-1: the leave year, comp-off expiry and concurrent-absence rows. */
+  readonly leave: LeavePolicy;
   readonly email: EmailSettingsView;
   /**
    * What reads each policy field today, or null when nothing does. The screen
@@ -102,6 +108,7 @@ export interface OrgSettingsView {
     readonly duplicates: Readonly<Record<string, SettingConsumer>>;
     readonly returns: Readonly<Record<string, SettingConsumer>>;
     readonly interest: Readonly<Record<string, SettingConsumer>>;
+    readonly leave: Readonly<Record<string, SettingConsumer>>;
   };
   /**
    * Stored rows that no longer satisfy their schema. The screen shows the
@@ -366,6 +373,7 @@ export class SettingsService {
     const duplicates = resolveGroup(duplicatesPolicyRowSchema, DUPLICATES_SETTINGS, DEFAULT_DUPLICATES_POLICY_ROW, rows);
     const returns = resolveGroup(returnReasonsPolicyRowSchema, RETURNS_SETTINGS, DEFAULT_RETURN_REASONS_POLICY_ROW, rows);
     const interest = resolveGroup(interestPolicySchema, INTEREST_SETTINGS, DEFAULT_INTEREST_POLICY, rows);
+    const leave = resolveGroup(leavePolicySchema, LEAVE_SETTINGS, DEFAULT_LEAVE_POLICY, rows);
 
     return {
       organisation,
@@ -378,6 +386,7 @@ export class SettingsService {
       duplicates: duplicates.value,
       returns: returns.value,
       interest: interest.value,
+      leave: leave.value,
       email: emailView(),
       enforcement: {
         attendance: enforcementOf(ATTENDANCE_SETTINGS),
@@ -389,8 +398,9 @@ export class SettingsService {
         duplicates: enforcementOf(DUPLICATES_SETTINGS),
         returns: enforcementOf(RETURNS_SETTINGS),
         interest: enforcementOf(INTEREST_SETTINGS),
+        leave: enforcementOf(LEAVE_SETTINGS),
       },
-      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable, ...locale.unreadable, ...retention.unreadable, ...duplicates.unreadable, ...returns.unreadable, ...interest.unreadable],
+      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable, ...locale.unreadable, ...retention.unreadable, ...duplicates.unreadable, ...returns.unreadable, ...interest.unreadable, ...leave.unreadable],
     };
   }
 
@@ -500,6 +510,13 @@ export class SettingsService {
       for (const [field, descriptor] of Object.entries(INTEREST_SETTINGS)) {
         if (!(field in input.interest)) continue;
         values.set(descriptor.key, merged[field as keyof InterestPolicy]);
+      }
+    }
+    if (input.leave !== undefined) {
+      const merged = parseMerged(leavePolicySchema, { ...current.leave, ...input.leave }, 'leave');
+      for (const [field, descriptor] of Object.entries(LEAVE_SETTINGS)) {
+        if (!(field in input.leave)) continue;
+        values.set(descriptor.key, merged[field as keyof LeavePolicy]);
       }
     }
 

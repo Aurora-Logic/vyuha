@@ -81,6 +81,35 @@ export function useHolidayCalendars(
   });
 }
 
+export interface HolidayCalendarOption {
+  id: string;
+  name: string;
+  year: number;
+}
+
+const calendarOptionsSchema = z.object({
+  data: z.array(z.object({ id: z.string(), name: z.string(), year: z.number().int() })),
+});
+
+/**
+ * Every calendar, every year, for the pickers that link one to a location or
+ * an employee (OS-3, REQ-H-02).
+ *
+ * Not `useHolidayCalendars`: that hook is a screen's view of one year with a
+ * sample fallback, and a picker fed an invented calendar would offer an id the
+ * server then refuses. A failed query here simply offers no options.
+ */
+export function useHolidayCalendarOptions(): UseQueryResult<HolidayCalendarOption[], Error> {
+  return useQuery({
+    queryKey: [CALENDARS_KEY, 'options'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/holiday-calendars?pageSize=100', { signal });
+      return parseOrThrow(calendarOptionsSchema, body, 'holiday calendars').data;
+    },
+    staleTime: 10 * 60_000,
+  });
+}
+
 /**
  * Everything a holiday change invalidates.
  *

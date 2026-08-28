@@ -120,6 +120,19 @@ export const interestPolicySchema = z.object({
 
 export type InterestPolicy = z.infer<typeof interestPolicySchema>;
 
+/**
+ * OS-1: the three leave policy rows the leave slice reads (REQ-G-04,
+ * REQ-G-11, REQ-G-12). Bounds live server-side in the catalogue; the screen
+ * states only the shape it needs.
+ */
+export const leavePolicySchema = z.object({
+  yearStartMonth: z.number().int(),
+  compOffExpiryDays: z.number().int(),
+  concurrentAbsenceThreshold: z.number().int(),
+});
+
+export type LeavePolicy = z.infer<typeof leavePolicySchema>;
+
 export const INTEREST_RECEIVABLE_BASE_LABELS: Record<InterestReceivableBase, string> = {
   VOUCHER: 'Each Sales voucher is a bill',
   BILL: 'Tally bill marks (when they arrive)',
@@ -144,6 +157,7 @@ export const orgSettingsSchema = z.object({
   duplicates: duplicatesPolicySchema,
   returns: returnReasonsPolicySchema,
   interest: interestPolicySchema,
+  leave: leavePolicySchema,
   email: emailSettingsSchema,
   enforcement: z.object({
     attendance: enforcementSchema,
@@ -155,6 +169,7 @@ export const orgSettingsSchema = z.object({
     duplicates: enforcementSchema,
     returns: enforcementSchema,
     interest: enforcementSchema,
+    leave: enforcementSchema,
   }),
   unreadableKeys: z.array(z.string()),
 });
@@ -180,6 +195,7 @@ export interface SettingsPatch {
   duplicates?: Partial<DuplicatesPolicy>;
   returns?: Partial<ReturnReasonsPolicy>;
   interest?: Partial<InterestPolicy>;
+  leave?: Partial<LeavePolicy>;
 }
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {

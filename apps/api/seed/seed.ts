@@ -21,6 +21,8 @@ import {
   users,
 } from '../src/platform/db/schema/index.js';
 import { hashPassword } from '../src/platform/auth/password.js';
+import { SEED_LEAVE_TYPES } from '../src/modules/attendance/leave/leave-seed-types.js';
+import { leaveTypes } from '../src/modules/attendance/schema/index.js';
 import {
   ADMINISTRATOR_EMPLOYEE_CODE,
   seedMasterData,
@@ -94,6 +96,8 @@ export interface SeedReport {
   };
   /** REQ-A-01 … REQ-A-03: locations, departments, designations, employees. */
   readonly masterData: MasterDataReport;
+  /** REQ-G-02 (OS-4): the five seed leave types, so a fresh database can apply for leave. */
+  readonly leaveTypes: { created: number; total: number };
 }
 
 export interface AdminEmployeeLink {
@@ -131,6 +135,7 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
     // And after it, because the employee the administrator is joined to does
     // not exist until the line above has run.
     const adminEmployee = await linkAdministratorEmployee(tx, orgId, admin.userId);
+    const leaveTypeReport = await seedLeaveTypes(tx, orgId);
 
     return {
       permissions: permissionReport,
@@ -138,6 +143,7 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
       roles: roleReport,
       admin: { ...admin, employee: adminEmployee },
       masterData,
+      leaveTypes: leaveTypeReport,
     };
   });
 }
@@ -466,6 +472,37 @@ async function linkAdministratorEmployee(
     .where(and(eq(users.id, userId), isNull(users.employeeId)));
 
   return { id: employeeId, code: ADMINISTRATOR_EMPLOYEE_CODE, linked: true, reason: null };
+}
+
+/**
+ * REQ-G-02 (OS-4, decided 28 Aug 2026): the five leave types, so a fresh
+ * database can apply for leave without somebody first typing CL, SL, EL, LWP
+ * and CO into the admin screen. The numbers come from `SEED_LEAVE_TYPES`
+ * verbatim -- placeholders on the record, editable in the UI (OPEN-QUESTIONS
+ * item 4 carries the real policy question).
+ *
+ * Matched on code among the living, like the master data: a re-run inserts
+ * what is missing and never touches a type an administrator has edited, so
+ * re-seeding cannot quietly reset an entitlement.
+ */
+async function seedLeaveTypes(
+  tx: Transaction,
+  orgId: string,
+): Promise<{ created: number; total: number }> {
+  const existing = await tx
+    .select({ code: leaveTypes.code })
+    .from(leaveTypes)
+    .where(and(eq(leaveTypes.orgId, orgId), isNull(leaveTypes.deletedAt)));
+  const present = new Set(existing.map((row) => row.code));
+
+  const missing = SEED_LEAVE_TYPES.filter((type) => !present.has(type.code));
+  for (const type of missing) {
+    // The note is documentation for whoever renders the type, not a column.
+    const { placeholderNote: _note, ...input } = type;
+    await tx.insert(leaveTypes).values({ orgId, ...input });
+  }
+
+  return { created: missing.length, total: SEED_LEAVE_TYPES.length };
 }
 
 /**

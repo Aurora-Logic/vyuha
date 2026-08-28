@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { organizations, settings } from '../db/schema/index.js';
-import { ATTENDANCE_SETTINGS, PHOTO_SETTINGS } from './settings.catalogue.js';
+import { ATTENDANCE_SETTINGS, LEAVE_SETTINGS, PHOTO_SETTINGS } from './settings.catalogue.js';
 import type { OrgSettingsView } from './settings.service.js';
 
 /**
@@ -260,6 +260,85 @@ describe('PATCH /settings (REQ-L-01, REQ-L-05)', () => {
       .where(eq(settings.orgId, ORG_ID));
     expect(rows.every((row) => row.key.startsWith('attendance.'))).toBe(true);
     expect(rows.map((row) => row.key)).not.toContain('somethingInvented');
+  });
+});
+
+describe('the leave policy group (OS-1: REQ-G-04, REQ-G-11, REQ-G-12)', () => {
+  it('answers with the defaults the leave slice already applies', async () => {
+    const read = await harness.get<OrgSettingsView>('/settings', { token: adminToken });
+
+    expect(read.status, read.text).toBe(200);
+    // The same numbers `leave.service.ts` falls back to; a different default
+    // here would make the screen report a policy that is not in force.
+    expect(read.body.leave).toEqual({
+      yearStartMonth: 4,
+      compOffExpiryDays: 30,
+      concurrentAbsenceThreshold: 0,
+    });
+    // Every one of these has a real reader; none may claim to be decoration.
+    expect(read.body.enforcement.leave.yearStartMonth).not.toBeNull();
+    expect(read.body.enforcement.leave.compOffExpiryDays).not.toBeNull();
+    expect(read.body.enforcement.leave.concurrentAbsenceThreshold).not.toBeNull();
+  });
+
+  it('writes the three rows under the names the leave slice reads', async () => {
+    const saved = await put({
+      leave: { yearStartMonth: 1, compOffExpiryDays: 45, concurrentAbsenceThreshold: 3 },
+    });
+
+    expect(saved.status, saved.text).toBe(200);
+    expect(saved.body.leave).toEqual({
+      yearStartMonth: 1,
+      compOffExpiryDays: 45,
+      concurrentAbsenceThreshold: 3,
+    });
+
+    // Not just the echo: LEAVE_SETTING_KEYS in leave.repository.ts reads these
+    // exact keys, and a mismatch is invisible until an accrual lands in the
+    // wrong leave year.
+    const rows = await harness.db
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(eq(settings.orgId, ORG_ID));
+    const byKey = new Map(rows.map((row) => [row.key, row.value]));
+    expect(byKey.get(LEAVE_SETTINGS.yearStartMonth.key)).toBe(1);
+    expect(byKey.get(LEAVE_SETTINGS.compOffExpiryDays.key)).toBe(45);
+    expect(byKey.get(LEAVE_SETTINGS.concurrentAbsenceThreshold.key)).toBe(3);
+
+    const read = await harness.get<OrgSettingsView>('/settings', { token: adminToken });
+    expect(read.body.leave.yearStartMonth).toBe(1);
+  });
+
+  it('leaves the two rows a partial patch did not name alone', async () => {
+    const saved = await put({ leave: { compOffExpiryDays: 60 } });
+
+    expect(saved.status, saved.text).toBe(200);
+    expect(saved.body.leave).toEqual({
+      yearStartMonth: 1,
+      compOffExpiryDays: 60,
+      concurrentAbsenceThreshold: 3,
+    });
+  });
+
+  it('refuses a month outside the calendar', async () => {
+    const rejected = await harness.request<ErrorBody>('PATCH', '/settings', {
+      token: adminToken,
+      body: { leave: { yearStartMonth: 13 } },
+    });
+
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.code).toBe('VALIDATION_FAILED');
+
+    const unchanged = await harness.get<OrgSettingsView>('/settings', { token: adminToken });
+    expect(unchanged.body.leave.yearStartMonth).toBe(1);
+  });
+
+  it('refuses a negative concurrent-absence threshold', async () => {
+    const rejected = await harness.request<ErrorBody>('PATCH', '/settings', {
+      token: adminToken,
+      body: { leave: { concurrentAbsenceThreshold: -1 } },
+    });
+    expect(rejected.status).toBe(400);
   });
 });
 

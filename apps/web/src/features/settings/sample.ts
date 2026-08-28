@@ -53,6 +53,7 @@ export function sampleSettings(): OrgSettings {
     recomputeWindowDays: 90,
     nonMovingDays: 90,
   },
+  leave: { yearStartMonth: 4, compOffExpiryDays: 30, concurrentAbsenceThreshold: 0 },
     appearance: { accentHue: 277, accentChroma: 0.24, font: 'sans', base: 'stone', density: 'comfortable' },
     email: {
       transport: 'log',
@@ -93,6 +94,11 @@ export function sampleSettings(): OrgSettings {
       includeGstInStock: 'Interest snapshots',
       recomputeWindowDays: 'Interest snapshots',
       nonMovingDays: 'Interest reports',
+    },
+    leave: {
+      yearStartMonth: 'Leave engine',
+      compOffExpiryDays: 'Comp-off grants',
+      concurrentAbsenceThreshold: 'Leave calendar',
     },
       appearance: { accentHue: 'Shell', accentChroma: 'Shell', base: 'Shell', density: 'Shell' },
     },

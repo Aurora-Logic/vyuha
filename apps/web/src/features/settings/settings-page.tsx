@@ -69,6 +69,7 @@ import {
   type Appearance,
   type AttendancePolicy,
   type InterestPolicy,
+  type LeavePolicy,
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
@@ -117,6 +118,7 @@ interface Draft {
   duplicates: DuplicatesPolicy;
   returns: ReturnReasonsPolicy;
   interest: InterestPolicy;
+  leave: LeavePolicy;
 }
 
 type DraftKey = keyof Draft;
@@ -132,6 +134,7 @@ const DRAFT_KEYS: readonly DraftKey[] = [
   'duplicates',
   'returns',
   'interest',
+  'leave',
 ];
 
 function draftOf(settings: OrgSettings): Draft {
@@ -146,6 +149,7 @@ function draftOf(settings: OrgSettings): Draft {
     duplicates: settings.duplicates,
     returns: settings.returns,
     interest: settings.interest,
+    leave: settings.leave,
   };
 }
 
@@ -181,6 +185,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   if (!sameGroup(draft.duplicates, saved.duplicates)) patch.duplicates = draft.duplicates;
   if (!sameGroup(draft.returns, saved.returns)) patch.returns = draft.returns;
   if (!sameGroup(draft.interest, saved.interest)) patch.interest = draft.interest;
+  if (!sameGroup(draft.leave, saved.leave)) patch.leave = draft.leave;
 
   return patch;
 }
@@ -529,6 +534,9 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
   }
   function patchPhoto(next: Partial<PhotoPolicy>) {
     setDraft((current) => ({ ...current, photo: { ...current.photo, ...next } }));
+  }
+  function patchLeave(next: Partial<LeavePolicy>) {
+    setDraft((current) => ({ ...current, leave: { ...current.leave, ...next } }));
   }
 
   // The two security panels share one group, so either footer sends the whole
@@ -1018,6 +1026,56 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 enforcedBy={saved.enforcement.attendance.autoEscalationDays}
                 onValueChange={(next) => {
                   patchAttendance({ autoEscalationDays: next });
+                }}
+              />
+            </SettingsPanel>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Leave policy"
+            note="Read by the leave engine on every application, accrual and grant. The month here is the one accruals actually follow (OS-1)."
+          >
+            <SettingsPanel {...panelProps(['leave'])}>
+              <PolicyChoiceField
+                id="leave-year-start"
+                label="Leave year starts in"
+                value={String(draft.leave.yearStartMonth)}
+                options={MONTH_LABELS.map((month) => ({
+                  value: String(month.value),
+                  label: month.label,
+                }))}
+                help="Accrual, carry-forward and lapse are all measured from here."
+                enforcedBy={saved.enforcement.leave.yearStartMonth}
+                onValueChange={(next) => {
+                  patchLeave({ yearStartMonth: Number(next) });
+                }}
+              />
+
+              <PolicyNumberField
+                id="leave-comp-off-expiry"
+                label="Comp-off credits expire after"
+                unit="days"
+                help="Counted from the day the credit was earned. An unexpired credit is spendable; past this it lapses."
+                min={1}
+                max={365}
+                value={draft.leave.compOffExpiryDays}
+                enforcedBy={saved.enforcement.leave.compOffExpiryDays}
+                onValueChange={(next) => {
+                  patchLeave({ compOffExpiryDays: next });
+                }}
+              />
+
+              <PolicyNumberField
+                id="leave-concurrent-absence"
+                label="Warn when absences in a department reach"
+                unit="people"
+                help="The leave calendar flags a day this many of one department are away. Zero switches the warning off."
+                min={0}
+                max={100}
+                value={draft.leave.concurrentAbsenceThreshold}
+                enforcedBy={saved.enforcement.leave.concurrentAbsenceThreshold}
+                onValueChange={(next) => {
+                  patchLeave({ concurrentAbsenceThreshold: next });
                 }}
               />
             </SettingsPanel>

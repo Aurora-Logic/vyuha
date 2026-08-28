@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import {
   PERMISSIONS,
-  type EmployeeDetail,
   type EmployeeImportReport,
   type EmployeeListItem,
   type Paginated,
@@ -26,6 +25,7 @@ import {
   EmployeeListQueryDto,
   UpdateEmployeeDto,
 } from './employee.dto.js';
+import type { EmployeeDetailView } from './employee.repository.js';
 import { EmployeeService } from './employee.service.js';
 
 /**
@@ -67,7 +67,7 @@ export class EmployeeController {
   findOne(
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<EmployeeDetail> {
+  ): Promise<EmployeeDetailView> {
     return this.employees.findOne(principal, id);
   }
 
@@ -77,7 +77,7 @@ export class EmployeeController {
   create(
     @CurrentUser() principal: Principal,
     @Body() body: CreateEmployeeDto,
-  ): Promise<EmployeeDetail> {
+  ): Promise<EmployeeDetailView> {
     return this.employees.create(principal, body);
   }
 
@@ -117,7 +117,7 @@ export class EmployeeController {
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateEmployeeDto,
-  ): Promise<EmployeeDetail> {
+  ): Promise<EmployeeDetailView> {
     return this.employees.update(principal, id, body);
   }
 }

@@ -22,6 +22,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { useHolidayCalendarOptions } from '@/features/holidays/use-holidays';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
@@ -508,6 +509,7 @@ function LocationBody({
     geofenceLng: existing?.geofenceLng === null ? '' : String(existing?.geofenceLng ?? ''),
     geofenceRadiusM: String(existing?.geofenceRadiusM ?? 100),
     ipAllowlist: (existing?.ipAllowlist ?? []).join('\n'),
+    holidayCalendarId: existing?.holidayCalendarId ?? null,
   }));
   const [touched, setTouched] = useState(false);
   // Not part of the draft: the link is a way of filling the two coordinates,
@@ -517,8 +519,18 @@ function LocationBody({
   const [mapsResult, setMapsResult] = useState<MapsLinkResult>({ kind: 'empty' });
 
   const save = useSaveLocation();
+  const calendars = useHolidayCalendarOptions();
   const nameIssue = nameProblem(draft.name);
   const codeIssue = codeProblem(draft.code);
+
+  // The year rides as the hint: calendars are per-year, and two years of
+  // "Maharashtra" are otherwise indistinguishable in the list.
+  const calendarOptions: PickerOption[] = (calendars.data ?? []).map((row) => ({
+    id: row.id,
+    label: row.name,
+    hint: String(row.year),
+  }));
+  const calendar = calendarOptions.find((option) => option.id === draft.holidayCalendarId) ?? null;
 
   const lat = readCoordinate(draft.geofenceLat);
   const lng = readCoordinate(draft.geofenceLng);
@@ -553,6 +565,7 @@ function LocationBody({
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line !== ''),
+      holidayCalendarId: draft.holidayCalendarId,
     };
 
     save.mutate(payload, {
@@ -633,6 +646,29 @@ function LocationBody({
         <FieldDescription>
           An IANA zone name. Leave it blank to use the organisation timezone — a wrong zone here
           silently shifts every attendance date for this location.
+        </FieldDescription>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor="location-calendar">Holiday calendar</FieldLabel>
+        <RecordPicker
+          id="location-calendar"
+          label="Holiday calendar"
+          placeholder="No calendar"
+          searchPlaceholder="Search calendars"
+          emptyMessage="No calendar matches that."
+          options={calendarOptions}
+          loading={calendars.isPending}
+          clearable
+          clearLabel="No calendar"
+          value={calendar}
+          onValueChange={(next) => {
+            setDraft((current) => ({ ...current, holidayCalendarId: next?.id ?? null }));
+          }}
+        />
+        <FieldDescription>
+          Employees here inherit this calendar unless their own record names one (REQ-H-02).
+          Calendars are per-year; the year shows beside the name.
         </FieldDescription>
       </Field>
 

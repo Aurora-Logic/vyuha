@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type {
   DepartmentSummary,
   DesignationSummary,
-  LocationSummary,
+  LocationSummary as SharedLocationSummary,
   NamedRef,
   Paginated,
 } from '@vyuha/shared';
@@ -39,6 +39,16 @@ export const designationSchema: z.ZodType<DesignationSummary> = z.object({
   grade: z.string().nullable(),
 });
 
+/**
+ * The shared summary plus the holiday calendar link (OS-3, REQ-H-02). Widened
+ * here rather than in the contract because the API declares the link beside
+ * its endpoint for the same reason -- the id belongs to an attendance-owned
+ * table the shared package does not describe.
+ */
+export interface LocationSummary extends SharedLocationSummary {
+  readonly holidayCalendarId: string | null;
+}
+
 export const locationSchema: z.ZodType<LocationSummary> = z.object({
   id: z.string(),
   name: z.string(),
@@ -49,6 +59,7 @@ export const locationSchema: z.ZodType<LocationSummary> = z.object({
   geofenceLng: z.number().nullable(),
   geofenceRadiusM: z.number(),
   ipAllowlist: z.array(z.string()),
+  holidayCalendarId: z.string().nullable(),
 });
 
 const pageMetaSchema = z.object({
@@ -65,4 +76,4 @@ export const departmentListSchema = listSchema(departmentSchema);
 export const designationListSchema = listSchema(designationSchema);
 export const locationListSchema = listSchema(locationSchema);
 
-export type { DepartmentSummary, DesignationSummary, LocationSummary };
+export type { DepartmentSummary, DesignationSummary };

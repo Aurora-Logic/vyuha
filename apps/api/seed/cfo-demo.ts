@@ -282,7 +282,7 @@ async function main(): Promise<void> {
     );
 
     // ---------------------------------------------------------- owner map
-    const audit = { write: async () => undefined } as unknown as AuditService;
+    const audit = { write: () => Promise.resolve(undefined) } as unknown as AuditService;
     const owners = new OwnerMapService(db, audit);
     const haveOwners = (await pool.query<{ n: string }>('SELECT count(*)::text AS n FROM customer_owner_map WHERE org_id = $1', [orgId])).rows[0]?.n !== '0';
     if (!haveOwners) {

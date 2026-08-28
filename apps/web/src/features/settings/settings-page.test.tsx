@@ -47,6 +47,7 @@ function applyPatch(current: OrgSettings, patch: SettingsPatch): OrgSettings {
     duplicates: { ...current.duplicates, ...patch.duplicates },
     returns: { ...current.returns, ...patch.returns },
     interest: { ...current.interest, ...patch.interest },
+    leave: { ...current.leave, ...patch.leave },
   };
 }
 
@@ -169,6 +170,37 @@ describe('the settings screen', () => {
     const [sent] = patchesSent();
     expect(Object.keys(sent ?? {}).sort()).toEqual(['organisation', 'retention']);
     expect(sent?.retention?.exportsDays).toBe(21);
+  });
+
+  it('saves the leave policy panel, sending only the leave group (OS-1)', async () => {
+    serve();
+    const user = userEvent.setup();
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=attendance' });
+
+    const leave = await screen.findByRole('region', { name: 'Leave policy' });
+    const expiry = screen.getByLabelText('Comp-off credits expire after (days)');
+    await user.clear(expiry);
+    await user.type(expiry, '45');
+
+    expect(within(leave).getByText('Unsaved changes')).toBeTruthy();
+    // The attendance panel beside it did not move and must not be sent.
+    const attendance = screen.getByRole('region', { name: 'Attendance policy' });
+    expect(within(attendance).getByText('Saved')).toBeTruthy();
+
+    await user.click(within(leave).getByRole('button', { name: /Save changes/u }));
+
+    await waitFor(() => {
+      expect(patchesSent()).toHaveLength(1);
+    });
+    const [sent] = patchesSent();
+    expect(Object.keys(sent ?? {})).toEqual(['leave']);
+    expect(sent?.leave).toEqual({
+      yearStartMonth: 4,
+      compOffExpiryDays: 45,
+      concurrentAbsenceThreshold: 0,
+    });
+
+    expect(await within(leave).findByText('Saved')).toBeTruthy();
   });
 
   it('gives a module approver the page they may see when the address names one they may not', async () => {

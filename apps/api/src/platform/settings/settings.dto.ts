@@ -7,7 +7,7 @@ import { attendancePolicySchema, photoPolicyObject,
   appearancePolicySchema,
   localePolicySchema,
   retentionPolicySchema, duplicatesPolicyRowSchema, returnReasonsPolicyRowSchema,
-  interestPolicySchema } from './settings.catalogue.js';
+  interestPolicySchema, leavePolicySchema } from './settings.catalogue.js';
 
 /**
  * The `PUT /settings` body (REQ-L-01, REQ-L-02, REQ-L-03).
@@ -65,6 +65,7 @@ export const updateSettingsSchema = z
     duplicates: duplicatesPolicyRowSchema.partial(),
     returns: returnReasonsPolicyRowSchema.partial(),
     interest: interestPolicySchema.partial(),
+    leave: leavePolicySchema.partial(),
   })
   .partial()
   .refine(
@@ -78,7 +79,8 @@ export const updateSettingsSchema = z
       value.retention !== undefined ||
       value.duplicates !== undefined ||
       value.returns !== undefined ||
-      value.interest !== undefined,
+      value.interest !== undefined ||
+      value.leave !== undefined,
     // An empty body would otherwise succeed, write nothing, and leave an audit
     // row claiming a settings change with an empty diff.
     { message: 'Send at least one settings group to change.' },

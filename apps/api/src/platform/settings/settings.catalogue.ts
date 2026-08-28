@@ -377,6 +377,52 @@ export const DEFAULT_INTEREST_POLICY: InterestPolicy = {
   nonMovingDays: 90,
 };
 
+/**
+ * OS-1, decided 28 Aug 2026: the three leave policy rows the leave slice has
+ * read since Phase 2 (REQ-G-04, REQ-G-11, REQ-G-12) become writable. Until
+ * this group existed they were read with a default and writable by nobody --
+ * a policy that could only ever be its default. The key strings repeat
+ * `LEAVE_SETTING_KEYS` in `leave.repository.ts`; the catalogue test fails if
+ * either side renames one.
+ */
+export const LEAVE_SETTINGS = {
+  yearStartMonth: {
+    key: 'leave.year_start_month',
+    help: 'The month the leave year starts in (REQ-G-04). Accrual, carry-forward and lapse are all measured from here.',
+    enforcedBy: 'Leave engine',
+  },
+  compOffExpiryDays: {
+    key: 'leave.comp_off_expiry_days',
+    help: 'Days a comp-off credit lives from the day it was earned before it lapses (REQ-G-11).',
+    enforcedBy: 'Comp-off grants',
+  },
+  concurrentAbsenceThreshold: {
+    key: 'leave.concurrent_absence_threshold',
+    help: 'Warn when this many people in one department are away on the same day (REQ-G-12). Zero switches the warning off.',
+    enforcedBy: 'Leave calendar',
+  },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const leavePolicySchema = z.object({
+  yearStartMonth: z.number().int().min(1).max(12),
+  // The reader's own guard is 1..3650; a year is the widest a screen should
+  // offer before the credit stops being "compensatory" in any meaningful sense.
+  compOffExpiryDays: z.number().int().min(1).max(365),
+  // Zero is a legitimate policy: the warning switched off, which is also the
+  // default until an organisation chooses a number.
+  concurrentAbsenceThreshold: z.number().int().min(0).max(100),
+});
+export type LeavePolicy = z.infer<typeof leavePolicySchema>;
+
+export const DEFAULT_LEAVE_POLICY: LeavePolicy = {
+  // REQ-G-04 and 05-decisions: April.
+  yearStartMonth: 4,
+  // REQ-G-11: thirty days from the earned date.
+  compOffExpiryDays: 30,
+  // REQ-G-12: off until a number is chosen.
+  concurrentAbsenceThreshold: 0,
+};
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
@@ -388,6 +434,7 @@ export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(DUPLICATES_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(RETURNS_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(INTEREST_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(LEAVE_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**
