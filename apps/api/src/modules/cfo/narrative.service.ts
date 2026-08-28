@@ -36,10 +36,14 @@ export interface Narrative {
 
 const lakh = (value: number): string => {
   const abs = Math.abs(value);
-  if (abs >= 10_000_000) return `₹${(value / 10_000_000).toFixed(2)} crore`;
-  if (abs >= 100_000) return `₹${(value / 100_000).toFixed(2)} lakh`;
-  return `₹${Math.round(value).toLocaleString('en-IN')}`;
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 10_000_000) return `${sign}₹${(abs / 10_000_000).toFixed(2)} crore`;
+  if (abs >= 100_000) return `${sign}₹${(abs / 100_000).toFixed(2)} lakh`;
+  return `${sign}₹${Math.round(abs).toLocaleString('en-IN')}`;
 };
+
+/** Ratios arrive as raw floats; a narrative speaks in whole days and points. */
+const r0 = (value: number): string => String(Math.round(value));
 
 @Injectable()
 export class NarrativeService {
@@ -96,12 +100,14 @@ export class NarrativeService {
       ]);
       cash.push(`Outstanding ${lakh(Number(now.outstanding))}, of which ${lakh(Number(now.overdue))} overdue.`);
       if (now.dsoCountback !== null) {
-        cash.push(prev.dsoCountback === null
-          ? `DSO ${String(now.dsoCountback)} days by countback.`
-          : `DSO ${String(now.dsoCountback)} days by countback, ${now.dsoCountback === prev.dsoCountback ? 'level with' : now.dsoCountback > prev.dsoCountback ? `up ${String(now.dsoCountback - prev.dsoCountback)} on` : `down ${String(prev.dsoCountback - now.dsoCountback)} on`} the prior ${String(days)} days.`);
+        const cur = Math.round(now.dsoCountback);
+        const was = prev.dsoCountback === null ? null : Math.round(prev.dsoCountback);
+        cash.push(was === null
+          ? `DSO ${String(cur)} days by countback.`
+          : `DSO ${String(cur)} days by countback, ${cur === was ? 'level with' : cur > was ? `up ${String(cur - was)} on` : `down ${String(was - cur)} on`} the prior ${String(days)} days.`);
       }
-      if (now.cei !== null) cash.push(`CEI ${String(now.cei)}${prev.cei === null ? '' : ` (was ${String(prev.cei)})`}.`);
-      if (now.addDays !== null) cash.push(`Average days delinquent ${String(now.addDays)}${prev.addDays === null ? '' : ` (was ${String(prev.addDays)})`}.`);
+      if (now.cei !== null) cash.push(`CEI ${r0(now.cei)}${prev.cei === null ? '' : ` (was ${r0(prev.cei)})`}.`);
+      if (now.addDays !== null) cash.push(`Average days delinquent ${r0(now.addDays)}${prev.addDays === null ? '' : ` (was ${r0(prev.addDays)})`}.`);
       cash.push('The full cash cycle needs purchase-side data the Tally projection does not carry yet; the receivables half above is complete.');
     }
 
