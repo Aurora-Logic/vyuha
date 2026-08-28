@@ -37,7 +37,9 @@ import { defaultRange } from './period';
 import { formatCount } from '@/lib/format';
 
 import { AREA_GATES, AREA_LABELS, AREA_METRICS, CHART_PALETTES, PALETTE_LABELS } from './catalogue';
-import { PIVOT_DIMENSION_LABELS, PIVOT_METRIC_LABELS } from './use-cfo';
+import { PartyPicker } from '@/features/masters/party-picker';
+
+import { PIVOT_DIMENSION_LABELS, PIVOT_METRIC_LABELS, useTiers } from './use-cfo';
 
 /**
  * The widget configuration rail (owner, 26 Aug 2026, the Twenty reference):
@@ -174,6 +176,7 @@ export function BuilderPanel({
 }) {
   const held = usePermissions();
   const areas = (Object.keys(AREA_LABELS) as InsightArea[]).filter((area) => held.has(AREA_GATES[area]));
+  const tiers = useTiers({ enabled: widget.kind === 'pivot' });
   const metrics = AREA_METRICS[widget.area];
 
   // The widget's own data, from the same cache its chart reads, so the
@@ -315,6 +318,60 @@ export function BuilderPanel({
               </p>
             </Field>
           ) : null}
+          {/* S-5: the level model's filters, fixed into the widget. Names are
+              stored beside ids so the chip reads as words when reopened. */}
+          <Field>
+            <FieldLabel>Filter: class</FieldLabel>
+            <Select
+              value={widget.pivot.scope?.class ?? '__all__'}
+              onValueChange={(v) => {
+                if (v === null || !widget.pivot) return;
+                const scope = { ...widget.pivot.scope };
+                if (v === '__all__') delete scope.class; else scope.class = v;
+                onChange({ ...widget, pivot: { ...widget.pivot, scope } });
+              }}
+            >
+              <SelectTrigger aria-label="Filter by class"><SelectValue>{(v: string) => (v === '__all__' ? 'All classes' : `Class ${v}`)}</SelectValue></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All classes</SelectItem>
+                {(tiers.data ?? []).map((tier) => (
+                  <SelectItem key={tier.code} value={tier.code}>{tier.code} · {tier.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Filter: brand</FieldLabel>
+            <Input
+              aria-label="Filter by brand"
+              placeholder="Any brand"
+              defaultValue={widget.pivot.scope?.brand ?? ''}
+              key={`brand-${widget.id}`}
+              onBlur={(e) => {
+                if (!widget.pivot) return;
+                const next = e.target.value.trim();
+                const scope = { ...widget.pivot.scope };
+                if (next === '') delete scope.brand; else scope.brand = next;
+                onChange({ ...widget, pivot: { ...widget.pivot, scope } });
+              }}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Filter: customer</FieldLabel>
+            <PartyPicker
+              partyId={widget.pivot.scope?.party ?? null}
+              {...(widget.pivot.scope?.partyName === undefined ? {} : { partyName: widget.pivot.scope.partyName })}
+              label="Filter by customer"
+              placeholder="Any customer"
+              onValueChange={(party) => {
+                if (!widget.pivot) return;
+                const scope = { ...widget.pivot.scope };
+                if (party === null) { delete scope.party; delete scope.partyName; }
+                else { scope.party = party.id; scope.partyName = party.name; }
+                onChange({ ...widget, pivot: { ...widget.pivot, scope } });
+              }}
+            />
+          </Field>
           <Field>
             <FieldLabel>Rows kept</FieldLabel>
             <Select value={String(widget.pivot.top)} onValueChange={(v) => { if (v !== null && widget.pivot) onChange({ ...widget, pivot: { ...widget.pivot, top: Number(v) } }); }}>

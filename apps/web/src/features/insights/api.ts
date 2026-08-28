@@ -68,6 +68,18 @@ const customWidgetSchema = z.object({
       metric: z.enum(PIVOT_METRICS).default('net'),
       expr: z.string().optional(),
       top: z.number().default(20),
+      scope: z
+        .object({
+          brand: z.string().optional(),
+          class: z.string().optional(),
+          person: z.string().optional(),
+          party: z.string().optional(),
+          item: z.string().optional(),
+          partyName: z.string().optional(),
+          itemName: z.string().optional(),
+          personName: z.string().optional(),
+        })
+        .optional(),
     })
     .optional(),
   // Defaults, not requirements: a widget stored before an option existed

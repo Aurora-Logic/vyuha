@@ -96,7 +96,8 @@ import { formatHeadline } from './units';
  * heatmap sorts keys and would otherwise shuffle people and brands.
  */
 function PivotWidgetBody({ spec, range, tall }: { spec: NonNullable<CustomWidget['pivot']>; range: { from: string; to: string }; tall: boolean }) {
-  const query = usePivot(range, spec);
+  const { partyName: _p, itemName: _i, personName: _o, ...scope } = spec.scope ?? {};
+  const query = usePivot(range, spec, scope);
   if (query.isPending) return <Skeleton className="h-40 w-full" />;
   if (query.isError) {
     return (

@@ -149,6 +149,24 @@ export const pivotSpecSchema = z.object({
   expr: z.string().trim().min(1).max(200).optional(),
   /** Rows kept, ranked by the metric; the rest fold into "Other". */
   top: z.number().int().min(5).max(100).default(20),
+  /**
+   * S-5: the level model's filters, fixed into the widget. The same scope
+   * vocabulary the sales-analysis endpoint takes; membership of a class is
+   * resolved as of the window's end, like everywhere else.
+   */
+  scope: z
+    .object({
+      brand: z.string().trim().min(1).max(120).optional(),
+      class: z.string().trim().min(1).max(4).optional(),
+      person: z.string().regex(/^(user:[0-9a-f-]{36}|HOUSE|UNASSIGNED)$/u).optional(),
+      party: z.string().regex(/^[0-9a-f-]{36}$/u).optional(),
+      item: z.string().regex(/^[0-9a-f-]{36}$/u).optional(),
+      /** Names for the chips, so a stored filter reads as words, not ids. */
+      partyName: z.string().max(200).optional(),
+      itemName: z.string().max(200).optional(),
+      personName: z.string().max(200).optional(),
+    })
+    .optional(),
 });
 export type PivotSpec = z.infer<typeof pivotSpecSchema>;
 
