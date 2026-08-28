@@ -36,7 +36,6 @@ export const orgProfileSchema = z.object({
   // offer the reader a way to correct it.
   dateFormat: z.string(),
   weekStart: z.number().int(),
-  leaveYearStartMonth: z.number().int(),
   logoKey: z.string().nullable(),
 });
 

@@ -47,7 +47,6 @@ export const orgProfilePatchSchema = z
     /** ISO-8601 weekday, 1 = Monday. */
     weekStart: z.number().int().min(1).max(7),
     /** REQ-G-04. April by default, confirmed in 05-decisions. */
-    leaveYearStartMonth: z.number().int().min(1).max(12),
   })
   .partial();
 

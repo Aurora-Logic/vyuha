@@ -173,7 +173,6 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
       timezone: draft.organisation.timezone,
       dateFormat: draft.organisation.dateFormat,
       weekStart: draft.organisation.weekStart,
-      leaveYearStartMonth: draft.organisation.leaveYearStartMonth,
     };
   }
   if (!sameGroup(draft.attendance, saved.attendance)) patch.attendance = draft.attendance;
@@ -646,19 +645,6 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 }}
               />
 
-              <PolicyChoiceField
-                id="org-leave-year"
-                label="Leave year starts in"
-                value={String(draft.organisation.leaveYearStartMonth)}
-                options={MONTH_LABELS.map((month) => ({
-                  value: String(month.value),
-                  label: month.label,
-                }))}
-                help="Accruals, carry-forward and lapse are all measured from here."
-                onValueChange={(next) => {
-                  patchOrganisation({ leaveYearStartMonth: Number(next) });
-                }}
-              />
             </SettingsPanel>
           </SettingsSection>
 

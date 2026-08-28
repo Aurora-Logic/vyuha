@@ -23,7 +23,6 @@ export function sampleSettings(): OrgSettings {
       timezone: 'Asia/Kolkata',
       dateFormat: 'dd-MM-yyyy',
       weekStart: 1,
-      leaveYearStartMonth: 4,
       logoKey: null,
     },
     attendance: {

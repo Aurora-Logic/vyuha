@@ -138,7 +138,6 @@ describe('PATCH /settings (REQ-L-01, REQ-L-05)', () => {
         timezone: 'Asia/Dubai',
         dateFormat: 'yyyy-MM-dd',
         weekStart: 7,
-        leaveYearStartMonth: 1,
       },
     });
 
