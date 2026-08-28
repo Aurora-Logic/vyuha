@@ -161,7 +161,7 @@ export function IntegrationsPage() {
             title: allOpen ? 'Pulls are already queued' : 'Pull queued',
             description: allOpen
               ? `${connection.name} has open pulls for every master; the agent takes them on its next poll.`
-              : `Parties, stock items and price lists queued; the agent picks them up on its next poll of ${connection.name}.`,
+              : `Parties, stock items, price lists and bill allocations queued; the agent picks them up on its next poll of ${connection.name}.`,
           });
         },
         // The server names what is missing — an unbound company, an entity

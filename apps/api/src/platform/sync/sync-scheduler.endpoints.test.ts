@@ -79,8 +79,9 @@ afterAll(async () => {
   await harness.close();
 });
 
-// One open job per writable entity type: party, stock_item, price_list.
-const WRITABLE_TYPES = 3;
+// One open job per writable entity type: party, stock_item, price_list,
+// bill_allocation.
+const WRITABLE_TYPES = 4;
 
 describe('the fifteen-minute sweep (REQ-R-07)', () => {
   it('enqueues one pull per entity type per eligible connection, skips the ineligible', async () => {

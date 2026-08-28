@@ -22,8 +22,16 @@ import { orgContextOf, type Principal } from '../rbac/principal.js';
  */
 // Item chunks must land before price chunks — the price writer resolves
 // items through their GUID mappings — and the array order here is the order
-// both the sweep enqueues and the agent works.
-export const PULL_ENTITY_TYPES: readonly SyncEntityType[] = ['party', 'stock_item', 'price_list'];
+// both the sweep enqueues and the agent works. Allocations resolve vouchers,
+// which reach Vyuha through the webhook door rather than this queue, so no
+// order here can guarantee them: an allocation whose voucher has not arrived
+// is skipped and counted by the writer, never failed.
+export const PULL_ENTITY_TYPES: readonly SyncEntityType[] = [
+  'party',
+  'stock_item',
+  'price_list',
+  'bill_allocation',
+];
 
 /**
  * A pull that five claims could not finish is not going to finish on the
