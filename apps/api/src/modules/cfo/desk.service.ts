@@ -238,7 +238,18 @@ export class DeskService {
     const candidates = [...reasons.entries()].filter(([partyId]) => book === null || book.has(partyId));
     const qualified = candidates.length;
     if (candidates.length === 0) {
-      return { date: today, theme, mixed, cap: options.cap, strip: await this.strip(principal, today), rows: [], qualified };
+      // A quiet book is exactly when the coverage guarantee matters: no work
+      // list names anyone, and the neglected key account stays invisible.
+      const covered = await this.coverageRows(principal, today, [], options.cap, book);
+      const rows = covered.map((r, index) => ({ ...r, rank: index + 1 }));
+      for (const row of writeServed ? rows : []) {
+        await this.db.execute(sql`
+          INSERT INTO cfo_desk_served (org_id, party_id, served_on, score, reason)
+          VALUES (${principal.orgId}, ${row.partyId}, ${today}, ${row.score}, ${row.primary.key})
+          ON CONFLICT (org_id, served_on, party_id) DO UPDATE SET score = ${row.score}, reason = ${row.primary.key}
+        `);
+      }
+      return { date: today, theme, mixed, cap: options.cap, strip: await this.strip(principal, today), rows, qualified };
     }
 
     const ids = candidates.map(([id]) => id);
@@ -317,7 +328,13 @@ export class DeskService {
       chosen.push(row);
       taken.set(key, (taken.get(key) ?? 0) + 1);
     }
-    const rows: DeskRow[] = chosen.sort((a, b) => b.score - a.score).map((r, index) => ({ ...r, rank: index + 1 }));
+    const ranked = chosen.sort((a, b) => b.score - a.score);
+
+    // O-2 (closed 28 Aug 2026), the coverage guarantee.
+    if (ranked.length < cap) {
+      ranked.push(...await this.coverageRows(principal, today, ranked.map((r) => r.partyId), cap - ranked.length, book));
+    }
+    const rows: DeskRow[] = ranked.map((r, index) => ({ ...r, rank: index + 1 }));
 
     // The served log is what tomorrow's rotation reads.
     for (const row of writeServed ? rows : []) {
@@ -329,6 +346,59 @@ export class DeskService {
     }
 
     return { date: today, theme, mixed, cap, strip: await this.strip(principal, today), rows, qualified };
+  }
+
+  /**
+   * O-2 (closed 28 Aug 2026), the coverage guarantee: a key account past its
+   * class's contact window joins the day even when no work list names it --
+   * the most expensive neglect is the customer with no symptom yet. Two at
+   * most, appended after the scored names (the guarantee is presence, not
+   * urgency), skipping anyone already listed or served inside seven days so
+   * the same quiet A+ does not eat a slot daily.
+   */
+  private async coverageRows(
+    principal: Principal,
+    today: string,
+    listedIds: readonly string[],
+    room: number,
+    book: ReadonlySet<string> | null,
+  ): Promise<(Omit<DeskRow, 'rank' | 'others'> & { others: DeskReason[] })[]> {
+    if (room <= 0) return [];
+    const neglected = await this.tiers.neglected(principal);
+    if (neglected.rows.length === 0) return [];
+    const listed = new Set(listedIds);
+    const recentlyServed = await this.db.execute<{ partyId: string }>(sql`
+      SELECT DISTINCT party_id AS "partyId" FROM cfo_desk_served
+      WHERE org_id = ${principal.orgId} AND served_on::date > (${today}::date - 7)
+    `);
+    const served = new Set(recentlyServed.rows.map((r) => r.partyId));
+    const owners = await this.ownersOf(principal);
+    const out: (Omit<DeskRow, 'rank' | 'others'> & { others: DeskReason[] })[] = [];
+    for (const row of neglected.rows) {
+      if (out.length >= Math.min(room, 2)) break;
+      if (listed.has(row.partyId) || served.has(row.partyId)) continue;
+      if (book !== null && !book.has(row.partyId)) continue;
+      const owner = owners.get(row.partyId) ?? null;
+      out.push({
+        partyId: row.partyId,
+        party: row.party,
+        ownerRef: owner?.ref ?? null,
+        ownerLabel: row.ownerLabel,
+        tierCode: row.tierCode,
+        primary: {
+          key: 'coverage',
+          label: 'Coverage',
+          reason: `${String(row.daysSince)} days since any contact; class ${row.tierCode} wants every ${String(row.contactEveryDays)}`,
+          amount: row.outstanding,
+        },
+        others: [],
+        atStake: row.outstanding,
+        score: 0,
+        breakdown: { value: 0, urgency: 0, risk: 0, opportunity: 0, cooldown: 0 },
+        lastContact: row.lastTouch === null ? null : { on: row.lastTouch, outcome: 'ORDER' },
+      });
+    }
+    return out;
   }
 
   /** O5.1's strip: what yesterday's list produced. */
@@ -618,6 +688,9 @@ export class DeskService {
     const book = await this.myBook(principal);
     if (book !== null && !book.has(partyId)) throw AppError.forbidden('This customer is not in your book.');
     if (body.outcome === 'CALL_AGAIN' && body.nextDate === undefined) throw AppError.validation('Call again needs a date.');
+    if (body.outcome === 'PROMISE_TO_PAY' && (body.amount === undefined || body.nextDate === undefined)) {
+      throw AppError.validation('A promise needs the amount and the date it was promised for.');
+    }
     const exists = await this.db.execute<{ id: string }>(sql`
       SELECT id FROM parties WHERE org_id = ${principal.orgId} AND id = ${partyId} LIMIT 1
     `);
@@ -628,6 +701,19 @@ export class DeskService {
       VALUES (${principal.orgId}, ${partyId}, ${'user:' + principal.userId}, ${body.outcome},
               ${body.amount ?? null}::numeric, ${body.nextDate ?? null}, ${body.notes ?? ''}, ${today})
     `);
+    // O-3 (closed 28 Aug 2026): a promise taken at the desk is a real
+    // promise. Bills stay empty -- the schema reads that as "any receipt
+    // from the party counts" -- so the kept/broken evaluation lights up the
+    // day receipts (or bill allocations) can be matched, and the desk is
+    // not a second, lesser promise book.
+    if (body.outcome === 'PROMISE_TO_PAY' && body.amount !== undefined && body.nextDate !== undefined) {
+      await this.db.execute(sql`
+        INSERT INTO promises_to_pay (org_id, party_id, amount, promised_date, taken_by, taken_on, notes)
+        SELECT ${principal.orgId}, ${partyId}, ${body.amount}::numeric, ${body.nextDate},
+               u.employee_id, ${today}, ${body.notes ?? ''}
+        FROM users u WHERE u.id = ${principal.userId}
+      `);
+    }
     await this.audit.write({
       orgId: principal.orgId,
       actorUserId: principal.userId,
