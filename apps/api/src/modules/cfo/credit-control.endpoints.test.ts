@@ -752,3 +752,89 @@ describe('the export centre (O6)', () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe('bulk class tools (P4, P5, O2.1)', () => {
+  const idOf = async (name: string): Promise<string> => {
+    const rows = await harness.db.execute<{ id: string }>(sql`SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = ${name}`);
+    return rows.rows[0]?.id ?? '';
+  };
+
+  it('assigns a class to many customers at once, skipping the ones already there', async () => {
+    const bharatId = await idOf('Bharat Cables');
+    const chetanId = await idOf('Chetan Power');
+    const first = await harness.post<{ applied: number; skipped: { party: string; reason: string }[] }>('/cfo/tiers/bulk-assign', {
+      token: adminToken,
+      body: { partyIds: [bharatId, chetanId], tierCode: 'A', reason: 'FY reclassification', effectiveFrom: TODAY },
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.applied).toBe(2);
+    expect(first.body.skipped).toEqual([]);
+
+    const again = await harness.post<{ applied: number; skipped: { party: string; reason: string }[] }>('/cfo/tiers/bulk-assign', {
+      token: adminToken,
+      body: { partyIds: [bharatId], tierCode: 'A', reason: 'FY reclassification', effectiveFrom: TODAY },
+    });
+    expect(again.body.applied).toBe(0);
+    expect(again.body.skipped[0]?.party).toBe('Bharat Cables');
+    expect(again.body.skipped[0]?.reason).toMatch(/Already class/u);
+
+    const forbidden = await harness.post('/cfo/tiers/bulk-assign', {
+      token: employeeToken,
+      body: { partyIds: [bharatId], tierCode: 'B', reason: 'x', effectiveFrom: TODAY },
+    });
+    expect(forbidden.status).toBe(403);
+  });
+
+  it('previews a pasted sheet honestly, then applies only the rows that change', async () => {
+    const text = 'Customer\tClass\tReason\nDeva Supply\tB\tImported from the FY sheet\nNobody & Co\tA\t\nBharat Cables\tZ9\t';
+    const preview = await harness.post<{ status: string; party: string; note: string }[]>('/cfo/tiers/import-preview', {
+      token: adminToken,
+      body: { text, effectiveFrom: TODAY },
+    });
+    expect(preview.status).toBe(200);
+    expect(preview.body.map((r) => r.status)).toEqual(['change', 'unknown-party', 'unknown-class']);
+
+    const applied = await harness.post<{ applied: number; rows: { status: string }[] }>('/cfo/tiers/import', {
+      token: adminToken,
+      body: { text, effectiveFrom: TODAY },
+    });
+    expect(applied.body.applied).toBe(1);
+
+    const devaId = await idOf('Deva Supply');
+    const cls = await harness.get<{ current: { tierCode: string; reason: string } | null }>(`/cfo/parties/${devaId}/class`, { token: adminToken });
+    expect(cls.body.current?.tierCode).toBe('B');
+    expect(cls.body.current?.reason).toBe('Imported from the FY sheet');
+  });
+
+  it('lists class mismatches both ways and honours a snooze', async () => {
+    const chetanId = await idOf('Chetan Power');
+    const res = await harness.get<{ rows: { party: string; current: string | null; suggested: string; direction: string; why: string }[] }>('/cfo/tiers/mismatches', { token: adminToken });
+    expect(res.status).toBe(200);
+    const chetan = res.body.rows.find((r) => r.party === 'Chetan Power');
+    // Classed A in the bulk test, but nothing bought for a year: over-classified.
+    expect(chetan?.current).toBe('A');
+    expect(chetan?.suggested).toBe('D');
+    expect(chetan?.direction).toBe('over');
+    expect(chetan?.why).toMatch(/Nothing bought/u);
+
+    const snooze = await harness.post('/cfo/alerts/snooze', {
+      token: adminToken,
+      body: { alertKey: 'class-mismatch', partyId: chetanId, until: '2099-01-01', reason: 'Under review with sales head' },
+    });
+    expect(snooze.status).toBe(201);
+    const after = await harness.get<{ rows: { party: string }[] }>('/cfo/tiers/mismatches', { token: adminToken });
+    expect(after.body.rows.some((r) => r.party === 'Chetan Power')).toBe(false);
+  });
+
+  it('surfaces key accounts past their contact frequency', async () => {
+    const res = await harness.get<{ rows: { party: string; tierCode: string; daysSince: number; contactEveryDays: number }[] }>('/cfo/tiers/neglected', { token: adminToken });
+    expect(res.status).toBe(200);
+    const chetan = res.body.rows.find((r) => r.party === 'Chetan Power');
+    // Class A wants contact every 45 days; the last touch is a year-old voucher.
+    expect(chetan).toBeDefined();
+    expect(chetan !== undefined && chetan.daysSince > chetan.contactEveryDays).toBe(true);
+
+    const forbidden = await harness.get('/cfo/tiers/neglected', { token: employeeToken });
+    expect(forbidden.status).toBe(403);
+  });
+});

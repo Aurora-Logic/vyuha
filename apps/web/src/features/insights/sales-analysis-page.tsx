@@ -21,6 +21,13 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DefinitionLink } from '@/components/shared/definition-panel';
@@ -37,7 +44,7 @@ import type { Metric } from './api';
 import { MetricChart } from './metric-card';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
 import { ExportButton } from './export-button';
-import { deltaText, useSalesAnalysis, type BreakdownRowData, type SalesAnalysisData, type SalesScope } from './use-cfo';
+import { deltaText, useSalesAnalysis, useTiers, type BreakdownRowData, type SalesAnalysisData, type SalesScope } from './use-cfo';
 
 /**
  * Sales Analysis, level-aware (brief B3): one screen at every scope.
@@ -47,7 +54,7 @@ import { deltaText, useSalesAnalysis, type BreakdownRowData, type SalesAnalysisD
  * footer as the data-quality KPI B3 asks for, never silently dropped.
  */
 
-const SCOPE_KEYS = ['brand', 'person', 'party', 'item'] as const;
+const SCOPE_KEYS = ['brand', 'class', 'person', 'party', 'item'] as const;
 type ScopeKey = (typeof SCOPE_KEYS)[number];
 
 function scopeFromParams(params: URLSearchParams): SalesScope {
@@ -102,6 +109,7 @@ export function SalesAnalysisPage() {
   const range = rangeFromParams(searchParams);
   const scope = scopeFromParams(searchParams);
   const query = useSalesAnalysis(range, scope, { enabled: canView });
+  const tiers = useTiers({ enabled: canView });
   const [tab, setTab] = useState<string | null>(null);
 
   function setParams(mutate: (params: URLSearchParams) => void) {
@@ -186,6 +194,28 @@ export function SalesAnalysisPage() {
               });
             }}
           />
+          {/* P6: the class as a slicer, membership as of the window's end. */}
+          <Select
+            value={scope.class ?? '__all__'}
+            onValueChange={(value) => {
+              if (value === null) return;
+              setParams((p) => {
+                if (value === '__all__') p.delete('class');
+                else p.set('class', value);
+              });
+              setTab(null);
+            }}
+          >
+            <SelectTrigger className="w-36" aria-label="Customer class">
+              <SelectValue>{(value: string) => (value === '__all__' ? 'All classes' : `Class ${value}`)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All classes</SelectItem>
+              {(tiers.data ?? []).map((tier) => (
+                <SelectItem key={tier.code} value={tier.code}>{tier.code} · {tier.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} vs the same days last year
           </span>

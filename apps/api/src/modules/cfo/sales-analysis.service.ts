@@ -25,6 +25,8 @@ import { TierService } from './tier.service.js';
 
 export interface SalesScope {
   readonly brand?: string;
+  /** A customer class code; membership resolved as of the window's end. */
+  readonly class?: string;
   readonly person?: string;
   readonly party?: string;
   readonly item?: string;
@@ -84,6 +86,10 @@ export class SalesAnalysisService {
   private where(principal: Principal, scope: SalesScope, from: string, to: string): SQL {
     const parts: SQL[] = [sql`org_id = ${principal.orgId} AND date BETWEEN ${from} AND ${to}`];
     if (scope.brand !== undefined) parts.push(sql`brand = ${scope.brand}`);
+    if (scope.class !== undefined) parts.push(sql`party_id IN (
+      SELECT party_id FROM customer_tier_assignments
+      WHERE org_id = ${principal.orgId} AND tier_code = ${scope.class}
+        AND effective_from <= ${to} AND (effective_to IS NULL OR effective_to >= ${to}))`);
     if (scope.person !== undefined) parts.push(sql`salesperson_ref = ${scope.person}`);
     if (scope.party !== undefined) parts.push(sql`party_id = ${scope.party}`);
     if (scope.item !== undefined) parts.push(sql`item_id = ${scope.item}`);
@@ -188,6 +194,7 @@ export class SalesAnalysisService {
   private async describeScope(principal: Principal, scope: SalesScope): Promise<{ level: string; key: string; label: string }[]> {
     const crumbs: { level: string; key: string; label: string }[] = [];
     if (scope.brand !== undefined) crumbs.push({ level: 'brand', key: scope.brand, label: scope.brand });
+    if (scope.class !== undefined) crumbs.push({ level: 'class', key: scope.class, label: `Class ${scope.class}` });
     if (scope.person !== undefined) {
       const email = scope.person.startsWith('user:')
         ? await this.db.execute<{ email: string }>(sql`SELECT email FROM users WHERE id = ${scope.person.slice(5)} LIMIT 1`)

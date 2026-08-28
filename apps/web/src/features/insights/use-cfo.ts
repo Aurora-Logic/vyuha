@@ -296,6 +296,7 @@ export type BreakdownRowData = z.infer<typeof breakdownRowSchema>;
 
 export interface SalesScope {
   brand?: string;
+  class?: string;
   person?: string;
   party?: string;
   item?: string;
@@ -561,6 +562,87 @@ export function usePartyClass(partyId: string | null, options: { enabled?: boole
 export async function assignClass(partyId: string, body: { tierCode: string; reason: string; effectiveFrom: string }): Promise<void> {
   await apiRequest(`/cfo/parties/${partyId}/class`, { method: 'PUT', body });
 }
+
+const bulkAssignResultSchema = z.object({
+  applied: z.number(),
+  skipped: z.array(z.object({ partyId: z.string(), party: z.string(), reason: z.string() })),
+});
+export type BulkAssignResultData = z.infer<typeof bulkAssignResultSchema>;
+
+export async function bulkAssignClass(body: { partyIds: string[]; tierCode: string; reason: string; effectiveFrom: string }): Promise<BulkAssignResultData> {
+  const res = await apiRequest<unknown>('/cfo/tiers/bulk-assign', { method: 'POST', body });
+  return parseOrThrow(bulkAssignResultSchema, res, 'bulk assignment');
+}
+
+const importRowSchema = z.object({
+  line: z.number(),
+  party: z.string(),
+  partyId: z.string().nullable(),
+  tierCode: z.string().nullable(),
+  from: z.string().nullable(),
+  status: z.enum(['change', 'unchanged', 'unknown-party', 'ambiguous-party', 'unknown-class', 'applied', 'failed']),
+  note: z.string(),
+});
+export type ImportRowData = z.infer<typeof importRowSchema>;
+
+export async function previewClassImport(body: { text: string; effectiveFrom: string }): Promise<ImportRowData[]> {
+  const res = await apiRequest<unknown>('/cfo/tiers/import-preview', { method: 'POST', body });
+  return parseOrThrow(z.array(importRowSchema), res, 'import preview');
+}
+
+export async function applyClassImport(body: { text: string; effectiveFrom: string }): Promise<{ applied: number; rows: ImportRowData[] }> {
+  const res = await apiRequest<unknown>('/cfo/tiers/import', { method: 'POST', body });
+  return parseOrThrow(z.object({ applied: z.number(), rows: z.array(importRowSchema) }), res, 'import result');
+}
+
+const mismatchRowSchema = z.object({
+  partyId: z.string(),
+  party: z.string(),
+  current: z.string().nullable(),
+  suggested: z.string(),
+  direction: z.enum(['under', 'over']),
+  netTY: z.string(),
+  growthPct: z.number().nullable(),
+  why: z.string(),
+});
+export type MismatchRowData = z.infer<typeof mismatchRowSchema>;
+
+export function useMismatches(options: { enabled?: boolean } = {}): UseQueryResult<MismatchRowData[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'tier-mismatches'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/cfo/tiers/mismatches', { signal });
+      return parseOrThrow(z.object({ rows: z.array(mismatchRowSchema) }), body, 'class mismatches').rows;
+    },
+    staleTime: 60_000,
+  });
+}
+
+const neglectedRowSchema = z.object({
+  partyId: z.string(),
+  party: z.string(),
+  tierCode: z.string(),
+  contactEveryDays: z.number(),
+  lastTouch: z.string().nullable(),
+  daysSince: z.number(),
+  ownerLabel: z.string(),
+  outstanding: z.string(),
+});
+export type NeglectedRowData = z.infer<typeof neglectedRowSchema>;
+
+export function useNeglected(options: { enabled?: boolean } = {}): UseQueryResult<NeglectedRowData[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'tier-neglected'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/cfo/tiers/neglected', { signal });
+      return parseOrThrow(z.object({ rows: z.array(neglectedRowSchema) }), body, 'neglected key accounts').rows;
+    },
+    staleTime: 60_000,
+  });
+}
+
 
 const classGradeSchema = z.object({
   classes: z.array(z.string()),

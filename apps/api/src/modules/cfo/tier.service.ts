@@ -7,6 +7,7 @@ import { InjectDatabase, type Database } from '../../platform/db/db.provider.js'
 import { type Principal } from '../../platform/rbac/principal.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
 import { creditGrade, type CreditGrade, type GradeReading } from './credit-grade.js';
+import { normaliseName, parseClassImport } from './tier-import.js';
 
 /**
  * Customer classes (brief Part P) and the payment grade (D18) -- two
@@ -51,6 +52,52 @@ export interface PartyClass {
   readonly history: readonly TierAssignment[];
   readonly grade: GradeReading | null;
 }
+
+export interface BulkAssignResult {
+  readonly applied: number;
+  readonly skipped: readonly { partyId: string; party: string; reason: string }[];
+}
+
+export interface ImportRow {
+  readonly line: number;
+  readonly party: string;
+  readonly partyId: string | null;
+  readonly tierCode: string | null;
+  readonly from: string | null;
+  readonly status: 'change' | 'unchanged' | 'unknown-party' | 'ambiguous-party' | 'unknown-class' | 'applied' | 'failed';
+  readonly note: string;
+}
+
+export interface MismatchRow {
+  readonly partyId: string;
+  readonly party: string;
+  readonly current: string | null;
+  readonly suggested: string;
+  readonly direction: 'under' | 'over';
+  readonly netTY: string;
+  readonly growthPct: number | null;
+  readonly why: string;
+}
+
+export interface NeglectedRow {
+  readonly partyId: string;
+  readonly party: string;
+  readonly tierCode: string;
+  readonly contactEveryDays: number;
+  readonly lastTouch: string | null;
+  readonly daysSince: number;
+  readonly ownerLabel: string;
+  readonly outstanding: string;
+}
+
+/**
+ * P5's suggestion bands: customers sorted by trailing-year revenue, the
+ * ones composing the first half of it suggested into the top class, and
+ * so on down. Cumulative share, not head-count deciles, because a
+ * distributor's book is skewed -- the top decile by count would promote
+ * three times as many customers as actually matter.
+ */
+const SUGGESTION_BANDS = [0.5, 0.8, 0.95, 0.99] as const;
 
 /** P3's example rows, seeded on first read so the master is never empty. */
 const DEFAULT_TIERS: readonly Omit<TierRow, 'assigned'>[] = [
@@ -152,10 +199,12 @@ export class TierService {
       ORDER BY effective_from DESC LIMIT 1
     `);
     const open = current.rows[0];
+    // Same class first: "already there" is the truthful answer even when the
+    // proposed date would also have been refused.
+    if (open?.tierCode === tierCode) throw AppError.conflict(`Already class ${tierCode}.`);
     if (open !== undefined && effectiveFrom <= open.effectiveFrom) {
       throw AppError.validation(`The current class started ${open.effectiveFrom}; a change takes effect after it -- history is never rewritten.`);
     }
-    if (open?.tierCode === tierCode) throw AppError.conflict(`Already class ${tierCode}.`);
     const dayBefore = new Date(Date.parse(effectiveFrom) - 86_400_000).toISOString().slice(0, 10);
     await this.db.execute(sql`
       UPDATE customer_tier_assignments SET effective_to = ${dayBefore}
@@ -305,5 +354,239 @@ export class TierService {
       unclassed: { count: unclassed.length, amount: unclassed.reduce((sum, m) => sum + Number(m.outstanding), 0).toFixed(2) },
       cells,
     };
+  }
+
+  /** P4 bulk: one decision, one reason, many customers; each row still audited alone. */
+  async bulkAssign(principal: Principal, partyIds: readonly string[], tierCode: string, reason: string, effectiveFrom: string): Promise<BulkAssignResult> {
+    const unique = [...new Set(partyIds)];
+    const names = await this.db.execute<{ id: string; name: string }>(sql`
+      SELECT id, name FROM parties WHERE org_id = ${principal.orgId} AND id IN ${unique}
+    `);
+    const nameOf = new Map(names.rows.map((r) => [r.id, r.name]));
+    let applied = 0;
+    const skipped: { partyId: string; party: string; reason: string }[] = [];
+    for (const partyId of unique) {
+      try {
+        await this.assign(principal, partyId, tierCode, reason, effectiveFrom);
+        applied += 1;
+      } catch (error) {
+        if (error instanceof AppError) {
+          skipped.push({ partyId, party: nameOf.get(partyId) ?? partyId, reason: error.message });
+        } else {
+          throw error;
+        }
+      }
+    }
+    return { applied, skipped };
+  }
+
+  /** P4 import: the pasted sheet is shown back as what will and will not change before a row is written. */
+  async importPreview(principal: Principal, text: string, effectiveFrom: string): Promise<ImportRow[]> {
+    const today = istDateOf(new Date().toISOString());
+    const tiers = await this.listTiers(principal);
+    const lines = parseClassImport(text, tiers.map((t) => t.code));
+    const wanted = [...new Set(lines.map((l) => normaliseName(l.party)).filter((n) => n !== ''))];
+    const matches = wanted.length === 0 ? { rows: [] as { id: string; name: string; norm: string }[] } : await this.db.execute<{ id: string; name: string; norm: string }>(sql`
+      SELECT id, name, lower(regexp_replace(trim(name), '\\s+', ' ', 'g')) AS norm
+      FROM parties WHERE org_id = ${principal.orgId}
+        AND lower(regexp_replace(trim(name), '\\s+', ' ', 'g')) IN ${wanted}
+      UNION
+      SELECT id, name, lower(regexp_replace(trim(alias), '\\s+', ' ', 'g')) AS norm
+      FROM parties WHERE org_id = ${principal.orgId} AND alias IS NOT NULL
+        AND lower(regexp_replace(trim(alias), '\\s+', ' ', 'g')) IN ${wanted}
+    `);
+    const byNorm = new Map<string, { id: string; name: string }[]>();
+    for (const row of matches.rows) {
+      const list = byNorm.get(row.norm) ?? [];
+      if (!list.some((entry) => entry.id === row.id)) list.push({ id: row.id, name: row.name });
+      byNorm.set(row.norm, list);
+    }
+    const resolved = lines.map((l) => ({ l, found: byNorm.get(normaliseName(l.party)) ?? [] }));
+    const classed = await this.classAsOf(principal.orgId, resolved.flatMap((r) => (r.found.length === 1 ? [r.found[0]?.id ?? ''] : [])), today);
+    return resolved.map(({ l, found }) => {
+      const base = { line: l.line, party: l.party, tierCode: l.tierCode, from: null, partyId: null };
+      if (l.tierCode === null) return { ...base, status: 'unknown-class' as const, note: `No class code on this line; the classes are ${tiers.map((t) => t.code).join(', ')}.` };
+      if (found.length === 0) return { ...base, status: 'unknown-party' as const, note: 'No customer with exactly this name.' };
+      if (found.length > 1) return { ...base, status: 'ambiguous-party' as const, note: `${String(found.length)} customers share this name.` };
+      const party = found[0];
+      if (party === undefined) return { ...base, status: 'unknown-party' as const, note: 'No customer with exactly this name.' };
+      const current = classed.get(party.id) ?? null;
+      if (current === l.tierCode) return { ...base, partyId: party.id, party: party.name, from: current, status: 'unchanged' as const, note: `Already class ${current}.` };
+      return { ...base, partyId: party.id, party: party.name, from: current, status: 'change' as const, note: current === null ? `Unclassed to ${l.tierCode} on ${effectiveFrom}.` : `${current} to ${l.tierCode} on ${effectiveFrom}.` };
+    });
+  }
+
+  async importApply(principal: Principal, text: string, effectiveFrom: string): Promise<{ applied: number; rows: ImportRow[] }> {
+    const preview = await this.importPreview(principal, text, effectiveFrom);
+    let applied = 0;
+    const rows: ImportRow[] = [];
+    for (const row of preview) {
+      if (row.status !== 'change' || row.partyId === null || row.tierCode === null) {
+        rows.push(row);
+        continue;
+      }
+      const line = parseClassImport(text, [row.tierCode]).find((l) => l.line === row.line);
+      const reason = line === undefined || line.reason === '' ? 'Imported classification' : line.reason;
+      try {
+        await this.assign(principal, row.partyId, row.tierCode, reason, effectiveFrom);
+        applied += 1;
+        rows.push({ ...row, status: 'applied', note: `Class ${row.tierCode} from ${effectiveFrom}.` });
+      } catch (error) {
+        if (error instanceof AppError) rows.push({ ...row, status: 'failed', note: error.message });
+        else throw error;
+      }
+    }
+    return { applied, rows };
+  }
+
+  /**
+   * P5: the system proposes, a person decides -- never auto-assign. A
+   * suggestion is the class the trailing year's revenue would put the
+   * customer in; the list is only where the suggestion and the decision
+   * disagree, in both directions, because under-serving a growing
+   * customer and financing a shrunken one are both expensive.
+   */
+  async mismatches(principal: Principal): Promise<{ rows: MismatchRow[] }> {
+    const today = istDateOf(new Date().toISOString());
+    const tiers = await this.listTiers(principal);
+    const ladder = tiers.map((t) => t.code);
+    if (ladder.length === 0) return { rows: [] };
+    const sales = await this.db.execute<{ partyId: string; netTY: string; netLY: string }>(sql`
+      SELECT party_id AS "partyId",
+             sum(net) FILTER (WHERE date > (${today}::date - 365))::text AS "netTY",
+             sum(net) FILTER (WHERE date <= (${today}::date - 365))::text AS "netLY"
+      FROM fact_sales_daily
+      WHERE org_id = ${principal.orgId} AND party_id IS NOT NULL AND date > (${today}::date - 730)
+      GROUP BY 1
+    `);
+    const current = await this.db.execute<{ partyId: string; tierCode: string }>(sql`
+      SELECT party_id AS "partyId", tier_code AS "tierCode" FROM customer_tier_assignments
+      WHERE org_id = ${principal.orgId} AND effective_from <= ${today} AND (effective_to IS NULL OR effective_to >= ${today})
+    `);
+    const snoozed = await this.db.execute<{ partyId: string | null }>(sql`
+      SELECT party_id AS "partyId" FROM cfo_alert_snoozes
+      WHERE org_id = ${principal.orgId} AND alert_key = 'class-mismatch' AND until >= ${today}
+    `);
+    const snoozedIds = new Set(snoozed.rows.map((r) => r.partyId).filter((id): id is string => id !== null));
+    const classOf = new Map(current.rows.map((r) => [r.partyId, r.tierCode]));
+    const netOf = new Map(sales.rows.map((r) => [r.partyId, { ty: Number(r.netTY ?? 0), ly: Number(r.netLY ?? 0) }]));
+    const candidates = [...new Set([...netOf.keys(), ...classOf.keys()])].filter((id) => !snoozedIds.has(id));
+    const ranked = candidates
+      .map((id) => ({ id, ty: netOf.get(id)?.ty ?? 0, ly: netOf.get(id)?.ly ?? 0 }))
+      .sort((a, b) => b.ty - a.ty);
+    const total = ranked.reduce((sum, r) => sum + Math.max(r.ty, 0), 0);
+    const orderOf = new Map(ladder.map((code, i) => [code, i]));
+    let cumulative = 0;
+    const suggestions = new Map<string, { suggested: string; share: number; rank: number }>();
+    ranked.forEach((r, index) => {
+      cumulative += Math.max(r.ty, 0);
+      const share = total > 0 ? cumulative / total : 1;
+      // Zero-revenue customers land in the last class regardless of band.
+      const band = r.ty <= 0 ? ladder.length - 1 : SUGGESTION_BANDS.findIndex((b) => share <= b);
+      const at = band === -1 ? Math.min(SUGGESTION_BANDS.length, ladder.length - 1) : Math.min(band, ladder.length - 1);
+      const code = ladder[at];
+      if (code !== undefined) suggestions.set(r.id, { suggested: code, share: total > 0 ? Math.max(r.ty, 0) / total : 0, rank: index + 1 });
+    });
+    const mismatched = ranked.filter((r) => {
+      const s = suggestions.get(r.id);
+      return s !== undefined && s.suggested !== (classOf.get(r.id) ?? null);
+    });
+    if (mismatched.length === 0) return { rows: [] };
+    const names = await this.db.execute<{ id: string; name: string }>(sql`
+      SELECT id, name FROM parties WHERE org_id = ${principal.orgId} AND id IN ${mismatched.map((r) => r.id)}
+    `);
+    const nameOf = new Map(names.rows.map((r) => [r.id, r.name]));
+    const rows = mismatched
+      .map((r): MismatchRow | null => {
+        const s = suggestions.get(r.id);
+        if (s === undefined) return null;
+        const cur = classOf.get(r.id) ?? null;
+        const growthPct = r.ly > 0 ? Math.round(((r.ty - r.ly) / r.ly) * 100) : null;
+        const why = r.ty <= 0
+          ? 'Nothing bought in the last 12 months.'
+          : `Rank ${String(s.rank)} of ${String(ranked.length)} by revenue (${(s.share * 100).toFixed(1)}% of the book)${growthPct === null ? '' : growthPct >= 0 ? `, growing ${String(growthPct)}%` : `, shrinking ${String(Math.abs(growthPct))}%`}.`;
+        const direction: 'under' | 'over' = cur === null || (orderOf.get(s.suggested) ?? 99) < (orderOf.get(cur) ?? 99) ? 'under' : 'over';
+        return { partyId: r.id, party: nameOf.get(r.id) ?? r.id, current: cur, suggested: s.suggested, direction, netTY: r.ty.toFixed(2), growthPct, why };
+      })
+      .filter((row): row is MismatchRow => row !== null)
+      .sort((a, b) => {
+        const step = (row: MismatchRow) => Math.abs((orderOf.get(row.suggested) ?? 99) - (row.current === null ? ladder.length : (orderOf.get(row.current) ?? 99)));
+        return step(b) - step(a) || Number(b.netTY) - Number(a.netTY);
+      })
+      .slice(0, 50);
+    return { rows };
+  }
+
+  /**
+   * O2.1, P6: key accounts past their contact frequency. The last touch
+   * is a logged desk outcome or a sales voucher, whichever is later; a
+   * customer classed A+ whose only contact is their own orders is
+   * exactly who this list exists for.
+   */
+  async neglected(principal: Principal): Promise<{ rows: NeglectedRow[] }> {
+    const today = istDateOf(new Date().toISOString());
+    const rows = await this.db.execute<{
+      partyId: string; party: string; tierCode: string; contactEveryDays: number; lastTouch: string | null; since: string; outstanding: string | null;
+    }>(sql`
+      WITH cur AS (
+        SELECT a.party_id, a.tier_code, a.effective_from
+        FROM customer_tier_assignments a
+        WHERE a.org_id = ${principal.orgId} AND a.effective_to IS NULL AND a.effective_from <= ${today}
+      ),
+      touch AS (
+        SELECT party_id, max(d) AS last FROM (
+          SELECT party_id, max(voucher_date)::text AS d FROM vouchers
+          WHERE org_id = ${principal.orgId} AND voucher_type = 'Sales' AND is_cancelled = false AND party_id IS NOT NULL
+          GROUP BY 1
+          UNION ALL
+          SELECT party_id, max(logged_on::date)::text FROM cfo_desk_outcomes WHERE org_id = ${principal.orgId} GROUP BY 1
+        ) t GROUP BY 1
+      ),
+      book AS (
+        SELECT f.party_id, sum(f.outstanding)::numeric(16,2)::text AS outstanding
+        FROM fact_receivable_snapshot f
+        WHERE f.org_id = ${principal.orgId}
+          AND f.snapshot_date = (SELECT max(snapshot_date) FROM fact_receivable_snapshot WHERE org_id = ${principal.orgId})
+        GROUP BY 1
+      )
+      SELECT c.party_id AS "partyId", p.name AS party, c.tier_code AS "tierCode",
+             t.contact_every_days AS "contactEveryDays", touch.last AS "lastTouch",
+             c.effective_from AS since, book.outstanding
+      FROM cur c
+      JOIN customer_tiers t ON t.org_id = ${principal.orgId} AND t.code = c.tier_code AND t.contact_every_days IS NOT NULL
+      JOIN parties p ON p.id = c.party_id
+      LEFT JOIN touch ON touch.party_id = c.party_id
+      LEFT JOIN book ON book.party_id = c.party_id
+    `);
+    const owners = await this.db.execute<{ partyId: string; ref: string; email: string | null }>(sql`
+      SELECT party_id AS "partyId", owner_ref AS ref, u.email
+      FROM customer_owner_map m LEFT JOIN users u ON u.id::text = substr(m.owner_ref, 6)
+      WHERE m.org_id = ${principal.orgId} AND m.effective_from <= ${today}
+        AND (m.effective_to IS NULL OR m.effective_to >= ${today})
+    `);
+    const ownerOf = new Map<string, string>();
+    for (const o of owners.rows) {
+      if (ownerOf.has(o.partyId)) continue;
+      ownerOf.set(o.partyId, o.ref === 'HOUSE' ? 'House' : (o.email?.split('@')[0] ?? 'Former user'));
+    }
+    const days = (from: string): number => Math.floor((Date.parse(today) - Date.parse(from)) / 86_400_000);
+    const out = rows.rows
+      .map((r): NeglectedRow => {
+        const anchor = r.lastTouch ?? r.since;
+        return {
+          partyId: r.partyId,
+          party: r.party,
+          tierCode: r.tierCode,
+          contactEveryDays: r.contactEveryDays,
+          lastTouch: r.lastTouch,
+          daysSince: days(anchor),
+          ownerLabel: ownerOf.get(r.partyId) ?? 'Unassigned',
+          outstanding: r.outstanding ?? '0.00',
+        };
+      })
+      .filter((r) => r.daysSince > r.contactEveryDays)
+      .sort((a, b) => (b.daysSince - b.contactEveryDays) - (a.daysSince - a.contactEveryDays))
+      .slice(0, 100);
+    return { rows: out };
   }
 }

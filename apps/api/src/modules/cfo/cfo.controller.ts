@@ -20,7 +20,7 @@ import { EXCEPTION_STATES, ExceptionsService, type Exceptions } from './exceptio
 import { PenetrationService, type Penetration } from './penetration.service.js';
 import { SalesAnalysisService, type PivotResult, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
-import { TierService, type PartyClass, type TierRow } from './tier.service.js';
+import { TierService, type BulkAssignResult, type ImportRow, type MismatchRow, type NeglectedRow, type PartyClass, type TierRow } from './tier.service.js';
 
 const creditQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
@@ -32,6 +32,7 @@ class CreditQueryDto extends createZodDto(creditQuerySchema) {}
 const UUID = /^[0-9a-f-]{36}$/u;
 const salesScopeSchema = creditQuerySchema.extend({
   brand: z.string().trim().min(1).max(120).optional(),
+  class: z.string().trim().min(1).max(4).optional(),
   person: z.string().regex(/^(user:[0-9a-f-]{36}|HOUSE|UNASSIGNED)$/u).optional(),
   party: z.string().regex(UUID).optional(),
   item: z.string().regex(UUID).optional(),
@@ -116,6 +117,17 @@ const assignClassSchema = z.object({
   effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
 });
 class AssignClassDto extends createZodDto(assignClassSchema) {}
+
+const bulkAssignSchema = assignClassSchema.extend({
+  partyIds: z.array(z.string().regex(UUID)).min(1).max(500),
+});
+class BulkAssignDto extends createZodDto(bulkAssignSchema) {}
+
+const classImportSchema = z.object({
+  text: z.string().min(1).max(200_000),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+});
+class ClassImportDto extends createZodDto(classImportSchema) {}
 
 const exceptionReviewSchema = z.object({
   checkKey: z.string().trim().min(1).max(40),
@@ -312,6 +324,43 @@ export class CfoController {
   @HttpCode(204)
   async deleteTier(@CurrentUser() principal: Principal, @Param('code') code: string): Promise<void> {
     await this.tiers.deleteTier(principal, code);
+  }
+
+  /** P4 bulk: many customers, one decision, previewed by count client-side. */
+  @Post('tiers/bulk-assign')
+  @RequirePermission(PERMISSIONS.CFO_TIER_ASSIGN)
+  @HttpCode(200)
+  bulkAssign(@CurrentUser() principal: Principal, @Body() body: BulkAssignDto): Promise<BulkAssignResult> {
+    return this.tiers.bulkAssign(principal, body.partyIds, body.tierCode, body.reason, body.effectiveFrom);
+  }
+
+  /** P4 import: pasted spreadsheet rows, shown back before anything is written. */
+  @Post('tiers/import-preview')
+  @RequirePermission(PERMISSIONS.CFO_TIER_ASSIGN)
+  @HttpCode(200)
+  importPreview(@CurrentUser() principal: Principal, @Body() body: ClassImportDto): Promise<ImportRow[]> {
+    return this.tiers.importPreview(principal, body.text, body.effectiveFrom);
+  }
+
+  @Post('tiers/import')
+  @RequirePermission(PERMISSIONS.CFO_TIER_ASSIGN)
+  @HttpCode(200)
+  importApply(@CurrentUser() principal: Principal, @Body() body: ClassImportDto): Promise<{ applied: number; rows: ImportRow[] }> {
+    return this.tiers.importApply(principal, body.text, body.effectiveFrom);
+  }
+
+  /** P5: the system proposes, a person decides. Snooze rides the alert snooze with key class-mismatch. */
+  @Get('tiers/mismatches')
+  @RequirePermission(PERMISSIONS.CFO_TIER_ASSIGN)
+  mismatches(@CurrentUser() principal: Principal): Promise<{ rows: MismatchRow[] }> {
+    return this.tiers.mismatches(principal);
+  }
+
+  /** O2.1: key accounts past their contact frequency. */
+  @Get('tiers/neglected')
+  @RequirePermission(PERMISSIONS.CFO_TEAM_VIEW)
+  neglected(@CurrentUser() principal: Principal): Promise<{ rows: NeglectedRow[] }> {
+    return this.tiers.neglected(principal);
   }
 
   /** P4: one customer's class, its history, and the payment grade beside it. */
