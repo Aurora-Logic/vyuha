@@ -127,7 +127,7 @@ describe('POST /help/questions (REQ-AJ-05)', () => {
     const emitted: { type: string; audience: unknown; payload?: Record<string, unknown> }[] = [];
     const dispatcher = harness.resolve(NotificationDispatcher);
     vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
-      emitted.push(event as never);
+      emitted.push(event);
       return Promise.resolve('spied');
     });
 
