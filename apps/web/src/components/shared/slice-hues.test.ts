@@ -83,6 +83,7 @@ describe('applied to the document', () => {
     applyAppearance(root, {
       accentHue: 277,
       accentChroma: 0.24,
+      font: 'sans',
       base: 'stone',
       density: 'comfortable',
     });
@@ -102,6 +103,7 @@ describe('applied to the document', () => {
       applyAppearance(root, {
         accentHue: accent,
         accentChroma: 0.2,
+        font: 'sans',
         base: 'stone',
         density: 'comfortable',
       });
