@@ -710,7 +710,10 @@ Still open, and why:
 
 Decided by the owner in session, 28 Aug 2026: **M1 closed** — the Tally item master's
 cost price IS the landed cost (registry M06/M07 bumped to v2, proxy labels removed);
-**purchase sync commissioned** (X-2 in progress); GST returns stay out of scope; the bulk
+**X-2 closed** — the projection was type-agnostic all along; the purchase reading now
+ships (Purchases screen, payable book on a stated running-book basis, DPO/DIO and the
+cash cycle with honest legs, in the narrative, close pack and export catalogue) —
+bill-wise payables ageing and MSME vendor flags still wait on data Tally does not send; GST returns stay out of scope; the bulk
 class-assign UI waits for the Phase 7 Customers screen; thresholds stay named constants
 until a different number is actually wanted.
 
