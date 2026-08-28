@@ -254,6 +254,61 @@ describe('a delete refuses while a live row points at the record', () => {
   });
 });
 
+describe('a retired employee does not hold the delete up', () => {
+  let designationId = '';
+  let employeeId = '';
+
+  beforeAll(async () => {
+    const created = await harness.post<DesignationSummary>('/designations', {
+      token: hrToken,
+      body: { name: 'Telex Operator', code: 'RB-TELEX' },
+    });
+    expect(created.status, created.text).toBe(201);
+    designationId = created.body.id;
+
+    employeeId = await harness.createEmployee({
+      code: 'RB-0002',
+      firstName: 'Suresh',
+      lastName: 'Pillai',
+      designationId,
+    });
+  });
+
+  it('refuses while the employee is still working', async () => {
+    const refused = await harness.del<ErrorBody>(`/masters/designation/${designationId}`, {
+      token: hrToken,
+      body: { reason: 'Nobody has held this title since the nineties' },
+    });
+    expect(refused.status, refused.text).toBe(409);
+    expect(refused.body.error.code).toBe('RECORD_IN_USE');
+    expect(refused.body.error.message).toContain('RB-0002');
+  });
+
+  it('accepts once that employee is retired, without repointing them', async () => {
+    // REQ-A-05's retirement, through the real route: INACTIVE plus a last
+    // working date. The designation reference on the employee is left alone --
+    // that is the point being tested.
+    const retired = await harness.patch(`/employees/${employeeId}`, {
+      token: hrToken,
+      body: { status: 'INACTIVE', dateOfLeaving: '2026-08-27' },
+    });
+    expect(retired.status, retired.text).toBe(200);
+
+    const removed = await harness.del<DeleteResult>(`/masters/designation/${designationId}`, {
+      token: hrToken,
+      body: { reason: 'Nobody has held this title since the nineties' },
+    });
+    expect(removed.status, removed.text).toBe(200);
+    expect(removed.body.deleted).toBe(true);
+    expect(await harness.waitForAuditEntityAction(designationId, 'designation.deleted')).toBe(true);
+
+    const listed = await harness.get<Paginated<DesignationSummary>>('/designations?pageSize=200', {
+      token: hrToken,
+    });
+    expect(listed.body.data.some((row) => row.id === designationId)).toBe(false);
+  });
+});
+
 describe('the code a delete freed cannot be silently stolen back', () => {
   it('refuses the restore and names what took the code', async () => {
     const first = await harness.post<DesignationSummary>('/designations', {
@@ -316,6 +371,28 @@ describe('RBAC is enforced per record type, not per route', () => {
       body: { reason: 'Operations holds no manage key at all' },
     });
     expect(refused.status, refused.text).toBe(403);
+  });
+
+  it('refuses Operations on a department: employee.view reads the list, it does not delete from it', async () => {
+    const created = await harness.post<DepartmentSummary>('/departments', {
+      token: hrToken,
+      body: { name: 'Stores', code: 'RB-STORE' },
+    });
+    expect(created.status, created.text).toBe(201);
+
+    const refused = await harness.del<ErrorBody>(`/masters/department/${created.body.id}`, {
+      token: opsToken,
+      body: { reason: 'Operations can see departments but not manage them' },
+    });
+    expect(refused.status, refused.text).toBe(403);
+    expect(refused.body.error.code).toBe('FORBIDDEN');
+    expect(refused.body.error.details?.requiredAnyOf).toEqual(['employee.manage']);
+
+    // Refused means untouched: still in the list for everyone.
+    const listed = await harness.get<Paginated<DepartmentSummary>>('/departments?pageSize=200', {
+      token: hrToken,
+    });
+    expect(listed.body.data.some((row) => row.id === created.body.id)).toBe(true);
   });
 
   it('accepts Admin', async () => {

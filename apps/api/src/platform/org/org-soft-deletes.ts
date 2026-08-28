@@ -1,5 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { PERMISSIONS } from '@vyuha/shared';
+import { ne } from 'drizzle-orm';
 
 import { departments, designations, employees, locations } from '../db/schema/index.js';
 import { SoftDeletableRegistry } from '../recycle-bin/soft-deletable.js';
@@ -42,6 +43,12 @@ export class OrgSoftDeletes implements OnModuleInit {
           table: employees,
           column: employees.departmentId,
           labelColumn: employees.employeeCode,
+          // A retired employee is history, and history may reference a retired
+          // master — the `attendance_days.shift_id` rule above. Only
+          // someone still working (ACTIVE or ON_NOTICE) holds the delete up;
+          // otherwise a department whose last member left years ago could
+          // never be removed from the pickers (P1-2, owner, 28 Aug 2026).
+          extraPredicate: ne(employees.status, 'INACTIVE'),
         },
         {
           // A parent whose children were left behind would orphan a branch of
@@ -69,6 +76,8 @@ export class OrgSoftDeletes implements OnModuleInit {
           table: employees,
           column: employees.designationId,
           labelColumn: employees.employeeCode,
+          // Same rule as the department reference: the retired do not block.
+          extraPredicate: ne(employees.status, 'INACTIVE'),
         },
       ],
     });
