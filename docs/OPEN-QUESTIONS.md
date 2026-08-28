@@ -677,3 +677,42 @@ reason and a date (logged). Left:
 | L-3 | Thresholds (20% / ₹25,000 / 5 days / 5 points / 3 days / 5 points) are named constants in `alerts.service.ts` | Settings section with the compliance thresholds in the settings pass | Per-org tuning |
 | L-4 | Credit-grade *migration* to D/E needs yesterday's grade; today's alert is the grade's state | Grade history from the nightly job | Migration alerts |
 | L-5 | Seasonal suppression (compare against the seasonally adjusted expectation) | After a year of fact history exists | — |
+
+## Virtual CFO — the "complete everything" pass (28 Aug 2026)
+
+Closed by this pass, superseding rows above:
+
+- **L-1, L-2, L-4, F-3 (partly)** — the CFO nightly now rides the existing
+  snapshot-receivables job: fact rebuild (45 days), grade history, alert evaluations
+  (two-evaluation confirmation live), data-quality history, and report schedules
+  delivered as a summary with a link. A dedicated `cfo-nightly` queue entry still
+  waits on `queue.registry.ts` being free to edit.
+- **O6-2** — the Export Centre screen exists with the catalogue, on-demand export and
+  daily/weekly/monthly schedules. Bulk ZIP and merged PDF remain out.
+- **O6-3** — the monthly close pack ships as the print route `/print/close-pack`
+  (browser print to PDF, the house pattern): register with three comparisons, revenue
+  bridge with reconciliation error, proxy margin waterfall, movement, ageing, brand and
+  slab position, exceptions, compliance disclosures, narrative.
+- **Part L narrative** — `GET /cfo/narrative`: computed outputs only, largest bridge
+  factor named as a factor (never a cause), three right / three wrong with names, cash
+  movement, five do-this-week actions each with an owner and a list link.
+- **Part P remainder** — bulk class assignment (API), paste import with preview,
+  suggested-class mismatch list (cumulative revenue share bands, Accept / Keep-90d via
+  the class-mismatch snooze), neglected key accounts, and class as a sales-analysis
+  scope filter resolved as of the window's end.
+- **S1.2** — calculated pivot fields: an expression grammar over registered measures
+  with unit algebra (money/count/ratio), guarded division, margin permission carried
+  through; a Custom formula choice in the builder committed on blur.
+- **Custom report sharing** — named sharing by work email (resolved server-side,
+  typos refused, ids stored), absent-means-unchanged on update.
+
+Still open, and why:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| X-1 | True landed cost needs the Tally valuation method (open decision M1) | Ask the CA; until then margin is labelled proxy everywhere it appears | Honest rupee margin |
+| X-2 | Purchase vouchers are not in the projection | Extend the sync when purchase-side metrics (DPO, cash cycle, MSME ageing) are commissioned | W-series, F1 MSME |
+| X-3 | GST returns feed does not exist | Out of scope until a returns source is chosen | All of F1 |
+| X-4 | Tally's editing user is not exported by the sync | The four "not measurable yet" exception checks stay labelled | F2 remainder |
+| X-5 | Bulk class assignment has an API and tests but its designed home is the CRM Customers screen (Phase 7); today the paste import and the mismatch list cover the mass paths | Wire the multi-select bulk bar when the Customers screen is built | Nothing today |
+| X-6 | Incentive statements need collected margin (Part K) | After M1 and a collections-applied ledger | Part K payouts |
