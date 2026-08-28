@@ -11,6 +11,7 @@ import {
   BookOpenTextIcon,
   BellRingingIcon,
   ChartLineUpIcon,
+  MedalIcon,
   PercentIcon,
   WarningDiamondIcon,
   GridNineIcon,
@@ -899,6 +900,14 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.CFO_SALES_VIEW,
             phase: 6,
             reqs: 'CFO brief B3, Phase 3',
+          },
+          {
+            to: '/reports/brands',
+            label: 'Brands',
+            icon: MedalIcon,
+            permission: PERMISSIONS.CFO_BRAND_VIEW,
+            phase: 6,
+            reqs: 'CFO brief G2, Phase 4',
           },
           {
             to: '/reports/margin',

@@ -7,6 +7,7 @@ import { AppError } from '../../platform/common/errors.js';
 import { AuditService } from '../../platform/audit/audit.service.js';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
+import { BrandService } from './brand.service.js';
 import { CreditControlService } from './credit-control.service.js';
 import { DataQualityService } from './data-quality.service.js';
 import { DeskService } from './desk.service.js';
@@ -37,6 +38,7 @@ export const EXPORT_REPORTS = [
   'data-quality',
   'sales-analysis',
   'margin',
+  'brands',
 ] as const;
 export type ExportReport = (typeof EXPORT_REPORTS)[number];
 
@@ -63,6 +65,7 @@ const REPORT_META: Record<ExportReport, { title: string; permission: PermissionK
   'data-quality': { title: 'Data quality', permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW, metrics: ['Q01'] },
   'sales-analysis': { title: 'Sales analysis', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['R05', 'R07', 'R11', 'C01'] },
   margin: { title: 'Margin', permission: PERMISSIONS.CFO_MARGIN_VIEW, metrics: ['M05', 'M06', 'M07', 'M13'] },
+  brands: { title: 'Brand performance', permission: PERMISSIONS.CFO_BRAND_VIEW, metrics: ['R05', 'M07'] },
 };
 
 @Injectable()
@@ -79,6 +82,7 @@ export class CfoExportService {
     private readonly quality: DataQualityService,
     private readonly sales: SalesAnalysisService,
     private readonly marginService: MarginService,
+    private readonly brandService: BrandService,
   ) {}
 
   async build(principal: Principal, report: ExportReport, params: ExportParams): Promise<{ filename: string; buffer: Buffer }> {
@@ -198,6 +202,15 @@ export class CfoExportService {
           { name: 'Summary', columns: ['Measure', 'Value'], rows: [['Net sales', Number(a.summary.net)], ['Same days last year', Number(a.summary.lastYear)], ['Customers', a.summary.customers], ['Vouchers', a.summary.vouchers], ['Quantity', Number(a.summary.qty)], ['Unassigned', Number(a.summary.unassignedNet)]] },
           { name: 'By day', columns: ['Day', 'Net', 'Last year'], rows: a.trend.map((t) => [t.t, t.net, t.lastYear]) },
           ...a.breakdowns.map((b) => ({ name: `By ${b.label}`, columns: ['Name', 'Net', 'Last year', 'Qty', 'Vouchers'], rows: b.rows.map((r) => [r.label, Number(r.net), Number(r.lastYear), Number(r.qty), r.vouchers]) })),
+        ];
+      }
+      case 'brands': {
+        const b = await this.brandService.read(principal, from, to);
+        return [
+          { name: 'Brands', columns: ['Brand', 'Net', 'Last year', 'Share %', 'Qty', 'Realisation', 'Margin', 'Margin %', 'Target', 'Achievement %'],
+            rows: b.brands.map((r) => [r.brand, Number(r.net), Number(r.lastYear), r.sharePct, Number(r.qty), r.realisation === null ? null : Number(r.realisation), r.margin === null ? null : Number(r.margin), r.marginPct, r.target === null ? null : Number(r.target), r.achievementPct]) },
+          { name: 'Slabs', columns: ['Brand', 'Slab', 'Threshold', 'Progress (FYTD)', 'Distance', 'Attained %', 'Days left', 'Reward'],
+            rows: b.brands.flatMap((r) => r.slabs.map((slab) => [slab.brand, slab.label, Number(slab.threshold), Number(slab.progress), Number(slab.distance), slab.attainedPct, slab.daysLeft, slab.reward])) },
         ];
       }
       case 'margin': {

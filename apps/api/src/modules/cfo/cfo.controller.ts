@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { METRIC_REGISTRY, PERMISSIONS, PIVOT_COLUMNS, PIVOT_DIMENSIONS, PIVOT_METRICS, type MetricDefinition } from '@vyuha/shared';
@@ -10,6 +10,7 @@ import { CreditControlService, type CreditOverview, type WorkLists } from './cre
 import { type GrowthBridge } from './growth-bridge.js';
 import { MyCfoService, type MyCfo } from './my-cfo.service.js';
 import { AlertsService, type Alerts } from './alerts.service.js';
+import { BrandService, type BrandRow, type SlabRow } from './brand.service.js';
 import { CfoExportService, EXPORT_REPORTS } from './cfo-export.service.js';
 import { DataQualityService, type DataQuality } from './data-quality.service.js';
 import { MarginService, type MarginRead } from './margin.service.js';
@@ -58,6 +59,16 @@ class PlannerQueryDto extends createZodDto(plannerQuerySchema) {}
 
 const exportQuerySchema = salesScopeSchema.extend({ report: z.enum(EXPORT_REPORTS) });
 class ExportQueryDto extends createZodDto(exportQuerySchema) {}
+
+const slabSchema = z.object({
+  id: z.string().regex(UUID).optional(),
+  brand: z.string().trim().min(1).max(120),
+  label: z.string().trim().min(1).max(80),
+  threshold: z.string().regex(/^\d{1,14}(\.\d{1,2})?$/u),
+  reward: z.string().trim().max(200).default(''),
+  active: z.boolean().default(true),
+});
+class SlabDto extends createZodDto(slabSchema) {}
 
 const snoozeSchema = z.object({
   alertKey: z.string().trim().min(1).max(40),
@@ -142,6 +153,7 @@ export class CfoController {
     private readonly exporter: CfoExportService,
     private readonly alerts: AlertsService,
     private readonly margin: MarginService,
+    private readonly brands: BrandService,
   ) {}
 
   @Get('receivables')
@@ -377,6 +389,33 @@ export class CfoController {
   marginRead(@CurrentUser() principal: Principal, @Query() query: SalesScopeDto): Promise<MarginRead> {
     const { from, to, ...scope } = query;
     return this.margin.read(principal, from, to, scope);
+  }
+
+  /** G2: brand performance, slabs and all. */
+  @Get('brands')
+  @RequirePermission(PERMISSIONS.CFO_BRAND_VIEW)
+  brandRead(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<{ brands: readonly BrandRow[]; asOf: string }> {
+    return this.brands.read(principal, query.from, query.to);
+  }
+
+  @Get('brand-slabs')
+  @RequirePermission(PERMISSIONS.CFO_BRAND_VIEW)
+  slabList(@CurrentUser() principal: Principal): Promise<SlabRow[]> {
+    return this.brands.slabRows(principal);
+  }
+
+  @Put('brand-slabs')
+  @RequirePermission(PERMISSIONS.CFO_TARGETS_MANAGE)
+  async saveSlab(@CurrentUser() principal: Principal, @Body() body: SlabDto): Promise<{ ok: true }> {
+    await this.brands.saveSlab(principal, body);
+    return { ok: true };
+  }
+
+  @Delete('brand-slabs/:id')
+  @RequirePermission(PERMISSIONS.CFO_TARGETS_MANAGE)
+  @HttpCode(204)
+  async deleteSlab(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.brands.deleteSlab(principal, id);
   }
 
   /** G3: what each person sees about their own book. Scoped in the service, not the query. */

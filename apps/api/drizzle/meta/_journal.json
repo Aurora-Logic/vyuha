@@ -540,6 +540,13 @@
       "when": 1787903924259,
       "tag": "0076_cfo_nightly_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1787904840508,
+      "tag": "0077_cfo_brand_slabs",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import { AuditService } from '../../platform/audit/audit.service.js';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
 import { istDateOf } from '../../platform/tasks/local-date.js';
+import { BrandService } from './brand.service.js';
 import { CreditControlService } from './credit-control.service.js';
 import { TierService } from './tier.service.js';
 
@@ -63,6 +64,7 @@ export class AlertsService {
     private readonly audit: AuditService,
     private readonly credit: CreditControlService,
     private readonly tiers: TierService,
+    private readonly brands: BrandService,
   ) {}
 
   /** Tonight's raw candidates, written by the nightly run for Q5's confirmation to read tomorrow. */
@@ -162,6 +164,22 @@ export class AlertsService {
       companyAlerts.push({ key: 'concentration-up', label: 'Concentration rising', why: `Top five customers are ${c.share}% of sales against ${c.shareLy}% last year`, amount: c.top ?? '0.00', immediate: false });
     }
 
+    // G2: from the 20th, a slab within reach is the loudest number there
+    // is -- all or nothing at the boundary, so it fires without waiting for
+    // a second evaluation.
+    if (Number(today.slice(8)) >= 20 && hasPermission(principal, PERMISSIONS.CFO_BRAND_VIEW)) {
+      for (const slab of await this.brands.slabRows(principal, today)) {
+        if (!slab.active || Number(slab.distance) <= 0) continue;
+        if (Number(slab.distance) > Number(slab.threshold) * 0.15) continue;
+        companyAlerts.push({
+          key: `slab:${slab.id}`,
+          label: `${slab.brand}: ${slab.label} within reach`,
+          why: `${slab.distance} to the slab, ${String(slab.daysLeft)} days left in the year`,
+          amount: slab.distance,
+          immediate: true,
+        });
+      }
+    }
     return { byParty, companyAlerts };
   }
 

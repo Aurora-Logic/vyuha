@@ -17,3 +17,4 @@ export { DefinitionsPage } from './definitions-page';
 export { ExceptionsPage } from './exceptions-page';
 export { AlertsPage } from './alerts-page';
 export { MarginPage } from './margin-page';
+export { BrandsPage } from './brands-page';

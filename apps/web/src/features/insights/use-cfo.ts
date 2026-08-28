@@ -837,3 +837,60 @@ export function useMargin(
     staleTime: 60_000,
   });
 }
+
+const slabRowSchema = z.object({
+  id: z.string(),
+  brand: z.string(),
+  label: z.string(),
+  threshold: z.string(),
+  basis: z.string(),
+  period: z.string(),
+  reward: z.string(),
+  active: z.boolean(),
+  progress: z.string(),
+  distance: z.string(),
+  attainedPct: z.number(),
+  daysLeft: z.number(),
+});
+
+const brandRowSchema = z.object({
+  brand: z.string(),
+  net: z.string(),
+  lastYear: z.string(),
+  delta: deltaReadingSchema,
+  sharePct: z.number(),
+  qty: z.string(),
+  realisation: z.string().nullable(),
+  realisationLy: z.string().nullable(),
+  margin: z.string().nullable(),
+  marginPct: z.number().nullable(),
+  target: z.string().nullable(),
+  achievementPct: z.number().nullable(),
+  categories: z.array(z.object({ category: z.string(), net: z.string() })),
+  slabs: z.array(slabRowSchema),
+});
+
+const brandsSchema = z.object({ brands: z.array(brandRowSchema), asOf: z.string() });
+
+export type BrandRowData = z.infer<typeof brandRowSchema>;
+export type SlabRowData = z.infer<typeof slabRowSchema>;
+
+export function useBrands(range: { from: string; to: string }, options: { enabled?: boolean } = {}): UseQueryResult<z.infer<typeof brandsSchema>, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'brands', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/brands?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(brandsSchema, body, 'brand performance');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export async function saveSlab(body: { id?: string; brand: string; label: string; threshold: string; reward: string; active: boolean }): Promise<void> {
+  await apiRequest('/cfo/brand-slabs', { method: 'PUT', body });
+}
+
+export async function deleteSlab(id: string): Promise<void> {
+  await apiRequest(`/cfo/brand-slabs/${id}`, { method: 'DELETE' });
+}

@@ -46,6 +46,7 @@ export const ORG_SCOPED_TABLES = [
   'cfo_grade_history',
   'cfo_data_quality_daily',
   'cfo_report_schedules',
+  'cfo_brand_slabs',
   'customer_owner_map',
   'deletion_records',
   'dashboard_layouts',

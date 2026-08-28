@@ -109,8 +109,8 @@ export class TeamService {
 
   async setTarget(principal: Principal, ownerRef: string, month: string, netTarget: string): Promise<void> {
     if (!MONTH.test(month)) throw AppError.validation('A target month is YYYY-MM.');
-    if (!/^(user:[0-9a-f-]{36}|HOUSE)$/u.test(ownerRef)) {
-      throw AppError.validation('A target belongs to user:<id> or HOUSE.');
+    if (!/^(user:[0-9a-f-]{36}|HOUSE|brand:.{1,120})$/u.test(ownerRef)) {
+      throw AppError.validation('A target belongs to user:<id>, HOUSE, or brand:<name>.');
     }
     if (!/^\d{1,14}(\.\d{1,2})?$/u.test(netTarget)) {
       throw AppError.validation('A target is a non-negative amount with at most two decimals.');

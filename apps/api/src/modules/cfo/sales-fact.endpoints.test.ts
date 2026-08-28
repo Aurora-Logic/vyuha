@@ -365,3 +365,30 @@ describe('the proxy margin in the fact (M6 pending M1)', () => {
     expect(bharat.rows.every((r) => r.landed === null && r.pocket === null)).toBe(true);
   });
 });
+
+describe('brand performance and slabs (G2)', () => {
+  it('reads each brand with its slab distance, and a brand target measures achievement', async () => {
+    await harness.db.execute(sql`DELETE FROM cfo_brand_slabs WHERE org_id = ${ORG_ID}`);
+    await harness.db.execute(sql`DELETE FROM cfo_targets WHERE org_id = ${ORG_ID} AND owner_ref LIKE 'brand:%'`);
+    const put = await harness.put('/cfo/brand-slabs', { token: rsToken, body: { brand: 'C&S Electric', label: 'Q2 volume slab', threshold: '50000.00', reward: '2% rebate on the whole quarter' } });
+    expect(put.status).toBe(200);
+    const month = DAY.slice(0, 7);
+    await harness.put('/cfo/targets', { token: rsToken, body: { ownerRef: 'brand:C&S Electric', month, netTarget: '20000' } });
+
+    const res = await harness.get<{ brands: { brand: string; net: string; sharePct: number; achievementPct: number | null; slabs: { distance: string; attainedPct: number; daysLeft: number }[]; categories: { category: string }[] }[] }>(
+      `/cfo/brands?from=${DAY}&to=${DAY}`,
+      { token: rsToken },
+    );
+    expect(res.status).toBe(200);
+    const cs = res.body.brands.find((b) => b.brand === 'C&S Electric');
+    expect(cs?.net).toBe('10000.00');
+    // FY-to-date C&S sales are 10,000 against the 50,000 slab: 40,000 away.
+    expect(cs?.slabs[0]?.distance).toBe('40000.00');
+    expect(cs?.slabs[0]?.attainedPct).toBe(20);
+    expect(cs?.slabs[0]?.daysLeft).toBeGreaterThan(0);
+    // A 20,000 target for the month, 10,000 sold on the single fixture day
+    // of it that the window covers: the day-fraction rule prices the window.
+    expect(cs?.achievementPct).toBeGreaterThan(0);
+    expect(cs?.categories.map((c) => c.category)).toContain('MCB');
+  });
+});

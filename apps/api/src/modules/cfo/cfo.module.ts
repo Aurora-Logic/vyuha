@@ -4,6 +4,7 @@ import { ReceivableSnapshotHandler } from './receivable-snapshot.handler.js';
 import { MailModule } from '../../platform/mail/mail.module.js';
 import { SettingsModule } from '../../platform/settings/settings.module.js';
 import { CfoNightlyService } from './cfo-nightly.service.js';
+import { BrandService } from './brand.service.js';
 import { AlertsService } from './alerts.service.js';
 import { CfoExportService } from './cfo-export.service.js';
 import { CfoController } from './cfo.controller.js';
@@ -30,6 +31,6 @@ import { TeamService } from './team.service.js';
 @Module({
   imports: [SettingsModule, MailModule],
   controllers: [CfoController],
-  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService, AlertsService, CfoNightlyService, MarginService],
+  providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService, AlertsService, CfoNightlyService, MarginService, BrandService],
 })
 export class CfoModule {}

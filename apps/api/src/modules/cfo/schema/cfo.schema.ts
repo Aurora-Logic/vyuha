@@ -1,4 +1,4 @@
-import { date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { primaryId } from '../../../platform/db/columns.js';
 import { organizations, parties } from '../../../platform/db/schema/index.js';
@@ -386,4 +386,30 @@ export const cfoReportSchedules = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('cfo_report_schedules_idx').on(t.orgId, t.cadence)],
+);
+
+/**
+ * Brand slabs (brief G2): "4.2 lakh to the next slab, nine days left" is
+ * the most profitable number in the module. Purchases from the principal
+ * are not in the projection yet, so a slab's basis is sales -- stated on
+ * the row -- and the FY-to-date progress reads the sales fact.
+ */
+export const cfoBrandSlabs = pgTable(
+  'cfo_brand_slabs',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    brand: text('brand').notNull(),
+    label: text('label').notNull(),
+    threshold: numeric('threshold', { precision: 16, scale: 2 }).notNull(),
+    basis: text('basis').notNull().default('sales'),
+    period: text('period').notNull().default('FY'),
+    reward: text('reward').notNull().default(''),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_brand_slabs_idx').on(t.orgId, t.brand)],
 );

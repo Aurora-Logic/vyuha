@@ -351,6 +351,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'One sales engine at every scope: drill from the company into a brand, a person, a customer or a product, and climb back by the breadcrumb.',
   },
   {
+    id: 'screen.reports-brands',
+    route: '/reports/brands',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_BRAND_VIEW,
+    title: 'Brands',
+    body: 'Each principal\u2019s sales, realisation and margin, and the distance to its next slab in rupees and days.',
+  },
+  {
     id: 'screen.reports-margin',
     route: '/reports/margin',
     anchor: ANCHORS.screenHeader,
