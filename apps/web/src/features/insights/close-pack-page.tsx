@@ -35,6 +35,7 @@ import {
   useMargin,
   useMovement,
   useNarrative,
+  usePurchases,
   useSalesAnalysis,
 } from './use-cfo';
 
@@ -117,6 +118,7 @@ function ClosePackSections({ month }: { month: string }) {
   const margin = useMargin(range, {}, { enabled: canMargin });
   const brands = useBrands(range, { enabled: canBrands });
   const exceptions = useExceptions(range, { enabled: canExceptions });
+  const purchase = usePurchases(range, { enabled: canReceivables });
 
   const pending = narrative.isPending || now.isPending || bridge.isPending;
   const num = (v: string | undefined) => (v === undefined ? EMPTY_VALUE : formatMoney(v));
@@ -246,6 +248,31 @@ function ClosePackSections({ month }: { month: string }) {
                 rows={receivables.data.topOverdue.slice(0, 10).map((r) => [r.party, formatMoney(r.outstanding), formatMoney(r.overdue), String(r.daysOverdue), formatMoney(r.costPerYear)])}
               />
               <p className="text-muted-foreground text-xs">An ECL provision needs loss-history rates the CA has not set yet; the ageing above is the input that computation will use.</p>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
+      {canReceivables ? (
+        <section className="flex flex-col gap-3 break-inside-avoid">
+          <SectionHeading title="Working capital" note="Purchases, the payable book on its stated running-book basis, and the cash cycle when every leg is real." />
+          {purchase.data ? (
+            <>
+              <PackTable
+                head={['Measure', 'Value']}
+                rows={[
+                  ['Purchases in the month', formatMoney(purchase.data.purchases.net)],
+                  ['Same days last year', formatMoney(purchase.data.purchases.lastYear)],
+                  ['Payables (running book)', formatMoney(purchase.data.payables.total)],
+                  ['DSO', purchase.data.cycle.dsoDays === null ? EMPTY_VALUE : `${String(purchase.data.cycle.dsoDays)} days`],
+                  ['DIO', purchase.data.cycle.dioDays === null ? EMPTY_VALUE : `${String(purchase.data.cycle.dioDays)} days`],
+                  ['DPO', purchase.data.cycle.dpoDays === null ? EMPTY_VALUE : `${String(purchase.data.cycle.dpoDays)} days`],
+                  ['Cash cycle', purchase.data.cycle.cccDays === null ? EMPTY_VALUE : `${String(purchase.data.cycle.cccDays)} days`],
+                ]}
+              />
+              {purchase.data.cycle.notes.map((note) => (
+                <p key={note} className="text-muted-foreground text-xs">{note}</p>
+              ))}
             </>
           ) : null}
         </section>

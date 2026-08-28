@@ -5,6 +5,7 @@ import { PERMISSIONS } from '@vyuha/shared';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import { hasPermission, type Principal } from '../../platform/rbac/principal.js';
 import { CreditControlService } from './credit-control.service.js';
+import { PurchasesService } from './purchases.service.js';
 import { SalesAnalysisService } from './sales-analysis.service.js';
 
 /**
@@ -51,6 +52,7 @@ export class NarrativeService {
     @InjectDatabase() private readonly db: Database,
     private readonly sales: SalesAnalysisService,
     private readonly credit: CreditControlService,
+    private readonly purchases: PurchasesService,
   ) {}
 
   async read(principal: Principal, from: string, to: string): Promise<Narrative> {
@@ -108,7 +110,17 @@ export class NarrativeService {
       }
       if (now.cei !== null) cash.push(`CEI ${r0(now.cei)}${prev.cei === null ? '' : ` (was ${r0(prev.cei)})`}.`);
       if (now.addDays !== null) cash.push(`Average days delinquent ${r0(now.addDays)}${prev.addDays === null ? '' : ` (was ${r0(prev.addDays)})`}.`);
-      cash.push('The full cash cycle needs purchase-side data the Tally projection does not carry yet; the receivables half above is complete.');
+      // The cash cycle speaks only when all three legs exist; a missing leg
+      // is named instead of imputed.
+      const purchase = await this.purchases.read(principal, from, to);
+      if (purchase.cycle.cccDays !== null) {
+        cash.push(`Cash cycle ${String(purchase.cycle.cccDays)} days: ${String(purchase.cycle.dsoDays ?? 0)} collecting, ${String(purchase.cycle.dioDays ?? 0)} in stock, less ${String(purchase.cycle.dpoDays ?? 0)} of vendor credit.`);
+      } else if (purchase.cycle.notes.length > 0) {
+        cash.push(`The cash cycle is incomplete: ${purchase.cycle.notes.join(' ')}`);
+      }
+      if (Number(purchase.payables.total) > 0) {
+        cash.push(`Payables ${lakh(Number(purchase.payables.total))} across ${String(purchase.payables.rows.length)} vendors, on the running-book basis.`);
+      }
     }
 
     const actions = await this.doThisWeek(principal);

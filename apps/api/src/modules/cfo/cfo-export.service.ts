@@ -12,6 +12,7 @@ import { BrandService } from './brand.service.js';
 import { CreditControlService } from './credit-control.service.js';
 import { DataQualityService } from './data-quality.service.js';
 import { DeskService } from './desk.service.js';
+import { PurchasesService } from './purchases.service.js';
 import { ExceptionsService } from './exceptions.service.js';
 import { PenetrationService } from './penetration.service.js';
 import { MarginService } from './margin.service.js';
@@ -41,6 +42,7 @@ export const EXPORT_REPORTS = [
   'margin',
   'brands',
   'analytics',
+  'purchases',
 ] as const;
 export type ExportReport = (typeof EXPORT_REPORTS)[number];
 
@@ -69,6 +71,7 @@ const REPORT_BLURBS: Record<ExportReport, string> = {
   margin: 'The pocket-price waterfall, slices and below-cost grains',
   brands: 'Each principal with slabs and achievement',
   analytics: 'Price bands, ABC-XYZ, cohorts and concentration',
+  purchases: 'Purchases by vendor, the payable book and the cash cycle',
 };
 
 const REPORT_META: Record<ExportReport, { title: string; permission: PermissionKey; metrics: readonly string[] }> = {
@@ -83,7 +86,7 @@ const REPORT_META: Record<ExportReport, { title: string; permission: PermissionK
   'sales-analysis': { title: 'Sales analysis', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['R05', 'R07', 'R11', 'C01'] },
   margin: { title: 'Margin', permission: PERMISSIONS.CFO_MARGIN_VIEW, metrics: ['M05', 'M06', 'M07', 'M13'] },
   brands: { title: 'Brand performance', permission: PERMISSIONS.CFO_BRAND_VIEW, metrics: ['R05', 'M07'] },
-  analytics: { title: 'Analytics', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['M10', 'M11', 'C10', 'C11'] },
+  analytics: { title: 'Analytics', permission: PERMISSIONS.CFO_SALES_VIEW, metrics: ['M10', 'M11', 'C10', 'C11'] },  purchases: { title: 'Purchases', permission: PERMISSIONS.CFO_RECEIVABLES_VIEW, metrics: [] },
 };
 
 @Injectable()
@@ -94,6 +97,7 @@ export class CfoExportService {
     private readonly credit: CreditControlService,
     private readonly team: TeamService,
     private readonly desk: DeskService,
+    private readonly purchases: PurchasesService,
     private readonly exceptions: ExceptionsService,
     private readonly penetration: PenetrationService,
     private readonly tiers: TierService,
@@ -216,6 +220,22 @@ export class CfoExportService {
   private async sheetsOf(principal: Principal, report: ExportReport, params: ExportParams): Promise<Sheet[]> {
     const { from, to } = params;
     switch (report) {
+      case 'purchases': {
+        const pr = await this.purchases.read(principal, from, to);
+        return [
+          { name: 'Summary', columns: ['Measure', 'Value'], rows: [
+            ['Purchases', Number(pr.purchases.net)], ['Same days last year', Number(pr.purchases.lastYear)],
+            ['Vouchers', pr.purchases.vouchers], ['Vendors', pr.purchases.vendors],
+            ['Payables (running book)', Number(pr.payables.total)],
+            ['DSO days', pr.cycle.dsoDays], ['DIO days', pr.cycle.dioDays], ['DPO days', pr.cycle.dpoDays], ['Cash cycle days', pr.cycle.cccDays],
+            ...pr.cycle.notes.map((n) => ['Note', n] as [string, string]),
+          ] },
+          { name: 'By vendor', columns: ['Vendor', 'Purchases', 'Same days LY', 'Share %'],
+            rows: pr.byVendor.map((r) => [r.vendor, Number(r.net), Number(r.lastYear), r.sharePct]) },
+          { name: 'Payables', columns: ['Vendor', 'Payable'], rows: pr.payables.rows.map((r) => [r.vendor, Number(r.payable)]) },
+          { name: 'Monthly', columns: ['Month', 'Purchases'], rows: pr.trend.map((r) => [r.month, Number(r.net)]) },
+        ];
+      }
       case 'league': {
         const rows = await this.team.league(principal, from, to);
         return [{ name: 'League', columns: ['Rank', 'Person', 'Book', 'Sales', 'Last year change', 'Collections', 'Overdue', 'Target', 'Achievement %'],

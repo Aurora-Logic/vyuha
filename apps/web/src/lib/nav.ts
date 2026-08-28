@@ -1081,6 +1081,15 @@ export const MODULES: ModuleDef[] = [
             reqs: 'CFO brief O6',
           },
           {
+            to: '/reports/purchases',
+            label: 'Purchases',
+            shortLabel: 'Purchases',
+            icon: PackageIcon,
+            permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief W-series',
+          },
+          {
             to: '/reports/close-pack',
             label: 'Close pack',
             shortLabel: 'Close pack',

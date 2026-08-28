@@ -853,9 +853,9 @@ describe('the narrative (Part L)', () => {
     expect(res.body.headline).toMatch(/Net sales ₹/u);
     expect(res.body.bridge.map((b) => b.label)).toEqual(['Volume', 'Price', 'Mix', 'New customers', 'Lost customers']);
     expect(res.body.cash.some((line) => line.startsWith('Outstanding'))).toBe(true);
-    // The purchase side is missing from the projection; the narrative says so
-    // rather than inventing a cash cycle.
-    expect(res.body.cash.some((line) => line.includes('purchase-side'))).toBe(true);
+    // A cycle leg is missing (no stock quantities in this org); the
+    // narrative names the gap rather than inventing the cycle.
+    expect(res.body.cash.some((line) => line.includes('cash cycle is incomplete'))).toBe(true);
     for (const action of res.body.actions) {
       expect(action.link).toMatch(/^\/reports\/work-lists\?list=/u);
       expect(action.owner.length).toBeGreaterThan(0);
@@ -863,6 +863,54 @@ describe('the narrative (Part L)', () => {
     expect(res.body.actions.length).toBeLessThanOrEqual(5);
 
     const denied = await harness.get('/cfo/narrative?from=2026-08-01&to=2026-08-31', { token: employeeToken });
+    expect(denied.status).toBe(403);
+  });
+});
+
+describe('purchases and the cash cycle (W-series)', () => {
+  it('reads the payable book with its stated basis, and refuses to invent a cycle leg', async () => {
+    const conn = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM integration_connections WHERE org_id = ${ORG_ID} AND company_guid = 'guid-cfo-credit'
+    `);
+    const connectionId = conn.rows[0]?.id ?? '';
+    const vendor = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, opening_balance)
+      VALUES (${ORG_ID}, ${connectionId}, 'Vendor Alpha Switchgear', 'Sundry Creditors', 10000)
+      RETURNING id
+    `);
+    const vendorId = vendor.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-04', 'Purchase',   'P-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 30000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-14', 'Purchase',   'P-2', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 20000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-18', 'Payment',    'PY-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 30000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-20', 'Debit Note', 'DN-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 5000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2025-08-10', 'Purchase',   'P-0', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 40000, now())
+    `);
+
+    const res = await harness.get<{
+      purchases: { net: string; lastYear: string; vouchers: number; vendors: number };
+      byVendor: { vendor: string; net: string; sharePct: number }[];
+      payables: { total: string; rows: { vendor: string; payable: string }[]; basis: string };
+      cycle: { dsoDays: number | null; dioDays: number | null; dpoDays: number | null; cccDays: number | null; notes: string[] };
+    }>('/cfo/purchases?from=2026-08-01&to=2026-08-31', { token: adminToken });
+    expect(res.status).toBe(200);
+    // 30,000 + 20,000 purchases less the 5,000 debit note; the payment is not a purchase.
+    expect(res.body.purchases.net).toBe('45000.00');
+    expect(res.body.purchases.vouchers).toBe(2);
+    expect(res.body.byVendor[0]?.vendor).toBe('Vendor Alpha Switchgear');
+    // The book is all-time: opening 10,000 + 90,000 of purchases (last
+    // year's included) - 30,000 paid - 5,000 debit note.
+    expect(res.body.payables.rows.find((r) => r.vendor === 'Vendor Alpha Switchgear')?.payable).toBe('65000.00');
+    expect(res.body.payables.basis).toMatch(/Bill-wise ageing is not in the projection/u);
+    // Purchases exist, so DPO computes; no stock quantities in this org, so
+    // DIO is null with its reason and the cycle refuses to pretend.
+    expect(res.body.cycle.dpoDays).not.toBeNull();
+    expect(res.body.cycle.dioDays).toBeNull();
+    expect(res.body.cycle.cccDays).toBeNull();
+    expect(res.body.cycle.notes.some((n) => n.includes('DIO'))).toBe(true);
+
+    const denied = await harness.get('/cfo/purchases?from=2026-08-01&to=2026-08-31', { token: employeeToken });
     expect(denied.status).toBe(403);
   });
 });

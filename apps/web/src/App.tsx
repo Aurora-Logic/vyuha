@@ -61,6 +61,7 @@ const BUILT_ROUTES = new Set([
   '/reports/analytics',
   '/reports/export-centre',
   '/reports/close-pack',
+  '/reports/purchases',
   '/reports/desk',
   '/reports/data-quality',
   '/reports/penetration',
@@ -121,6 +122,7 @@ const CfoAnalyticsPage = lazy(() => import('@/features/insights').then((m) => ({
 const ExportCentrePage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ExportCentrePage })));
 const ClosePackPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ClosePackPage })));
 const ClosePackPrintPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ClosePackPrintPage })));
+const PurchasesPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.PurchasesPage })));
 const ScorecardPage = lazy(() => import('@/features/insights').then((m) => ({ default: m.ScorecardPage })));
 const IntegrationsPage = lazy(() => import('@/features/integrations').then((m) => ({ default: m.IntegrationsPage })));
 const PeriodLockPage = lazy(() => import('@/features/period-lock').then((m) => ({ default: m.PeriodLockPage })));
@@ -301,6 +303,7 @@ export default function App() {
               <Route path="reports/analytics" element={<CfoAnalyticsPage />} />
               <Route path="reports/export-centre" element={<ExportCentrePage />} />
               <Route path="reports/close-pack" element={<ClosePackPage />} />
+              <Route path="reports/purchases" element={<PurchasesPage />} />
               <Route path="reports/desk" element={<DeskPage />} />
               <Route path="reports/data-quality" element={<DataQualityPage />} />
               <Route path="reports/penetration" element={<PenetrationPage />} />

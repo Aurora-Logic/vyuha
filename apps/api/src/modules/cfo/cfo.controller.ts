@@ -19,6 +19,7 @@ import { DESK_OUTCOMES, DeskService, type CallSheet, type DeskToday, type WeekCl
 import { EXCEPTION_STATES, ExceptionsService, type Exceptions } from './exceptions.service.js';
 import { NarrativeService, type Narrative } from './narrative.service.js';
 import { PenetrationService, type Penetration } from './penetration.service.js';
+import { PurchasesService, type PurchaseRead } from './purchases.service.js';
 import { SalesAnalysisService, type PivotResult, type SalesAnalysis } from './sales-analysis.service.js';
 import { TeamService, type LeagueRow, type Scorecard, type TargetRow } from './team.service.js';
 import { TierService, type BulkAssignResult, type ImportRow, type MismatchRow, type NeglectedRow, type PartyClass, type TierRow } from './tier.service.js';
@@ -172,6 +173,7 @@ export class CfoController {
     private readonly quality: DataQualityService,
     private readonly penetration: PenetrationService,
     private readonly narrative: NarrativeService,
+    private readonly purchases: PurchasesService,
     private readonly tiers: TierService,
     private readonly exceptions: ExceptionsService,
     private readonly exporter: CfoExportService,
@@ -403,6 +405,13 @@ export class CfoController {
   @RequirePermission(PERMISSIONS.CFO_SALES_VIEW)
   metrics(): readonly MetricDefinition[] {
     return METRIC_REGISTRY;
+  }
+
+  /** W-series: purchases, the payable book and the cash cycle, each leg honest about its basis. */
+  @Get('purchases')
+  @RequirePermission(PERMISSIONS.CFO_RECEIVABLES_VIEW)
+  purchaseRead(@CurrentUser() principal: Principal, @Query() query: CreditQueryDto): Promise<PurchaseRead> {
+    return this.purchases.read(principal, query.from, query.to);
   }
 
   /** Part L: the narrative -- computed outputs arranged into sentences, never raw rows. */

@@ -15,6 +15,7 @@ import { OwnerMapService } from './attribution/owner-map.service.js';
 import { ReceivableSnapshotService } from './receivable-snapshot.service.js';
 import { MarginService } from './margin.service.js';
 import { NarrativeService } from './narrative.service.js';
+import { PurchasesService } from './purchases.service.js';
 import { DataQualityService } from './data-quality.service.js';
 import { ExceptionsService } from './exceptions.service.js';
 import { DeskService } from './desk.service.js';
@@ -34,6 +35,7 @@ import { TeamService } from './team.service.js';
   imports: [SettingsModule, MailModule],
   controllers: [CfoController],
   providers: [ReceivableSnapshotService, ReceivableSnapshotHandler, OwnerMapService, SalesFactService, CreditControlService, MyCfoService, TeamService, SalesAnalysisService, DeskService, DataQualityService, PenetrationService, TierService, ExceptionsService, CfoExportService, AlertsService, CfoNightlyService, MarginService,
-    NarrativeService, BrandService, AnalyticsService],
+    NarrativeService,
+    PurchasesService, BrandService, AnalyticsService],
 })
 export class CfoModule {}

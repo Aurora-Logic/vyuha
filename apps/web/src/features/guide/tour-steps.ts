@@ -439,6 +439,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Every report your keys open, exportable for a period or delivered on a cadence; every export is logged.',
   },
   {
+    id: 'screen.reports-purchases',
+    route: '/reports/purchases',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+    title: 'Purchases',
+    body: 'What was bought and from whom, the payable book on its stated basis, and the cash cycle when every leg is real.',
+  },
+  {
     id: 'screen.reports-close-pack',
     route: '/reports/close-pack',
     anchor: ANCHORS.screenHeader,

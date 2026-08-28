@@ -379,6 +379,35 @@ async function main(): Promise<void> {
       }
     }
 
+    // ------------------------------------------------------- the purchase side
+    // W-series (28 Aug 2026): Purchase, Payment and Debit Note vouchers on
+    // the creditor ledgers, a year and a bit deep so DPO and the vs-LY
+    // comparison both have something to read.
+    const vendors = (await pool.query<{ id: string; name: string }>(`SELECT id, name FROM parties WHERE org_id = $1 AND parent_group ILIKE '%creditor%' AND absent_in_tally = false ORDER BY created_at LIMIT 6`, [orgId])).rows;
+    const havePurchases = (await pool.query<{ n: string }>(`SELECT count(*)::text AS n FROM vouchers WHERE org_id = $1 AND narration LIKE 'CFO demo: purchase%'`, [orgId])).rows[0]?.n !== '0';
+    if (!havePurchases && vendors.length > 0) {
+      let pno = 9000;
+      const buy = async (vendor: { id: string; name: string }, date: string, type: 'Purchase' | 'Payment' | 'Debit Note', amount: number, narration: string): Promise<void> => {
+        pno += 1;
+        const prefix = type === 'Purchase' ? 'PUR' : type === 'Payment' ? 'PAY' : 'DBN';
+        await pool.query(
+          `INSERT INTO vouchers (id, org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, amount, narration, last_pulled_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())`,
+          [randomUUID(), orgId, connection.id, date, type, `${prefix}/${String(pno)}`, vendor.name, vendor.id, amount.toFixed(2), narration],
+        );
+        bump('vouchers');
+      };
+      for (let day = 430; day >= 3; day -= between(6, 11)) {
+        const vendor = pick(vendors);
+        const date = daysAgo(day);
+        // Prices drifted up ~5% year on year, so the delta reads as growth.
+        const amount = between(40_000, 220_000) * (day > 365 ? 0.95 : 1);
+        await buy(vendor, date, 'Purchase', amount, 'CFO demo: purchase');
+        if (rand() < 0.85) await buy(vendor, shift(date, between(25, 55)), 'Payment', Math.round(amount * 0.92), 'CFO demo: purchase payment');
+        if (rand() < 0.08) await buy(vendor, shift(date, between(5, 15)), 'Debit Note', Math.round(amount * 0.1), 'CFO demo: purchase return');
+      }
+    }
+
     console.log(JSON.stringify(report, null, 2));
   } finally {
     await pool.end();

@@ -750,6 +750,46 @@ const exceptionRowSchema = z.object({
   review: z.object({ state: z.string(), reason: z.string(), reviewedAt: z.string() }).nullable(),
 });
 
+const purchaseReadSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  purchases: z.object({
+    net: z.string(),
+    lastYear: z.string(),
+    delta: deltaReadingSchema,
+    vouchers: z.number(),
+    vendors: z.number(),
+  }),
+  byVendor: z.array(z.object({ partyId: z.string(), vendor: z.string(), net: z.string(), lastYear: z.string(), sharePct: z.number() })),
+  trend: z.array(z.object({ month: z.string(), net: z.string() })),
+  payables: z.object({
+    total: z.string(),
+    rows: z.array(z.object({ partyId: z.string(), vendor: z.string(), payable: z.string() })),
+    basis: z.string(),
+  }),
+  cycle: z.object({
+    dsoDays: z.number().nullable(),
+    dioDays: z.number().nullable(),
+    dpoDays: z.number().nullable(),
+    cccDays: z.number().nullable(),
+    notes: z.array(z.string()),
+  }),
+});
+
+export type PurchaseReadData = z.infer<typeof purchaseReadSchema>;
+
+export function usePurchases(range: { from: string; to: string }, options: { enabled?: boolean } = {}): UseQueryResult<PurchaseReadData, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['cfo', 'purchases', range.from, range.to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/cfo/purchases?from=${range.from}&to=${range.to}`, { signal });
+      return parseOrThrow(purchaseReadSchema, body, 'purchases');
+    },
+    staleTime: 60_000,
+  });
+}
+
 const narrativeSchema = z.object({
   from: z.string(),
   to: z.string(),
