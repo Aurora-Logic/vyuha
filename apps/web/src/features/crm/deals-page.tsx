@@ -3,6 +3,7 @@ import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, Cir
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
 import { PageHeader } from '@/components/shared/page-header';
@@ -14,7 +15,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -91,20 +91,6 @@ const COLUMNS: RecordColumn<Deal>[] = [
   { key: 'close', header: 'Expected close', cell: (row) => formatDate(row.expectedCloseDate), className: 'tabular-nums', secondary: true },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading deals" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-48 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet). */
 function dealViewQuery(params: URLSearchParams): string {
@@ -387,7 +373,7 @@ export function DealsPage() {
           </div>
         </div>
 
-        {query.isPending || (view === 'board' && pipelines.isPending) ? <ListSkeleton /> : null}
+        {query.isPending || (view === 'board' && pipelines.isPending) ? <ListSkeleton rows={4} label="Loading deals" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

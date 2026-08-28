@@ -4,6 +4,7 @@ import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon } from
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { DateRange } from 'react-day-picker';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -25,7 +26,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { DateRangeField } from '@/features/attendance/pickers';
@@ -96,24 +96,6 @@ function toDateParam(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${String(date.getFullYear())}-${month}-${day}`;
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading vouchers" className="border">
-      {Array.from({ length: 5 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-20 shrink-0" />
-          <Skeleton className="hidden h-3 w-32 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-16 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -442,7 +424,7 @@ export function VouchersPage() {
           ) : null}
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={5} label="Loading vouchers" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

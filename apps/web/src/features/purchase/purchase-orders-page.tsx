@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { GearIcon, LockKeyIcon, PlusIcon, ShoppingCartIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams, Link } from 'react-router';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -12,7 +13,6 @@ import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
 import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
@@ -60,20 +60,6 @@ const COLUMNS: RecordColumn<PurchaseOrderSummary>[] = [
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
   { key: 'expected', header: 'Expected', cell: (row) => formatDate(row.expectedDate), secondary: true, className: 'tabular-nums' },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading purchase orders" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function isStatus(value: string | null): value is PurchaseOrderStatus {
   return PURCHASE_ORDER_STATUSES.some((s) => s === value);
@@ -255,7 +241,7 @@ export function PurchaseOrdersPage() {
           </Select>
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading purchase orders" /> : null}
         {query.isError ? (
           <QueryErrorAlert
             error={query.error}

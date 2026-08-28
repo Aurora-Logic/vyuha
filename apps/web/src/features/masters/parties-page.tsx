@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router';
 
 import { DuplicateBadge } from '@/components/shared/duplicate-badge';
 import { DUPLICATE_ROW_CLASS } from '@/components/shared/duplicate-flag';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -25,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -87,24 +87,6 @@ const COLUMNS: RecordColumn<Party>[] = [
     secondary: true,
   },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading parties" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-44 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function PartiesPage() {
   const navigate = useNavigate();
@@ -252,7 +234,7 @@ export function PartiesPage() {
           </Button>
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading parties" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

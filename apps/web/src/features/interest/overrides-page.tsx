@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BooksIcon, LockKeyIcon, PercentIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -17,7 +18,6 @@ import {
 } from '@/components/ui/empty';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -48,24 +48,6 @@ function terms(row: InterestPartySetting): string {
   if (row.creditDaysOverride !== null) return `${String(row.creditDaysOverride)} days (override)`;
   if (row.tallyCreditDays !== null) return `${String(row.tallyCreditDays)} days (Tally)`;
   return 'From day zero';
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading interest overrides" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-40 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-4 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export function InterestOverridesPage() {
@@ -375,7 +357,7 @@ function OverridesBody() {
           />
         ) : null}
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading interest overrides" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

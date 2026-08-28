@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router';
 
 import { DuplicateBadge } from '@/components/shared/duplicate-badge';
 import { DUPLICATE_ROW_CLASS } from '@/components/shared/duplicate-flag';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -18,7 +19,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -60,24 +60,6 @@ const COLUMNS: RecordColumn<StockItem>[] = [
     secondary: true,
   },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading stock items" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-44 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function StockItemsPage() {
   const navigate = useNavigate();
@@ -170,7 +152,7 @@ export function StockItemsPage() {
           />
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading stock items" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert
