@@ -116,7 +116,11 @@ export class CfoNightlyService {
     `);
     let sent = 0;
     for (const schedule of due.rows) {
-      const url = `${env.WEB_BASE_URL}/reports?scheduled=${schedule.report}`;
+      // A custom report links straight to its own page; catalogue reports
+      // land on the reports shell (S-3).
+      const url = schedule.report.startsWith('custom:')
+        ? `${env.WEB_BASE_URL}/reports/custom/${schedule.report.slice(7)}`
+        : `${env.WEB_BASE_URL}/reports?scheduled=${schedule.report}`;
       for (const to of schedule.recipients.split(',').map((r) => r.trim()).filter(Boolean)) {
         try {
           await this.mailer.send({

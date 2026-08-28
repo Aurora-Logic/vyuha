@@ -117,10 +117,35 @@ export class CfoExportService {
     return rows.rows;
   }
 
-  async saveSchedule(principal: Principal, body: { id?: string; report: ExportReport; cadence: string; recipients: string }): Promise<void> {
-    if (!hasPermission(principal, REPORT_META[body.report].permission)) {
-      throw AppError.forbidden(`Scheduling ${REPORT_META[body.report].title} needs ${REPORT_META[body.report].permission}.`);
+  /**
+   * S-3 (owner, 28 Aug 2026): a schedule names a catalogue report, or a
+   * custom report as custom:<id>. Scheduling either takes the same sight
+   * the screen takes -- the catalogue report's own permission, or being
+   * able to read that custom report (author, org-shared, or named).
+   */
+  private async assertSchedulable(principal: Principal, report: string): Promise<void> {
+    if (report.startsWith('custom:')) {
+      const id = report.slice(7);
+      const row = await this.db.execute<{ ownerUserId: string; shared: boolean; sharedWith: unknown }>(sql`
+        SELECT owner_user_id AS "ownerUserId", shared, shared_with AS "sharedWith" FROM custom_reports
+        WHERE org_id = ${principal.orgId} AND id = ${id} LIMIT 1
+      `);
+      const found = row.rows[0];
+      const named = found !== undefined && Array.isArray(found.sharedWith) && (found.sharedWith as string[]).includes(principal.userId);
+      if (found === undefined || (!found.shared && !named && found.ownerUserId !== principal.userId)) {
+        throw AppError.notFound('custom report', id);
+      }
+      return;
     }
+    const meta = REPORT_META[report as ExportReport];
+    if (meta === undefined) throw AppError.validation(`No report named ${report}.`);
+    if (!hasPermission(principal, meta.permission)) {
+      throw AppError.forbidden(`Scheduling ${meta.title} needs ${meta.permission}.`);
+    }
+  }
+
+  async saveSchedule(principal: Principal, body: { id?: string; report: string; cadence: string; recipients: string }): Promise<void> {
+    await this.assertSchedulable(principal, body.report);
     if (body.id !== undefined) {
       const updated = await this.db.execute<{ id: string }>(sql`
         UPDATE cfo_report_schedules SET report = ${body.report}, cadence = ${body.cadence}, recipients = ${body.recipients}

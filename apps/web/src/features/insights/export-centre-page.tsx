@@ -44,6 +44,7 @@ import { downloadDocumentFile } from '@/features/documents/download';
 
 import { ExportButton } from './export-button';
 import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { useCustomReports } from './api';
 import { deleteSchedule, saveSchedule, useExportCatalogue, useSchedules, type ScheduleRowData } from './use-cfo';
 
 /**
@@ -63,6 +64,7 @@ export function ExportCentrePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const catalogue = useExportCatalogue({ enabled: canView });
+  const customReports = useCustomReports({ enabled: canView });
   const schedules = useSchedules({ enabled: canView });
   const [draft, setDraft] = useState<ScheduleDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,13 +105,23 @@ export function ExportCentrePage() {
     { key: 'format', header: 'Format', cell: () => 'Excel', secondary: true },
     { key: 'actions', header: '', cell: (row) => (
       <span className="flex justify-end gap-2">
-        <ExportButton report={row.report} range={range} label="Export" />
+        {/* A custom report is read on its own page, not exported as a workbook (S-3). */}
+        {row.report.startsWith('custom:') ? null : <ExportButton report={row.report} range={range} label="Export" />}
         <Button size="sm" variant="outline" onClick={() => { setDraft({ report: row.report, cadence: 'weekly', recipients: '' }); }}>
           <ClockClockwiseIcon data-icon="inline-start" />
           Schedule
         </Button>
       </span>
     ), numeric: true },
+  ];
+
+  const catalogueRows: CatalogueRow[] = [
+    ...(catalogue.data ?? []),
+    ...(customReports.data ?? []).map((report) => ({
+      report: `custom:${report.id}`,
+      title: `Custom · ${report.name}`,
+      blurb: report.description !== '' ? report.description : 'A report you composed; schedules link readers to its page.',
+    })),
   ];
 
   const scheduleColumns: RecordColumn<ScheduleRowData>[] = [
@@ -189,7 +201,7 @@ export function ExportCentrePage() {
         {catalogue.data ? (
           <RecordTable
             columns={catalogueColumns}
-            rows={[...catalogue.data]}
+            rows={catalogueRows}
             rowKey={(row) => row.report}
             mobilePrimary={(row) => row.title}
             mobileSupporting={(row) => row.blurb}

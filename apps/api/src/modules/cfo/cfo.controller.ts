@@ -67,7 +67,8 @@ class ExportQueryDto extends createZodDto(exportQuerySchema) {}
 
 const scheduleSchema = z.object({
   id: z.string().regex(UUID).optional(),
-  report: z.enum(EXPORT_REPORTS),
+  // A catalogue report, or a custom report as custom:<uuid> (S-3).
+  report: z.union([z.enum(EXPORT_REPORTS), z.string().regex(/^custom:[0-9a-f-]{36}$/u)]),
   cadence: z.enum(['daily', 'weekly', 'monthly']),
   recipients: z.string().trim().min(3).max(500),
 });

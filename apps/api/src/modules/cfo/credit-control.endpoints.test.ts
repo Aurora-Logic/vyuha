@@ -930,3 +930,27 @@ describe('export-all (O6-2)', () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe('custom reports on a schedule (S-3)', () => {
+  it('schedules an owned custom report by id, and refuses one the caller cannot read', async () => {
+    const created = await harness.post<{ id: string }>('/insights/custom-reports', {
+      token: adminToken,
+      body: { name: 'My weekly board', shared: false, widgets: [] },
+    });
+    expect(created.status).toBe(201);
+    const saved = await harness.put(`/cfo/schedules`, {
+      token: adminToken,
+      body: { report: `custom:${created.body.id}`, cadence: 'weekly', recipients: 'owner@example.test' },
+    });
+    expect([200, 201]).toContain(saved.status);
+    const listed = await harness.get<{ report: string }[]>('/cfo/schedules', { token: adminToken });
+    expect(listed.body.some((s) => s.report === `custom:${created.body.id}`)).toBe(true);
+
+    // A fabricated id reads as not-found, which does not confirm anything exists.
+    const foreign = await harness.put('/cfo/schedules', {
+      token: adminToken,
+      body: { report: 'custom:00000000-0000-7000-8000-000000000123', cadence: 'daily', recipients: 'x@example.test' },
+    });
+    expect(foreign.status).toBe(404);
+  });
+});
