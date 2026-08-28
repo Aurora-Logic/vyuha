@@ -30,6 +30,15 @@ async function bootstrap(): Promise<void> {
   // emitted in Nest's format and then everything else in JSON.
   // rawBody: the OpsTally webhook verifies an HMAC over the exact bytes it
   // was sent, so the parsed body is not enough — see SyncWebhookController.
+  // WS-A-1, approved 28 Aug 2026: error tracking reports only when a DSN is
+  // configured, so development and any deployment without a Sentry project
+  // run exactly as before. Initialised before the app exists so bootstrap
+  // failures after this line are captured too.
+  if (env.SENTRY_DSN !== undefined && env.SENTRY_DSN !== '') {
+    const Sentry = await import('@sentry/node');
+    Sentry.init({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
+  }
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
 

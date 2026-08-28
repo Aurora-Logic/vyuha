@@ -24,6 +24,7 @@
     "@nestjs/common": "^11.1.29",
     "@nestjs/core": "^11.1.29",
     "@nestjs/platform-express": "^11.1.29",
+    "@sentry/node": "^10.71.0",
     "@vyuha/shared": "workspace:*",
     "bullmq": "^6.1.0",
     "cron-parser": "5.8.1",

@@ -1,4 +1,5 @@
 import { SYSTEM_ROLES } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
 import { Secret, TOTP } from 'otpauth';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -28,8 +29,14 @@ interface MeBody {
   mfa: { enabled: boolean; required: boolean; enrolmentRequired: boolean };
 }
 
-function codeFor(secret: string, email: string): string {
-  return new TOTP({ issuer: 'Vyuha', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) }).generate();
+/**
+ * stepsAhead: the server spends each accepted step (users.totp_last_step),
+ * so a flow that checks two codes must present the NEXT one the second
+ * time, exactly as a person waiting for the app to tick over would. The
+ * verifier's window of 1 accepts a one-step-ahead code.
+ */
+function codeFor(secret: string, email: string, stepsAhead = 0): string {
+  return new TOTP({ issuer: 'Vyuha', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) }).generate({ timestamp: Date.now() + stepsAhead * 30_000 });
 }
 
 async function signIn(email: string, jar = new CookieJar()) {
@@ -52,6 +59,34 @@ afterAll(async () => {
 });
 
 describe('REQ-B-09: two-step sign-in', () => {
+  it('refuses the same six digits twice: an accepted step is spent', async () => {
+    const first = await signIn(employee.email);
+    const start = await harness.post<{ secret: string }>('/auth/mfa/enrol', { token: first.body.accessToken });
+    await harness.post('/auth/mfa/confirm', { token: first.body.accessToken, body: { code: codeFor(start.body.secret, employee.email) } });
+
+    // Two fresh challenges, one code: the first passes, the replay is a wrong code.
+    const one = await signIn(employee.email);
+    const code = codeFor(start.body.secret, employee.email, 1);
+    const ok = await harness.post<LoginBody>('/auth/mfa/verify', { body: { challengeToken: one.body.challengeToken, code, trustDevice: false } });
+    expect(ok.status).toBe(200);
+    const two = await signIn(employee.email);
+    const replayed = await harness.post<ErrorBody>('/auth/mfa/verify', { body: { challengeToken: two.body.challengeToken, code, trustDevice: false } });
+    expect(replayed.status).toBe(401);
+    expect(replayed.body.error.code).toBe('MFA_CODE_INVALID');
+
+    // Clearing the remembered step (the window passing, in effect) lets the
+    // very same digits pass again: the refusal above was the spent step, not
+    // the code.
+    await harness.db.execute(sql`UPDATE users SET totp_last_step = NULL WHERE id = ${employee.id}`);
+    const fine = await harness.post<LoginBody>('/auth/mfa/verify', { body: { challengeToken: two.body.challengeToken, code, trustDevice: false } });
+    expect(fine.status).toBe(200);
+
+    // Clean up: turn it off so the later employee test enrols from scratch.
+    await harness.db.execute(sql`UPDATE users SET totp_last_step = NULL WHERE id = ${employee.id}`);
+    const off = await harness.post('/auth/mfa/disable', { token: fine.body.accessToken, body: { code } });
+    expect(off.status).toBe(204);
+  });
+
   it('the default policy requires Admin and not Employee, and says so on /me before enrolment', async () => {
     const a = await signIn(admin.email);
     expect(a.status).toBe(200);
@@ -97,7 +132,7 @@ describe('REQ-B-09: two-step sign-in', () => {
     expect(bad.status).toBe(401);
     expect(bad.body.error.code).toBe('MFA_CODE_INVALID');
 
-    const good = await harness.post<LoginBody>('/auth/mfa/verify', { body: { challengeToken: second.body.challengeToken, code: codeFor(start.body.secret, admin.email), trustDevice: true }, withCookies: true }, jar);
+    const good = await harness.post<LoginBody>('/auth/mfa/verify', { body: { challengeToken: second.body.challengeToken, code: codeFor(start.body.secret, admin.email, 1), trustDevice: true }, withCookies: true }, jar);
     expect(good.status).toBe(200);
     expect(good.body.accessToken).toBeTruthy();
     expect(jar.get('vyuha_refresh')).not.toBeNull();
@@ -168,7 +203,7 @@ describe('REQ-B-09: two-step sign-in', () => {
     await harness.post('/auth/mfa/confirm', { token: e.body.accessToken, body: { code: codeFor(start.body.secret, employee.email) } });
     const wrong = await harness.post<ErrorBody>('/auth/mfa/disable', { token: e.body.accessToken, body: { code: '000000' } });
     expect(wrong.status).toBe(401);
-    const off = await harness.post('/auth/mfa/disable', { token: e.body.accessToken, body: { code: codeFor(start.body.secret, employee.email) } });
+    const off = await harness.post('/auth/mfa/disable', { token: e.body.accessToken, body: { code: codeFor(start.body.secret, employee.email, 1) } });
     expect(off.status).toBe(204);
     const me = await harness.get<MeBody>('/auth/me', { token: e.body.accessToken });
     expect(me.body.mfa.enabled).toBe(false);

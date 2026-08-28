@@ -191,7 +191,7 @@ export class MfaService {
     if (user.totpSecret === null) {
       throw new AppError(ERROR_CODES.MFA_NOT_ENROLLED, 'Start the set-up first.');
     }
-    if (!this.totpMatches(user.totpSecret, user.email, code)) {
+    if (!(await this.totpMatches(user.id, user.totpSecret, user.email, code))) {
       throw new AppError(ERROR_CODES.MFA_CODE_INVALID, 'That code did not match. Codes change every thirty seconds; try the current one.');
     }
     const now = new Date();
@@ -409,16 +409,40 @@ export class MfaService {
     return new TOTP({ issuer: ISSUER, label: email, algorithm: 'SHA1', digits: TOTP_DIGITS, period: TOTP_PERIOD_SECONDS, secret });
   }
 
-  /** One step either side: a phone's clock a few seconds out is not a wrong code. */
-  private totpMatches(sealedSecret: string, email: string, code: string): boolean {
-    if (!/^\d{6}$/u.test(code)) return false;
+  /**
+   * One step either side: a phone's clock a few seconds out is not a wrong
+   * code. A match answers with the step it matched, because a correct code
+   * must also be an unspent one -- the server remembers the last step it
+   * accepted (users.totp_last_step) and the same six digits cannot pass
+   * twice inside their window (OPEN-QUESTIONS, two-step sign-in, closed
+   * 28 Aug 2026).
+   */
+  private totpStepOf(sealedSecret: string, email: string, code: string): number | null {
+    if (!/^\d{6}$/u.test(code)) return null;
     const secret = Secret.fromBase32(openSecret(sealedSecret, env.JWT_REFRESH_SECRET, 'totp'));
-    return this.totpFor(secret, email).validate({ token: code, window: 1 }) !== null;
+    const delta = this.totpFor(secret, email).validate({ token: code, window: 1 });
+    if (delta === null) return null;
+    return Math.floor(Date.now() / 1000 / TOTP_PERIOD_SECONDS) + delta;
+  }
+
+  /**
+   * Check and spend in one UPDATE: the row moves forward only if the step is
+   * new, so two concurrent submissions of the same code cannot both pass.
+   */
+  private async totpMatches(userId: string, sealedSecret: string, email: string, code: string): Promise<boolean> {
+    const step = this.totpStepOf(sealedSecret, email, code);
+    if (step === null) return false;
+    const spent = await this.db
+      .update(users)
+      .set({ totpLastStep: step })
+      .where(and(eq(users.id, userId), sql`(${users.totpLastStep} IS NULL OR ${users.totpLastStep} < ${step})`))
+      .returning({ id: users.id });
+    return spent.length > 0;
   }
 
   /** A current code, or an unused recovery code, which this spends. */
   private async codeMatches(user: { id: string; email: string; totpSecret: string | null }, code: string): Promise<boolean> {
-    if (user.totpSecret !== null && this.totpMatches(user.totpSecret, user.email, code)) return true;
+    if (user.totpSecret !== null && (await this.totpMatches(user.id, user.totpSecret, user.email, code))) return true;
     const normalised = code.replace(/[^A-Za-z0-9]/gu, '').toUpperCase();
     if (normalised.length !== RECOVERY_HALF * 2) return false;
     const hash = hashOpaqueToken(TOKEN_PURPOSES.MFA_RECOVERY, normalised, env.JWT_REFRESH_SECRET);
@@ -457,7 +481,7 @@ export class MfaService {
 
   private async clearFor(userId: string, reason: string): Promise<void> {
     await this.db.transaction(async (tx) => {
-      await tx.update(users).set({ totpSecret: null, totpConfirmedAt: null }).where(eq(users.id, userId));
+      await tx.update(users).set({ totpSecret: null, totpConfirmedAt: null, totpLastStep: null }).where(eq(users.id, userId));
       await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
       await tx
         .update(mfaTrustedDevices)
