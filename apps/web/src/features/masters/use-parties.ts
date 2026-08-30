@@ -55,6 +55,7 @@ export interface PartiesFilters {
   parentGroup?: string;
   /** A term the server knows (MASTER_SORT_FIELDS), e.g. "-name" or "code". */
   sort?: string;
+  connectionId?: string;
   /** "My customers": the parties the caller is relationship manager on. */
   mine?: boolean;
   /** One relationship manager's book (an employee id), for a manager reviewing it. */
@@ -66,6 +67,7 @@ function partiesQuery(filters: PartiesFilters) {
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   if (filters.sort) params.set('sort', filters.sort);
+  if (filters.connectionId) params.set('connectionId', filters.connectionId);
   if (filters.mine) params.set('mine', 'true');
   if (filters.managerId) params.set('managerId', filters.managerId);
   const key = params.toString();
@@ -98,14 +100,23 @@ export function useParties(
   // page one and must not spend a request pre-loading a page nobody scrolls to.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, parentGroup, pageSize, sort, mine, managerId } = filters;
+  const { page, q, parentGroup, pageSize, sort, connectionId, mine, managerId } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
-      ...partiesQuery({ page: page + 1, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(pageSize ? { pageSize } : {}), ...(sort ? { sort } : {}), ...(mine ? { mine } : {}), ...(managerId ? { managerId } : {}) }),
+      ...partiesQuery({
+        page: page + 1,
+        ...(q ? { q } : {}),
+        ...(parentGroup ? { parentGroup } : {}),
+        ...(pageSize ? { pageSize } : {}),
+        ...(sort ? { sort } : {}),
+        ...(connectionId ? { connectionId } : {}),
+        ...(mine ? { mine } : {}),
+        ...(managerId ? { managerId } : {}),
+      }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, sort, mine, managerId]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize, sort, connectionId, mine, managerId]);
 
   return query;
 }

@@ -234,7 +234,7 @@ export class MastersController {
       number: voucher.voucherNumber || paper.title,
       date: voucher.date,
       status: voucher.isCancelled ? 'Cancelled' : 'From Tally',
-      customerName: voucher.partyName,
+      customerName: voucher.buyerName || voucher.partyName,
       reference: `Tally ${voucher.voucherType}${voucher.voucherNumber ? ` ${voucher.voucherNumber}` : ''}`,
       lines: paper.lines.map((line) => ({ description: line.description, quantity: line.quantity, unit: line.unit, rate: line.rate, discountPct: '0', taxPct: '0', amount: line.amount, taxAmount: '0' })),
       subtotal: paper.subtotal,
@@ -242,7 +242,7 @@ export class MastersController {
       taxTotal: paper.taxTotal,
       grandTotal: paper.grandTotal,
       notes: voucher.narration || null,
-      terms: null,
+      terms: voucher.deliveryTerms || voucher.paymentTerms || null,
     });
   }
 

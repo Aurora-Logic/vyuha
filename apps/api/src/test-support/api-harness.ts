@@ -561,6 +561,14 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM tasks WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM task_board_columns WHERE org_id = ${this.orgId}`);
 
+    // Derived rows that sweeps write for every organisation they can see, so
+    // they pile up against fixtures that never asked for them: attendance
+    // days from the nightly close, interest dailies from the interest build.
+    // They describe people and items, so they go before them.
+    await this.db.execute(sql`DELETE FROM attendance_days WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_daily_party WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_daily_stock WHERE org_id = ${this.orgId}`);
+
     // Balances hang off employees by a restrict key, and since the seed
     // carries the five REQ-G-02 types (OS-4) an employee can acquire one
     // without any test asking for it. The ledger beside them is append-only

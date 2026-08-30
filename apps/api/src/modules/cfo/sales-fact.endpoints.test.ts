@@ -40,7 +40,12 @@ beforeAll(async () => {
   await harness.db.execute(sql`DELETE FROM customer_owner_map WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM voucher_lines WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
+  // The interest build sweeps every org it finds, so its daily rows can point
+  // at this fixture's items and parties even though it never asked for them.
+  await harness.db.execute(sql`DELETE FROM interest_daily_stock WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM interest_daily_party WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM fact_receivable_snapshot WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`);
 

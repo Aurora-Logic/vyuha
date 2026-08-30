@@ -30,7 +30,7 @@ let adminUserId = '';
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'CFO Credit Org', { preservePeople: true });
-  for (const table of ['fact_receivable_snapshot', 'cfo_targets', 'customer_owner_map', 'voucher_lines', 'vouchers', 'parties']) {
+  for (const table of ['fact_receivable_snapshot', 'cfo_targets', 'customer_owner_map', 'interest_daily_party', 'interest_daily_stock', 'voucher_lines', 'vouchers', 'parties']) {
     await harness.db.execute(sql.raw(`DELETE FROM ${table} WHERE org_id = '${ORG_ID}'`));
   }
   await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`);

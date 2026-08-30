@@ -52,6 +52,8 @@ export const partyListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
   /** Filter to one side of the ledger: Sundry Debtors or Sundry Creditors. */
   parentGroup: z.string().trim().min(1).max(120).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
   /** `field` or `-field` from PARTY_SORT_FIELDS; an unknown term is dropped, not a 400. */
   sort: z.string().trim().max(60).optional(),
   /** "My customers": scope to the parties the caller is the relationship manager on. */
@@ -97,6 +99,8 @@ export const stockItemListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
   /** Filter to one stock group, verbatim. */
   parentGroup: z.string().trim().min(1).max(120).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
   /** `field` or `-field` from STOCK_ITEM_SORT_FIELDS; an unknown term is dropped, not a 400. */
   sort: z.string().trim().max(60).optional(),
 });
@@ -120,6 +124,8 @@ export const priceListListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
   /** One price level — the per-party-group list REQ-R-03 names. */
   priceLevel: z.string().trim().min(1).max(120).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
 });
 
 export type PriceListListQuery = z.infer<typeof priceListListQuerySchema>;
@@ -143,6 +149,28 @@ export interface VoucherView {
   readonly amount: string;
   /** REQ-Y-07: every figure says its age. */
   readonly lastPulledAt: string;
+
+  // Order, terms, dispatch and consignee facts from Tally
+  readonly reference?: string | null;
+  readonly referenceDate?: string | null;
+  readonly orderRef?: string | null;
+  readonly buyerOrderNumber?: string | null;
+  readonly buyerOrderDate?: string | null;
+  readonly paymentTerms?: string | null;
+  readonly deliveryTerms?: string | null;
+  readonly dispatchedThrough?: string | null;
+  readonly dispatchDocNo?: string | null;
+  readonly vehicleNumber?: string | null;
+  readonly destination?: string | null;
+  readonly buyerName?: string | null;
+  readonly buyerAddress?: string | null;
+  readonly partyGstin?: string | null;
+  readonly partyState?: string | null;
+  readonly placeOfSupply?: string | null;
+  readonly consigneeName?: string | null;
+  readonly consigneeState?: string | null;
+  readonly consigneePincode?: string | null;
+  readonly consigneeGstin?: string | null;
 }
 
 export interface VoucherLineView {
@@ -186,6 +214,8 @@ export const voucherListQuerySchema = pageQuerySchema.extend({
   includeCancelled: z.coerce.boolean().optional(),
   /** `field` or `-field` from VOUCHER_SORT_FIELDS; an unknown term is dropped, not a 400. */
   sort: z.string().trim().max(60).optional(),
+  /** Filter to a specific Tally connection / company. Omitted means all companies (unified). */
+  connectionId: z.string().uuid().optional(),
 });
 
 export type VoucherListQuery = z.infer<typeof voucherListQuerySchema>;

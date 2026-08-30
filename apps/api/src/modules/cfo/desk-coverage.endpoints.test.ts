@@ -19,7 +19,7 @@ let partyId = '';
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Desk Coverage Org', { preservePeople: true });
-  for (const table of ['cfo_desk_served', 'cfo_desk_outcomes', 'promises_to_pay', 'customer_tier_assignments', 'customer_tiers', 'vouchers', 'parties']) {
+  for (const table of ['cfo_desk_served', 'cfo_desk_outcomes', 'promises_to_pay', 'customer_tier_assignments', 'customer_tiers', 'interest_daily_party', 'interest_daily_stock', 'fact_receivable_snapshot', 'fact_sales_daily', 'vouchers', 'parties']) {
     await harness.db.execute(sql.raw(`DELETE FROM ${table} WHERE org_id = '${ORG_ID}'`));
   }
   await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`);

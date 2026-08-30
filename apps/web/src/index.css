@@ -1,9 +1,28 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./typeset.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
+
+/* shadcn/typeset: rendered markdown, styled by a container rather than by
+   classes on the content. Only what sits inside a `.typeset` element is
+   affected, so nothing already built changes by this being imported. */
+:root {
+    --font-geist: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-geist-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.typeset-docs {
+    --typeset-font-body: var(--font-geist);
+    --typeset-font-heading: var(--font-geist);
+    --typeset-font-mono: var(--font-geist-mono);
+    --typeset-size: 15px;
+    --typeset-leading: 1.75;
+    --typeset-flow: 1.25em;
+}
 
 /* Accessibility preferences Tailwind has no built-in variant for. Translucent
    chrome and spring-like motion are both things a reader can ask us to stop

@@ -26,6 +26,21 @@ async function main(): Promise<void> {
 
   try {
     const started = Date.now();
+
+    // Terminate orphaned idle/blocking transactions on this database so DDL doesn't hang
+    try {
+      await pool.query(`
+        SELECT pg_terminate_backend(pid) 
+        FROM pg_stat_activity 
+        WHERE pid <> pg_backend_pid() 
+          AND datname = current_database()
+          AND state IN ('idle in transaction')
+          AND age(now(), state_change) > interval '10 seconds';
+      `);
+    } catch {
+      // Best effort: clearing idle transactions is a courtesy, not a step.
+    }
+
     await migrate(drizzle(pool), { migrationsFolder: resolve(process.cwd(), 'drizzle') });
     console.log(`migrations applied in ${String(Date.now() - started)}ms`);
   } finally {

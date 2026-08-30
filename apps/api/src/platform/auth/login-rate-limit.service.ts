@@ -163,6 +163,13 @@ export class LoginRateLimiter {
      * `end` -- a client that has been closed and will not reconnect -- is
      * worth short-circuiting.
      */
+    // Merge, 30 Aug 2026: main carried `status !== 'ready'` here (cdd16b4,
+    // "lower brute force lockout duration"). An ioredis client is 'connecting'
+    // or 'wait' until it first connects, so that test sends every attempt down
+    // the Postgres path -- and login-rate-limit's own suite shows that path
+    // does not refuse: the budget is silently off exactly when an attacker
+    // would find it off. Only a client that has been closed for good is worth
+    // short-circuiting, which is what this branch already fixed.
     if (this.redis.status === 'end') return this.claimViaDb(ip, now, scope);
 
     const key = loginRateLimitKey(ip, scope);

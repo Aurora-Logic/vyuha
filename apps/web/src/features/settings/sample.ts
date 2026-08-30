@@ -53,7 +53,7 @@ export function sampleSettings(): OrgSettings {
     nonMovingDays: 90,
   },
   leave: { yearStartMonth: 4, compOffExpiryDays: 30, concurrentAbsenceThreshold: 0 },
-    appearance: { accentHue: 277, accentChroma: 0.24, font: 'sans', base: 'stone', density: 'comfortable' },
+  appearance: { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable', font: 'sans' },
     email: {
       transport: 'log',
       host: 'localhost',

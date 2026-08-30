@@ -147,6 +147,9 @@ export class MastersService {
     const { limit, offset } = pageSlice(query);
 
     const parts: (SQL | undefined)[] = [eq(stockItems.orgId, principal.orgId)];
+    if (query.connectionId !== undefined) {
+      parts.push(eq(stockItems.connectionId, query.connectionId));
+    }
     if (query.parentGroup !== undefined) {
       parts.push(eq(stockItems.parentGroup, query.parentGroup));
     }
@@ -359,6 +362,7 @@ export class MastersService {
 
   private voucherPredicate(principal: Principal, query: VoucherListQuery): SQL {
     const parts: (SQL | undefined)[] = [eq(vouchers.orgId, principal.orgId)];
+    if (query.connectionId !== undefined) parts.push(eq(vouchers.connectionId, query.connectionId));
     if (query.voucherType !== undefined) parts.push(eq(vouchers.voucherType, query.voucherType));
     if (query.partyId !== undefined) parts.push(eq(vouchers.partyId, query.partyId));
     if (query.from !== undefined) parts.push(gte(vouchers.voucherDate, query.from));
@@ -376,7 +380,7 @@ export class MastersService {
 
   private partyPredicate(principal: Principal, query: PartyListQuery): SQL {
     const parts: (SQL | undefined)[] = [eq(parties.orgId, principal.orgId)];
-
+    if (query.connectionId !== undefined) parts.push(eq(parties.connectionId, query.connectionId));
     if (query.parentGroup !== undefined) {
       parts.push(eq(parties.parentGroup, query.parentGroup));
     }
@@ -476,5 +480,25 @@ function toVoucherView(row: typeof vouchers.$inferSelect): VoucherView {
     isCancelled: row.isCancelled,
     amount: row.amount,
     lastPulledAt: row.lastPulledAt.toISOString(),
+    reference: row.reference ?? null,
+    referenceDate: row.referenceDate ?? null,
+    orderRef: row.orderRef ?? null,
+    buyerOrderNumber: row.buyerOrderNumber ?? null,
+    buyerOrderDate: row.buyerOrderDate ?? null,
+    paymentTerms: row.paymentTerms ?? null,
+    deliveryTerms: row.deliveryTerms ?? null,
+    dispatchedThrough: row.dispatchedThrough ?? null,
+    dispatchDocNo: row.dispatchDocNo ?? null,
+    vehicleNumber: row.vehicleNumber ?? null,
+    destination: row.destination ?? null,
+    buyerName: row.buyerName ?? null,
+    buyerAddress: row.buyerAddress ?? null,
+    partyGstin: row.partyGstin ?? null,
+    partyState: row.partyState ?? null,
+    placeOfSupply: row.placeOfSupply ?? null,
+    consigneeName: row.consigneeName ?? null,
+    consigneeState: row.consigneeState ?? null,
+    consigneePincode: row.consigneePincode ?? null,
+    consigneeGstin: row.consigneeGstin ?? null,
   };
 }

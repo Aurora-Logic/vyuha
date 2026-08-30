@@ -27,6 +27,26 @@ export const voucherSchema = z.object({
   isCancelled: z.boolean(),
   amount: z.string(),
   lastPulledAt: z.string(),
+  reference: z.string().nullish(),
+  referenceDate: z.string().nullish(),
+  orderRef: z.string().nullish(),
+  buyerOrderNumber: z.string().nullish(),
+  buyerOrderDate: z.string().nullish(),
+  paymentTerms: z.string().nullish(),
+  deliveryTerms: z.string().nullish(),
+  dispatchedThrough: z.string().nullish(),
+  dispatchDocNo: z.string().nullish(),
+  vehicleNumber: z.string().nullish(),
+  destination: z.string().nullish(),
+  buyerName: z.string().nullish(),
+  buyerAddress: z.string().nullish(),
+  partyGstin: z.string().nullish(),
+  partyState: z.string().nullish(),
+  placeOfSupply: z.string().nullish(),
+  consigneeName: z.string().nullish(),
+  consigneeState: z.string().nullish(),
+  consigneePincode: z.string().nullish(),
+  consigneeGstin: z.string().nullish(),
 });
 
 export type Voucher = z.infer<typeof voucherSchema>;
@@ -67,6 +87,7 @@ export interface VoucherFilters {
   includeCancelled?: boolean;
   /** `field` or `-field` from VOUCHER_SORT_FIELDS; omitted means newest first. */
   sort?: string;
+  connectionId?: string;
 }
 
 function vouchersQuery(filters: VoucherFilters) {
@@ -78,6 +99,7 @@ function vouchersQuery(filters: VoucherFilters) {
   if (filters.to) params.set('to', filters.to);
   if (filters.includeCancelled) params.set('includeCancelled', 'true');
   if (filters.sort) params.set('sort', filters.sort);
+  if (filters.connectionId) params.set('connectionId', filters.connectionId);
   const key = params.toString();
   return {
     queryKey: ['masters', 'vouchers', key] as const,
@@ -104,7 +126,7 @@ export function useVouchers(
   // See useParties: the register pre-loads the next page so paging is instant.
   const meta = query.data?.meta;
   const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
-  const { page, q, voucherType, partyId, from, to, includeCancelled, sort } = filters;
+  const { page, q, voucherType, partyId, from, to, includeCancelled, sort, connectionId } = filters;
   useEffect(() => {
     if (!options.prefetchNext || !enabled || !hasNext) return;
     void client.prefetchQuery({
@@ -117,10 +139,11 @@ export function useVouchers(
         ...(to ? { to } : {}),
         ...(includeCancelled ? { includeCancelled } : {}),
         ...(sort ? { sort } : {}),
+        ...(connectionId ? { connectionId } : {}),
       }),
       staleTime: 60_000,
     });
-  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled, sort]);
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, voucherType, partyId, from, to, includeCancelled, sort, connectionId]);
 
   return query;
 }
