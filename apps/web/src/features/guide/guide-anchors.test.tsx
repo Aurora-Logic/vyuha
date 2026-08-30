@@ -188,6 +188,7 @@ describe('guided tour length', () => {
     'Relationship manager': { desktop: 34, phone: 33 },
     Purchase: { desktop: 15, phone: 14 },
     Accounts: { desktop: 45, phone: 44 },
+    Warehouse: { desktop: 14, phone: 13 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [

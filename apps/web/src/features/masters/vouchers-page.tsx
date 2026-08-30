@@ -1,6 +1,6 @@
 import { useParty } from './use-parties';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon, XIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { DateRange } from 'react-day-picker';
 

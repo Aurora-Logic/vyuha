@@ -86,7 +86,6 @@ describe('applied to the document', () => {
       font: 'sans',
       base: 'stone',
       density: 'comfortable',
-      font: 'sans',
     });
 
     for (let slot = 1; slot <= SLICE_COUNT; slot += 1) {
@@ -107,7 +106,6 @@ describe('applied to the document', () => {
         font: 'sans',
         base: 'stone',
         density: 'comfortable',
-        font: 'sans',
       });
       for (let slot = 1; slot <= SLICE_COUNT; slot += 1) {
         const hue = Number(

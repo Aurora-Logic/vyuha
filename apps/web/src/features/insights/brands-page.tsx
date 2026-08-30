@@ -47,6 +47,7 @@ function categoryMetric(row: BrandRowData): Metric {
   return {
     key: `brand-${row.brand}`,
     label: 'Category split',
+    hint: 'Net sales by category for this brand',
     unit: 'money',
     headline: row.net,
     series: [{ key: 'net', label: 'Net sales' }],

@@ -45,7 +45,7 @@ export interface KpiTileProps {
   info?: ReactNode;
 }
 
-export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 6; className?: string }) {
+export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 5 | 6; className?: string }) {
   return (
     <dl
       className={cn(
@@ -53,7 +53,13 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
         // band on a wide screen, stepping down through three to the phone's
         // two without any tile dropping below a readable width.
         'grid grid-cols-2 gap-3',
-        columns === 6 ? 'sm:grid-cols-3 xl:grid-cols-6' : columns === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3',
+        columns === 6
+          ? 'sm:grid-cols-3 xl:grid-cols-6'
+          : columns === 5
+            ? 'sm:grid-cols-2 lg:grid-cols-5'
+            : columns === 4
+              ? 'sm:grid-cols-2 lg:grid-cols-4'
+              : 'sm:grid-cols-2 lg:grid-cols-3',
         className,
       )}
     >

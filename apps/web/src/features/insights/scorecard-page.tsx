@@ -59,6 +59,7 @@ function ageingMetric(ageing: Record<string, string>): Metric {
   return {
     key: 'my-ageing',
     label: 'Ageing',
+    hint: 'Receivables ageing buckets for this person',
     unit: 'money',
     headline: buckets.reduce((sum, b) => sum + Number(ageing[b] ?? 0), 0).toFixed(2),
     series: [{ key: 'value', label: 'Outstanding' }],

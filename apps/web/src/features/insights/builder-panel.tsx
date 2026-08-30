@@ -283,7 +283,7 @@ export function BuilderPanel({
                   onChange({ ...widget, pivot: { ...widget.pivot, expr: 'net / vouchers' } });
                 } else {
                   const { expr: _dropped, ...rest } = widget.pivot;
-                  onChange({ ...widget, pivot: { ...rest, metric: v } });
+                  onChange({ ...widget, pivot: { ...rest, metric: v as NonNullable<typeof widget.pivot.metric> } });
                 }
               }}
             >

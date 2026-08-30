@@ -163,7 +163,7 @@ function TargetsSheet({ open, onOpenChange, owners }: {
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-6">
-          <Select value={month} onValueChange={(value) => { setMonth(value); setDrafts({}); }}>
+          <Select value={month} onValueChange={(value) => { if (value !== null) { setMonth(value); setDrafts({}); } }}>
             <SelectTrigger className="w-full" aria-label="Target month">
               <SelectValue />
             </SelectTrigger>
@@ -175,7 +175,7 @@ function TargetsSheet({ open, onOpenChange, owners }: {
           </Select>
 
           {targets.isPending ? <Skeleton className="h-24" /> : null}
-          {targets.error ? <QueryErrorAlert error={targets.error} onRetry={() => void targets.refetch()} /> : null}
+          {targets.error ? <QueryErrorAlert error={targets.error} subject="targets" onRetry={() => void targets.refetch()} /> : null}
           {targets.isSuccess
             ? owners.map((owner) => (
                 <label key={owner.ownerRef} className="flex items-center justify-between gap-3">
@@ -282,7 +282,7 @@ export function TeamPage() {
         </div>
 
         {league.isPending ? <Skeleton className="h-64" /> : null}
-        {league.error ? <QueryErrorAlert error={league.error} onRetry={() => void league.refetch()} /> : null}
+        {league.error ? <QueryErrorAlert error={league.error} subject="sales team" onRetry={() => void league.refetch()} /> : null}
 
         {league.isSuccess && rows.length === 0 ? (
           <Empty className="border">
