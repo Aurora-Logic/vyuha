@@ -32,9 +32,13 @@ let adminToken: string;
 let raviToken: string;
 let meeraToken: string;
 let employeeToken: string;
+let noTaskToken: string;
+let opsToken: string;
+let viewAllToken: string;
 let raviId = '';
 let meeraId = '';
 let outsiderId = '';
+let opsId = '';
 const emitted: NotificationEvent[] = [];
 
 beforeAll(async () => {
@@ -47,16 +51,23 @@ beforeAll(async () => {
 
   const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
   const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE, { isSystem: true });
+  const operationsRoleId = await harness.createSystemRole(SYSTEM_ROLES.OPERATIONS, { isSystem: true });
   const salesRoleId = await harness.createRole('Sales', [
     PERMISSIONS.PUNCH_SELF,
     PERMISSIONS.CRM_TASK_VIEW_SELF,
     PERMISSIONS.CRM_TASK_MANAGE,
   ]);
   const selfOnlyRoleId = await harness.createRole('Self only', [PERMISSIONS.CRM_TASK_VIEW_SELF]);
+  // P7-2 moved the task keys into the Employee seed, so the refusal fixture
+  // needs a role that genuinely holds none of them.
+  const noTaskRoleId = await harness.createRole('No tasks', [PERMISSIONS.PUNCH_SELF]);
+  // P7-1: the register key on its own — no manage — to pin what it grants.
+  const viewAllRoleId = await harness.createRole('Task register', [PERMISSIONS.CRM_TASK_VIEW_ALL]);
 
   raviId = await harness.createEmployee({ code: 'TSK-001', firstName: 'Ravi', lastName: 'Kumar' });
   meeraId = await harness.createEmployee({ code: 'TSK-002', firstName: 'Meera', lastName: 'Iyer' });
   outsiderId = await harness.createEmployee({ code: 'TSK-003', firstName: 'Omar', lastName: 'Shaikh' });
+  opsId = await harness.createEmployee({ code: 'TSK-004', firstName: 'Leela', lastName: 'Nair' });
 
   const admin = await harness.createUser({ email: scopedEmail('tasks-admin'), roleIds: [adminRoleId] });
   const ravi = await harness.createUser({ email: scopedEmail('tasks-ravi'), roleIds: [salesRoleId], employeeId: raviId });
@@ -70,10 +81,16 @@ beforeAll(async () => {
     roleIds: [employeeRoleId],
     employeeId: outsiderId,
   });
+  const ops = await harness.createUser({ email: scopedEmail('tasks-ops'), roleIds: [operationsRoleId], employeeId: opsId });
+  const noTask = await harness.createUser({ email: scopedEmail('tasks-none'), roleIds: [noTaskRoleId] });
+  const viewAll = await harness.createUser({ email: scopedEmail('tasks-register'), roleIds: [viewAllRoleId] });
   adminToken = (await harness.login(admin.email, admin.password)).token;
   raviToken = (await harness.login(ravi.email, ravi.password)).token;
   meeraToken = (await harness.login(meera.email, meera.password)).token;
   employeeToken = (await harness.login(employee.email, employee.password)).token;
+  opsToken = (await harness.login(ops.email, ops.password)).token;
+  noTaskToken = (await harness.login(noTask.email, noTask.password)).token;
+  viewAllToken = (await harness.login(viewAll.email, viewAll.password)).token;
 });
 
 afterAll(async () => {
@@ -87,9 +104,14 @@ let firstTaskId = '';
 let meeraTaskId = '';
 
 describe('columns are configuration (REQ-V-03)', () => {
-  it('refuses an account holding neither view key', async () => {
-    const refused = await harness.get<ErrorBody>('/tasks', { token: employeeToken });
+  it('refuses an account holding no view key, and admits the Employee seed (P7-2)', async () => {
+    const refused = await harness.get<ErrorBody>('/tasks', { token: noTaskToken });
     expect(refused.status).toBe(403);
+
+    // P7-2: the Employee system role carries crm.task.view.self now, so any
+    // employee can be handed a task and find it somewhere.
+    const admitted = await harness.get<Paginated<TaskView>>('/tasks', { token: employeeToken });
+    expect(admitted.status).toBe(200);
   });
 
   it('gives a fresh organisation the default board on first read', async () => {
@@ -232,9 +254,14 @@ describe('creating and reading tasks (REQ-V-01, V-02, V-07)', () => {
     const ravi = await harness.get<Paginated<TaskView>>('/tasks', { token: raviToken });
     expect(ravi.body.meta.total).toBe(3);
 
-    // An administrator with no employee record and no .all key: nothing is theirs.
+    // P7-1: the administrator has no employee record — nothing is assigned to
+    // or owned by them — and still sees every task, because Admin now holds
+    // crm.task.view.all.
     const admin = await harness.get<Paginated<TaskView>>('/tasks', { token: adminToken });
-    expect(admin.body.data).toEqual([]);
+    expect(admin.body.meta.total).toBe(3);
+    const another = await harness.get<TaskView>(`/tasks/${firstTaskId}`, { token: adminToken });
+    expect(another.status).toBe(200);
+    expect(another.body.ownerId).toBe(raviId);
   });
 
   it('REQ-V-07: mine + due slices, dated first and the urgent one first within a day', async () => {
@@ -357,6 +384,53 @@ describe('reminders (REQ-V-08)', () => {
     const overdue = emitted.filter((e) => e.orgId === ORG_ID && e.type === 'task.overdue');
     expect(overdue.map((e) => e.payload?.title).sort()).toEqual(['Call Asha about the quote']);
     expect(overdue[0]?.idempotencyKey).toMatch(/^task-overdue-/u);
+  });
+});
+
+describe('P7-1: crm.task.view.all is the whole register', () => {
+  it('sees and may reassign a task it neither owns nor is assigned — even one owned by nobody', async () => {
+    // A task raised by an account with no employee record: owner and assignee
+    // both null. No self or team chain can ever reach it.
+    const orphan = await harness.post<TaskView>('/tasks', { token: adminToken, body: { title: 'Chase the unclaimed refund' } });
+    expect(orphan.status).toBe(201);
+    expect(orphan.body.ownerId).toBeNull();
+    expect(orphan.body.assigneeId).toBeNull();
+
+    const seen = await harness.get<TaskView>(`/tasks/${orphan.body.id}`, { token: viewAllToken });
+    expect(seen.status).toBe(200);
+
+    // The register key alone carries the reassign right (P7-1) — no manage.
+    const reassigned = await harness.patch<TaskView>(`/tasks/${orphan.body.id}`, {
+      token: viewAllToken,
+      body: { assigneeId: raviId },
+    });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.assigneeId).toBe(raviId);
+  });
+});
+
+describe('P7-2: an Operations account works its own list', () => {
+  it('is assigned a task by a manage holder and completes it', async () => {
+    emitted.length = 0;
+    const assigned = await harness.post<TaskView>('/tasks', {
+      token: raviToken,
+      body: { title: 'Restock the front rack', assigneeId: opsId },
+    });
+    expect(assigned.status).toBe(201);
+    expect(emitted.filter((e) => e.type === 'task.assigned').map((e) => e.audience)).toEqual([
+      { kind: 'employees', employeeIds: [opsId] },
+    ]);
+
+    // Seen under the view.self the Operations seed now carries, and dragged
+    // into Done by the person it was handed to.
+    const mine = await harness.get<Paginated<TaskView>>('/tasks?mine=true', { token: opsToken });
+    expect(mine.body.data.map((t) => t.title)).toContain('Restock the front rack');
+    const closed = await harness.patch<TaskView>(`/tasks/${assigned.body.id}`, {
+      token: opsToken,
+      body: { columnId: doneId },
+    });
+    expect(closed.status).toBe(200);
+    expect(closed.body.isClosed).toBe(true);
   });
 });
 

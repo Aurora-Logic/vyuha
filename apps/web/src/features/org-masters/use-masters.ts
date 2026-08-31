@@ -236,6 +236,8 @@ export interface LocationDraft {
   geofenceLng: number | null;
   geofenceRadiusM: number;
   ipAllowlist: string[];
+  /** REQ-H-02: the calendar this location's employees inherit. */
+  holidayCalendarId: string | null;
 }
 
 export function useSaveLocation(): UseMutationResult<LocationSummary, Error, LocationDraft> {
@@ -254,6 +256,7 @@ export function useSaveLocation(): UseMutationResult<LocationSummary, Error, Loc
           geofenceLng: draft.geofenceLng,
           geofenceRadiusM: draft.geofenceRadiusM,
           ipAllowlist: draft.ipAllowlist,
+          holidayCalendarId: draft.holidayCalendarId,
         },
       });
       return parseOrThrow(locationSchema, body, 'saved location');

@@ -1,17 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { XIcon } from '@phosphor-icons/react';
 
+import { SettingsRow } from '@/components/shared/settings-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-} from '@/components/ui/field';
+import { FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
-import { DurationField } from '@/features/attendance/pickers';
 import {
   Select,
   SelectContent,
@@ -20,14 +14,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { DurationField } from '@/features/attendance/pickers';
 
 /**
- * The two field shapes every settings tab is made of.
+ * The row shapes every settings section is made of.
  *
- * Composed once here rather than per tab so the four tabs cannot drift into
- * four spellings of the same control (CLAUDE.md §3 rule 4), and so the
- * enforcement note below is impossible to forget: it is part of the field, not
- * something each call site remembers to add.
+ * Composed once here rather than per section so the sections cannot drift into
+ * several spellings of the same row (CLAUDE.md §3 rule 4), and so the
+ * enforcement note below is impossible to forget: it is part of the row, not
+ * something each call site remembers to add. Each is a `SettingsRow` -- label
+ * and helper on the left, the control on the right, stacked on a phone -- so
+ * a policy row and a profile row are the same row.
  */
 
 /**
@@ -57,11 +55,13 @@ interface NumberFieldProps {
   value: number;
   min: number;
   max: number;
-  /** Rendered after the input, e.g. "minutes". */
+  /** Rendered after the label, e.g. "minutes". */
   unit?: string;
   enforcedBy?: string | null;
   disabled?: boolean;
   onValueChange: (value: number) => void;
+  /** Rendered under the enforcement note, for a per-field caveat. */
+  children?: ReactNode;
 }
 
 /**
@@ -83,10 +83,21 @@ export function PolicyNumberField({
   enforcedBy,
   disabled,
   onValueChange,
+  children,
 }: NumberFieldProps) {
   return (
-    <Field data-disabled={disabled ? '' : undefined}>
-      <FieldLabel htmlFor={id}>{unit ? `${label} (${unit})` : label}</FieldLabel>
+    <SettingsRow
+      label={unit ? `${label} (${unit})` : label}
+      htmlFor={id}
+      description={help}
+      note={
+        <>
+          <EnforcementNote by={enforcedBy} />
+          {children}
+        </>
+      }
+      disabled={disabled}
+    >
       <Input
         id={id}
         type="number"
@@ -103,9 +114,7 @@ export function PolicyNumberField({
           if (!Number.isNaN(next)) onValueChange(next);
         }}
       />
-      <FieldDescription>{help}</FieldDescription>
-      <EnforcementNote by={enforcedBy} />
-    </Field>
+    </SettingsRow>
   );
 }
 
@@ -134,8 +143,18 @@ export function PolicyChoiceField<T extends string>({
   children,
 }: ChoiceFieldProps<T>) {
   return (
-    <Field data-disabled={disabled ? '' : undefined}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+    <SettingsRow
+      label={label}
+      htmlFor={id}
+      description={help}
+      note={
+        <>
+          <EnforcementNote by={enforcedBy} />
+          {children}
+        </>
+      }
+      disabled={disabled}
+    >
       <Select
         value={value}
         disabled={disabled}
@@ -162,14 +181,11 @@ export function PolicyChoiceField<T extends string>({
           </SelectGroup>
         </SelectContent>
       </Select>
-      {help ? <FieldDescription>{help}</FieldDescription> : null}
-      <EnforcementNote by={enforcedBy} />
-      {children}
-    </Field>
+    </SettingsRow>
   );
 }
 
-/** An on/off policy: a Switch, labelled, with the same enforcement note as its neighbours. */
+/** An on/off policy: a Switch at the far right of the row, with the same enforcement note as its neighbours. */
 export function PolicyToggleField({
   id,
   label,
@@ -188,14 +204,16 @@ export function PolicyToggleField({
   onValueChange: (value: boolean) => void;
 }) {
   return (
-    <Field data-disabled={disabled ? '' : undefined}>
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel htmlFor={id}>{label}</FieldLabel>
-        <Switch id={id} checked={value} disabled={disabled} onCheckedChange={onValueChange} />
-      </div>
-      {help ? <FieldDescription>{help}</FieldDescription> : null}
-      <EnforcementNote by={enforcedBy} />
-    </Field>
+    <SettingsRow
+      layout="end"
+      label={label}
+      htmlFor={id}
+      description={help}
+      note={<EnforcementNote by={enforcedBy} />}
+      disabled={disabled}
+    >
+      <Switch id={id} checked={value} disabled={disabled} onCheckedChange={onValueChange} />
+    </SettingsRow>
   );
 }
 
@@ -218,12 +236,15 @@ export function PolicyDurationField({
   onValueChange: (minutes: number) => void;
 }) {
   return (
-    <Field data-disabled={disabled ? '' : undefined}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+    <SettingsRow
+      label={label}
+      htmlFor={id}
+      description={help}
+      note={<EnforcementNote by={enforcedBy} />}
+      disabled={disabled}
+    >
       <DurationField id={id} label={label} value={value} disabled={disabled} onValueChange={onValueChange} />
-      {help ? <FieldDescription>{help}</FieldDescription> : null}
-      <EnforcementNote by={enforcedBy} />
-    </Field>
+    </SettingsRow>
   );
 }
 
@@ -254,48 +275,51 @@ export function ReturnReasonsField({
   }
 
   return (
-    <Field>
-      <FieldLabel htmlFor="return-reason-add">Reasons</FieldLabel>
-      <div className="flex flex-wrap gap-2">
-        {reasons.map((reason) => (
-          <Badge key={reason} variant="outline" className="gap-1 pr-1">
-            {reason}
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={`Remove ${reason}`}
-              disabled={reasons.length <= 1}
-              onClick={() => {
-                onValueChange(reasons.filter((value) => value !== reason));
-              }}
-            >
-              <XIcon />
-            </Button>
-          </Badge>
-        ))}
+    <SettingsRow
+      layout="full"
+      label="Reasons"
+      htmlFor="return-reason-add"
+      description={`${enforcedBy === null ? 'Nothing reads this yet.' : `Read by ${enforcedBy}.`} The last reason cannot be removed — a return without one is a return nobody can report on.`}
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          {reasons.map((reason) => (
+            <Badge key={reason} variant="outline" className="gap-1 pr-1">
+              {reason}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Remove ${reason}`}
+                disabled={reasons.length <= 1}
+                onClick={() => {
+                  onValueChange(reasons.filter((value) => value !== reason));
+                }}
+              >
+                <XIcon />
+              </Button>
+            </Badge>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            id="return-reason-add"
+            placeholder="Add a reason"
+            value={typed}
+            maxLength={60}
+            onChange={(event) => {
+              setTyped(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              add();
+            }}
+          />
+          <Button variant="outline" onClick={add} disabled={typed.trim().length < 2}>
+            Add
+          </Button>
+        </div>
       </div>
-      <div className="flex gap-2">
-        <Input
-          id="return-reason-add"
-          placeholder="Add a reason"
-          value={typed}
-          maxLength={60}
-          onChange={(event) => {
-            setTyped(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            add();
-          }}
-        />
-        <Button variant="outline" onClick={add} disabled={typed.trim().length < 2}>
-          Add
-        </Button>
-      </div>
-      <FieldDescription>
-        {enforcedBy === null ? 'Nothing reads this yet.' : `Read by ${enforcedBy}.`} The last reason cannot be removed — a return without one is a return nobody can report on.
-      </FieldDescription>
-    </Field>
+    </SettingsRow>
   );
 }

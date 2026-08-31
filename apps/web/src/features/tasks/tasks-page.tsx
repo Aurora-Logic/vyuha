@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckSquareIcon, GearIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -15,7 +16,6 @@ import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { toast } from '@/components/ui/toast';
@@ -76,20 +76,6 @@ const COLUMNS: RecordColumn<Task>[] = [
   },
   { key: 'assignee', header: 'Assigned to', cell: (row) => <PersonChip name={row.assigneeName} />, secondary: true },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading tasks" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-56 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet, a preset subject). */
 function viewQuery(params: URLSearchParams): string {
@@ -375,7 +361,7 @@ export function TasksPage() {
           </div>
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading tasks" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

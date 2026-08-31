@@ -71,6 +71,10 @@ export type PunchFlagReviewAction = (typeof PUNCH_FLAG_REVIEW_ACTIONS)[number];
 export const DEVICE_BINDING_MODES = ['OFF', 'WARN', 'ENFORCE'] as const;
 export type DeviceBindingMode = (typeof DEVICE_BINDING_MODES)[number];
 
+/** REQ-D-08 and REQ-L-02: what happens to a punch outside the location radius. */
+export const GEOFENCE_BEHAVIOURS = ['BLOCK', 'ALLOW_WITH_REASON', 'ALLOW_AND_FLAG'] as const;
+export type GeofenceBehaviour = (typeof GEOFENCE_BEHAVIOURS)[number];
+
 export const APPROVAL_TYPES = [
   'LEAVE',
   'REGULARIZATION',

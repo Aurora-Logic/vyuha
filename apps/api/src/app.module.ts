@@ -23,6 +23,7 @@ import { ExportModule } from './platform/export/export.module.js';
 import { FileModule } from './platform/files/file.module.js';
 import { HealthModule } from './platform/health/health.module.js';
 import { HelpModule } from './platform/help/help.module.js';
+import { InsightsModule } from './platform/insights/insights.module.js';
 import { IntegrationModule } from './platform/integration/integration.module.js';
 import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
@@ -96,6 +97,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     // Area AJ: after TasksModule (its party subject registers into that registry) and MastersModule.
     CollectionsModule,
     PortalModule,
+    InsightsModule,
     IntegrationModule,
     HealthModule,
     HelpModule,

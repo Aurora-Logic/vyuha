@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -49,6 +50,8 @@ export const users = pgTable(
 
     /** REQ-B-09. Encrypted at rest by the application, never returned by any endpoint. */
     totpSecret: text('totp_secret'),
+    /** The last TOTP step accepted, so the same six digits cannot sign in twice inside their window. */
+    totpLastStep: bigint('totp_last_step', { mode: 'number' }),
     totpConfirmedAt: timestamp('totp_confirmed_at', { withTimezone: true }),
 
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),

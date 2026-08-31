@@ -24,13 +24,14 @@ import { toast } from '@/components/ui/toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { PermissionKey } from '@vyuha/shared';
 
+import { DeleteRoleDialog } from './delete-role-dialog';
 import {
   PERMISSION_GROUPS,
   countAllPermissions,
   samePermissionSet,
   type Role,
 } from './types';
-import { useCreateRole, useDeleteRole, useUpdateRole } from './use-roles';
+import { useCreateRole, useUpdateRole } from './use-roles';
 
 /**
  * REQ-B-07's editor: a role's name, description and permission set.
@@ -102,7 +103,6 @@ function RoleEditorBody({
 
   const create = useCreateRole();
   const update = useUpdateRole();
-  const remove = useDeleteRole();
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
@@ -185,24 +185,6 @@ function RoleEditorBody({
             type: 'success',
             title: `${saved.name} saved`,
             description: `${String(saved.permissions.length)} permissions. Your reason is in the audit log.`,
-          });
-          setConfirming(null);
-          onDone();
-        },
-      },
-    );
-  }
-
-  function submitDelete(reason: string) {
-    if (role === null) return;
-    remove.mutate(
-      { id: role.id, reason },
-      {
-        onSuccess: () => {
-          toast.add({
-            type: 'success',
-            title: `${role.name} deleted`,
-            description: 'It is in the recycle bin and can be restored.',
           });
           setConfirming(null);
           onDone();
@@ -329,7 +311,6 @@ function RoleEditorBody({
                 : undefined
             }
             onClick={() => {
-              remove.reset();
               setConfirming('delete');
             }}
           >
@@ -378,27 +359,13 @@ function RoleEditorBody({
         onConfirm={submit}
       />
 
-      <ReasonDialog
+      <DeleteRoleDialog
+        role={role}
         open={confirming === 'delete'}
         onOpenChange={(next) => {
           if (!next) setConfirming(null);
         }}
-        title={`Delete ${role?.name ?? ''}?`}
-        description="The role goes to the recycle bin. Nothing is hard-deleted."
-        consequences={[
-          'It disappears from the role list and from the assignment picker.',
-          'It is refused while any active account still holds it, and the refusal names them.',
-          'Restoring it later brings its permission set back exactly as it is now.',
-        ]}
-        prompt="Why is this role being deleted?"
-        hint="Stored on the deletion record and shown in the recycle bin."
-        confirmLabel="Delete role"
-        pendingLabel="Deleting"
-        confirmIcon={<TrashIcon data-icon="inline-start" />}
-        destructive
-        pending={remove.isPending}
-        error={remove.error}
-        onConfirm={submitDelete}
+        onDeleted={onDone}
       />
     </>
   );
@@ -516,7 +483,7 @@ function PermissionToggle({
   onCheckedChange: (next: boolean) => void;
 }) {
   return (
-    <Item size="sm" className="min-h-11 rounded-none px-0">
+    <Item size="sm" className="min-h-11 px-0">
       <Checkbox
         id={`perm-${permissionKey}`}
         checked={checked}

@@ -561,6 +561,23 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM tasks WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM task_board_columns WHERE org_id = ${this.orgId}`);
 
+    // Derived rows that sweeps write for every organisation they can see, so
+    // they pile up against fixtures that never asked for them: attendance
+    // days from the nightly close, interest dailies from the interest build.
+    // They describe people and items, so they go before them.
+    await this.db.execute(sql`DELETE FROM attendance_days WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_daily_party WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM interest_daily_stock WHERE org_id = ${this.orgId}`);
+
+    // Balances hang off employees by a restrict key, and since the seed
+    // carries the five REQ-G-02 types (OS-4) an employee can acquire one
+    // without any test asking for it. The ledger beside them is append-only
+    // by trigger (REQ-G-03) and is deliberately not swept: a fixture that
+    // could delete ledger rows would be a fixture that disproves the
+    // guarantee. An org whose test actually posted ledger rows keeps its
+    // employees, which is the honest outcome.
+    await this.db.execute(sql`DELETE FROM leave_balances WHERE org_id = ${this.orgId}`);
+
     // Employees reference each other through reporting_manager_id and
     // departments through head_employee_id, so the links are cut before the
     // rows go, rather than relying on a delete order that happens to work.
@@ -572,7 +589,16 @@ export class ApiHarness {
       .update(departments)
       .set({ headEmployeeId: null, parentId: null })
       .where(eq(departments.orgId, this.orgId));
-    await this.db.delete(employees).where(eq(employees.orgId, this.orgId));
+    // Everyone the ledger has not touched. `leave_ledger` is append-only by
+    // trigger (REQ-G-03) and holds a restrict key onto employees, so an
+    // employee who has ever accrued is pinned for good -- correct for a real
+    // book, and something a fixture must live with rather than defeat. The
+    // seed paths above are idempotent, so a pinned person is reused.
+    await this.db.execute(sql`
+      DELETE FROM employees e
+      WHERE e.org_id = ${this.orgId}
+        AND NOT EXISTS (SELECT 1 FROM leave_ledger l WHERE l.employee_id = e.id)
+    `);
     await this.db.delete(departments).where(eq(departments.orgId, this.orgId));
     // After the employees that point at them, so the foreign keys have nothing
     // left to cascade to null.

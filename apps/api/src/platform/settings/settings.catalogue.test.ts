@@ -13,8 +13,10 @@ import {
   DEFAULT_PHOTO_POLICY,
   DEFAULT_RETENTION_POLICY,
   DEFAULT_SECURITY_POLICY,
+  DEFAULT_LEAVE_POLICY,
   DUPLICATES_SETTINGS,
   INTEREST_SETTINGS,
+  LEAVE_SETTINGS,
   LOCALE_SETTINGS,
   PHOTO_SETTINGS,
   RETENTION_SETTINGS,
@@ -23,6 +25,7 @@ import {
   WRITABLE_SETTING_KEYS,
   appearancePolicySchema,
   attendancePolicySchema,
+  leavePolicySchema,
   localePolicySchema,
   photoPolicySchema,
   resolveGroup,
@@ -57,6 +60,11 @@ function fieldsOf(schema: typeof attendancePolicySchema): string[] {
 describe('the catalogue and its schemas describe the same fields', () => {
   it('attendance', () => {
     expect(Object.keys(ATTENDANCE_SETTINGS).sort()).toEqual(fieldsOf(attendancePolicySchema));
+  });
+
+  it('leave', () => {
+    expect(Object.keys(LEAVE_SETTINGS).sort()).toEqual(Object.keys(leavePolicySchema.shape).sort());
+    expect(leavePolicySchema.safeParse(DEFAULT_LEAVE_POLICY).success).toBe(true);
   });
 
   it('photo', () => {
@@ -94,7 +102,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS), ...Object.values(RETURNS_SETTINGS), ...Object.values(INTEREST_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS), ...Object.values(RETURNS_SETTINGS), ...Object.values(INTEREST_SETTINGS), ...Object.values(LEAVE_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);
@@ -184,6 +192,9 @@ describe('the enforced keys still exist in the code that reads them', () => {
   const enforced: [string, SettingDescriptor][] = [
     ...Object.entries<SettingDescriptor>(ATTENDANCE_SETTINGS),
     ...Object.entries<SettingDescriptor>(PHOTO_SETTINGS),
+    // OS-1: the leave slice spells these in LEAVE_SETTING_KEYS, which is the
+    // consumer this group's enforcedBy lines are claiming.
+    ...Object.entries<SettingDescriptor>(LEAVE_SETTINGS),
   ].filter(([, descriptor]) => descriptor.enforcedBy !== null);
 
   it('finds sources to search', () => {

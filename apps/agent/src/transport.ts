@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 
 import {
   SYNC_CHUNK_MAX_ROWS,
+  billAllocationPullRowSchema,
   partyPullRowSchema,
   priceListPullRowSchema,
   stockItemPullRowSchema,
   type AgentCondition,
+  type BillAllocationPullRow,
   type PartyPullRow,
   type PriceListPullRow,
   type StockItemPullRow,
@@ -32,7 +34,7 @@ export interface TallyProbe {
   readonly tallyVersion?: string;
 }
 
-export type PullRow = PartyPullRow | StockItemPullRow | PriceListPullRow;
+export type PullRow = PartyPullRow | StockItemPullRow | PriceListPullRow | BillAllocationPullRow;
 
 export interface PullChunk {
   readonly rows: PullRow[];
@@ -77,6 +79,7 @@ const fixtureFileSchema = z.object({
   parties: z.array(partyPullRowSchema).default([]),
   stockItems: z.array(stockItemPullRowSchema).default([]),
   priceLists: z.array(priceListPullRowSchema).default([]),
+  billAllocations: z.array(billAllocationPullRowSchema).default([]),
 });
 
 export type FixtureFile = z.infer<typeof fixtureFileSchema>;
@@ -168,7 +171,9 @@ export class FixtureTransport implements TallyTransport {
         ? this.fixture.parties
         : entityType === 'stock_item'
           ? this.fixture.stockItems
-          : this.fixture.priceLists;
+          : entityType === 'price_list'
+            ? this.fixture.priceLists
+            : this.fixture.billAllocations;
     const above = all.filter((row) => row.alterId > fromAlterId);
 
     const chunks = chunked(above).map((rows) => {

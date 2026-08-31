@@ -57,7 +57,8 @@ type CountableTable =
   | 'employees'
   | 'departments'
   | 'designations'
-  | 'locations';
+  | 'locations'
+  | 'leave_types';
 
 async function countRows(table: CountableTable): Promise<number> {
   const query =
@@ -170,6 +171,10 @@ describe('seed', () => {
     expect(report.admin.employee.linked).toBe(true);
     expect(report.admin.employee.code).toBe(ADMINISTRATOR_EMPLOYEE_CODE);
     expect(report.admin.employee.reason).toBeNull();
+    // `created` is not asserted here: the cleanup deliberately leaves leave
+    // types from a previous run in place, which is the idempotency under test.
+    expect(report.leaveTypes.total).toBe(5);
+    expect(await countRows('leave_types')).toBe(5);
   });
 
   it('reconciles the catalogue against ALL_PERMISSIONS exactly', async () => {
@@ -200,11 +205,19 @@ describe('seed', () => {
     expect(ROLE_PERMISSION_MATRIX.Admin).toContain(PERMISSIONS.ROLES_MANAGE);
     expect(ROLE_PERMISSION_MATRIX.HR).not.toContain(PERMISSIONS.ROLES_MANAGE);
     expect(ROLE_PERMISSION_MATRIX.Operations).not.toContain(PERMISSIONS.ROLES_MANAGE);
+    // P7-2 (owner, 28 Aug 2026): an employee can now be handed a task and
+    // work their own list -- the two task keys are the only additions, and
+    // still nothing that manages anybody else.
     expect(ROLE_PERMISSION_MATRIX.Employee).toEqual([
       PERMISSIONS.PUNCH_SELF,
       PERMISSIONS.ATTENDANCE_VIEW_SELF,
       PERMISSIONS.LEAVE_APPLY_SELF,
+      PERMISSIONS.CRM_TASK_VIEW_SELF,
+      PERMISSIONS.CRM_TASK_MANAGE,
     ]);
+    // P8-5: the Warehouse seed is the floor and nothing else -- no create key.
+    expect(ROLE_PERMISSION_MATRIX.Warehouse).toContain(PERMISSIONS.SALES_FULFIL);
+    expect(ROLE_PERMISSION_MATRIX.Warehouse).not.toContain(PERMISSIONS.SALES_DOCUMENT_CREATE);
   });
 
   it('the printed password actually works against the stored hash', async () => {
@@ -327,6 +340,24 @@ describe('seed', () => {
     expect(Number(undated.rows[0]?.count ?? 0)).toBe(0);
   });
 
+  it('seeds the five REQ-G-02 leave types with the constants as they are (OS-4)', async () => {
+    // The seed ran in the first test; this reads what it left.
+    const rows = await db.execute<{ code: string; entitlement: string; negative: string }>(
+      sql`SELECT code, annual_entitlement AS entitlement, negative_balance_limit AS negative
+            FROM leave_types WHERE org_id = ${TEST_ORG_ID} AND deleted_at IS NULL
+           ORDER BY code`,
+    );
+
+    expect(rows.rows.map((row) => row.code)).toEqual(['CL', 'CO', 'EL', 'LWP', 'SL']);
+
+    // Two spot checks against SEED_LEAVE_TYPES rather than a full compare: the
+    // comp-off zero is the one number that is policy, not placeholder, and the
+    // LWP limit is the sentinel that makes unpaid leave possible at all.
+    const byCode = new Map(rows.rows.map((row) => [row.code, row]));
+    expect(Number(byCode.get('CO')?.entitlement)).toBe(0);
+    expect(Number(byCode.get('LWP')?.negative)).toBe(9999.99);
+  });
+
   it('leaves the geofence and the IP allowlist unanswered (OPEN-QUESTIONS 1 and 3)', async () => {
     const rows = await db.execute<{ count: string }>(
       sql`SELECT count(*) AS count FROM locations
@@ -348,6 +379,7 @@ describe('seed', () => {
       departments: await countRows('departments'),
       designations: await countRows('designations'),
       locations: await countRows('locations'),
+      leaveTypes: await countRows('leave_types'),
     };
     const linkBefore = (await adminAccount()).employeeId;
 
@@ -374,6 +406,9 @@ describe('seed', () => {
       departmentHeads: 0,
       defaultShifts: 0,
     });
+    // A second run that "created" a leave type again would be a duplicate CL
+    // waiting for the unique index, or worse, a reset of an edited one.
+    expect(second.leaveTypes).toEqual({ created: 0, total: 5 });
 
     expect({
       roles: await countRows('roles'),
@@ -383,6 +418,7 @@ describe('seed', () => {
       departments: await countRows('departments'),
       designations: await countRows('designations'),
       locations: await countRows('locations'),
+      leaveTypes: await countRows('leave_types'),
     }).toEqual(before);
   });
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { HelpController } from './help.controller.js';
 import { HelpService } from './help.service.js';
 
@@ -11,10 +12,11 @@ import { HelpService } from './help.service.js';
  * already span punch, leave, approvals, reports, sales documents and the
  * Tally connector, so filing it under any one module would put a module's
  * copy inside another module's boundary. It reads nothing but its own
- * constant — no repository, no table, no migration — which is what lets it
- * sit here without importing anything a module owns.
+ * constant for reading; the one table it writes (help_questions, REQ-AJ-05)
+ * is platform-owned, so the boundary still holds.
  */
 @Module({
+  imports: [NotificationsModule],
   controllers: [HelpController],
   providers: [HelpService],
   exports: [HelpService],

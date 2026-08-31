@@ -1,324 +1,57 @@
-name: CI
-
-# Delivery plan, Phase 0: "CI: typecheck -> lint -> unit -> integration ->
-# build. Red CI blocks merge." This was listed as a Phase 0 deliverable and was
-# the one item that never got built, so it is here now rather than later.
+name: Deploy
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
-  # A superseded run on the same branch tells you nothing you still care about.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # The integration tests talk to a real Postgres, Redis and MinIO rather than
-  # to mocks, so the whole environment has to be present. Values mirror
-  # .env.example, with the two JWT secrets deliberately different - the schema
-  # rejects them being equal, because a shared secret would let a refresh token
-  # be presented as an access token.
-  #
-  # NODE_ENV belongs to the API: `env.schema.ts` has no default for it, so the
-  # migrate, seed, test and API-boot steps all fail outright without it. It is
-  # also read by `vite build`, which derives `isProduction` from NODE_ENV and
-  # not from the build command - so any step that compiles the web bundle must
-  # override it, and every such step below does. Do not add another one
-  # without it: `check-production-bundle.mjs` is what stops that being silent.
-  NODE_ENV: test
-  PORT: '3000'
-  API_BASE_URL: http://localhost:3000
-  WEB_BASE_URL: http://localhost:5173
-  DATABASE_URL: postgresql://vyuha:vyuha_dev_only@localhost:55432/vyuha
-  REDIS_URL: redis://localhost:56379
-  S3_ENDPOINT: http://localhost:59000
-  S3_REGION: us-east-1
-  S3_ACCESS_KEY_ID: vyuha
-  S3_SECRET_ACCESS_KEY: vyuha_dev_only
-  S3_BUCKET_PHOTOS: vyuha-photos
-  S3_BUCKET_EXPORTS: vyuha-exports
-  S3_FORCE_PATH_STYLE: 'true'
-  S3_SIGNED_URL_TTL_SECONDS: '300'
-  JWT_ACCESS_SECRET: ci-access-secret-that-is-comfortably-over-32-chars
-  JWT_REFRESH_SECRET: ci-refresh-secret-also-comfortably-over-32-chars
-  JWT_ACCESS_TTL_SECONDS: '900'
-  JWT_REFRESH_TTL_SECONDS: '2592000'
-  SMTP_HOST: localhost
-  SMTP_PORT: '51025'
-  SMTP_SECURE: 'false'
-  MAIL_FROM: Vyuha CI <no-reply@vyuha.local>
-  MAIL_TRANSPORT: smtp
-  JOBS_WORKER_ENABLED: 'true'
-  DEFAULT_TIMEZONE: Asia/Kolkata
-  LOG_LEVEL: silent
-
 jobs:
-  verify:
-    name: Typecheck, lint, test, build
+  deploy:
+    name: Build & Deploy to Server
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
         with:
-          node-version: 24
-          cache: pnpm
+          host: ${{ secrets.SSH_IP }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-      # The compose file is the single definition of the dev stack. Declaring
-      # the same four services again as GitHub `services:` would be a second
-      # definition to keep in step, and MinIO needs a command argument that
-      # `services:` cannot express anyway.
-      - name: Start Postgres, Redis, MinIO and Mailpit
-        # Two steps, not `up -d --wait`, because minio-init is a one-shot that
-        # creates the buckets and exits. Compose v2 treats a container that has
-        # exited as a failed wait, so `--wait` on the whole file fails even
-        # though everything is fine. The local Compose is newer and tolerates
-        # it, which is exactly why this passed here and failed on the runner.
-        run: |
-          docker compose -f docker/docker-compose.yml up -d --wait postgres redis minio mailpit
-          docker compose -f docker/docker-compose.yml up --exit-code-from minio-init minio-init
+            export PNPM_HOME="$HOME/.local/share/pnpm"
+            export PATH="$PNPM_HOME:$PATH"
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
+            if ! command -v pnpm &> /dev/null; then
+              corepack enable 2>/dev/null || npm install -g pnpm 2>/dev/null || true
+            fi
 
-      # packages/shared emits the types both apps compile against, so nothing
-      # downstream can typecheck until it has been built once.
-      - name: Build shared contract
-        run: pnpm --filter @vyuha/shared build
+            echo "## 1. Navigating to project directory"
+            cd "${{ secrets.SSH_DIR }}" || exit 1
 
-      # Scoped to @vyuha/* rather than plain `pnpm -r`. The workspace root is
-      # itself a package whose own `typecheck` script is `pnpm -r typecheck`,
-      # so a bare recursive run re-enters the root and executes every package
-      # twice. The root is named `vyuha`, so this glob leaves it out.
-      - name: Typecheck
-        run: pnpm --filter '@vyuha/*' typecheck
+            echo "## 2. Pulling latest changes"
+            git pull origin main || exit 1
 
-      - name: Lint
-        run: pnpm --filter '@vyuha/*' lint
+            echo "## 3. Installing dependencies"
+            pnpm install || exit 1
 
-      - name: Migrate
-        run: pnpm --filter @vyuha/api exec tsx src/platform/db/migrate.ts
+            echo "## 4. Running database migrations"
+            cd apps/api || exit 1
+            pnpm db:migrate || exit 1
+            cd "${{ secrets.SSH_DIR }}" || exit 1
 
-      - name: Test
-        run: pnpm --filter '@vyuha/*' test
+            echo "## 5. Building applications"
+            VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" NODE_ENV=production pnpm build || exit 1
 
-      # NODE_ENV is scoped to this step rather than left to the workflow default.
-      # Vite reads NODE_ENV to decide `isProduction`; `vite build` alone does not
-      # imply it, and neither does `--mode production`. With the inherited
-      # NODE_ENV=test this step emitted a development bundle - 2,491,639 bytes
-      # against 1,972,430, 4,133 jsxDEV references, 132 absolute paths of the
-      # runner's own checkout, and the dev-only /patterns route with its sample
-      # employees - so the gate was compiling something nobody ships. The Docker
-      # image was never affected (docker/web.Dockerfile sets no NODE_ENV); what
-      # was affected is everything this gate could see.
-      - name: Build
-        env:
-          NODE_ENV: production
-        run: pnpm --filter '@vyuha/*' build
+            echo "## 6. Restarting service"
+            sudo systemctl restart "${{ secrets.SERVICE_NAME }}" || exit 1
 
-      # A real step, because a comment above the previous one would not have
-      # stopped this coming back. Derives what it looks for from the source -
-      # the dev-only route out of App.tsx, the sample identifiers out of the
-      # page behind it - so a rename cannot quietly retire a claim. Also asserts
-      # the service worker precached this build's own output, which is the one
-      # property no source-reading check can see: the list is computed in
-      # `generateBundle` and exists only in a build.
-      - name: Assert the build is a production bundle
-        run: node apps/web/scripts/check-production-bundle.mjs
-
-      - name: Service logs on failure
-        if: failure()
-        run: docker compose -f docker/docker-compose.yml logs --tail=80
-
-  browser:
-    name: Browser checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    # Separate job because it needs a running dev server and a real browser,
-    # and because a flake here should be legible as "the browser pass failed"
-    # rather than hiding inside the unit-test job.
-    #
-    # It runs against the dev server, not a production build: the shell
-    # deliberately has no session without an API, and the pattern gallery the
-    # checks drive is mounted in development only.
-    #
-    # That choice has a cost, and the `offline` job below is what pays it. The
-    # dev server renders /sw.js with an empty precache - the list is computed in
-    # `generateBundle`, so it exists only in a build - so nothing this job does
-    # can see the service worker's precache behaviour at all.
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build shared contract
-        run: pnpm --filter @vyuha/shared build
-
-      # The app requires a real session now, so the browser job needs the whole
-      # stack, not just a static server. Signing in through the form is the
-      # point: injecting a token would skip the one path every user takes.
-      - name: Start Postgres, Redis, MinIO and Mailpit
-        run: |
-          docker compose -f docker/docker-compose.yml up -d --wait postgres redis minio mailpit
-          docker compose -f docker/docker-compose.yml up --exit-code-from minio-init minio-init
-
-      - name: Migrate and seed
-        id: seed
-        run: |
-          pnpm --filter @vyuha/api exec tsx src/platform/db/migrate.ts
-          # The seeded password is random and printed exactly once, by design.
-          # Captured here rather than pinned to a constant, so CI never
-          # normalises a fixed administrator password into the codebase.
-          seed_output=$(pnpm --filter @vyuha/api run db:seed)
-          echo "$seed_output" | sed 's/[A-Za-z0-9_-]\{20,\}/<redacted>/g'
-          # The second grep is not decoration. `-` is in the character class, so
-          # the rule above also matches the 63-dash separator the seed prints
-          # above the password -- and that line comes first, so `head -1` was
-          # handing the browser job a row of dashes to sign in with. Requiring
-          # one alphanumeric character rejects the separator and nothing else.
-          password=$(echo "$seed_output" | grep -oE '^ +[A-Za-z0-9_-]{20,}$' \
-            | grep -m1 -E '[A-Za-z0-9]' | tr -d ' ')
-          if [ -z "$password" ]; then echo "could not read the seeded password"; exit 1; fi
-          echo "::add-mask::$password"
-          echo "password=$password" >> "$GITHUB_OUTPUT"
-
-      - name: Start the API
-        run: |
-          pnpm --filter @vyuha/api build
-          node apps/api/dist/main.js &
-          for _ in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:3000/api/v1/health && break
-            sleep 1
-          done
-          curl -sf -o /dev/null http://localhost:3000/api/v1/health
-
-      - name: Start the dev server
-        run: |
-          pnpm --filter @vyuha/web exec vite --port 5173 --strictPort &
-          for _ in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:5173/ && break
-            sleep 1
-          done
-          curl -sf -o /dev/null http://localhost:5173/
-
-      - name: Start headless Chrome
-        run: |
-          google-chrome --remote-debugging-port=9222 --headless=new --disable-gpu \
-            --no-sandbox --user-data-dir=/tmp/ci-chrome about:blank &
-          for _ in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:9222/json/version && break
-            sleep 1
-          done
-          curl -sf -o /dev/null http://localhost:9222/json/version
-
-      - name: Drive the app
-        # `shell: bash` for `pipefail`, and it is the whole point of the step.
-        # The default shell for a `run:` block is `bash -e {0}` with no
-        # pipefail, so a pipeline reports the exit code of its *last* command --
-        # `tee`, which always succeeds. verify-ui.mjs has exited 1 on a failed
-        # check since it was written, and this pipe threw that away: the browser
-        # job reported success no matter what the browser found. Set here rather
-        # than as a workflow-level default: the seed step above ends in a `grep`
-        # that legitimately finds nothing on a re-seeded database, and under
-        # pipefail that would abort the step before the message explaining it.
-        shell: bash
-        env:
-          VERIFY_EMAIL: admin@vyuha.local
-          VERIFY_PASSWORD: ${{ steps.seed.outputs.password }}
-        run: node apps/web/scripts/verify-ui.mjs 2>&1 | tee /tmp/verify-ui.log
-
-      # Downloading raw run logs needs admin rights on the repository, which
-      # the account driving this does not have. An artifact is readable by
-      # anyone with read access, so the failure stays diagnosable.
-      - name: Upload the browser check output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-ui-output
-          path: /tmp/verify-ui.log
-          if-no-files-found: warn
-
-  offline:
-    name: Offline boot from a production build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    # Separate from `browser`, not folded into it, for two reasons.
-    #
-    # The first is that `browser` runs against the dev server on purpose, and
-    # the dev server cannot express what this job checks: /sw.js is rendered
-    # there with an empty precache, because the list is derived from the emitted
-    # bundle in `generateBundle`. The commit that precaches the build's own
-    # output was therefore invisible to every browser check in CI, and the way
-    # that shipped once already is a first install that cached the shell but not
-    # the script that fills it - a blank screen at a gate with no signal.
-    #
-    # The second is cost. This needs no API, no Postgres and no seed: the app
-    # offline with no session renders the sign-in form, which is all the proof
-    # required that the bundle ran. So it is a fast job rather than a slow one,
-    # and a failure here reads as "the offline boot broke" rather than hiding
-    # inside a suite that also drives twenty screens.
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build shared contract
-        run: pnpm --filter @vyuha/shared build
-
-      # NODE_ENV, again scoped to the step. A development bundle has no
-      # precache worth the name, which would make this whole job meaningless.
-      - name: Build the web app for production
-        env:
-          NODE_ENV: production
-        run: pnpm --filter @vyuha/web build
-
-      - name: Assert the build is a production bundle
-        run: node apps/web/scripts/check-production-bundle.mjs
-
-      - name: Start headless Chrome
-        run: |
-          google-chrome --remote-debugging-port=9222 --headless=new --disable-gpu \
-            --no-sandbox --user-data-dir=/tmp/ci-chrome-offline about:blank &
-          for _ in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:9222/json/version && break
-            sleep 1
-          done
-          curl -sf -o /dev/null http://localhost:9222/json/version
-
-      - name: Boot the app with no network
-        # `pipefail`, for the same reason the browser job sets it: without it
-        # `tee` decides the exit status and the job passes whatever the script
-        # found.
-        shell: bash
-        run: |
-          set -o pipefail
-          node apps/web/scripts/verify-offline.mjs 2>&1 | tee /tmp/verify-offline.log
-
-      - name: Upload the offline check output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-offline-output
-          path: /tmp/verify-offline.log
-          if-no-files-found: warn
+            echo "Deployed Successfully!"

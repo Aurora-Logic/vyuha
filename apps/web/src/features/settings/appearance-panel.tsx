@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { ArrowCounterClockwiseIcon, CheckIcon } from '@phosphor-icons/react';
 
 import { applyAppearance } from '@/components/shared/appearance';
-import { SectionHeading } from '@/components/shared/section-heading';
+import { SettingsPanel, SettingsRow, SettingsSection } from '@/components/shared/settings-panel';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -29,16 +28,26 @@ import { EnforcementNote } from './policy-fields';
 
 /**
  * The workspace's colour and density, with the page as the preview: every
- * change is applied to the document at once, and Save or Discard on the
- * page settles it. Eight accents in fixed order, and a hue for any other,
+ * change is applied to the document at once, and the panel's Save or Cancel
+ * settles it. Eight accents in fixed order, and a hue for any other,
  * all at the lightness the theme was measured at; three bases; two
  * densities. No hex field: a picker that can choose any colour can choose
  * one the text cannot sit on.
  */
 const CUSTOM_CHROMA = 0.22;
 
-export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value: Appearance; saved: Appearance; enforcedBy: string | null | undefined; onChange: (next: Partial<Appearance>) => void }) {
-  // The page is the preview. On unmount -- the tab left, the page left --
+interface AppearancePanelProps {
+  value: Appearance;
+  saved: Appearance;
+  enforcedBy: string | null | undefined;
+  onChange: (next: Partial<Appearance>) => void;
+  /** The panel footer, from the screen that owns the draft. */
+  status?: ReactNode;
+  footer?: ReactNode;
+}
+
+export function AppearancePanel({ value, saved, enforcedBy, onChange, status, footer }: AppearancePanelProps) {
+  // The page is the preview. On unmount -- the section left, the page left --
   // the saved appearance comes back, so an unsaved draft never outlives the
   // screen that made it.
   useEffect(() => {
@@ -55,21 +64,23 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
   const isShipped = JSON.stringify(value) === JSON.stringify(DEFAULT_APPEARANCE);
 
   return (
-    <div className="flex flex-col gap-6 border p-4">
-      <SectionHeading
-        title="Appearance"
-        note="The accent and the base are the workspace's; light and dark are each person's. The page shows the change as you make it."
-        action={
-          <Button variant="ghost" size="sm" disabled={isShipped} onClick={() => { onChange(DEFAULT_APPEARANCE); }}>
-            <ArrowCounterClockwiseIcon data-icon="inline-start" />
-            As shipped
-          </Button>
-        }
-      />
-
-      <FieldGroup className="gap-6">
-        <Field>
-          <FieldLabel>Accent</FieldLabel>
+    <SettingsSection
+      title="Appearance"
+      note="The accent and the base are the workspace's; light and dark are each person's. The page shows the change as you make it."
+      action={
+        <Button variant="ghost" size="sm" disabled={isShipped} onClick={() => { onChange(DEFAULT_APPEARANCE); }}>
+          <ArrowCounterClockwiseIcon data-icon="inline-start" />
+          As shipped
+        </Button>
+      }
+    >
+      <SettingsPanel status={status} footer={footer}>
+        <SettingsRow
+          layout="full"
+          label="Accent"
+          description={preset ? `${preset.label}, at the lightness the theme was measured at.` : `A custom hue at ${String(Math.round(value.accentHue))}°; the lightness and contrast are the theme's.`}
+          note={<EnforcementNote by={enforcedBy} />}
+        >
           {/*
             Swatches, not labelled buttons. Eight fitted in a row; eighteen do
             not, and a wall of pill-shaped names is harder to scan than the
@@ -110,7 +121,7 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
                             'size-auto min-w-0 p-0 hover:bg-transparent',
                             // 44px on a coarse pointer via the pseudo-element,
                             // so the tile stays 36px and the grid stays a grid.
-                            'focus-visible:ring-ring relative flex aspect-square items-center justify-center rounded-md outline-none transition-transform focus-visible:ring-2 focus-visible:ring-offset-2',
+                            'focus-visible:ring-ring relative flex aspect-square items-center justify-center outline-none transition-transform focus-visible:ring-2 focus-visible:ring-offset-2',
                             'after:absolute after:inset-0 pointer-coarse:after:-inset-1',
                             'active:scale-95',
                             selected && 'ring-foreground ring-2 ring-offset-2',
@@ -127,10 +138,7 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
                             opaque layer over the button makes any hover
                             background unreachable rather than fighting it.
                           */}
-                          <span
-                            aria-hidden
-                            className={cn('absolute inset-0 rounded-md', SWATCH[candidate.id])}
-                          />
+                          <span aria-hidden className={cn('absolute inset-0', SWATCH[candidate.id])} />
                           {/* White on every swatch: each is oklch(0.457), and
                               white on that lightness clears AA at any hue in
                               the ramp. */}
@@ -146,13 +154,13 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
               })}
             </div>
           </TooltipProvider>
-          <FieldDescription>
-            {preset ? `${preset.label}, at the lightness the theme was measured at.` : `A custom hue at ${String(Math.round(value.accentHue))}°; the lightness and contrast are the theme's.`}
-          </FieldDescription>
-        </Field>
+        </SettingsRow>
 
-        <Field>
-          <FieldLabel htmlFor="appearance-hue">Any other hue</FieldLabel>
+        <SettingsRow
+          label="Any other hue"
+          htmlFor="appearance-hue"
+          description="Drag to a brand hue. The swatch is the accent the page is wearing now."
+        >
           <div className="flex items-center gap-3">
             <span aria-hidden className="bg-primary size-5 shrink-0" />
             <Slider
@@ -166,18 +174,17 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
                 const hue = typeof next === 'number' ? next : next[0];
                 if (typeof hue === 'number') onChange({ accentHue: hue, accentChroma: preset ? CUSTOM_CHROMA : value.accentChroma });
               }}
-              className="max-w-md"
+              className="min-w-0 flex-1"
             />
-            <span className="w-10 text-right text-xs tabular-nums">{String(Math.round(value.accentHue))}°</span>
+            <span className="w-10 shrink-0 text-right text-xs tabular-nums">{String(Math.round(value.accentHue))}°</span>
           </div>
-          <FieldDescription>Drag to a brand hue. The swatch is the accent the page is wearing now.</FieldDescription>
-        </Field>
+        </SettingsRow>
 
-        <Field>
-          <FieldLabel>Base</FieldLabel>
+        <SettingsRow label="Base" description="The temperature of every surface, border and muted word, in both modes.">
           <ToggleGroup
             variant="outline"
             aria-label="Base"
+            className="flex-wrap"
             value={[value.base]}
             onValueChange={(next: string[]) => {
               const base = next[0];
@@ -191,14 +198,13 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <FieldDescription>The temperature of every surface, border and muted word, in both modes.</FieldDescription>
-        </Field>
+        </SettingsRow>
 
-        <Field>
-          <FieldLabel>Density</FieldLabel>
+        <SettingsRow label="Density" description="Compact tightens spacing by a fifth; type stays its size and touch targets stay 44px.">
           <ToggleGroup
             variant="outline"
             aria-label="Density"
+            className="flex-wrap"
             value={[value.density]}
             onValueChange={(next: string[]) => {
               const density = next[0];
@@ -211,14 +217,16 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <FieldDescription>Compact tightens spacing by a fifth; type stays its size and touch targets stay 44px.</FieldDescription>
-        </Field>
+        </SettingsRow>
 
-        <Field>
-          <FieldLabel>Typeface</FieldLabel>
+        <SettingsRow
+          label="Typeface"
+          description="The interface face, applied everywhere. System fonts, so nothing is fetched; figures stay monospaced where columns line up."
+        >
           <ToggleGroup
             variant="outline"
             aria-label="Typeface"
+            className="flex-wrap"
             value={[value.font]}
             onValueChange={(next: string[]) => {
               const font = next[0];
@@ -231,11 +239,8 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <FieldDescription>The interface face, applied everywhere. System fonts, so nothing is fetched; figures stay monospaced where columns line up.</FieldDescription>
-        </Field>
-      </FieldGroup>
-
-      <EnforcementNote by={enforcedBy} />
-    </div>
+        </SettingsRow>
+      </SettingsPanel>
+    </SettingsSection>
   );
 }

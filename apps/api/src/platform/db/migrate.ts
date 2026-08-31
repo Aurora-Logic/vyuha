@@ -37,7 +37,9 @@ async function main(): Promise<void> {
           AND state IN ('idle in transaction')
           AND age(now(), state_change) > interval '10 seconds';
       `);
-    } catch {}
+    } catch {
+      // Best effort: clearing idle transactions is a courtesy, not a step.
+    }
 
     await migrate(drizzle(pool), { migrationsFolder: resolve(process.cwd(), 'drizzle') });
     console.log(`migrations applied in ${String(Date.now() - started)}ms`);

@@ -4,6 +4,7 @@ import {
   voucherPushPayloadSchema,
   type AgentResultsAck,
   type AgentResultsInput,
+  type BillAllocationPullRow,
   type PartyPullRow,
   type PriceListPullRow,
   type PushKind,
@@ -103,21 +104,30 @@ export class SyncWriterService {
 
       if (input.entityType === 'voucher_push') {
         await this.settlePush(tx, agent, job.id, job.payload, input);
-        return { written: 0, lastAlterId: 0, pushed: true };
+        return { written: 0, skipped: 0, lastAlterId: 0, pushed: true };
       }
 
       // The discriminant narrows `rows`; a chunk of stock items claiming to
       // be parties never got past validation.
+      let skipped = 0;
       if (input.entityType === 'party') {
         for (const row of input.rows) await this.upsertParty(tx, agent, row);
       } else if (input.entityType === 'stock_item') {
         for (const row of input.rows) await this.upsertStockItem(tx, agent, row);
-      } else {
+      } else if (input.entityType === 'price_list') {
         for (const row of input.rows) await this.upsertPriceEntry(tx, agent, row);
+      } else {
+        skipped = await this.replaceBillAllocations(tx, agent, input.rows);
       }
 
       // REQ-Q-06: the exchange, hashed. `result` is the writer's outcome —
       // the agent's own errors arrive on the errors endpoint, never here.
+      // Skips are part of that outcome: the journal is where "this chunk
+      // carried rows the projection could not anchor yet" stays visible.
+      const journalResult =
+        skipped === 0
+          ? `ok: ${String(input.rows.length)} rows`
+          : `ok: ${String(input.rows.length - skipped)} rows, ${String(skipped)} skipped: voucher not yet pulled`;
       await tx.execute(sql`
         INSERT INTO sync_journal
           (org_id, connection_id, direction, entity_type, request_hash, response_hash,
@@ -126,7 +136,7 @@ export class SyncWriterService {
           (${agent.orgId}, ${agent.connectionId}, 'PULL', ${input.entityType},
            ${input.requestHash}, ${input.responseHash},
            ${input.requestBody ?? null}, ${input.responseBody ?? null},
-           ${`ok: ${String(input.rows.length)} rows`}, ${input.durationMs ?? null})
+           ${journalResult}, ${input.durationMs ?? null})
       `);
 
       /*
@@ -169,6 +179,9 @@ export class SyncWriterService {
         if (isFull && (input.entityType === 'party' || input.entityType === 'stock_item')) {
           await this.markAbsentees(tx, agent, input.entityType, new Date(job.created_at));
         }
+        if (isFull && input.entityType === 'price_list') {
+          await this.deleteStalePriceEntries(tx, agent, new Date(job.created_at));
+        }
 
         await tx.execute(sql`
           UPDATE sync_jobs SET state = 'DONE', updated_at = now() WHERE id = ${input.jobId}
@@ -184,7 +197,12 @@ export class SyncWriterService {
         `);
       }
 
-      return { written: input.rows.length, lastAlterId: committedAlterId, pushed: false };
+      return {
+        written: input.rows.length - skipped,
+        skipped,
+        lastAlterId: committedAlterId,
+        pushed: false,
+      };
     });
 
     if (written.pushed) {
@@ -197,6 +215,7 @@ export class SyncWriterService {
       connectionId: agent.connectionId,
       entityType: input.entityType,
       rows: written.written,
+      skipped: written.skipped,
       final: input.final,
     });
 
@@ -220,6 +239,7 @@ export class SyncWriterService {
     return {
       jobId: input.jobId,
       written: written.written,
+      ...(written.skipped > 0 ? { skipped: written.skipped } : {}),
       // The watermark THIS transaction committed, read inside it via
       // RETURNING — a post-commit read could report a rival chunk's later
       // cursor as if this chunk had established it.
@@ -277,6 +297,39 @@ export class SyncWriterService {
         connectionId: agent.connectionId,
         entityType,
         marked: marked.rows.length,
+      });
+    }
+  }
+
+  /**
+   * P6b-1 (owner decision 28 Aug 2026), REQ-R-03/R-06: on the final chunk of
+   * a FULL price_list pull, entries the job did not touch are deleted — the
+   * same created_at watermark markAbsentees trusts, under the same licence
+   * (only a full pull saw everything; an incremental window proves nothing,
+   * so it never reaches here). Deleted rather than marked, unlike the
+   * masters: a rate is a derived row nothing references, it carries no
+   * absent flag, and a stale rate shown as current is worse than a gap.
+   * This is the one place the sync engine hard-deletes on its own
+   * initiative.
+   */
+  private async deleteStalePriceEntries(
+    tx: Transaction,
+    agent: WriterScope,
+    watermark: Date,
+  ): Promise<void> {
+    const removed = await tx.execute<{ id: string }>(sql`
+      DELETE FROM price_list_entries
+       WHERE org_id = ${agent.orgId}
+         AND connection_id = ${agent.connectionId}
+         AND last_pulled_at < ${watermark}
+       RETURNING id
+    `);
+
+    if (removed.rows.length > 0) {
+      this.logger.warn({
+        msg: 'Stale price entries deleted after full pull (P6b-1)',
+        connectionId: agent.connectionId,
+        deleted: removed.rows.length,
       });
     }
   }
@@ -775,9 +828,8 @@ export class SyncWriterService {
   private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
     const cacheKey = `${agent.connectionId}:${name}`;
-    if (this.partyCache.has(cacheKey)) {
-      return this.partyCache.get(cacheKey)!;
-    }
+    const cached = this.partyCache.get(cacheKey);
+    if (cached !== undefined) return cached;
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM parties
        WHERE connection_id = ${agent.connectionId} AND name = ${name}
@@ -791,9 +843,8 @@ export class SyncWriterService {
   private async resolveStockItemId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
     const cacheKey = `${agent.connectionId}:${name}`;
-    if (this.stockItemCache.has(cacheKey)) {
-      return this.stockItemCache.get(cacheKey)!;
-    }
+    const cached = this.stockItemCache.get(cacheKey);
+    if (cached !== undefined) return cached;
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM stock_items
        WHERE connection_id = ${agent.connectionId} AND name = ${name}
@@ -838,5 +889,71 @@ export class SyncWriterService {
                     last_pulled_at = now(),
                     updated_at = now()
     `);
+  }
+
+  /**
+   * REQ-AJ-02 (owner decision 28 Aug 2026): the bill-wise detail ageing,
+   * statements and promise-kept states read. Allocations are the voucher's
+   * rows the way lines are: they carry no identity across syncs, and Tally
+   * re-sends a changed voucher's set whole (alterId rides on the voucher),
+   * so delete-and-reinsert per voucher is the honest upsert here for the
+   * same reason it is for voucher_lines — reconciling old against new on
+   * (bill name, ref type) would leave a bill reference that was edited away
+   * standing, and the schema's own index comment promises "a re-pull
+   * rewrites a voucher's allocations as a set". A replayed chunk deletes
+   * and reinserts the same rows, so the agent's retry stays safe by
+   * construction. The one contract this places on the agent: a voucher's
+   * allocations travel together in one chunk, as its lines travel in one
+   * row.
+   *
+   * A voucher that has not arrived cannot anchor its allocations. Expected
+   * on this path — vouchers reach Vyuha through the webhook door, and this
+   * queue orders nothing before them — so the rows are skipped and counted,
+   * never thrown: failing the chunk would wedge the whole pull behind one
+   * unmatched GUID. The cursor still advances past a skipped row; a later
+   * alteration of the voucher, or a full re-pull, delivers the set again
+   * once the voucher lands.
+   */
+  private async replaceBillAllocations(
+    tx: Transaction,
+    agent: WriterScope,
+    rows: readonly BillAllocationPullRow[],
+  ): Promise<number> {
+    const byVoucher = new Map<string, BillAllocationPullRow[]>();
+    for (const row of rows) {
+      const group = byVoucher.get(row.voucherGuid);
+      if (group === undefined) byVoucher.set(row.voucherGuid, [row]);
+      else group.push(row);
+    }
+
+    let skipped = 0;
+    for (const [guid, group] of byVoucher) {
+      const mapping = await this.resolveMapping(tx, agent, 'voucher', guid);
+      if (mapping.internalId === null) {
+        skipped += group.length;
+        this.logger.warn({
+          msg: 'Bill allocations skipped: voucher not yet pulled (REQ-AJ-02)',
+          connectionId: agent.connectionId,
+          voucherGuid: guid,
+          rows: group.length,
+        });
+        continue;
+      }
+
+      await tx.execute(sql`DELETE FROM bill_allocations WHERE voucher_id = ${mapping.internalId}`);
+      for (const row of group) {
+        const partyId = await this.resolvePartyId(tx, agent, row.partyName);
+        await tx.execute(sql`
+          INSERT INTO bill_allocations
+            (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type,
+             bill_date, due_date, amount)
+          VALUES
+            (${agent.orgId}, ${agent.connectionId}, ${mapping.internalId}, ${partyId},
+             ${row.partyName}, ${row.billName}, ${row.refType},
+             ${row.billDate ?? null}, ${row.dueDate ?? null}, ${row.amount})
+        `);
+      }
+    }
+    return skipped;
   }
 }

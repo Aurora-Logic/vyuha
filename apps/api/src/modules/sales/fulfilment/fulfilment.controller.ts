@@ -34,7 +34,14 @@ class PackListQueryDto extends createZodDto(packListQuerySchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
 
-/** Pick queue, packing, and the billing handshake (12 §3.2, §3.3). */
+/**
+ * Pick queue, packing, and the billing handshake (12 §3.2, §3.3).
+ *
+ * P8-5 (owner, 28 Aug 2026): the floor's routes — the queue, picks and packs —
+ * answer to `sales.fulfil` alone, so raising documents no longer implies
+ * handling boxes. The billing handshake keeps the document keys: awaiting
+ * invoice and the unlinked screen are the accountant's, not the bench's.
+ */
 @Controller('sales')
 export class FulfilmentController {
   constructor(
@@ -45,7 +52,7 @@ export class FulfilmentController {
   ) {}
 
   @Get('pick-queue')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   pickQueue(@CurrentUser() principal: Principal): Promise<PickQueueEntry[]> {
     return this.fulfilment.pickQueue(principal);
   }
@@ -64,20 +71,20 @@ export class FulfilmentController {
 
   /** D-47: the Packed screen — every pack across the orders this person may see. */
   @Get('packs')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   allPacks(@CurrentUser() principal: Principal, @Query() query: PackListQueryDto): Promise<Paginated<PackRecordView>> {
     return this.fulfilment.listAllPacks(principal, query);
   }
 
   /** D-48: every picking session against one order. */
   @Get('orders/:id/picks')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   picks(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PickRecordView[]> {
     return this.fulfilment.listPicks(principal, id);
   }
 
   @Get('orders/:id/packs')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   packs(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView[]> {
     return this.fulfilment.listPacks(principal, id);
   }
@@ -85,20 +92,20 @@ export class FulfilmentController {
   /** One pack record: the packing slip's page. */
   /** D-47: what a scanned slip resolves to. Declared before packs/:id so the literal wins. */
   @Get('packs/by-slip/:number')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   findPackBySlip(@CurrentUser() principal: Principal, @Param('number') number: string): Promise<PackRecordView> {
     return this.fulfilment.findPackBySlip(principal, decodeURIComponent(number));
   }
 
   @Get('packs/:id')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   findPack(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView> {
     return this.fulfilment.findPack(principal, id);
   }
 
   /** The packing slip as a workbook: quantities, no money. */
   @Get('packs/:id/export.xlsx')
-  @RequirePermission(...VIEW)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   async packXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
     const pack = await this.fulfilment.findPack(principal, id);
     const order = await this.fulfilment.order(principal, pack.documentId);
@@ -117,14 +124,14 @@ export class FulfilmentController {
 
   /** D-48: the picking step -- what came off the shelf; a line packs only what it has picked. */
   @Post('orders/:id/picks')
-  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   @HttpCode(HttpStatus.CREATED)
   pick(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: CreatePickRecordDto): Promise<PickRecordView> {
     return this.fulfilment.pick(principal, id, body);
   }
 
   @Post('orders/:id/packs')
-  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @RequirePermission(PERMISSIONS.SALES_FULFIL)
   @HttpCode(HttpStatus.CREATED)
   pack(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: CreatePackRecordDto): Promise<PackRecordView> {
     return this.fulfilment.pack(principal, id, body);

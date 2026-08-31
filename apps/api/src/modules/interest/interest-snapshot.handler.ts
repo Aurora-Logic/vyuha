@@ -4,15 +4,19 @@ import { sql } from 'drizzle-orm';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import { JobRegistry, type JobContext, type JobHandler, type JobResult } from '../../platform/jobs/job-handler.js';
 import type { JobPayloads } from '../../platform/jobs/queue.registry.js';
+import { istDateOf } from '../../platform/tasks/local-date.js';
 import { InterestBuildService } from './interest-build.service.js';
 
 /**
  * D-22: the nightly walk of the daily closing series, and the vehicle the
  * recompute endpoint rides. The payload's date, when present, comes from
  * the occurrence, never from the deployment — the runner rewrites a
- * scheduled job's timestamp, and this handler reads its own clock when the
- * payload has none (see scheduled-clock.test.ts for the failure that rule
- * exists to prevent).
+ * scheduled job's `requestedAt`, and this handler reads its own clock only
+ * when the payload carries neither (see scheduled-clock.test.ts for the
+ * failure that rule exists to prevent). "Today" is the IST calendar date of
+ * that instant — the same `istDateOf` the receivable snapshot (D-23) keys
+ * by, so the two nightly photographs of the same books can never file one
+ * night under two dates.
  */
 @Injectable()
 export class InterestSnapshotHandler implements JobHandler<'build-interest-snapshots'>, OnModuleInit {
@@ -29,7 +33,7 @@ export class InterestSnapshotHandler implements JobHandler<'build-interest-snaps
   }
 
   async run(payload: JobPayloads['build-interest-snapshots'], _context: JobContext): Promise<JobResult> {
-    const today = (payload.now ?? new Date().toISOString()).slice(0, 10);
+    const today = istDateOf(payload.now ?? payload.requestedAt ?? new Date().toISOString());
     const scope = {
       today,
       ...(payload.from === undefined ? {} : { from: payload.from }),

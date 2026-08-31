@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEmployeePunches, type EmployeePunch } from '@/features/employees/use-employee-attendance';
-import { usePunchPhoto } from '@/features/reports/api';
+import { usePunchPhoto } from './punch-photo.js';
 import { humaniseEnum } from '@/lib/format';
 
 import { formatClock } from './format';

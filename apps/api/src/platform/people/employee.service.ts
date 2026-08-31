@@ -7,15 +7,12 @@ import {
   pageSlice,
   paginated,
   parseSort,
-  type CreateEmployeeInput,
-  type EmployeeDetail,
   type EmployeeImportReport,
   type EmployeeImportRequest,
   type EmployeeListItem,
   type EmployeeListQuery,
   type EmployeeStatus,
   type Paginated,
-  type UpdateEmployeeInput,
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
@@ -25,13 +22,15 @@ import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { isUniqueViolation } from '../db/pg-error.js';
 import { departments, designations, employees, locations } from '../db/schema/index.js';
 import { ScopedRepository } from '../db/scoped-repository.js';
+import { assertHolidayCalendarInOrg } from '../org/holiday-calendar-ref.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
 import {
   countImportActions,
   planEmployeeImport,
 } from './employee-import.js';
-import { EmployeeRepository } from './employee.repository.js';
+import type { CreateEmployeeBody, UpdateEmployeeBody } from './employee.dto.js';
+import { EmployeeRepository, type EmployeeDetailView } from './employee.repository.js';
 
 /**
  * Employee master data (REQ-A-03 … REQ-A-07). Everything that decides anything
@@ -87,7 +86,7 @@ export class EmployeeService {
     return paginated(rows, query, total);
   }
 
-  async findOne(principal: Principal, id: string): Promise<EmployeeDetail> {
+  async findOne(principal: Principal, id: string): Promise<EmployeeDetailView> {
     const employee = await this.repository(principal).detail(id, this.scopeFor(principal));
     // Out of scope and non-existent are the same answer deliberately. A 403
     // here would confirm that the id names a real employee, which is the
@@ -96,7 +95,7 @@ export class EmployeeService {
     return employee;
   }
 
-  async create(principal: Principal, input: CreateEmployeeInput): Promise<EmployeeDetail> {
+  async create(principal: Principal, input: CreateEmployeeBody): Promise<EmployeeDetailView> {
     const repository = this.repository(principal);
 
     await this.assertCodeAvailable(repository, input.employeeCode);
@@ -123,8 +122,8 @@ export class EmployeeService {
   async update(
     principal: Principal,
     id: string,
-    input: UpdateEmployeeInput,
-  ): Promise<EmployeeDetail> {
+    input: UpdateEmployeeBody,
+  ): Promise<EmployeeDetailView> {
     const repository = this.repository(principal);
     const existing = await repository.detail(id, this.scopeFor(principal));
     if (existing === null) throw AppError.notFound('Employee', id);
@@ -271,7 +270,7 @@ export class EmployeeService {
 
   private async insert(
     repository: EmployeeRepository,
-    input: CreateEmployeeInput,
+    input: CreateEmployeeBody,
   ): Promise<{ id: string }> {
     try {
       return await repository.insert(input);
@@ -292,7 +291,7 @@ export class EmployeeService {
    * they authored should still be handed what they created rather than a 404.
    * `ScopedRepository` still applies `org_id`, which is the boundary that matters.
    */
-  private async readBack(repository: EmployeeRepository, id: string): Promise<EmployeeDetail> {
+  private async readBack(repository: EmployeeRepository, id: string): Promise<EmployeeDetailView> {
     const detail = await repository.detail(id, sql`true`);
     if (detail === null) {
       throw new Error(`Employee ${id} was written but could not be read back.`);
@@ -316,7 +315,7 @@ export class EmployeeService {
    */
   private async assertReferencesExist(
     principal: Principal,
-    input: CreateEmployeeInput | UpdateEmployeeInput,
+    input: CreateEmployeeBody | UpdateEmployeeBody,
   ): Promise<void> {
     const ctx = orgContextOf(principal);
 
@@ -332,13 +331,18 @@ export class EmployeeService {
       const exists = await new EmployeeRepository(this.db, ctx).exists(managerId);
       if (!exists) throw unknownReferenceError('reportingManagerId', managerId);
     }
+
+    // Not in REFERENCE_TABLES: holiday_calendars is attendance-owned, so the
+    // check goes through raw SQL rather than a drizzle table this layer may
+    // not import (OS-3, REQ-H-02).
+    await assertHolidayCalendarInOrg(this.db, ctx.orgId, input.holidayCalendarId);
   }
 
   /** REQ-A-07, including the self-reference and the multi-level A -> B -> C -> A. */
   private async assertNoReportingCycle(
     repository: EmployeeRepository,
-    existing: EmployeeDetail,
-    input: UpdateEmployeeInput,
+    existing: EmployeeDetailView,
+    input: UpdateEmployeeBody,
   ): Promise<void> {
     const proposed = input.reportingManagerId;
     if (proposed === undefined || proposed === null) return;

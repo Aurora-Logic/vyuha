@@ -1,5 +1,3 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 
 import { loadDotEnvFiles } from '../src/platform/common/dotenv.js';
@@ -54,11 +52,10 @@ async function main(): Promise<void> {
   }
 
   const pool = new Pool({ connectionString, max: 1 });
-  const db = drizzle(pool);
 
   try {
     console.log('\n' + '='.repeat(80));
-    console.log(' 🏢 CROSS-COMPANY ENTITY CONSOLIDATION & CONNECTION REPORT');
+    console.log('CROSS-COMPANY ENTITY CONSOLIDATION & CONNECTION REPORT');
     console.log('='.repeat(80));
 
     // 1. Fetch all integration connections (Tally Companies)
@@ -69,13 +66,13 @@ async function main(): Promise<void> {
     `);
     const connections = connResult.rows;
 
-    console.log(`\n📌 Found ${connections.length} Integration Connection(s) / Company Profile(s):`);
+    console.log(`\nFound ${connections.length} Integration Connection(s) / Company Profile(s):`);
     connections.forEach((c, idx) => {
-      console.log(`   ${idx + 1}. [${c.status}] ${c.company_name || c.name} (ID: ${c.id})`);
+      console.log(`${idx + 1}. [${c.status}] ${c.company_name || c.name} (ID: ${c.id})`);
     });
 
     if (connections.length === 0) {
-      console.log('\n⚠️ No connections found in database.');
+      console.log('\nWarning: No connections found in database.');
       return;
     }
 
@@ -138,7 +135,8 @@ async function main(): Promise<void> {
         if (!gstinGroups.has(gstin)) {
           gstinGroups.set(gstin, []);
         }
-        gstinGroups.get(gstin)!.push(p);
+        const group = gstinGroups.get(gstin);
+        if (group) group.push(p);
       } else {
         unmappedParties.push(p);
       }
@@ -158,7 +156,7 @@ async function main(): Promise<void> {
 
       // Determine Canonical Name (Longest / Most specific name among aliases)
       const names = partiesList.map((p) => p.name);
-      const canonicalName = names.reduce((a, b) => (a.length >= b.length ? a : b), names[0]);
+      const canonicalName = names.reduce((a, b) => (a.length >= b.length ? a : b), names[0] ?? '');
 
       let totalClosing = 0;
       let totalVouchers = 0;
@@ -206,39 +204,39 @@ async function main(): Promise<void> {
     });
 
     // 6. Print Cross-Company Summary
-    console.log(`\n📊 DATABASE METRICS & LINKAGE SUMMARY:`);
-    console.log(`   • Total Ledgers across all companies: ${allParties.length}`);
-    console.log(`   • Unique Valid GSTINs: ${gstinGroups.size}`);
-    console.log(`   • Entities appearing across MULTIPLE companies: ${crossCompanyMatchesCount}`);
-    console.log(`   • Unregistered / No-GSTIN parties: ${unmappedParties.length}`);
+    console.log(`\nDATABASE METRICS & LINKAGE SUMMARY:`);
+    console.log(`• Total Ledgers across all companies: ${allParties.length}`);
+    console.log(`• Unique Valid GSTINs: ${gstinGroups.size}`);
+    console.log(`• Entities appearing across MULTIPLE companies: ${crossCompanyMatchesCount}`);
+    console.log(`• Unregistered / No-GSTIN parties: ${unmappedParties.length}`);
 
     console.log('\n' + '='.repeat(80));
-    console.log(' 🔗 CROSS-COMPANY LINKED ENTITIES (SAME GSTIN IN MULTIPLE TALLY BOOKS)');
+    console.log('CROSS-COMPANY LINKED ENTITIES (SAME GSTIN IN MULTIPLE TALLY BOOKS)');
     console.log('='.repeat(80));
 
     const multiCompanyEntities = consolidatedList.filter((e) => e.companiesCount > 1);
 
     if (multiCompanyEntities.length === 0) {
-      console.log('ℹ️ No parties currently share the exact same GSTIN across different connections.');
-      console.log('  (As you sync more companies with common vendors/customers, they will appear here automatically.)');
+      console.log('No parties currently share the exact same GSTIN across different connections.');
+      console.log('(As you sync more companies with common vendors/customers, they will appear here automatically.)');
     } else {
       multiCompanyEntities.forEach((item, i) => {
-        console.log(`\n[${i + 1}] 🏷️  Canonical Legal Entity: "${item.canonicalName}"`);
-        console.log(`    GSTIN: ${item.gstin} | Present in ${item.companiesCount} Companies`);
-        console.log(`    💰 Group Total Outstanding: ₹${item.totalClosingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
-        console.log(`    🧾 Group Vouchers Volume: ${item.totalVouchersCount} vouchers (Total: ₹${item.totalVouchersAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`);
-        console.log('    Company Ledger Breakdown:');
+        console.log(`\n[${i + 1}]  Canonical Legal Entity: "${item.canonicalName}"`);
+        console.log(`GSTIN: ${item.gstin} | Present in ${item.companiesCount} Companies`);
+        console.log(`Group Total Outstanding: ₹${item.totalClosingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        console.log(`Group Vouchers Volume: ${item.totalVouchersCount} vouchers (Total: ₹${item.totalVouchersAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`);
+        console.log('Company Ledger Breakdown:');
         item.companies.forEach((c) => {
-          console.log(`      ├── Company: "${c.connectionName}"`);
-          console.log(`      │   ├── Local Ledger Name: "${c.ledgerName}"`);
-          console.log(`      │   ├── Group: ${c.parentGroup}`);
-          console.log(`      │   └── Balance in this company: ₹${c.closingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+          console.log(`Company: "${c.connectionName}"`);
+          console.log(`Local Ledger Name: "${c.ledgerName}"`);
+          console.log(`Group: ${c.parentGroup}`);
+          console.log(`Balance in this company: ₹${c.closingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
         });
       });
     }
 
     console.log('\n' + '='.repeat(80));
-    console.log(' 💡 HOW TO USE THIS CROSS-COMPANY VIEW IN GC_FINAL QUERIES:');
+    console.log(' HOW TO USE THIS CROSS-COMPANY VIEW IN GC_FINAL QUERIES:');
     console.log('='.repeat(80));
     console.log(`
   You can execute unified group queries in Postgres without third-party APIs using:
@@ -265,6 +263,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('\n❌ Error executing cross-company consolidation:', err.message);
+  console.error('\nFailed: Error executing cross-company consolidation:', (err instanceof Error ? err.message : String(err)));
   process.exit(1);
 });

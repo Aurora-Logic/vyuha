@@ -133,7 +133,9 @@ export function RecordTable<T>({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className={cn('-mx-2 h-7 gap-1 px-2 font-normal', column.numeric && 'flex-row-reverse', isActive && 'font-medium')}
+                        // The button does not inherit the th's text-transform or size, so the
+                        // sortable header restates them to match its plain neighbours.
+                        className={cn('-mx-2 h-7 gap-1 px-2 text-[10px] font-normal tracking-wider uppercase', column.numeric && 'flex-row-reverse', isActive && 'font-medium')}
                         onClick={() => {
                           const field = column.sortField ?? '';
                           onSortChange({ field, descending: isActive ? !sort.descending : false });

@@ -2,11 +2,11 @@ import { BarcodeIcon, LockKeyIcon, ScanIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { Button } from '@/components/ui/button';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -42,24 +42,11 @@ const COLUMNS: RecordColumn<PickQueueEntry>[] = [
   },
 ];
 
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading the pick queue" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-11 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function PickQueuePage() {
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
+  // P8-5: the queue is the floor's, and the endpoint behind it answers to
+  // sales.fulfil -- so the screen asks the same key rather than a document
+  // key that would show a shell the API then refuses.
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const openId = params.id ?? null;
@@ -104,7 +91,7 @@ export function PickQueuePage() {
       />
 
       <div className="flex flex-col gap-4">
-        {queue.isPending ? <ListSkeleton /> : null}
+        {queue.isPending ? <ListSkeleton rows={4} label="Loading the pick queue" /> : null}
         {queue.isError ? (
           <QueryErrorAlert
             error={queue.error}

@@ -3,6 +3,7 @@ import { FileTextIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { PersonChip } from '@/components/shared/person';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -14,7 +15,6 @@ import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
@@ -46,20 +46,6 @@ const COLUMNS: RecordColumn<EstimateSummary>[] = [
   { key: 'valid', header: 'Valid until', cell: (row) => formatDate(row.validUntil), className: 'tabular-nums', secondary: true },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading estimates" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function isStatus(value: string | null): value is EstimateStatus {
   return ESTIMATE_STATUSES.some((s) => s === value);
@@ -201,7 +187,7 @@ export function EstimatesPage() {
           </Select>
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading estimates" /> : null}
         {query.isError ? (
           <QueryErrorAlert
             error={query.error}

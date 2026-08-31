@@ -8,22 +8,36 @@ import {
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
+  BookOpenTextIcon,
+  BellRingingIcon,
   ChartLineUpIcon,
+  ChartScatterIcon,
+  MedalIcon,
+  PercentIcon,
+  WarningDiamondIcon,
+  GridNineIcon,
+  PhoneIcon,
+  TrophyIcon,
+  HandCoinsIcon,
+  UserCircleIcon,
   CheckSquareIcon,
   ClipboardIcon,
   ClipboardTextIcon,
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
+  FilePdfIcon,
+  EnvelopeSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
-  GaugeIcon,
   GearIcon,
   HandshakeIcon,
   type Icon,
   ListChecksIcon,
   LockIcon,
+  MapPinAreaIcon,
   PackageIcon,
+  PaintBrushIcon,
   PlugIcon,
   ReceiptIcon,
   ScrollIcon,
@@ -32,7 +46,6 @@ import {
   SquaresFourIcon,
   TagIcon,
   TrashIcon,
-  TrayIcon,
   TreePalmIcon,
   ScanIcon,
   UmbrellaIcon,
@@ -56,6 +69,12 @@ export interface NavItem {
    * icon had not already said, so the tab gets a word that fits instead.
    */
   shortLabel?: string;
+  /**
+   * One line under the name on the administration directory and its rail
+   * sheet: what the screen decides, said the way a settings row says it.
+   * Absent = the name stands alone.
+   */
+  blurb?: string;
   icon: Icon;
   /** Sidebar items are permission-filtered (PRD §6.1). Undefined means always. */
   permission?: PermissionKey;
@@ -106,7 +125,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Me',
     items: [
-      { to: '/dashboard', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
+      // The dashboard moved to the Reports module (owner, 26 Aug 2026); the
+      // route stays alive for old links, named in OFF_NAV_LABELS below.
       {
         to: '/punch',
         label: 'Punch',
@@ -230,6 +250,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/organisation',
         label: 'Organisation',
+        blurb: 'Departments, designations and the locations the register filters by.',
         shortLabel: 'Org',
         icon: BuildingsIcon,
         // employee.view, not a manage key: the three masters are what an
@@ -250,6 +271,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/shifts',
         label: 'Shifts and rosters',
+        blurb: 'Shift timings, the roster and weekly offs.',
         shortLabel: 'Shifts',
         icon: ClockIcon,
         permission: PERMISSIONS.SHIFT_MANAGE,
@@ -259,6 +281,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/leave-types',
         label: 'Leave types',
+        blurb: 'Kinds of leave, how they accrue and who may take them.',
         icon: CalendarBlankIcon,
         permission: PERMISSIONS.LEAVE_POLICY_MANAGE,
         phase: 2,
@@ -267,6 +290,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/holidays',
         label: 'Holidays',
+        blurb: 'Holiday calendars by year and location.',
         icon: CalendarDotsIcon,
         permission: PERMISSIONS.HOLIDAY_MANAGE,
         phase: 2,
@@ -276,6 +300,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
         to: '/period-lock',
 
         label: 'Period lock',
+        blurb: 'Close an attendance month so nothing in it moves.',
         shortLabel: 'Lock',
         icon: LockIcon,
         permission: PERMISSIONS.ATTENDANCE_LOCK,
@@ -291,6 +316,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/settings',
         label: 'Settings',
+        blurb: 'Organisation profile, policies, appearance, documents, email and access.',
         icon: GearIcon,
         permission: PERMISSIONS.SETTINGS_MANAGE,
         phase: 4,
@@ -299,6 +325,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/roles',
         label: 'Roles and permissions',
+        blurb: 'Who may do what, role by role.',
         shortLabel: 'Roles',
         icon: ShieldCheckIcon,
         permission: PERMISSIONS.ROLES_MANAGE,
@@ -308,6 +335,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/integrations',
         label: 'Integrations',
+        blurb: 'Tally and the other connections the workspace reads from.',
         icon: PlugIcon,
         permission: PERMISSIONS.INTEGRATION_MANAGE,
         phase: 6,
@@ -316,6 +344,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/audit',
         label: 'Audit log',
+        blurb: 'Every change, who made it and when.',
         shortLabel: 'Audit',
         icon: ScrollIcon,
         permission: PERMISSIONS.AUDIT_VIEW,
@@ -325,6 +354,7 @@ export const ADMIN_GROUPS: NavGroup[] = [
       {
         to: '/recycle-bin',
         label: 'Recycle bin',
+        blurb: 'Whatever was removed, ready to restore.',
         shortLabel: 'Recycle',
         icon: TrashIcon,
         // REQ-M-04 forbids a hard delete, so everything removed anywhere in the
@@ -337,16 +367,158 @@ export const ADMIN_GROUPS: NavGroup[] = [
       },
       {
         to: '/downloads',
-
         label: 'Downloads',
+        blurb: 'Exports ready to collect.',
         icon: DownloadSimpleIcon,
-        permission: PERMISSIONS.REPORT_EXPORT,
         phase: 3,
         reqs: 'REQ-J-03',
       },
     ],
   },
 ];
+
+/**
+ * The pages inside Settings, one rail entry each. Owner, 27 Aug 2026: the
+ * administration area takes Supabase's settings shape -- a secondary rail
+ * lists pages, a page holds sections, a section holds one panel of rows.
+ * Each `to` carries the `?tab=` the settings screen already reads, so the
+ * addresses the sales and purchase lists deep-link to do not move and a
+ * reload still lands where the person was.
+ *
+ * Deliberately not in `ALL_NAV_ITEMS`: these are views of one route, not
+ * routes, and the router, breadcrumbs and changelog would all be wrong to
+ * treat them as screens of their own.
+ */
+export const SETTINGS_SECTIONS: NavItem[] = [
+  {
+    to: '/settings',
+    label: 'General',
+    blurb: 'Name, time zone, date format, numbers, retention and interest cost.',
+    icon: BuildingsIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-01, REQ-L-02',
+  },
+  {
+    to: '/settings?tab=appearance',
+    label: 'Appearance',
+    blurb: 'Accent, base, density and typeface for everyone here.',
+    icon: PaintBrushIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-04',
+  },
+  {
+    to: '/settings?tab=office',
+    label: 'Office location',
+    blurb: 'Where the office is and how far the geofence reaches.',
+    icon: MapPinAreaIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 1,
+    reqs: 'REQ-D-03',
+  },
+  {
+    to: '/settings?tab=attendance',
+    label: 'Attendance policy',
+    blurb: 'Geofence, device binding, early arrival, regularisation and punch photos.',
+    icon: ClockIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-03, REQ-L-05',
+  },
+  {
+    to: '/settings?tab=sales',
+    label: 'Sales',
+    blurb: 'The discount level that needs an approval.',
+    icon: ReceiptIcon,
+    permission: PERMISSIONS.SALES_DISCOUNT_APPROVE,
+    phase: 7,
+    reqs: 'REQ-S-06',
+  },
+  {
+    to: '/settings?tab=purchase',
+    label: 'Purchase',
+    blurb: 'The approval threshold and how long an invoice may wait.',
+    icon: ShoppingCartIcon,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+    phase: 8,
+    reqs: 'REQ-U-04',
+  },
+  {
+    to: '/settings?tab=classes',
+    label: 'Customer classes',
+    blurb: 'The classes customers are graded into.',
+    icon: TagIcon,
+    permission: PERMISSIONS.CFO_SALES_VIEW,
+    phase: 8,
+    reqs: 'Virtual CFO brief, Part F',
+  },
+  {
+    to: '/settings?tab=email',
+    label: 'Email',
+    blurb: 'The transport that sends the workspace its mail.',
+    icon: EnvelopeSimpleIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-L-01',
+  },
+  {
+    to: '/settings?tab=access',
+    label: 'Security and access',
+    blurb: 'Two-step sign-in, sessions and the sign-in window.',
+    icon: ShieldCheckIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 4,
+    reqs: 'REQ-B-05, REQ-AB-02',
+  },
+  {
+    to: '/settings?tab=documents',
+    label: 'Documents',
+    blurb: 'How printed papers look.',
+    icon: FileTextIcon,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    phase: 7,
+    reqs: 'REQ-W-01',
+  },
+];
+
+function mayOpen(item: NavItem, granted: ReadonlySet<string>): boolean {
+  return !item.permission || granted.has(item.permission);
+}
+
+/**
+ * The administration rail for one reader: Settings' pages first, then every
+ * workspace destination, each filtered to what they may open. `/settings`
+ * itself is not repeated below its own pages.
+ */
+export function adminRailFor(granted: ReadonlySet<string>): NavGroup[] {
+  const settings = SETTINGS_SECTIONS.filter((item) => mayOpen(item, granted));
+  const rest = ADMIN_GROUPS.map((group) => ({
+    label: group.label,
+    items: group.items.filter((item) => item.to !== '/settings' && mayOpen(item, granted)),
+  })).filter((group) => group.items.length > 0);
+  return settings.length > 0 ? [{ label: 'Settings', items: settings }, ...rest] : rest;
+}
+
+/**
+ * The rail entry the reader is looking at. The path must match and every
+ * query the entry names must be present with that value; among the entries
+ * that fit, the one naming the most queries wins. So `/settings?tab=email`
+ * beats `/settings` while the tab is email and loses to it when there is no
+ * tab -- which is also what the settings screen does with an unknown one.
+ */
+export function activeRailItem(groups: NavGroup[], pathname: string, search: string): NavItem | undefined {
+  const here = new URLSearchParams(search);
+  let best: { item: NavItem; score: number } | undefined;
+  for (const item of groups.flatMap((group) => group.items)) {
+    const [path, query = ''] = item.to.split('?');
+    if (path !== pathname) continue;
+    const wanted = [...new URLSearchParams(query).entries()];
+    if (!wanted.every(([key, value]) => here.get(key) === value)) continue;
+    if (best === undefined || wanted.length > best.score) best = { item, score: wanted.length };
+  }
+  return best?.item;
+}
 
 /**
  * REQ-O-03. One inbox across every approvable thing, so it sits above the
@@ -373,7 +545,7 @@ const ATTENDANCE_MODULE: ModuleDef = {
   id: 'attendance',
   label: 'Attendance',
   icon: CalendarDotsIcon,
-  home: '/dashboard',
+  home: '/punch',
   groups: NAV_GROUPS,
 };
 
@@ -587,6 +759,10 @@ export const MODULES: ModuleDef[] = [
     // The group keeps its name so every breadcrumb under it stays put.
     groups: [
       {
+        // P8-5 (owner, 28 Aug 2026): the floor's own screens gate on
+        // sales.fulfil, matching their endpoints. Awaiting invoice keeps the
+        // document keys -- the billing handshake is the accountant's -- and
+        // Returns keeps returns.view.
         label: 'Fulfilment',
         items: [
           // Owner, 22 Aug 2026: each stage is its own entry -- "we don't need
@@ -598,7 +774,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Pick queue',
             shortLabel: 'Pick',
             icon: BarcodeIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07, D-48',
           },
@@ -607,7 +783,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Packed',
             shortLabel: 'Packed',
             icon: PackageIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'D-47',
           },
@@ -625,7 +801,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Dispatches',
             shortLabel: 'Shipped',
             icon: TruckIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
           },
@@ -643,7 +819,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Delivered',
             shortLabel: 'Delivered',
             icon: CheckCircleIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'D-47',
           },
@@ -652,7 +828,7 @@ export const MODULES: ModuleDef[] = [
             label: 'Scan a slip',
             shortLabel: 'Scan',
             icon: ScanIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_CREATE,
+            permission: PERMISSIONS.SALES_FULFIL,
             phase: 8,
             reqs: 'D-47',
           },
@@ -707,100 +883,246 @@ export const MODULES: ModuleDef[] = [
     label: 'Reports',
     icon: ChartBarIcon,
     home: '/reports',
+    // report.view opens the module; each area inside carries its own key, so
+    // the sidebar shows a person exactly the areas their permissions open.
     permission: PERMISSIONS.REPORT_VIEW,
-    // REQ-AD-03: the catalogue is the destination and search is the menu —
-    // sixty reports cannot live in a sidebar, so the sidebar lists the
-    // categories, each a filtered view of the one catalogue.
     groups: [
       {
-        label: 'Overview',
+        label: 'General',
         items: [
           {
-            to: '/reports/dashboard',
-            label: 'Dashboard',
-            icon: GaugeIcon,
-            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            to: '/reports',
+            label: 'Overview',
+            icon: SquaresFourIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
             phase: 6,
-            reqs: '14 REQ-AI',
+            reqs: 'REQ-Y-06',
+          },
+          {
+            to: '/reports/sales-analysis',
+            label: 'Sales analysis',
+            shortLabel: 'Sales',
+            icon: ChartBarIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief B3, Phase 3',
+          },
+          {
+            to: '/reports/brands',
+            label: 'Brands',
+            icon: MedalIcon,
+            permission: PERMISSIONS.CFO_BRAND_VIEW,
+            phase: 6,
+            reqs: 'CFO brief G2, Phase 4',
+          },
+          {
+            to: '/reports/margin',
+            label: 'Margin',
+            icon: PercentIcon,
+            permission: PERMISSIONS.CFO_MARGIN_VIEW,
+            phase: 6,
+            reqs: 'CFO brief C2, Phase 4 (M6 proxy)',
+          },
+          {
+            to: '/reports/analytics',
+            label: 'Analytics',
+            icon: ChartScatterIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Phase 5: M10, Q2.9, Q2.21, C10',
+          },
+          {
+            to: '/reports/penetration',
+            label: 'Penetration',
+            icon: GridNineIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q2.10',
+          },
+          {
+            to: '/reports/growth',
+            label: 'Growth',
+            icon: ChartLineUpIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief D1, D2, Phase 3',
+          },
+          {
+            to: '/reports/team',
+            label: 'Sales team',
+            shortLabel: 'Team',
+            icon: TrophyIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief G4, G5, Phase 3',
           },
         ],
       },
       {
-        label: 'Catalogue',
+        label: 'Areas',
         items: [
-          // Owner, 25 Aug: the shelves only. The hub at /reports is where every
-          // category door and every report's back button lands, so a separate
-          // "All reports" row was the same door twice.
           {
-            to: '/reports?category=Books',
-            label: 'Books',
-            icon: BooksIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AE',
-          },
-          {
-            to: '/reports?category=Customers',
-            label: 'Customers',
-            icon: UsersThreeIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AG',
-          },
-          {
-            to: '/reports?category=Inventory',
-            label: 'Inventory',
-            icon: PackageIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AF',
-          },
-          {
-            to: '/reports?category=Vendors',
-            label: 'Vendors',
-            icon: ArchiveIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AG',
-          },
-          {
-            to: '/reports?category=Exceptions',
-            label: 'Exceptions',
-            icon: ScrollIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 6,
-            reqs: '14 REQ-AH',
-          },
-          {
-            to: '/reports?category=Attendance',
+            to: '/reports/attendance',
             label: 'Attendance',
             icon: CalendarDotsIcon,
-            permission: PERMISSIONS.REPORT_VIEW,
-            phase: 3,
-            reqs: 'REQ-J-01',
+            permission: PERMISSIONS.ATTENDANCE_VIEW_ALL,
+            phase: 6,
+            reqs: 'REQ-Y-06',
           },
           {
-            to: '/reports?category=Approvals',
-            label: 'Approvals',
-            icon: TrayIcon,
-            // The catalogue hides what the reader may not open; the link is
-            // gated like every other category so the tour and the nav agree.
-            permission: PERMISSIONS.REPORT_VIEW,
+            to: '/reports/receivables',
+            label: 'Receivables',
+            icon: ReceiptIcon,
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
             phase: 6,
-            reqs: 'B-05, B-06',
+            reqs: 'REQ-Y-06',
+          },
+          {
+            to: '/reports/sales',
+            label: 'Sales & purchase',
+            shortLabel: 'Sales',
+            icon: ShoppingCartIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+            phase: 6,
+            reqs: 'REQ-Y-06',
+          },
+          {
+            to: '/reports/sync',
+            label: 'Sync health',
+            shortLabel: 'Sync',
+            icon: PlugIcon,
+            permission: PERMISSIONS.INTEGRATION_MANAGE,
+            phase: 6,
+            reqs: 'REQ-Y-06',
           },
         ],
       },
       {
-        label: 'Output',
+        label: 'Credit',
         items: [
           {
-            to: '/downloads',
-            label: 'Downloads',
+            to: '/reports/desk',
+            label: "Director's desk",
+            shortLabel: 'Desk',
+            icon: PhoneIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Part O',
+          },
+          {
+            to: '/reports/me',
+            label: 'My CFO',
+            shortLabel: 'Mine',
+            icon: UserCircleIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief G3, Phase 2',
+          },
+          {
+            to: '/reports/credit',
+            label: 'Credit control',
+            shortLabel: 'Credit',
+            icon: HandCoinsIcon,
+            permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief C4, Phase 2',
+          },
+          {
+            to: '/reports/class-grade',
+            label: 'Class and grade',
+            shortLabel: 'Classes',
+            icon: SquaresFourIcon,
+            permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q2.2, Part P',
+          },
+          {
+            to: '/reports/work-lists',
+            label: 'Work lists',
+            shortLabel: 'Lists',
+            icon: ListChecksIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief E1, E3, Phase 2',
+          },
+        ],
+      },
+      {
+        label: 'Control',
+        items: [
+          {
+            to: '/reports/data-quality',
+            label: 'Data quality',
+            shortLabel: 'Quality',
+            icon: ShieldCheckIcon,
+            permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q3',
+          },
+          {
+            to: '/reports/alerts',
+            label: 'Alerts',
+            icon: BellRingingIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Part L, Q5',
+          },
+          {
+            to: '/reports/exceptions',
+            label: 'Exceptions',
+            icon: WarningDiamondIcon,
+            permission: PERMISSIONS.CFO_EXCEPTIONS_VIEW,
+            phase: 6,
+            reqs: 'CFO brief F2',
+          },
+          {
+            to: '/reports/export-centre',
+            label: 'Export centre',
+            shortLabel: 'Exports',
             icon: DownloadSimpleIcon,
-            permission: PERMISSIONS.REPORT_EXPORT,
-            phase: 3,
-            reqs: 'REQ-J-03',
+            permission: PERMISSIONS.CFO_EXPORT,
+            phase: 6,
+            reqs: 'CFO brief O6',
+          },
+          {
+            to: '/reports/purchases',
+            label: 'Purchases',
+            shortLabel: 'Purchases',
+            icon: PackageIcon,
+            permission: PERMISSIONS.CFO_RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief W-series',
+          },
+          {
+            to: '/reports/close-pack',
+            label: 'Close pack',
+            shortLabel: 'Close pack',
+            icon: FilePdfIcon,
+            permission: PERMISSIONS.CFO_EXPORT,
+            phase: 6,
+            reqs: 'CFO brief Part L',
+          },
+          {
+            to: '/reports/definitions',
+            label: 'Definitions',
+            icon: BookOpenTextIcon,
+            permission: PERMISSIONS.CFO_SALES_VIEW,
+            phase: 6,
+            reqs: 'CFO brief Q4, R7',
+          },
+        ],
+      },
+      {
+        label: 'Custom',
+        items: [
+          {
+            to: '/reports/custom',
+            label: 'Custom reports',
+            shortLabel: 'Custom',
+            icon: SquaresFourIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: 'REQ-Y-06',
           },
         ],
       },
@@ -888,6 +1210,9 @@ export interface Crumb {
  */
 const OFF_NAV_LABELS: Record<string, string> = {
   '/profile': 'Profile',
+  /* The attendance dashboard left the sidebar when the Reports module took
+     its job; the address survives for old links and needs its name. */
+  '/dashboard': 'Dashboard',
   /* The shadcn-shaped second take on the reports dashboard. Deliberately not a
      nav item -- it exists to be compared against /reports/dashboard, and two
      entries called "Dashboard" in the same group would be a puzzle rather than
@@ -915,7 +1240,7 @@ const OFF_NAV_LABELS: Record<string, string> = {
      section of Settings rather than the sidebar: a configuration surface is
      not a report, and the reports group is at its cap. Named here so the
      header does not say "Not found" above it. */
-  '/reports/interest-overrides': 'Interest cost overrides',
+  '/interest-overrides': 'Interest cost overrides',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 
@@ -932,6 +1257,8 @@ const OFF_NAV_LABELS: Record<string, string> = {
  * find.
  */
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
+  { pattern: /^\/reports\/custom\/[^/]+$/u, parent: '/reports/custom', label: 'Report' },
+  { pattern: /^\/reports\/team\/[^/]+$/u, parent: '/reports/team', label: 'Scorecard' },
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },

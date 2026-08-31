@@ -1,6 +1,6 @@
 # CLAUDE.md — Project Constitution
 
-Working name: **Setu**. One find-replace changes it if you pick something else.
+The product's name is **Vyuha** (owner's decision, 28 Aug 2026 — the repository, packages, database and buckets already said so).
 Read this file at the start of every session. It overrides your defaults.
 
 Companion documents in `/docs`:
@@ -14,6 +14,9 @@ Companion documents in `/docs`:
 | `09-technical-design-phase-6-8.md` | The sync engine, projection tables, navigation shell. |
 | `10-scope-and-delivery-plan-phase-6-8.md` | Phases 6a–8b and their exit gates. |
 | `11-decisions-phase-6-8.md` | **Authority for Phase 6–8.** Overrides 08–10 wherever they disagree. |
+| `16-virtual-cfo-brief.md` | **The Virtual CFO master brief, Parts 0–R.** Read before any cfo module work; its Part 0 governs execution. |
+| `17-virtual-cfo-part-s.md` | Part S: the CFO custom report builder and lifecycle models. |
+| `18-virtual-cfo-report-list.md` | Every report the CFO module should produce, numbered. |
 
 `01`–`03` are not superseded — they remain in force for attendance. `08`–`11`
 extend them for everything after it.
@@ -44,7 +47,7 @@ These are permanent. They do not expire, and they are not up for re-litigation i
    - If a primitive is missing, compose it from existing shadcn primitives and put the composition in `components/shared/` so it is reused, not re-invented.
    - Before building any screen, check what shadcn already offers for it via the MCP. Reach for the MCP first, code second.
    - The only styling layer is Tailwind plus the shadcn theme tokens. No inline style objects, no CSS modules, no styled-components.
-2. **No emojis anywhere** — not in UI, not in code comments, not in commit messages, not in seed data. Icons only (`lucide-react`).
+2. **No emojis anywhere** — not in UI, not in code comments, not in commit messages, not in seed data. Icons only (`@phosphor-icons/react` — the owner confirmed Phosphor on 28 Aug 2026, resolving the lucide wording this rule used to carry against what every screen already renders).
 3. **No "box in box."** One card should not contain another card. Use spacing, dividers, and typographic hierarchy to separate things. A page is: header → toolbar → content surface. That's it.
 4. **One hierarchy across the whole app.** Same page header pattern, same table pattern, same form pattern, same empty state, same toast. A screen built in week 6 must be indistinguishable in structure from one built in week 1.
 5. **Fully responsive.** Every screen works at 360px and 1920px. Tables collapse to a defined mobile pattern (see PRD §6.5), they do not horizontally scroll into oblivion.

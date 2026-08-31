@@ -8,6 +8,8 @@ interface SectionHeadingProps {
   title: string;
   /** One line saying what the section is for. Optional: some need no gloss. */
   note?: string;
+  /** Synonym for note, matching other section components. */
+  description?: string;
   /** Right-aligned control belonging to this section, not to the page. */
   action?: ReactNode;
   className?: string;
@@ -27,7 +29,8 @@ interface SectionHeadingProps {
  * said the opposite. 14px is still unmistakably a heading against 12px body
  * text and no longer argues with the h1 above it.
  */
-export function SectionHeading({ title, note, action, icon, className }: SectionHeadingProps) {
+export function SectionHeading({ title, note, description, action, icon, className }: SectionHeadingProps) {
+  const noteText = note ?? description;
   return (
     <div className={cn('flex flex-wrap items-start justify-between gap-x-4 gap-y-1', className)}>
       <div className="flex min-w-0 flex-col gap-1">
@@ -35,7 +38,7 @@ export function SectionHeading({ title, note, action, icon, className }: Section
           {icon ? <span aria-hidden className="text-muted-foreground [&_svg]:size-4">{icon}</span> : null}
           {title}
         </h2>
-        {note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
+        {noteText ? <p className="text-muted-foreground text-xs">{noteText}</p> : null}
       </div>
       {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
     </div>

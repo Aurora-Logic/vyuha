@@ -1,4 +1,4 @@
-import { date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { primaryId } from '../../../platform/db/columns.js';
 import { organizations, parties } from '../../../platform/db/schema/index.js';
@@ -54,4 +54,362 @@ export const factReceivableSnapshot = pgTable(
     index('fact_receivable_snapshot_party_idx').on(t.orgId, t.partyId, t.snapshotDate),
     index('fact_receivable_snapshot_date_idx').on(t.orgId, t.snapshotDate),
   ],
+);
+
+/**
+ * The sales fact (brief K2): one row per day x party x item x salesperson x
+ * voucher type, everything ex-GST, money exact to two decimals. The grain
+ * the brief names also carries godown and business line; the projection has
+ * no godown today (raised in the Phase 1 decisions table), and business
+ * line is a column already so Export lands without a migration when export
+ * billing begins (K1 item 7).
+ *
+ * A day is replaced as a unit when rebuilt, like the receivable snapshot —
+ * no updates, no partial days. Margin columns exist but stay null until the
+ * valuation method is confirmed (B1: cost basis blocked); nothing computes
+ * on a null margin.
+ *
+ * `salespersonRef` resolves AS OF VOUCHER DATE and is never rewritten
+ * (B4). Its forms: 'user:<uuid>' | 'HOUSE' | 'UNASSIGNED'. The Unassigned
+ * bucket is a visible data-quality figure, never a silent drop (B3).
+ */
+export const factSalesDaily = pgTable(
+  'fact_sales_daily',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    date: date('date', { mode: 'string' }).notNull(),
+    partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
+    partyName: text('party_name').notNull().default(''),
+    /** Stock item when the line moved goods; null for ledger-only vouchers. */
+    itemId: uuid('item_id'),
+    itemName: text('item_name').notNull().default(''),
+    /** The stock group, which M12 confirms separates C&S and BCH cleanly. */
+    brand: text('brand').notNull().default('Unbranded'),
+    /** 'DOMESTIC' today; 'EXPORT' when K1 item 7's flag exists. */
+    businessLine: text('business_line').notNull().default('DOMESTIC'),
+    salespersonRef: text('salesperson_ref').notNull().default('UNASSIGNED'),
+    voucherType: text('voucher_type').notNull(),
+    /** Base-UOM quantity where parseable; 0 for ledger lines (R11 note). */
+    qty: numeric('qty', { precision: 18, scale: 3 }).notNull().default('0'),
+    /** R01: sales voucher value before discounts and returns. */
+    gross: numeric('gross', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R02: discount ledger lines on sales vouchers. */
+    discount: numeric('discount', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R03: credit notes. Nature (goods return vs rate diff) is a pending decision; all sit here until it lands. */
+    returns: numeric('returns', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R04: rate-difference credit notes, empty until natures are classified. */
+    rateDiff: numeric('rate_diff', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** R05 = gross - discount - returns - rate_diff. Growth measures this. */
+    net: numeric('net', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** M06/M07: null until the Tally valuation method is confirmed. */
+    landedCost: numeric('landed_cost', { precision: 16, scale: 2 }),
+    pocketMargin: numeric('pocket_margin', { precision: 16, scale: 2 }),
+    voucherCount: integer('voucher_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('fact_sales_daily_date_idx').on(t.orgId, t.date),
+    index('fact_sales_daily_party_idx').on(t.orgId, t.partyId, t.date),
+    index('fact_sales_daily_item_idx').on(t.orgId, t.itemId, t.date),
+    index('fact_sales_daily_person_idx').on(t.orgId, t.salespersonRef, t.date),
+  ],
+);
+
+/**
+ * Customer -> owner, effective-dated (B4). Resolution order for a voucher:
+ * the voucher's own salesperson when Tally sends one (the sync does not
+ * carry cost centres yet — raised in the decisions table), then this map as
+ * of the voucher date, then UNASSIGNED. History is never rewritten:
+ * reassigning today closes the open interval today and opens a new one, and
+ * last year's facts keep last year's owner.
+ *
+ * Split credit: at most two open rows per party (M13, decided at two), with
+ * shares summing to 100. An owner of null with kind HOUSE marks the house
+ * book explicitly — never a blank (B4).
+ */
+export const customerOwnerMap = pgTable(
+  'customer_owner_map',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id')
+      .notNull()
+      .references(() => parties.id, { onDelete: 'cascade' }),
+    /** 'user:<uuid>' | 'HOUSE'. The fact copies this verbatim. */
+    ownerRef: text('owner_ref').notNull(),
+    /** Percent of the credit, 1..100; open rows for a party sum to 100. */
+    share: integer('share').notNull().default(100),
+    effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+    /** Null while current; set to the day before the successor starts. */
+    effectiveTo: date('effective_to', { mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('customer_owner_map_party_idx').on(t.orgId, t.partyId, t.effectiveFrom),
+  ],
+);
+
+/**
+ * Targets (brief G5, Phase 3): monthly, at person scope first — brand,
+ * category and customer scopes arrive with their screens. Rupee net-sales
+ * targets only; incentive arithmetic stays out until its own phase, and
+ * payroll stays out of the product entirely.
+ *
+ * `ownerRef` matches the fact table's spelling ('user:<id>' | 'HOUSE') so a
+ * league row joins its target without translation.
+ */
+export const cfoTargets = pgTable(
+  'cfo_targets',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    ownerRef: text('owner_ref').notNull(),
+    /** YYYY-MM. */
+    month: text('month').notNull(),
+    netTarget: numeric('net_target', { precision: 16, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('cfo_targets_owner_month_uq').on(t.orgId, t.ownerRef, t.month),
+    index('cfo_targets_month_idx').on(t.orgId, t.month),
+  ],
+);
+
+/**
+ * Director's Desk (brief Part O). Outcomes are the list's memory (O4.1):
+ * without them it degrades into a static report within a month. The served
+ * log is what the rotation rules read -- cooldown, no repeat within a week.
+ */
+export const cfoDeskOutcomes = pgTable(
+  'cfo_desk_outcomes',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id').notNull(),
+    /** Who logged it, as the owner map spells owners. */
+    ownerRef: text('owner_ref').notNull(),
+    outcome: text('outcome').notNull(),
+    amount: numeric('amount', { precision: 16, scale: 2 }),
+    nextDate: text('next_date'),
+    notes: text('notes').notNull().default(''),
+    loggedOn: text('logged_on').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_desk_outcomes_party_idx').on(t.orgId, t.partyId, t.loggedOn)],
+);
+
+export const cfoDeskServed = pgTable(
+  'cfo_desk_served',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id').notNull(),
+    servedOn: text('served_on').notNull(),
+    score: numeric('score', { precision: 5, scale: 1 }).notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_desk_served_day_uq').on(t.orgId, t.servedOn, t.partyId)],
+);
+
+/**
+ * Customer tiers (brief Part P): the manual class A+ to D, set by judgment,
+ * never by the system. The master is configurable (P3); the assignment
+ * carries effective dates (P4) because the class is resolved as of the
+ * voucher date, never the current one -- otherwise every historical
+ * comparison shifts each time someone re-grades. A tier is never deleted
+ * while customers are assigned.
+ */
+export const customerTiers = pgTable(
+  'customer_tiers',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    code: text('code').notNull(),
+    label: text('label').notNull(),
+    description: text('description').notNull().default(''),
+    /** A theme token name (fresh-1..5), never a raw colour; the letter always shows. */
+    colourToken: text('colour_token').notNull(),
+    creditDays: integer('credit_days'),
+    creditLimit: numeric('credit_limit', { precision: 16, scale: 2 }),
+    maxDiscountPct: numeric('max_discount_pct', { precision: 5, scale: 2 }),
+    contactEveryDays: integer('contact_every_days'),
+    servicePriority: text('service_priority').notNull().default(''),
+    reviewEvery: text('review_every').notNull().default('Quarterly'),
+    sortOrder: integer('sort_order').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('customer_tiers_code_uq').on(t.orgId, t.code)],
+);
+
+export const customerTierAssignments = pgTable(
+  'customer_tier_assignments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    partyId: uuid('party_id').notNull(),
+    tierCode: text('tier_code').notNull(),
+    effectiveFrom: text('effective_from').notNull(),
+    effectiveTo: text('effective_to'),
+    assignedBy: uuid('assigned_by').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('customer_tier_assignments_party_idx').on(t.orgId, t.partyId, t.effectiveFrom)],
+);
+
+/**
+ * Exception reviews (brief F2): an exception is Accepted with a mandatory
+ * reason or sent to Investigate as a task; resolved rows grey out but
+ * remain for audit. Keyed by check and voucher so the nightly list can
+ * skip what a person already answered.
+ */
+export const cfoExceptionReviews = pgTable(
+  'cfo_exception_reviews',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    checkKey: text('check_key').notNull(),
+    voucherId: uuid('voucher_id').notNull(),
+    state: text('state').notNull(),
+    reason: text('reason').notNull().default(''),
+    reviewedBy: uuid('reviewed_by').notNull(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_exception_reviews_uq').on(t.orgId, t.checkKey, t.voucherId)],
+);
+
+/** Alert snoozes (brief Q5): any alert can be snoozed with a reason and a date; snoozes are logged and reviewed monthly. */
+export const cfoAlertSnoozes = pgTable(
+  'cfo_alert_snoozes',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    alertKey: text('alert_key').notNull(),
+    partyId: uuid('party_id'),
+    until: text('until').notNull(),
+    reason: text('reason').notNull(),
+    snoozedBy: uuid('snoozed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_alert_snoozes_idx').on(t.orgId, t.alertKey, t.partyId)],
+);
+
+/**
+ * The nightly memory (Q5, D18, Q3): alert evaluations so an alert must
+ * persist two nights before it fires and clears with hysteresis; grade
+ * history so migration into D/E is an event, not a state; a data-quality
+ * row per check per night so the screen can show ninety days of trend.
+ */
+export const cfoAlertEvaluations = pgTable(
+  'cfo_alert_evaluations',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    day: text('day').notNull(),
+    alertKey: text('alert_key').notNull(),
+    partyId: uuid('party_id'),
+    exposure: numeric('exposure', { precision: 16, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_alert_evaluations_idx').on(t.orgId, t.day, t.alertKey, t.partyId)],
+);
+
+export const cfoGradeHistory = pgTable(
+  'cfo_grade_history',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    day: text('day').notNull(),
+    partyId: uuid('party_id').notNull(),
+    grade: text('grade').notNull(),
+    risk: numeric('risk', { precision: 5, scale: 1 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_grade_history_uq').on(t.orgId, t.day, t.partyId)],
+);
+
+export const cfoDataQualityDaily = pgTable(
+  'cfo_data_quality_daily',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    day: text('day').notNull(),
+    checkKey: text('check_key').notNull(),
+    value: numeric('value', { precision: 16, scale: 3 }),
+    health: numeric('health', { precision: 5, scale: 3 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('cfo_data_quality_daily_uq').on(t.orgId, t.day, t.checkKey)],
+);
+
+/** O6.3: a report delivered on a cadence, by the nightly run, over email. */
+export const cfoReportSchedules = pgTable(
+  'cfo_report_schedules',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    report: text('report').notNull(),
+    cadence: text('cadence').notNull(),
+    recipients: text('recipients').notNull(),
+    createdBy: uuid('created_by').notNull(),
+    lastRunOn: text('last_run_on'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_report_schedules_idx').on(t.orgId, t.cadence)],
+);
+
+/**
+ * Brand slabs (brief G2): "4.2 lakh to the next slab, nine days left" is
+ * the most profitable number in the module. Purchases from the principal
+ * are not in the projection yet, so a slab's basis is sales -- stated on
+ * the row -- and the FY-to-date progress reads the sales fact.
+ */
+export const cfoBrandSlabs = pgTable(
+  'cfo_brand_slabs',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    brand: text('brand').notNull(),
+    label: text('label').notNull(),
+    threshold: numeric('threshold', { precision: 16, scale: 2 }).notNull(),
+    basis: text('basis').notNull().default('sales'),
+    period: text('period').notNull().default('FY'),
+    reward: text('reward').notNull().default(''),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('cfo_brand_slabs_idx').on(t.orgId, t.brand)],
 );

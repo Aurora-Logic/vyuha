@@ -3,12 +3,10 @@ import { WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
-import { SectionHeading } from '@/components/shared/section-heading';
+import { SettingsPanel, SettingsPanelSkeleton, SettingsRow, SettingsSection } from '@/components/shared/settings-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -18,7 +16,7 @@ import type { SalesSettings } from '@vyuha/shared';
 import { useSalesSettings, useSaveSalesSettings } from './use-estimates';
 
 /**
- * The discount threshold (REQ-W-08), on the Settings screen's Sales tab
+ * The discount threshold (REQ-W-08), on the Settings screen's Sales page
  * (owner, 22 Aug 2026: every module's settings in one place). Its own
  * endpoint and its own Save, because the line belongs to whoever holds
  * sales.discount.approve, who may not hold settings.manage at all.
@@ -30,13 +28,8 @@ export function SalesSettingsPanel() {
   const settings = useSalesSettings();
   const save = useSaveSalesSettings();
   return (
-    <div className="flex flex-col gap-4 border p-4">
-      <SectionHeading title="Sales" note="Where a discount stops being the salesperson\u2019s call." />
-      {settings.isPending ? (
-        <div role="status" aria-busy="true" aria-label="Loading sales settings" className="flex flex-col gap-3">
-          <Skeleton className="h-9" />
-        </div>
-      ) : null}
+    <SettingsSection title="Sales" note="Where a discount stops being the salesperson’s call.">
+      {settings.isPending ? <SettingsPanelSkeleton label="Loading sales settings" rows={1} /> : null}
       {settings.isError ? (
         <QueryErrorAlert
           error={settings.error}
@@ -47,12 +40,16 @@ export function SalesSettingsPanel() {
         />
       ) : null}
       {settings.isSuccess ? <SalesSettingsForm key={JSON.stringify(settings.data)} saved={settings.data} save={save} /> : null}
-    </div>
+    </SettingsSection>
   );
 }
 
+function pctOf(saved: SalesSettings): string {
+  return saved.discountApprovalPct === null ? '' : String(saved.discountApprovalPct);
+}
+
 function SalesSettingsForm({ saved, save }: { saved: SalesSettings; save: ReturnType<typeof useSaveSalesSettings> }) {
-  const [pct, setPct] = useState(saved.discountApprovalPct === null ? '' : String(saved.discountApprovalPct));
+  const [pct, setPct] = useState(() => pctOf(saved));
   const trimmed = pct.trim();
   const pctOk = trimmed === '' || (PERCENT.test(trimmed) && Number(trimmed) <= 100);
   const next: SalesSettings = { discountApprovalPct: trimmed === '' ? null : Number(trimmed) };
@@ -76,17 +73,45 @@ function SalesSettingsForm({ saved, save }: { saved: SalesSettings; save: Return
 
   return (
     <>
+      {save.isError ? (
+        <Alert variant="destructive">
+          <WarningCircleIcon />
+          <AlertTitle>{copy.title}</AlertTitle>
+          <AlertDescription>{copy.description}</AlertDescription>
+        </Alert>
+      ) : null}
       <Form onSubmit={submit}>
-        <FieldGroup>
-          {save.isError ? (
-            <Alert variant="destructive">
-              <WarningCircleIcon />
-              <AlertTitle>{copy.title}</AlertTitle>
-              <AlertDescription>{copy.description}</AlertDescription>
-            </Alert>
-          ) : null}
-          <Field>
-            <FieldLabel htmlFor="sales-discount-pct">Discount approval threshold (%)</FieldLabel>
+        <SettingsPanel
+          status={dirty ? 'Unsaved changes' : 'Saved'}
+          footer={
+            <>
+              {dirty ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    setPct(pctOf(saved));
+                    save.reset();
+                  }}
+                >
+                  Cancel
+                </Button>
+              ) : null}
+              <Button type="submit" size="sm" disabled={!canSubmit}>
+                {save.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
+                {save.isPending ? 'Saving' : 'Save changes'}
+              </Button>
+            </>
+          }
+        >
+          <SettingsRow
+            label="Discount approval threshold (%)"
+            htmlFor="sales-discount-pct"
+            description="An order with a line discounted above this waits in the Approvals inbox for sales.discount.approve; leave empty for none."
+            invalid={!pctOk}
+          >
             <Input
               id="sales-discount-pct"
               inputMode="decimal"
@@ -98,17 +123,9 @@ function SalesSettingsForm({ saved, save }: { saved: SalesSettings; save: Return
                 setPct(event.target.value);
               }}
             />
-            <FieldDescription>An order with a line discounted above this waits in the Approvals inbox for sales.discount.approve; leave empty for none.</FieldDescription>
-          </Field>
-        </FieldGroup>
+          </SettingsRow>
+        </SettingsPanel>
       </Form>
-      <div className="flex justify-end">
-        <Button size="sm" disabled={!canSubmit} onClick={submit}>
-          {save.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
-          {save.isPending ? 'Saving' : 'Save sales settings'}
-        </Button>
-      </div>
     </>
   );
 }
-

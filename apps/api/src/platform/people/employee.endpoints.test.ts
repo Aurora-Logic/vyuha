@@ -4,11 +4,12 @@ import {
   type EmployeeListItem,
   type Paginated,
 } from '@vyuha/shared';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { employees } from '../db/schema/index.js';
+import type { EmployeeDetailView } from './employee.repository.js';
 
 /**
  * The employee endpoints (REQ-A-03 … REQ-A-07) over real HTTP against the real
@@ -476,6 +477,68 @@ describe('PATCH /employees/:id', () => {
     });
     expect(reactivated.status).toBe(200);
     expect(reactivated.body.dateOfLeaving).toBeNull();
+  });
+
+  describe('the holiday calendar override (OS-3, REQ-H-02)', () => {
+    let calendarId = '';
+
+    beforeAll(async () => {
+      // Raw SQL rather than the drizzle table: holiday_calendars belongs to
+      // modules/attendance, which platform files -- this one included -- must
+      // not import (technical design §1).
+      const created = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO holiday_calendars (org_id, name, year)
+        VALUES (${ORG_ID}, 'Employee Fixture 2026', 2026)
+        RETURNING id
+      `);
+      calendarId = created.rows[0]?.id ?? '';
+      expect(calendarId).not.toBe('');
+    });
+
+    it('attaches a calendar of this organisation, returns it, and clears it with null', async () => {
+      const patched = await harness.patch<EmployeeDetailView>(`/employees/${subjectId}`, {
+        token: hrToken,
+        body: { holidayCalendarId: calendarId },
+      });
+
+      expect(patched.status, patched.text).toBe(200);
+      expect(patched.body.holidayCalendarId).toBe(calendarId);
+
+      // The form reads the detail back before it edits, so the GET has to
+      // carry the link too -- an echo on PATCH alone would let the next edit
+      // silently clear it.
+      const read = await harness.get<EmployeeDetailView>(`/employees/${subjectId}`, {
+        token: hrToken,
+      });
+      expect(read.status).toBe(200);
+      expect(read.body.holidayCalendarId).toBe(calendarId);
+
+      // Absent means unchanged: a PATCH that names other fields must not
+      // quietly detach the calendar.
+      const unrelated = await harness.patch<EmployeeDetailView>(`/employees/${subjectId}`, {
+        token: hrToken,
+        body: { mobile: '+91 90000 0201' },
+      });
+      expect(unrelated.status, unrelated.text).toBe(200);
+      expect(unrelated.body.holidayCalendarId).toBe(calendarId);
+
+      const cleared = await harness.patch<EmployeeDetailView>(`/employees/${subjectId}`, {
+        token: hrToken,
+        body: { holidayCalendarId: null },
+      });
+      expect(cleared.status, cleared.text).toBe(200);
+      expect(cleared.body.holidayCalendarId).toBeNull();
+    });
+
+    it('refuses an id that names no calendar in this organisation', async () => {
+      const rejected = await harness.patch<ErrorBody>(`/employees/${subjectId}`, {
+        token: hrToken,
+        body: { holidayCalendarId: '01900000-0000-7000-8000-00000000dead' },
+      });
+
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error.code).toBe('VALIDATION_FAILED');
+    });
   });
 
   it('retains the record rather than deleting it (REQ-M-04)', async () => {

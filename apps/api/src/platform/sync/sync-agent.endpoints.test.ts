@@ -62,6 +62,8 @@ beforeAll(async () => {
   // would be adopted by this run's writer -- correctly, that is the writer's
   // replaced-connection rule -- carrying stale names into the count.
   await harness.db.execute(sql`DELETE FROM external_refs WHERE org_id = ${ORG_ID}`);
+  // Allocations cascade with their vouchers; deleting vouchers clears both.
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM price_list_entries WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
@@ -815,5 +817,344 @@ describe('stock items and price lists repeat the pattern (REQ-R-02, REQ-R-03)', 
     );
     expect(response.status).toBe(409);
     expect(response.body.error.message).toContain('before the item itself');
+  });
+});
+
+describe('bill allocations enter the projection (REQ-AJ-02)', () => {
+  // Its own epoch, same reasoning as the blocks above.
+  const AGENT_F = 'agent-instance-ffff';
+  let epochToken = '';
+  let chetakId = '';
+  let salesVoucherId = '';
+  let receiptVoucherId = '';
+
+  const post = (jobId: string, rows: unknown[], final: boolean) =>
+    agentPost<AgentResultsAck>('/sync/agent/results', epochToken, {
+      agentInstanceId: AGENT_F,
+      openCompanyGuid: COMPANY_GUID,
+      jobId,
+      entityType: 'bill_allocation',
+      rows,
+      requestHash: 'sha256:alloc-req',
+      responseHash: 'sha256:alloc-res',
+      final,
+    });
+
+  const claimNext = async () => {
+    const claim = await agentPost<AgentClaimResponse>('/sync/agent/jobs/claim', epochToken, {
+      agentInstanceId: AGENT_F,
+      openCompanyGuid: COMPANY_GUID,
+    });
+    return claim.body.job;
+  };
+
+  /** Projects a voucher with its GUID mapping, the way the webhook door does. */
+  const projectVoucher = async (guid: string, voucherType: string, amount: string) => {
+    const inserted = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO vouchers
+        (org_id, connection_id, voucher_date, voucher_type, party_name, amount)
+      VALUES (${ORG_ID}, ${connectionId}, '2026-08-01', ${voucherType}, 'Chetak Distributors', ${amount})
+      RETURNING id
+    `);
+    const id = inserted.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO external_refs
+        (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id)
+      VALUES (${ORG_ID}, 'TALLY', 'voucher', ${guid}, 'voucher', ${id}, ${connectionId})
+    `);
+    return id;
+  };
+
+  const invoiceRow = {
+    alterId: 400,
+    voucherGuid: 'vch-guid-inv-001',
+    partyName: 'Chetak Distributors',
+    billName: 'INV-001',
+    refType: 'new',
+    billDate: '2026-08-01',
+    dueDate: '2026-08-31',
+    amount: '5000.00',
+  };
+  const receiptRow = {
+    alterId: 410,
+    voucherGuid: 'vch-guid-rcpt-009',
+    partyName: 'Chetak Distributors',
+    billName: 'INV-001',
+    refType: 'against',
+    billDate: '2026-08-01',
+    amount: '-2000.00',
+  };
+
+  it('sets up its epoch: projected vouchers with GUID mappings, a party to resolve', async () => {
+    const reissued = await harness.post<IssuedAgentToken>(`/integrations/${connectionId}/token`, {
+      token: adminToken,
+    });
+    epochToken = reissued.body.token;
+    const hb = await agentPost<AgentHeartbeatAck>('/sync/agent/heartbeat', epochToken, {
+      agentInstanceId: AGENT_F,
+      agentVersion: '0.1.0',
+      openCompanyGuid: COMPANY_GUID,
+    });
+    expect(hb.status).toBe(200);
+
+    // Vouchers reach Vyuha through the webhook door; allocations only anchor
+    // to ones already projected, so the fixture projects them directly.
+    const party = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group)
+      VALUES (${ORG_ID}, ${connectionId}, 'Chetak Distributors', 'Sundry Debtors')
+      RETURNING id
+    `);
+    chetakId = party.rows[0]?.id ?? '';
+    salesVoucherId = await projectVoucher('vch-guid-inv-001', 'Sales', '5000.00');
+    receiptVoucherId = await projectVoucher('vch-guid-rcpt-009', 'Receipt', '2000.00');
+    expect(salesVoucherId).not.toBe('');
+    expect(receiptVoucherId).not.toBe('');
+  });
+
+  it('ingests a batch: rows anchor to their vouchers, the party resolves by name', async () => {
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'bill_allocation')
+    `);
+    const job = await claimNext();
+    expect(job?.entityType).toBe('bill_allocation');
+
+    const response = await post(job?.id ?? '', [invoiceRow, receiptRow], false);
+    expect(response.status).toBe(200);
+    expect(response.body.written).toBe(2);
+    expect(response.body.skipped).toBeUndefined();
+    expect(response.body.lastAlterId).toBe(410);
+    expect(response.body.jobState).toBe('CLAIMED');
+
+    const stored = await harness.db.execute<{
+      voucher_id: string;
+      party_id: string | null;
+      ref_type: string;
+      bill_date: string | null;
+      due_date: string | null;
+      amount: string;
+    }>(sql`
+      SELECT voucher_id, party_id, ref_type, bill_date::text, due_date::text, amount
+        FROM bill_allocations WHERE org_id = ${ORG_ID} ORDER BY ref_type
+    `);
+    expect(stored.rows).toEqual([
+      {
+        voucher_id: receiptVoucherId,
+        party_id: chetakId,
+        ref_type: 'against',
+        bill_date: '2026-08-01',
+        due_date: null,
+        // numeric, not float: signed to the paisa, exactly as Tally said.
+        amount: '-2000.00',
+      },
+      {
+        voucher_id: salesVoucherId,
+        party_id: chetakId,
+        ref_type: 'new',
+        bill_date: '2026-08-01',
+        due_date: '2026-08-31',
+        amount: '5000.00',
+      },
+    ]);
+  });
+
+  it('a replayed chunk rewrites each voucher’s set — one set, not two', async () => {
+    const open = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM sync_jobs
+       WHERE connection_id = ${connectionId} AND entity_type = 'bill_allocation' AND state = 'CLAIMED'
+       LIMIT 1
+    `);
+    const response = await post(open.rows[0]?.id ?? '', [invoiceRow, receiptRow], false);
+    expect(response.status).toBe(200);
+
+    const count = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM bill_allocations WHERE org_id = ${ORG_ID}
+    `);
+    expect(Number(count.rows[0]?.count)).toBe(2);
+  });
+
+  it('an allocation for a voucher that has not arrived is counted out, never thrown', async () => {
+    const open = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM sync_jobs
+       WHERE connection_id = ${connectionId} AND entity_type = 'bill_allocation' AND state = 'CLAIMED'
+       LIMIT 1
+    `);
+    // One row the projection cannot anchor, one revision it can: the receipt
+    // was altered in Tally and its set re-arrives whole.
+    const orphan = {
+      alterId: 415,
+      voucherGuid: 'vch-guid-never-pulled',
+      partyName: 'Chetak Distributors',
+      billName: 'GHOST-1',
+      refType: 'new',
+      billDate: '2026-08-15',
+      amount: '100.00',
+    };
+    const revised = { ...receiptRow, alterId: 420, amount: '-2500.00' };
+    const response = await post(open.rows[0]?.id ?? '', [orphan, revised], true);
+    expect(response.status).toBe(200);
+    expect(response.body.written).toBe(1);
+    expect(response.body.skipped).toBe(1);
+    expect(response.body.jobState).toBe('DONE');
+
+    // The revision replaced the receipt's set; the orphan left no row.
+    const stored = await harness.db.execute<{ bill_name: string; amount: string }>(sql`
+      SELECT bill_name, amount FROM bill_allocations
+       WHERE org_id = ${ORG_ID} AND voucher_id = ${receiptVoucherId}
+    `);
+    expect(stored.rows).toEqual([{ bill_name: 'INV-001', amount: '-2500.00' }]);
+    const ghosts = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM bill_allocations
+       WHERE org_id = ${ORG_ID} AND bill_name = 'GHOST-1'
+    `);
+    expect(Number(ghosts.rows[0]?.count)).toBe(0);
+
+    // The journal keeps the skip visible beside the exchange it happened in.
+    const journal = await harness.db.execute<{ result: string }>(sql`
+      SELECT result FROM sync_journal
+       WHERE connection_id = ${connectionId} AND entity_type = 'bill_allocation'
+       ORDER BY created_at DESC LIMIT 1
+    `);
+    expect(journal.rows[0]?.result).toBe('ok: 1 rows, 1 skipped: voucher not yet pulled');
+  });
+});
+
+describe('a full price_list re-pull deletes what stopped arriving (P6b-1)', () => {
+  // Its own epoch, same reasoning as the blocks above.
+  const AGENT_G = 'agent-instance-gggg';
+  let epochToken = '';
+
+  const post = (jobId: string, rows: unknown[], final: boolean) =>
+    agentPost<AgentResultsAck>('/sync/agent/results', epochToken, {
+      agentInstanceId: AGENT_G,
+      openCompanyGuid: COMPANY_GUID,
+      jobId,
+      entityType: 'price_list',
+      rows,
+      requestHash: 'sha256:price-req',
+      responseHash: 'sha256:price-res',
+      final,
+    });
+
+  const claimNext = async () => {
+    const claim = await agentPost<AgentClaimResponse>('/sync/agent/jobs/claim', epochToken, {
+      agentInstanceId: AGENT_G,
+      openCompanyGuid: COMPANY_GUID,
+    });
+    return claim.body.job;
+  };
+
+  const enqueue = async (full: boolean) => {
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'price_list',
+              ${full ? '{"full": true}' : null}::jsonb)
+    `);
+    return claimNext();
+  };
+
+  const cableRate = (priceLevel: string, rate: string, alterId: number) => ({
+    alterId,
+    stockItemGuid: 'item-guid-cable',
+    priceLevel,
+    rate,
+  });
+
+  const ourRates = async () => {
+    const rows = await harness.db.execute<{ price_level: string; rate: string }>(sql`
+      SELECT price_level, rate FROM price_list_entries
+       WHERE connection_id = ${connectionId} ORDER BY price_level
+    `);
+    return rows.rows;
+  };
+
+  it('sets up its epoch: a second rate beside the Wholesale one', async () => {
+    const reissued = await harness.post<IssuedAgentToken>(`/integrations/${connectionId}/token`, {
+      token: adminToken,
+    });
+    epochToken = reissued.body.token;
+    const hb = await agentPost<AgentHeartbeatAck>('/sync/agent/heartbeat', epochToken, {
+      agentInstanceId: AGENT_G,
+      agentVersion: '0.1.0',
+      openCompanyGuid: COMPANY_GUID,
+    });
+    expect(hb.status).toBe(200);
+
+    const job = await enqueue(false);
+    const response = await post(job?.id ?? '', [cableRate('Retail', '4500.00', 320)], true);
+    expect(response.status).toBe(200);
+    expect(await ourRates()).toEqual([
+      { price_level: 'Retail', rate: '4500.00' },
+      { price_level: 'Wholesale', rate: '4150.00' },
+    ]);
+  });
+
+  it('an incremental pull never deletes: absence from a window proves nothing', async () => {
+    const job = await enqueue(false);
+    const response = await post(job?.id ?? '', [cableRate('Wholesale', '4100.00', 330)], true);
+    expect(response.status).toBe(200);
+
+    // Retail did not arrive in this window, and stands untouched.
+    expect(await ourRates()).toEqual([
+      { price_level: 'Retail', rate: '4500.00' },
+      { price_level: 'Wholesale', rate: '4100.00' },
+    ]);
+  });
+
+  it('rows an earlier chunk of the same full pull touched survive its final sweep', async () => {
+    const job = await enqueue(true);
+    expect(job?.fromAlterId).toBe(0);
+    const first = await post(job?.id ?? '', [cableRate('Retail', '4600.00', 340)], false);
+    expect(first.status).toBe(200);
+    // The watermark is the job's created_at, so the final chunk must not
+    // reap what its own job's earlier chunk wrote.
+    const second = await post(job?.id ?? '', [cableRate('Wholesale', '4050.00', 350)], true);
+    expect(second.status).toBe(200);
+
+    expect(await ourRates()).toEqual([
+      { price_level: 'Retail', rate: '4600.00' },
+      { price_level: 'Wholesale', rate: '4050.00' },
+    ]);
+  });
+
+  it('the final chunk of a full pull deletes rates the pull did not carry', async () => {
+    // Another connection's rate, older than any watermark this test creates:
+    // the delete is scoped to the pulling connection or it is a crossing.
+    const other = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM integration_connections
+       WHERE org_id = ${ORG_ID} AND name = 'Other Company' AND deleted_at IS NULL LIMIT 1
+    `);
+    const otherId = other.rows[0]?.id ?? '';
+    const theirItem = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO stock_items (org_id, connection_id, name, unit, parent_group)
+      VALUES (${ORG_ID}, ${otherId}, 'Their Item', 'Nos', 'Primary')
+      RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO price_list_entries
+        (org_id, connection_id, stock_item_id, price_level, rate, last_pulled_at)
+      VALUES (${ORG_ID}, ${otherId}, ${theirItem.rows[0]?.id ?? ''}, 'Wholesale', '9.99',
+              now() - interval '1 day')
+    `);
+
+    // Retail stopped arriving: the full pull's final chunk carries only
+    // Wholesale, and the vanished rate dies rather than posing as current.
+    const job = await enqueue(true);
+    const response = await post(job?.id ?? '', [cableRate('Wholesale', '4000.00', 360)], true);
+    expect(response.status).toBe(200);
+
+    expect(await ourRates()).toEqual([{ price_level: 'Wholesale', rate: '4000.00' }]);
+    const theirs = await harness.db.execute<{ rate: string }>(sql`
+      SELECT rate FROM price_list_entries WHERE connection_id = ${otherId}
+    `);
+    expect(theirs.rows).toEqual([{ rate: '9.99' }]);
   });
 });

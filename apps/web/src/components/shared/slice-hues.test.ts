@@ -83,9 +83,9 @@ describe('applied to the document', () => {
     applyAppearance(root, {
       accentHue: 277,
       accentChroma: 0.24,
+      font: 'sans',
       base: 'stone',
       density: 'comfortable',
-      font: 'sans',
     });
 
     for (let slot = 1; slot <= SLICE_COUNT; slot += 1) {
@@ -103,9 +103,9 @@ describe('applied to the document', () => {
       applyAppearance(root, {
         accentHue: accent,
         accentChroma: 0.2,
+        font: 'sans',
         base: 'stone',
         density: 'comfortable',
-        font: 'sans',
       });
       for (let slot = 1; slot <= SLICE_COUNT; slot += 1) {
         const hue = Number(

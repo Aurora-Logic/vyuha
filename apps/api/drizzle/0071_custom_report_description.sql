@@ -1,0 +1,1 @@
+ALTER TABLE "custom_reports" ADD COLUMN "description" text DEFAULT '' NOT NULL;

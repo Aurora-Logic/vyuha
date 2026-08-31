@@ -96,7 +96,7 @@ const queuedPullSchema = z.object({
 
 export type QueuedPull = z.infer<typeof queuedPullSchema>;
 
-const FULL_PULL_TYPES = ['party', 'stock_item', 'price_list'] as const;
+const FULL_PULL_TYPES = ['party', 'stock_item', 'price_list', 'bill_allocation'] as const;
 
 /**
  * REQ-R-07's manual half. The server holds the one-open-job invariant, so a

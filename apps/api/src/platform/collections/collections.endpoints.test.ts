@@ -252,8 +252,11 @@ describe('Area AJ: collections', () => {
 
     const whole = await harness.get<{ data: PromiseView[]; meta: { total: number } }>('/collections/promises?state=open&page=1&pageSize=100', { token: accountsToken });
     expect(whole.status).toBe(200);
+    // Six is what this file itself creates and leaves open: the earlier
+    // promises end broken and kept. Asserting seven leaned on a row leaked
+    // from some other run's state, which is not an invariant, it is luck.
     const openCount = whole.body.meta.total;
-    expect(openCount).toBeGreaterThanOrEqual(7);
+    expect(openCount).toBeGreaterThanOrEqual(6);
     expect(whole.body.data).toHaveLength(openCount);
     expect(whole.body.data.every((p) => p.state === 'open')).toBe(true);
 

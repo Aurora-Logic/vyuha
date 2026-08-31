@@ -11,6 +11,7 @@ import {
   type SettlementEvent,
 } from '../../platform/receivables/bill-series.js';
 import type { InterestPolicy } from '../../platform/settings/settings.catalogue.js';
+import { istDateOf } from '../../platform/tasks/local-date.js';
 import { buildStockDailySeries, type StockDay, type StockEvent } from './interest-math.js';
 import { readInterestPolicy } from './interest-policy.js';
 
@@ -84,7 +85,7 @@ export class InterestBuildService {
     const seriesStart = earliest.rows[0]?.d ?? null;
     if (seriesStart === null) return null;
 
-    const today = scope.today ?? new Date().toISOString().slice(0, 10);
+    const today = scope.today ?? istDateOf(new Date().toISOString());
     const state = await this.db.execute<{ built_through: string }>(sql`
       SELECT built_through::text AS built_through FROM interest_build_state WHERE org_id = ${orgId}
     `);
@@ -136,7 +137,7 @@ export class InterestBuildService {
         FROM parties p
         LEFT JOIN interest_party_settings s
           ON s.org_id = p.org_id AND s.party_id = p.id AND s.deleted_at IS NULL
-       WHERE p.org_id = ${orgId} AND p.parent_group IN ('Sundry Debtors', 'Sundry Creditors') ${partyFilter}
+       WHERE p.org_id = ${orgId} AND (lower(p.parent_group) LIKE 'sundry debtors%' OR lower(p.parent_group) LIKE 'sundry creditors%') ${partyFilter}
     `);
 
     const voucherFilter: SQL = partyId === undefined ? sql`` : sql`AND v.party_id = ${partyId}`;
@@ -178,7 +179,7 @@ export class InterestBuildService {
 
     let written = 0;
     for (const party of parties.rows) {
-      const isDebtor = party.parent_group === 'Sundry Debtors';
+      const isDebtor = party.parent_group.toLowerCase().startsWith('sundry debtors');
       const billTypes = isDebtor ? DEBTOR_BILLS : CREDITOR_BILLS;
       const settleTypes = isDebtor ? DEBTOR_SETTLEMENTS : CREDITOR_SETTLEMENTS;
       const bills: BillEvent[] = [];

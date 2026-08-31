@@ -13,7 +13,7 @@ import { findBreadcrumbs } from './nav';
  * folded into one, the stage screens themselves. So the routes are read
  * from App.tsx rather than listed here, and each one is asked its crumbs.
  */
-const OUTSIDE_THE_SHELL = new Set(['print/:kind/:id', 'patterns', '*']);
+const OUTSIDE_THE_SHELL = new Set(['print/:kind/:id', 'print/close-pack', 'patterns', '*']);
 
 function shellRoutes(): string[] {
   const source = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');

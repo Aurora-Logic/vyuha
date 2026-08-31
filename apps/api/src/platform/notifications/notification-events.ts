@@ -194,6 +194,14 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
    * quiet is precisely the situation where nobody is looking at the app, and
    * the person who can fix it is at the Tally machine, not the bell.
    */
+  'help.question_asked': {
+    // The bell carries the question itself: no admin screen lists these yet,
+    // so the notification IS the delivery (REQ-AJ-05, owner 28 Aug 2026).
+    title: (p) => `Help question from ${text(p, 'askedBy', 'a colleague')}`,
+    body: (p) => `"${text(p, 'question', 'A question the panel could not answer.')}" — the help panel had no card for it.`,
+    path: () => routeFor('help.question_asked'),
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
   'sync.agent_stale': {
     title: (p) => `Tally agent for ${text(p, 'connectionName', 'a connection')} has gone quiet`,
     body: (p) =>
@@ -242,14 +250,6 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     title: (p) => `${text(p, 'orderNumber', 'An order')} has waited ${text(p, 'waitingHours')}h for its invoice`,
     body: (p) => `${text(p, 'customerName')}: ${text(p, 'packedUninvoicedQty')} packed and uninvoiced since ${text(p, 'waitingSince')}. Nothing leaves until it is billed.`,
     path: () => routeFor('sales.invoice_waiting'),
-    defaultChannels: IN_APP_AND_EMAIL,
-  },
-  // D-46: the sweep speaks only when there is something to say, so the title
-  // carries the counts rather than a generic "you have exceptions".
-  'reports.exceptions_daily': {
-    title: (p) => `Exception reports: ${text(p, 'summary', 'items need attention')}`,
-    body: (p) => `As of this morning's sweep: ${text(p, 'detail')}. Each report is in the catalogue under Reports.`,
-    path: () => routeFor('reports.exceptions_daily'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   // 15 REQ-AJ-09 / D-38: only when a promise has actually been broken. A daily

@@ -1,11 +1,10 @@
-# Open questions
+# Open questions — none. This file is now a decision log.
 
-Per `CLAUDE.md` §7. Nothing here is guessed at in code — where a default is
-stated, the code implements the default and this file records that it was a
-default, not an answer.
-
-Format: question, the REQ it blocks, the phase it blocks, and the recommended
-default being used until answered.
+**28 Aug 2026, owner's session: every open row below was decided or built.**
+The final section ("Zero pending") names each one and its closure; the body
+above it is kept verbatim as the record of how each default became a decision.
+New questions start a new section the day one exists — CLAUDE.md §7 still
+applies.
 
 ---
 
@@ -33,7 +32,7 @@ default being used until answered.
 | # | Question | Blocks | Recommended default in use |
 |---|---|---|---|
 | P1-1 | **No permission key covers departments, designations or locations.** PRD §2.1 names `employee.view` / `employee.manage` for people and `settings.manage` for org settings, but the three masters an employee points at are in neither list, and §5 gives them no screen of their own. | REQ-A-01, REQ-A-02 | **Read: `employee.view`.** Anyone who can see the employee list needs these names to render its filters and its form, so a narrower key would leave Operations looking at a list it cannot filter. **Write, departments and designations: `employee.manage`** — they are people master data and HR owns them. **Write, locations: `settings.manage`** — a location row carries the geofence centre and the IP allowlist (REQ-D-08, REQ-D-09), so whoever can edit one can decide from where a punch is accepted. That is an Admin control, not an HR one. Say the word if locations should sit with HR instead; it is a one-line change per route. |
-| P1-2 | **No delete route exists for any master.** Technical design §6 lists `GET/POST/PATCH` for all four resources and no `DELETE`, and REQ-M-04 forbids a hard delete. | Nothing yet | None built. An employee is retired through REQ-A-05 (status INACTIVE with a last working date), which keeps the history past reports need. A department or designation created by mistake currently cannot be removed from the picker. If that needs fixing, the shape is a soft-delete route guarded by the write key above, refusing while any live employee still points at the row. |
+| P1-2 | **No delete route exists for any master.** Technical design §6 lists `GET/POST/PATCH` for all four resources and no `DELETE`, and REQ-M-04 forbids a hard delete. | Nothing yet | None built. An employee is retired through REQ-A-05 (status INACTIVE with a last working date), which keeps the history past reports need. A department or designation created by mistake currently cannot be removed from the picker. If that needs fixing, the shape is a soft-delete route guarded by the write key above, refusing while any live employee still points at the row. **Resolved: built 13 Aug 2026 as `DELETE /masters/:entityType/:id` (one guarded soft-delete for all masters, with restore and the recycle bin), owner-approved 28 Aug 2026.** Departments and designations delete under `employee.manage`, refuse with 409 naming the employees still pointing at the row, and stamp `deleted_at` plus a deletion record and an audit entry. One refinement landed with the approval: only someone still working blocks the delete — a *retired* employee (INACTIVE) is history, and history may reference a retired master, so a department whose last member left years ago can now be removed. Employees themselves stay retire-only. |
 
 ## Raised during Phase 1 punch screen wiring
 
@@ -503,3 +502,316 @@ One consequence to note either way: commit `109421a` corrected two role
 expectations to include `regularization.raise`, because that is what the
 code returns today. If the key is deleted again, those two expectations go
 back to three keys.
+
+---
+
+## The reports module was removed (owner, 26 Aug 2026)
+
+The entire reports module — the web shell and dashboards, the API report
+sources, exports of reports, saved views and schedules — was removed at the
+owner's explicit instruction, confirmed with consequences stated. The
+Downloads tray survives for the employee data export (REQ-M-05), served at
+`/exports`. Three orphans were deliberately left rather than destroyed:
+
+- **Database tables** (`report_usage`, `report_views`, `dashboard_layouts`,
+  and `export_jobs` which remains live) keep their schema and data; dropping
+  them is a destructive migration awaiting its own instruction.
+- **Permission keys** (`report.view`, `report.export`, `reports.margin.view`)
+  stay in the vocabulary because stored roles carry them; pruning them is a
+  role-migration decision.
+- **REQ-J and REQ-Y in the PRDs** now describe removed features; the docs
+  are the owner's to amend.
+
+RPT-1, RPT-2, RPT-4 and RPT-5 below fell with the module. RPT-3 (parent_group
+casing) still applies to the interest module and the CFO snapshot.
+
+---
+
+## Raised during Phase 6a — the receivable snapshot (D-23)
+
+Defaults implemented in `receivable-snapshot.service.ts` and the two nightly
+handlers. **All three confirmed by the owner, 25 August 2026** — recorded
+here rather than guessed at, and now decisions rather than drift.
+
+| # | Question | Blocks | Recommended default in use |
+|---|---|---|---|
+| D-23-1 | **Billwise parties' opening bills are invisible to the snapshot.** `bill_allocations` hangs off vouchers, so a ledger-master opening bill ref has no `new` row; receipts marked against one sum negative and the group is dropped. The voucher-grain fallback seeds `parties.opening_balance` (D-22 rule 6), but the billwise path has no per-bill date to seed with. | Nothing yet — understates billwise parties whose receivable predates the sync window | **Accept the understatement and keep the dropped groups out**, until the connector projects opening bill refs with their own dates. Netting the party's opening balance against the dropped groups would need a bill date to age by, and inventing one would fabricate ageing. The service comment marks the spot. |
+| D-23-2 | **Does the CFO snapshot honour `interest_party_settings.credit_days_override`?** The interest build ages by `override ?? party.credit_days`; the snapshot uses `party.credit_days` alone, so the two modules can disagree on when the same bill went overdue for an overridden party. | Nothing yet — cosmetic divergence between two reports | **No.** The override is an interest-module setting for pricing, not a statement about the bill's real terms, and modules may not read each other's settings. If the owner wants one ageing everywhere, the override moves to the party master and both modules read it there. |
+| RPT-1 | **Report sources age and window by the database server's clock** (`CURRENT_DATE` in ageing buckets, lapse windows, days-late). On a UTC server an IST business's bill turns 31 days old at 05:30, not midnight. The attendance analytics source already converts through `organizations.timezone`. | Nothing today — server and orgs are both IST | **Sweep `CURRENT_DATE` to an org-timezone `asOf` date parameter** in a dedicated pass; not done piecemeal because half-converted sources would disagree with each other, which is worse than all of them being IST-late together. |
+| RPT-2 | **Every report source re-runs its `count()` (and whole-report totals) on each page**, so a large export re-executes the heaviest aggregates per 1,000-row batch, and both file writers buffer the entire workbook in memory. | Export latency and worker memory at scale — not correctness | **Defer to a performance pass**: cache count/totals per export run, adopt ExcelJS's streaming `WorkbookWriter`. The 100k-row cap bounds the damage meanwhile. |
+| RPT-3 | **`parent_group` matching is case-sensitive in the interest module and the CFO snapshot, `lower()`d in the Tally/analytics sources.** A differently-cased Tally group would make the sources disagree. | Nothing while Tally sends canonical casing | **Normalise the casing at sync write time** (one writer) rather than teaching twelve readers to `lower()`; the interest build and its readers must change together or the series silently empties. |
+| RPT-4 | **Which reports keep gross dispatch quantities?** Revenue reports now net Credit Notes per the metric dictionary; the quantity/velocity reports (item-velocity, movement-analysis, price bands) still count Sales dispatches gross. | Nothing — a defensible "gross dispatches" reading | **Keep quantities gross** until the owner asks for net movement; netting revenue but not dispatch counts is stated here so it is a decision, not a drift. Interest's turnover denominator likewise stays as its D-22 policy defines it. |
+| RPT-5 | **`ReportSource` has no structural permission hook** — every source privately calls its own `require()` in `count()`/`page()`; all eight do today, and the export button now checks the catalogue too, but a ninth source that forgets serves rows to anyone with `report.view`. | A future source author's mistake | **Add an abstract `requiredPermission(key)` to the registry interface** in the next platform pass, so forgetting becomes a compile error rather than a convention. |
+| D-23-3 | **Is the snapshot's day boundary IST, or each organisation's own timezone?** Organisations carry a `timezone` column (default `Asia/Kolkata`) and the attendance sweeps close each org's day in its own zone; both nightly book photographs (D-22, D-23) close the day at IST midnight for every org via `istDateOf`. | Nothing while every org is IST | **Fixed IST**, matching "dates are stored UTC and displayed IST" in the CFO brief. If a non-IST organisation ever onboards, both handlers take the org's timezone from the row they already read, and `istDateOf` becomes `localDateIn(now, org.timezone)` — the seam is one function. |
+
+## Virtual CFO — Phase 1 pending decisions (brief 0.6, 26 Aug 2026)
+
+Decided at kick-off: M3 = both (voucher salesperson when the sync carries one, dated
+Vyuha map as fallback, UNASSIGNED visible); M12 = C&S and BCH are cleanly separated in
+the stock item master; M13 = split credit allowed, maximum two owners.
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| M1/M2 | Tally valuation method; inward freight in item cost or separate ledger? | Ask the CA with the Tally screen open | All margin columns (Phase 4); they stay null until then |
+| M4 | Are credit notes linked to original invoices in Tally? | Assume unlinked; all CNs sit in returns (R03) until natures are classifiable | R03 vs R04 split |
+| M5 | ~~Borrowing rate~~ Decided 26 Aug: the interest module's configured rate, one source of truth | — | — |
+| M10 | ~~Materiality floor~~ Decided 26 Aug: ₹25,000 or 0.5% of monthly sales, whichever lower; configurable | — | — |
+| M9 | ~~Credit-grade weights~~ Decided 26 Aug: brief defaults accepted (40/25/15/10/10), configurable | — | — |
+| K3 | ~~Two deliberate permission choices~~ Confirmed 26 Aug: league table without detail; margin as %% on own book only | — | — |
+| M11 | One Tally company or several to consolidate? | Single company (current sync is one connection per org) | Fact grain if several |
+| — | Cost centre / salesperson on vouchers: the OpsTally sync does not pull it yet | Extend the sync to carry a voucher salesperson field; map fills the gap meanwhile | Tally-first attribution (map-only until then) |
+| — | Godown in the fact grain (K2) | Omit until the sync carries godowns | Godown-level analysis |
+| — | ~~Full brief missing Parts O5.2–O7, P, Q, R~~ Resolved 26 Aug: complete brief at docs/16-virtual-cfo-brief.md, Part S at 17, report list at 18 | — | — |
+
+## Virtual CFO — Part O, the Director's Desk (27 Aug 2026)
+
+Shipped: the priority score (O2) with its breakdown on the row, the weekday themes and
+mixed mode (O3), cooldown, no-repeat-within-a-week, owner balance and dormant injection
+(O2.1), the call sheet (O4) and outcome capture (O4.1). Left open, each with its default:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| O-1 | Score weights live as constants in `desk-score.ts` (35/30/20/15, cooldown 40) rather than in Settings | Move to a `desk.*` settings section in the settings pass, with the interest module's descriptor pattern | Nothing — the defaults are the brief's |
+| O-2 | A-band coverage guarantee (every A customer once in 30 days) and the day-30/day-45 first-buyer follow-up are not yet in the rotation | Add both once the served log has a month of history to read | Big accounts crowded out by noisy small ones |
+| O-3 | A `PROMISE_TO_PAY` outcome is logged on the desk but does not yet write a `promises_to_pay` row (that table wants bills and a taker) | Write the promise when the collections module exposes a "promise without bills" path | The promise-kept metric counting desk promises |
+| O-4 | Week planner (O5.2), week close (O5.3) and the Export Centre (O6) are not built | Planner and close next; the Export Centre rides the existing report-schedule job once its handler returns | The Saturday screen; scheduled delivery |
+| O-5 | Opportunity (cross-sell + lost-line ₹) reads zero in the score, and the call sheet's "should buy" says so | Phase 5 prices it | 15 of 100 points |
+
+## Virtual CFO — Part Q, category and data quality (27 Aug 2026)
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| Q-1 | **No category master exists** (S5 lists lifecycle and custom-report masters, not a product category). Tally's stock item carries the brand as its parent group and nothing for MCB / MCCB / ACB / RCCB / PQ. | Read the category off the item name (`category.ts`, MCCB before MCB, word boundaries); count the unplaceable as "Items without category" on Data Quality. Add a `product_category` master with an item mapping when the owner wants overrides. | Nothing today; misnamed items fall to Other and are counted |
+| Q-2 | Data Quality's ninety-day trend needs a nightly row per check | Write `cfo_data_quality_daily` from the nightly job once `queue.registry.ts` is free | The trend column |
+
+## Virtual CFO — Part P, customer classes (27 Aug 2026)
+
+Built: the class master (P3, seeded with the brief's five, editable under Settings ›
+Customer classes, never deletable while worn), dated assignment with a mandatory reason
+(P4, history never rewritten, defaulting to the first of next month per P7), the class and
+payment grade side by side on the customer page (P1), the D18 payment grade engine with
+its breakdown, and the class × payment-grade grid (Q2.2). Left, in the brief's order:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| P-1 | Bulk assign and Excel import (P4) | Bulk from the Customers screen next; import once the first-time classification is scheduled with the sales team | The first full classification |
+| P-2 | Class as a slicer across reports (P6) | Add `class` to Sales Analysis's scope set once assignments exist in numbers | Class mix, ageing by class |
+| P-3 | Wiring into the priority score (value × 1.5/1.25/1/0.8/0.5), coverage guarantee, credit defaults and discount ceilings (P6) | Score multiplier and coverage first; credit defaults when a customer is created in Vyuha; discount ceiling with the approval popup | — |
+| P-4 | Suggested tier job and the mismatch list (P5) | Nightly once `queue.registry.ts` is free; quarterly review surface after | Under- and over-classified lists |
+| P-5 | Class mix, class migration, neglected key accounts, service vs class (P6.1) | Configs on MatrixGrid and the RANK render type | — |
+| P-6 | P8's "sales head sets up to A, proposes A+" is not enforced — `cfo.tier.assign` sets any class | Add the A+ approval task when the approvals module exposes a generic request | A+ by the sales head without the owner |
+
+## Virtual CFO — Part S1, the custom builder (27 Aug 2026)
+
+Built: the pivot widget (S1.1) -- rows × columns × one registered measure over the sales
+fact, at the level model's dimensions (customer, brand, product, category, salesperson,
+class, month, business line) with a this-period-vs-last-year column pair, top-N rows and an
+"Other" that still ties; dimensions and measures are enums, never SQL (S1.5). Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| S-1 | Calculated fields over registered metrics (S1.2) | An expression grammar over the measure enum with unit checks and a guarded division; after the metric registry (Q4) so units come from one place | Margin % and overdue ÷ outstanding as user fields |
+| S-2 | Sharing with named users or roles (S1.3) — today a report is personal or shared with everyone holding report.view | Add `shared_with` (user and role ids) beside the flag | Targeted sharing |
+| S-3 | Scheduling a custom report by email (S1.3) and versioning with subscriber notice | Ride the report-schedule job once its handler returns | Delivery |
+| S-4 | Custom KPI cards pinned to a personal dashboard, and custom alerts (S1.4) | KPI cards as a 'number' widget on a personal report is the near equivalent today; alerts after Q5's discipline lands | — |
+| S-5 | Filters on any dimension or metric threshold inside a pivot (S1.1) | Reuse Sales Analysis's scope set as the pivot's filters first; thresholds with S-1 | Filtered pivots |
+
+## Virtual CFO — Part Q4, the metric registry (27 Aug 2026)
+
+Built: the registry as a shared module (`packages/shared/src/metric-registry.ts`) seeded
+with every metric the module draws today plus the C1, C3 and C4 definitions it draws next,
+each with formula, source, unit, good direction, materiality, minimum sample, permission,
+version and effective date; the "How is this calculated?" panel (R7) from an info icon on
+the headline figures; the Definitions screen under Control, which doubles as the change
+log through versions and effective dates. Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| Q4-1 | The registry holds ~30 definitions; the brief's register runs to 183 across C1–C5, D, W and the matrices | Add rows as each metric ships, never ahead of the code that draws it -- a definition without a figure misleads | Nothing |
+| Q4-2 | A definition change is a version bump in code; there is no per-org change-log table or "which reports are affected" join | Keep the code-versioned registry until an org edits a definition (materiality, thresholds); then a `metric_overrides` table with audit | Per-org thresholds |
+| Q4-3 | Labels on older screens (attendance areas, receivables area cards) still come from `catalogue.ts`, not the registry | Fold the area catalogue into the registry when those areas gain definition panels | One source for those labels |
+
+## Virtual CFO — Part F2, exception reports, and R1's drill (27 Aug 2026)
+
+Built: nine of F2's checks on the voucher projection (duplicate invoice, cancelled,
+same-day sale and return, sales above threshold without GSTIN, backdated, month-end
+concentration, one-off customers above materiality, dormant ledger suddenly active,
+numbering gaps), each with Accept-with-reason and Investigate-as-task, reviewed rows greyed
+and kept; and R1's contract: every customer cell in a sheet, the call sheet, My CFO and the
+class grid opens that customer's vouchers with the period carried. Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| F-1 | Four checks cannot run on what the sync carries: modified after approval (needs Tally's editing user), price override without approval, negative stock (godowns, K2), credit note with no linked invoice (M4) | Shown as "not measurable yet" with the reason; each lights when its feed lands | — |
+| F-2 | Thresholds (₹50,000 no-GSTIN, 7 backdated days, 40% month-end share, ₹25,000 materiality) are named constants in `exceptions.service.ts` | Move to a `compliance.*` settings section, confirmed with the CA, in the compliance pass | Per-org thresholds |
+| F-3 | The list is computed on read; F2 asks for a nightly delivery to admin | Ride the nightly job once `queue.registry.ts` is free; the notification bell is the channel | The morning digest |
+| F-4 | F1 compliance analytics (GSTR, Rule 37, MSME 43B(h), TDS thresholds) need returns data the sync does not carry | Out of scope until a GST returns feed exists; party master hygiene is on Data Quality already | All of F1 |
+
+## Virtual CFO — Parts O5.3 and O6, week close and export (27 Aug 2026)
+
+Built: the week close (O5.3) as a tab on the desk -- called against planned, outcomes by
+type, collected against targeted, orders won, rollovers, owner-wise completion -- and
+export from the view (R6) for the league, credit control, work lists, desk, exceptions,
+penetration, class × grade, data quality and sales analysis: a data sheet per table and an
+About sheet with the standard header block, every export logged. Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| O6-1 | Week planner (O5.2): ~~five columns by theme~~ built read-only on today's reading; names movable between days and manual additions that stick need a planner table | Add `cfo_desk_planner_overrides` (date, party, added_by) when the first director asks to move a name; regeneration rides the nightly job | Moving names |
+| O6-2 | The Export Centre screen (O6): the catalogue with schedule, recipients, last run, bulk ZIP and merged PDF | The on-demand exports are the catalogue's rows; schedules ride the report-schedule job when its handler returns; PDF after the print route grows a report design | Scheduled delivery, "give me everything" |
+| O6-3 | PDF export of a screen (R6) | Reuse the printed-document route with a report design | The monthly close pack (the acceptance test) |
+
+## Virtual CFO — Part L alerts under Q5 discipline (27 Aug 2026)
+
+Built: today's alerts evaluated on read -- limit breach (immediate), top customer down,
+silent churn above the floor, payment grade D/E on overdue money, and company-level DSO,
+CEI, days-late and concentration movements -- one alert per customer carrying every
+reason, ranked by rupees, capped at ten with the rest in a digest line, snoozable with a
+reason and a date (logged). Left:
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| L-1 | Two-evaluation confirmation, hysteresis (clear only past 10%), and three-day escalation need a history of evaluations | Write `cfo_alert_evaluations` nightly once the job runs; until then every alert is a first evaluation and says so | Flapping on the boundary |
+| L-2 | Delivery to the notification bell and the 9 AM digest (Part L cadence) | Same nightly job; the bell already carries per-user preferences | The morning digest |
+| L-3 | Thresholds (20% / ₹25,000 / 5 days / 5 points / 3 days / 5 points) are named constants in `alerts.service.ts` | Settings section with the compliance thresholds in the settings pass | Per-org tuning |
+| L-4 | Credit-grade *migration* to D/E needs yesterday's grade; today's alert is the grade's state | Grade history from the nightly job | Migration alerts |
+| L-5 | Seasonal suppression (compare against the seasonally adjusted expectation) | After a year of fact history exists | — |
+
+## Virtual CFO — the "complete everything" pass (28 Aug 2026)
+
+Closed by this pass, superseding rows above:
+
+- **L-1, L-2, L-4, F-3 (partly)** — the CFO nightly now rides the existing
+  snapshot-receivables job: fact rebuild (45 days), grade history, alert evaluations
+  (two-evaluation confirmation live), data-quality history, and report schedules
+  delivered as a summary with a link. A dedicated `cfo-nightly` queue entry still
+  waits on `queue.registry.ts` being free to edit.
+- **O6-2** — the Export Centre screen exists with the catalogue, on-demand export and
+  daily/weekly/monthly schedules. Bulk ZIP and merged PDF remain out.
+- **O6-3** — the monthly close pack ships as the print route `/print/close-pack`
+  (browser print to PDF, the house pattern): register with three comparisons, revenue
+  bridge with reconciliation error, proxy margin waterfall, movement, ageing, brand and
+  slab position, exceptions, compliance disclosures, narrative.
+- **Part L narrative** — `GET /cfo/narrative`: computed outputs only, largest bridge
+  factor named as a factor (never a cause), three right / three wrong with names, cash
+  movement, five do-this-week actions each with an owner and a list link.
+- **Part P remainder** — bulk class assignment (API), paste import with preview,
+  suggested-class mismatch list (cumulative revenue share bands, Accept / Keep-90d via
+  the class-mismatch snooze), neglected key accounts, and class as a sales-analysis
+  scope filter resolved as of the window's end.
+- **S1.2** — calculated pivot fields: an expression grammar over registered measures
+  with unit algebra (money/count/ratio), guarded division, margin permission carried
+  through; a Custom formula choice in the builder committed on blur.
+- **Custom report sharing** — named sharing by work email (resolved server-side,
+  typos refused, ids stored), absent-means-unchanged on update.
+
+Deferred by decision — each waits on a fact from outside this repository, not on an answer:
+
+Decided by the owner in session, 28 Aug 2026: **M1 closed** — the Tally item master's
+cost price IS the landed cost (registry M06/M07 bumped to v2, proxy labels removed);
+**X-2 closed** — the projection was type-agnostic all along; the purchase reading now
+ships (Purchases screen, payable book on a stated running-book basis, DPO/DIO and the
+cash cycle with honest legs, in the narrative, close pack and export catalogue) —
+bill-wise payables ageing and MSME vendor flags still wait on data Tally does not send; GST returns stay out of scope; the bulk
+class-assign UI waits for the Phase 7 Customers screen; thresholds stay named constants
+until a different number is actually wanted.
+
+| # | Question | Recommended default | Blocks |
+|---|---|---|---|
+| X-3 | GST returns feed does not exist (waits on a source being chosen) | Out of scope until a returns source is chosen (owner confirmed 28 Aug 2026) | All of F1 |
+| X-4 | Tally's editing user is not exported by the sync | The four "not measurable yet" exception checks stay labelled | F2 remainder |
+| X-5 | Bulk class assignment has an API and tests but its designed home is the CRM Customers screen (Phase 7); today the paste import and the mismatch list cover the mass paths | Wire the multi-select bulk bar when the Customers screen is built | Nothing today |
+| X-6 | Incentive statements need collected margin (Part K) | After M1 and a collections-applied ledger | Part K payouts |
+
+
+---
+
+## Zero pending — the close-out (owner's session, 28 Aug 2026)
+
+The owner answered every remaining row in this session, one by one. Where the
+answer was "build it", it was built, tested and pushed the same day. Where the
+answer needs a fact only the operator can supply, the row moved to the go-live
+checklist in `07-launch-plan.md` §3b — a checklist item, not a question.
+
+**Named decisions.**
+- P0-1 — the product is **Vyuha**; CLAUDE.md amended.
+- P0-6 — icons are **Phosphor**; CLAUDE.md §3.2 and 05-decisions amended.
+- P0-8, OS-2, P6a-1, P2-5, P0-12 — the phone bottom bar, `/team-leave`, the
+  attendance-setup regroup, PATCH `/settings` and `/auth/me` are folded into
+  the PRD as confirmed decisions.
+- P1-1 — locations write under `settings.manage` stands.
+- P1-3 — the half-day choice is offered on every IN punch; no setting.
+- REQ-G-10 second join — cancelling started leave stays an approver-key act.
+- P2-6 — weekly-off patterns stay two-level (employee, organisation).
+- K-1 — the low-balance warning stays two days, on the crossing.
+- G-1…G-9, G-10 — the guide/updates design decisions and the tooltip'd
+  header chips stand as built.
+- I-2 — integration status stays derived from heartbeats, never the column.
+- P14-1 — doc 14's decisions are cited as D14-1…D14-6; P14-2 — lapse
+  thresholds stay named constants.
+- Q-1 — product categories stay name-derived; the Other count is the
+  pressure to fix names in Tally, where they belong.
+- O-1, F-2, L-3 — desk weights, exception thresholds and alert thresholds
+  stay named constants until a different number is actually wanted.
+- Q4-1/2/3 — registry rows land with the code that draws them; per-org
+  overrides and the label fold wait for the first org that needs them.
+- RPT-1, D-23-3 — the day boundary is IST everywhere until a non-IST org
+  exists; the seam is one function.
+- RPT-4 — quantity reports stay gross; revenue nets credit notes.
+- RPT-2, RPT-5 — died with the reports module (owner, 26 Aug).
+- P6b-2, P6b-3 — snapshots upsert only; price/GST fill when the pull
+  transport lands. P6b-4 — done in Phase 6c.
+- P6b-5 — the historical baseline is one raised-lookback pass (checklist).
+- P8-1, P8-2, P8-3, P8-4 — stand as closed 18 Aug; P8-3's overdue half
+  lights when bill allocations arrive.
+- Two-step sign-in — the replay window is closed (`totp_last_step`); no
+  SMS/email fallback, recovery codes and admin reset stand.
+- Audit trail — append-only forever; archive, never delete.
+- Legal, WS-A-2, 05-decisions rows 1–8/11–13, WS-D-1 — go-live checklist
+  (§3b), including the R2 backup target and counsel review.
+- F-4 / X-3 — GST returns stay out of scope until a source is chosen.
+- X-4 — the four unmeasurable exception checks stay labelled until Tally's
+  editing user is exported. X-5 — the bulk class-assign UI lands with the
+  Phase 7 Customers screen (its API is live and tested). X-6 — incentive
+  statements wait on collected margin, which waits on allocations.
+- O6-1 — the week planner stays a computed reading until a director actually
+  asks to move a name. L-5 — seasonal suppression waits for a year of
+  history, by nature.
+- P-3 remainder / P-6 / P-5's service-vs-class — tier-driven credit
+  defaults, the discount-ceiling popup, the A+ approval gate and the
+  service-vs-class report are Phase 7/8 surfaces by the brief's own design;
+  the score multiplier, coverage guarantee, class slicer and class×grade
+  grid are live today.
+
+**Built this session (each with tests, pushed).**
+- P2-2 — geofence behaviour (block / allow-with-reason / allow-and-flag)
+  consulted by the punch path; escalation days read from settings when a
+  request is raised. The last two "saved but read by nothing" switches are
+  gone.
+- P2-4 — moot: exceljs has been a dependency since the CFO exports; CSV rows
+  elsewhere remain CSV by the reports-module removal.
+- K-3 — was already emitting; verified, closed.
+- P1-2 — was already built (13 Aug, recycle bin); the audit fixed the one
+  gap: a retired employee no longer blocks deleting a master.
+- OS-1 — the leave settings group is writable, validated, audited, on the
+  Settings screen with real enforced-by lines.
+- OS-3 — locations and employees take a holiday calendar from their forms.
+- OS-4 — the five REQ-G-02 types seed idempotently, placeholder notes kept.
+- WS-A-1 — Sentry installed, reporting only when a DSN is set.
+- P6b-1 — a vanished price rate dies on the final chunk of a full re-pull.
+- REQ-AJ-02 — the bill_allocation entity is in the sync contract with a
+  writer, idempotent, skip-counting; the agent-side ask is on the checklist.
+- P-HELP-1 / REQ-AJ-01…05 — the REQ IDs are in the PRD; the
+  unanswered-question path exists: explicit send, recorded, audited,
+  delivered to settings.manage holders' bells.
+- P7-1, P7-2 — crm.task.view.all for Admin; task keys for Employee,
+  Operations and HR.
+- P8-5 — sales.fulfil exists; Pack, Dispatch and the pick queue sit behind
+  it; a Warehouse system role holds exactly what fulfilment needs, and
+  create no longer implies it.
+- O-2, O-3 — the desk keeps the coverage guarantee and writes real promises.
+- O6-2 — "give me everything" is one ZIP of every permitted report.
+- S-1…S-5 — calculated fields, named sharing, custom-report schedules,
+  KPI-card equivalent (number widget, standing), and pivot scope filters.
+- The leave-year control is single-sourced (the settings row the engine
+  reads); the org-profile field that wrote an unread column is gone.

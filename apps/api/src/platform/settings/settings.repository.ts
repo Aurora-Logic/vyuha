@@ -22,7 +22,6 @@ export interface OrgProfileRow {
   readonly timezone: string;
   readonly dateFormat: string;
   readonly weekStart: number;
-  readonly leaveYearStartMonth: number;
   readonly logoKey: string | null;
 }
 
@@ -42,7 +41,6 @@ export class SettingsRepository extends ScopedRepository<typeof settings> {
         timezone: organizations.timezone,
         dateFormat: organizations.dateFormat,
         weekStart: organizations.weekStart,
-        leaveYearStartMonth: organizations.leaveYearStartMonth,
         logoKey: organizations.logoKey,
       })
       .from(organizations)

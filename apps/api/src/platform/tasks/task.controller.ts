@@ -40,7 +40,11 @@ class CreateBoardColumnDto extends createZodDto(createBoardColumnSchema) {}
 class UpdateBoardColumnDto extends createZodDto(updateBoardColumnSchema) {}
 class ReorderBoardColumnsDto extends createZodDto(reorderBoardColumnsSchema) {}
 
-const VIEW_KEYS = [PERMISSIONS.CRM_TASK_VIEW_SELF, PERMISSIONS.CRM_TASK_VIEW_TEAM] as const;
+const VIEW_KEYS = [
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  PERMISSIONS.CRM_TASK_VIEW_ALL,
+] as const;
 
 /**
  * `/api/v1/tasks` (09 §5, platform-level). `board` and `columns` are

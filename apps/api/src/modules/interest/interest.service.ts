@@ -58,7 +58,7 @@ export class InterestService {
         LEFT JOIN interest_party_settings s
           ON s.org_id = p.org_id AND s.party_id = p.id AND s.deleted_at IS NULL
        WHERE p.org_id = ${principal.orgId}
-         AND p.parent_group IN ('Sundry Debtors', 'Sundry Creditors')
+         AND (lower(p.parent_group) LIKE 'sundry debtors%' OR lower(p.parent_group) LIKE 'sundry creditors%')
          AND (s.id IS NOT NULL OR p.credit_days IS NULL)
        ORDER BY p.name
     `);

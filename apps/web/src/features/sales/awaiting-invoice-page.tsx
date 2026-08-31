@@ -3,6 +3,7 @@ import { ArrowSquareOutIcon, ClipboardIcon, LinkIcon, LockKeyIcon, ReceiptIcon, 
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
@@ -14,7 +15,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
@@ -71,20 +71,6 @@ const UNLINKED_COLUMNS: RecordColumn<UnlinkedInvoice>[] = [
     cell: (row) => (row.candidateOrders.length === 0 ? <span className="text-muted-foreground">None for this party</span> : `${String(row.candidateOrders.length)} candidate${row.candidateOrders.length === 1 ? '' : 's'}`),
   },
 ];
-
-function ListSkeleton({ label }: { label: string }) {
-  return (
-    <div role="status" aria-busy="true" aria-label={label} className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function AwaitingInvoicePage() {
   const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
@@ -186,7 +172,7 @@ export function AwaitingInvoicePage() {
           }
         >
           <TabsContent value="waiting" className="flex flex-col gap-4">
-            {waiting.isPending ? <ListSkeleton label="Loading the billing queue" /> : null}
+            {waiting.isPending ? <ListSkeleton rows={4} label="Loading the billing queue" /> : null}
             {waiting.isError ? (
               <QueryErrorAlert
                 error={waiting.error}
@@ -228,7 +214,7 @@ export function AwaitingInvoicePage() {
           </TabsContent>
 
           <TabsContent value="unlinked" className="flex flex-col gap-4">
-            {unlinked.isPending ? <ListSkeleton label="Loading unlinked invoices" /> : null}
+            {unlinked.isPending ? <ListSkeleton rows={4} label="Loading unlinked invoices" /> : null}
             {unlinked.isError ? (
               <QueryErrorAlert
                 error={unlinked.error}

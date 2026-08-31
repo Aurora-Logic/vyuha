@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { SettingsSection } from '@/components/shared/settings-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DesignRail } from '@/features/documents/design-rail';
@@ -41,6 +42,17 @@ const SAMPLE: Omit<PaperModel, 'type'> = {
 };
 
 export function DocumentsPanel() {
+  return (
+    <SettingsSection
+      title="Documents"
+      note="The design of every printed page, and the business details and bank they share, beside a sample that shows each change as it is made."
+    >
+      <DocumentsBody />
+    </SettingsSection>
+  );
+}
+
+function DocumentsBody() {
   const settings = useDocumentSettings();
   const branding = useBranding();
   const save = useSaveDocumentSettings();

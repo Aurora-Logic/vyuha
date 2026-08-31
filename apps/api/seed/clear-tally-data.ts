@@ -51,8 +51,8 @@ async function main(): Promise<void> {
             table,
             deletedCount: result.rowCount ?? 0,
           });
-        } catch (err: any) {
-          console.warn(`⚠️ Could not delete from ${table}: ${err.message}`);
+        } catch (err) {
+          console.warn(`Warning: Could not delete from ${table}: ${(err instanceof Error ? err.message : String(err))}`);
         }
       }
 
@@ -104,18 +104,18 @@ async function main(): Promise<void> {
     const elapsedMs = Date.now() - started;
 
     console.log('\n' + '='.repeat(60));
-    console.log(' 🧹 TALLY DATA CLEARANCE REPORT');
+    console.log(' TALLY DATA CLEARANCE REPORT');
     console.log('='.repeat(60));
     console.table(summaries);
     console.log('='.repeat(60));
-    console.log(`✨ All Tally synced masters, vouchers, and cursors cleared in ${elapsedMs}ms.`);
-    console.log('🔄 The next sync from OpsTally Agent or pull agent will do a clean initial load.\n');
+    console.log(`All Tally synced masters, vouchers, and cursors cleared in ${elapsedMs}ms.`);
+    console.log('The next sync from OpsTally Agent or pull agent will do a clean initial load.\n');
   } finally {
     await pool.end();
   }
 }
 
 main().catch((err) => {
-  console.error('\n❌ Failed to clear Tally data:', err.message);
+  console.error('\nFailed: Failed to clear Tally data:', (err instanceof Error ? err.message : String(err)));
   process.exit(1);
 });

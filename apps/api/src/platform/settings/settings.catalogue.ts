@@ -14,7 +14,7 @@ import {
   type Appearance,
   type RetentionPolicy,
   type WorkspaceLocale, DEFAULT_DUPLICATES_POLICY, duplicatesPolicySchema, type DuplicatesPolicy,
-  DEFAULT_RETURN_REASONS_POLICY, returnReasonsPolicySchema, type ReturnReasonsPolicy } from '@vyuha/shared';
+  DEFAULT_RETURN_REASONS_POLICY, returnReasonsPolicySchema, type ReturnReasonsPolicy, GEOFENCE_BEHAVIOURS } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -42,14 +42,9 @@ import { z } from 'zod';
  * imported -- `settings.catalogue.test.ts` fails if a consumer renames one.
  */
 
-/**
- * REQ-L-02 names "geofence behaviour" beside punch window behaviour, and the
- * three outcomes are the same three. Declared here rather than in
- * `@vyuha/shared` because nothing reads it yet (see `enforcedBy`), and a
- * contract-package enum implies a contract somebody honours.
- */
-export const GEOFENCE_BEHAVIOURS = ['BLOCK', 'ALLOW_WITH_REASON', 'ALLOW_AND_FLAG'] as const;
-export type GeofenceBehaviour = (typeof GEOFENCE_BEHAVIOURS)[number];
+// The behaviour enum lives in @vyuha/shared now that the punch pipeline
+// honours it (P2-2, closed 28 Aug 2026); re-exported for existing importers.
+export { GEOFENCE_BEHAVIOURS, type GeofenceBehaviour } from '@vyuha/shared';
 
 const KB = 1024;
 
@@ -80,9 +75,11 @@ export const ATTENDANCE_SETTINGS = {
   geofenceBehaviour: {
     key: 'attendance.geofence_behaviour',
     help: 'What happens to a punch outside the location radius (REQ-D-08).',
-    // REQ-D-08 and 05-decisions fix this to a hard block, and the punch
-    // service implements the block directly rather than reading a row.
-    enforcedBy: null,
+    // P2-2, closed 28 Aug 2026: the punch pipeline consults the row on every
+    // outside verdict. BLOCK refuses as before; ALLOW_WITH_REASON records
+    // with a typed reason or answers PUNCH_REASON_REQUIRED; ALLOW_AND_FLAG
+    // records and flags for Approvals.
+    enforcedBy: 'Punch',
   },
   deviceBindingMode: {
     key: 'attendance.device_binding_mode',
@@ -131,7 +128,10 @@ export const ATTENDANCE_SETTINGS = {
   autoEscalationDays: {
     key: 'attendance.auto_escalation_days',
     help: 'An untouched approval escalates to HR after this many days (REQ-G-09).',
-    enforcedBy: null,
+    // P2-2, closed 28 Aug 2026: read when a request is raised; the sweep then
+    // honours what the request carries. A malformed row falls back to the
+    // shared default rather than stopping requests being raised.
+    enforcedBy: 'Approvals framework',
   },
 } as const satisfies Record<string, SettingDescriptor>;
 
@@ -302,6 +302,10 @@ export const APPEARANCE_SETTINGS = {
   accentChroma: { key: 'appearance.accent_chroma', help: 'How saturated the accent is.', enforcedBy: 'Shell' },
   base: { key: 'appearance.base', help: 'The neutral ramp: stone, zinc, neutral, gray or slate -- the five shadcn ships.', enforcedBy: 'Shell' },
   density: { key: 'appearance.density', help: 'Comfortable or compact spacing; type size does not change.', enforcedBy: 'Shell' },
+  // df1d3df added the typeface to the shared contract without this row, so
+  // PATCH refused the very key the screen offered -- masked until the stale
+  // shared dist was rebuilt. The catalogue test now catches the drift.
+  font: { key: 'appearance.font', help: 'The workspace typeface, the same four the printed documents offer.', enforcedBy: 'Shell' },
 } as const satisfies Record<string, SettingDescriptor>;
 
 export const appearancePolicySchema = appearanceSchema;
@@ -373,6 +377,52 @@ export const DEFAULT_INTEREST_POLICY: InterestPolicy = {
   nonMovingDays: 90,
 };
 
+/**
+ * OS-1, decided 28 Aug 2026: the three leave policy rows the leave slice has
+ * read since Phase 2 (REQ-G-04, REQ-G-11, REQ-G-12) become writable. Until
+ * this group existed they were read with a default and writable by nobody --
+ * a policy that could only ever be its default. The key strings repeat
+ * `LEAVE_SETTING_KEYS` in `leave.repository.ts`; the catalogue test fails if
+ * either side renames one.
+ */
+export const LEAVE_SETTINGS = {
+  yearStartMonth: {
+    key: 'leave.year_start_month',
+    help: 'The month the leave year starts in (REQ-G-04). Accrual, carry-forward and lapse are all measured from here.',
+    enforcedBy: 'Leave engine',
+  },
+  compOffExpiryDays: {
+    key: 'leave.comp_off_expiry_days',
+    help: 'Days a comp-off credit lives from the day it was earned before it lapses (REQ-G-11).',
+    enforcedBy: 'Comp-off grants',
+  },
+  concurrentAbsenceThreshold: {
+    key: 'leave.concurrent_absence_threshold',
+    help: 'Warn when this many people in one department are away on the same day (REQ-G-12). Zero switches the warning off.',
+    enforcedBy: 'Leave calendar',
+  },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const leavePolicySchema = z.object({
+  yearStartMonth: z.number().int().min(1).max(12),
+  // The reader's own guard is 1..3650; a year is the widest a screen should
+  // offer before the credit stops being "compensatory" in any meaningful sense.
+  compOffExpiryDays: z.number().int().min(1).max(365),
+  // Zero is a legitimate policy: the warning switched off, which is also the
+  // default until an organisation chooses a number.
+  concurrentAbsenceThreshold: z.number().int().min(0).max(100),
+});
+export type LeavePolicy = z.infer<typeof leavePolicySchema>;
+
+export const DEFAULT_LEAVE_POLICY: LeavePolicy = {
+  // REQ-G-04 and 05-decisions: April.
+  yearStartMonth: 4,
+  // REQ-G-11: thirty days from the earned date.
+  compOffExpiryDays: 30,
+  // REQ-G-12: off until a number is chosen.
+  concurrentAbsenceThreshold: 0,
+};
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
@@ -384,6 +434,7 @@ export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(DUPLICATES_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(RETURNS_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(INTEREST_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(LEAVE_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

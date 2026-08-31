@@ -183,9 +183,16 @@ export interface OpenBillState {
  * before settlements within a day, exactly as the daily series walks them.
  * A party wholly in advance returns no bills — the advance is real money,
  * but not an open bill, and it has no date to age from.
+ *
+ * `opening` is D-22 rule 6, exactly as `buildPartyDailySeries` applies it:
+ * a positive amount is a keyless bill of `opening.date`, a negative one an
+ * advance from before the books begin. Left out, receipts that in truth
+ * settle the opening balance would read as advances and consume later
+ * bills before they age — the open book would understate itself.
  */
 export function openBillsThrough(input: {
   readonly through: string;
+  readonly opening?: { readonly date: string; readonly amount: number };
   readonly bills: readonly BillEvent[];
   readonly settlements: readonly SettlementEvent[];
 }): OpenBillState[] {
@@ -198,6 +205,10 @@ export function openBillsThrough(input: {
     .sort((a, b) => a - b);
 
   const ledger = openBillLedger();
+  if (input.opening !== undefined && epochDay(input.opening.date) <= endDay) {
+    if (input.opening.amount > 0) ledger.raise(epochDay(input.opening.date), input.opening.amount, null);
+    else if (input.opening.amount < 0) ledger.settle(-input.opening.amount, undefined);
+  }
   for (const day of days) {
     for (const bill of billsByDay.get(day) ?? []) ledger.raise(day, bill.amount, bill.key ?? null);
     for (const settlement of settlementsByDay.get(day) ?? []) ledger.settle(settlement.amount, settlement.billKey);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BuildingsIcon, HouseLineIcon } from '@phosphor-icons/react';
 import {
   Select,
@@ -21,10 +21,11 @@ export function CompanyFilter({ value, onValueChange, className = 'w-56' }: Comp
   const { data: integrationsData, isLoading } = useIntegrations();
   const connections = integrationsData?.data ?? [];
   const [selected, setSelected] = useState<string>(value || ALL_COMPANIES);
-
-  useEffect(() => {
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
     setSelected(value || ALL_COMPANIES);
-  }, [value]);
+  }
 
   const handleSelectChange = (next: string | null) => {
     const nextVal = next ?? ALL_COMPANIES;

@@ -19,7 +19,8 @@
     "rate-limit:clear": "tsx seed/clear-rate-limits.ts",
     "tally:clear": "tsx seed/clear-tally-data.ts",
     "cross-company:report": "tsx seed/cross-company-consolidation.ts",
-    "db:demo": "tsx seed/run-demo.ts"
+    "db:demo": "tsx seed/run-demo.ts",
+    "db:cfo-demo": "tsx seed/cfo-demo.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1108.0",
@@ -27,6 +28,7 @@
     "@nestjs/common": "^11.1.29",
     "@nestjs/core": "^11.1.29",
     "@nestjs/platform-express": "^11.1.29",
+    "@sentry/node": "^10.71.0",
     "@types/qrcode": "^1.5.6",
     "@vyuha/shared": "workspace:*",
     "bullmq": "^6.1.0",

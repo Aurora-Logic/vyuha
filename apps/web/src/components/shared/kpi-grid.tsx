@@ -41,9 +41,11 @@ export interface KpiTileProps {
    * modes.
    */
   tone?: 'warning';
+  /** The "how is this calculated?" door beside the label (CFO brief R7): a DefinitionLink. */
+  info?: ReactNode;
 }
 
-export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 6; className?: string }) {
+export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 5 | 6; className?: string }) {
   return (
     <dl
       className={cn(
@@ -51,7 +53,13 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
         // band on a wide screen, stepping down through three to the phone's
         // two without any tile dropping below a readable width.
         'grid grid-cols-2 gap-3',
-        columns === 6 ? 'sm:grid-cols-3 xl:grid-cols-6' : columns === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3',
+        columns === 6
+          ? 'sm:grid-cols-3 xl:grid-cols-6'
+          : columns === 5
+            ? 'sm:grid-cols-2 lg:grid-cols-5'
+            : columns === 4
+              ? 'sm:grid-cols-2 lg:grid-cols-4'
+              : 'sm:grid-cols-2 lg:grid-cols-3',
         className,
       )}
     >
@@ -62,7 +70,7 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
   );
 }
 
-export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon, tone }: KpiTileProps) {
+export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon, tone, info }: KpiTileProps) {
   const delta = current !== undefined && previous !== undefined && previous !== null ? deltaOf(current, previous) : null;
   const good = delta === null ? null : delta.direction === 'flat' ? null : (delta.direction === 'up') !== lowerIsBetter;
   return (
@@ -98,6 +106,7 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
           </span>
         )}
         {label}
+        {info === undefined ? null : <span className="ml-1 inline-flex align-middle">{info}</span>}
       </dt>
       {/*
         A step smaller on a phone, and never truncated: a rupee figure cut in

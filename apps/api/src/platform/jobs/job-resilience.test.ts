@@ -122,7 +122,7 @@ describe('enqueueing while Redis does not answer', () => {
 
     try {
       const failure = await runner
-        .enqueue('generate-report-export', {
+        .enqueue('export-employee-data', {
           orgId: ORG_ID,
           exportJobId: '01900000-0000-7000-8000-0000000000f6',
           requestedAt: new Date().toISOString(),
@@ -134,7 +134,7 @@ describe('enqueueing while Redis does not answer', () => {
 
       expect((failure as AppError).details).toMatchObject({
         retryAfterSeconds: expect.any(Number),
-        jobName: 'generate-report-export',
+        jobName: 'export-employee-data',
       });
     } finally {
       add.mockRestore();

@@ -9,9 +9,6 @@ import { LifecycleAnalyticsService } from './lifecycle-analytics.service.js';
 import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 import { PartyGoToSource } from './party-goto.source.js';
-import { AnalyticsReportSource } from './analytics-report.source.js';
-import { ExceptionSweepHandler } from './exception-sweep.handler.js';
-import { TallyReportSource } from './tally-report.source.js';
 import { VoucherGoToSource } from './voucher-goto.source.js';
 
 /**
@@ -23,7 +20,7 @@ import { VoucherGoToSource } from './voucher-goto.source.js';
   // Read-only still: the documents module lends the voucher export its sheet writer and the design settings.
   imports: [DocumentsModule],
   controllers: [MastersController],
-  providers: [MastersService, DuplicatesService, DuplicateDetectorHandler, LifecycleService, LifecycleAnalyticsService, PartyGoToSource, VoucherGoToSource, TallyReportSource, AnalyticsReportSource, ExceptionSweepHandler],
+  providers: [MastersService, DuplicatesService, DuplicateDetectorHandler, LifecycleService, LifecycleAnalyticsService, PartyGoToSource, VoucherGoToSource],
   exports: [MastersService],
 })
 export class MastersModule {}

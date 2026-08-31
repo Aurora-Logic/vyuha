@@ -18,7 +18,7 @@ import { InjectDatabase, type Database } from '../../../platform/db/db.provider.
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService } from '../../../platform/rbac/scope.service.js';
 import { attendanceDays } from '../schema/index.js';
-import { ATTENDANCE_SCOPE_GRANTS } from '../punch/punch.service.js';
+import { ATTENDANCE_SCOPE_GRANTS } from '../punch/attendance-scope.js';
 import { PunchRepository } from '../punch/punch.repository.js';
 import { AttendanceDayRepository } from './attendance-day.repository.js';
 import {

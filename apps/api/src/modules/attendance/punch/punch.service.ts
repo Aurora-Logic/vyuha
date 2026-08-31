@@ -39,7 +39,7 @@ import { sanitizeImage } from '../../../platform/files/image-sanitizer.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
-import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { ScopeService } from '../../../platform/rbac/scope.service.js';
 import { addDays, localDateIn } from '../day-engine/calendar-date.js';
 import { DayEngineRepository, type EmployeeContext } from '../day-engine/day-engine.repository.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
@@ -102,11 +102,10 @@ import {
  * `attendance.view.self`, which is the key that lets an employee open their own
  * punch history.
  */
-export const ATTENDANCE_SCOPE_GRANTS: ScopeGrants = {
-  self: PERMISSIONS.ATTENDANCE_VIEW_SELF,
-  team: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
-  all: PERMISSIONS.ATTENDANCE_VIEW_ALL,
-};
+import { ATTENDANCE_SCOPE_GRANTS } from './attendance-scope.js';
+// Re-exported for the callers that always found it here; the definition
+// moved to its own file to break an import cycle (see attendance-scope.ts).
+export { ATTENDANCE_SCOPE_GRANTS };
 
 /**
  * Flags worth waking HR for. Deliberately excludes `geofence_disabled` and
@@ -949,7 +948,36 @@ export class PunchService {
         distanceFromGeofenceM = verdict.distanceM;
         flags.add('low_gps_accuracy');
         break;
-      case 'outside':
+      case 'outside': {
+        // P2-2 (closed 28 Aug 2026): the behaviour is the org's setting, not
+        // a hard-coded block. ALLOW_AND_FLAG mirrors the out-of-window rule:
+        // record, flag, let Approvals decide. ALLOW_WITH_REASON records only
+        // with a typed reason -- the same field REQ-D-08a already carries --
+        // and otherwise answers PUNCH_REASON_REQUIRED so the client can ask
+        // for one. BLOCK is what it always was.
+        if (settings.geofenceBehaviour === 'ALLOW_AND_FLAG') {
+          distanceFromGeofenceM = verdict.distanceM;
+          flags.add('outside_geofence');
+          break;
+        }
+        if (settings.geofenceBehaviour === 'ALLOW_WITH_REASON') {
+          if ((facts.reason ?? '').trim().length >= 3) {
+            distanceFromGeofenceM = verdict.distanceM;
+            flags.add('outside_geofence');
+            break;
+          }
+          throw new AppError(
+            ERROR_CODES.PUNCH_REASON_REQUIRED,
+            `You are about ${String(Math.round(verdict.distanceM))} m from the office. Add a short reason to record this punch.`,
+            {
+              details: {
+                distanceM: Math.round(verdict.distanceM),
+                radiusM: employee.geofenceRadiusM,
+                accuracyM: facts.gpsAccuracyM ?? null,
+              },
+            },
+          );
+        }
         await this.auditRejection(principal, employee, 'outside_geofence', {
           distanceM: Math.round(verdict.distanceM),
           radiusM: employee.geofenceRadiusM,
@@ -965,6 +993,7 @@ export class PunchService {
             },
           },
         );
+      }
     }
 
     // -- device (REQ-B-08, WARN by 05-decisions)

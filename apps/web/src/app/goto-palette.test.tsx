@@ -52,6 +52,19 @@ beforeEach(() => {
 });
 
 describe('GoToPalette', () => {
+  it('lists a group label once even when two modules use it', async () => {
+    renderPalette('Admin');
+    openPalette();
+    await screen.findByText('Audit log');
+
+    // Attendance and CRM both call a group "People". Rendered twice under one
+    // key, React kept a stale copy standing after a query emptied the list,
+    // and the empty state never showed (the over-cap test below).
+    expect(screen.getAllByText('People')).toHaveLength(1);
+    expect(screen.getByText('Employees')).toBeTruthy();
+    expect(screen.getByText('Contacts')).toBeTruthy();
+  });
+
   it('lists Administration destinations for an account that may reach them', async () => {
     renderPalette('Admin');
     openPalette();

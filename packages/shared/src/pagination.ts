@@ -8,9 +8,16 @@ import { z } from 'zod';
 
 export const MAX_PAGE_SIZE = 200;
 export const DEFAULT_PAGE_SIZE = 50;
+/**
+ * At the page-size cap this is 20 million rows deep -- past every honest
+ * use, and a ceiling on OFFSET: an unbounded page number multiplied
+ * straight into OFFSET let one cheap request make Postgres compute and
+ * discard an entire analytics aggregate.
+ */
+export const MAX_PAGE = 100_000;
 
 export const pageQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(MAX_PAGE).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 

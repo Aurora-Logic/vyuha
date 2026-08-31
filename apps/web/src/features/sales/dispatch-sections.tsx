@@ -43,7 +43,9 @@ export function DispatchPhotographs({ dispatch }: { dispatch: Dispatch }) {
 }
 
 export function DispatchNotifications({ dispatch }: { dispatch: Dispatch }) {
-  const canAct = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  // P8-5: marking a notification sent and recording a delivery are the
+  // floor's acts, and their endpoints ask for sales.fulfil.
+  const canAct = usePermission(PERMISSIONS.SALES_FULFIL);
   const mark = useMarkNotification();
   return (
     <div className="flex flex-col gap-2">
@@ -199,7 +201,9 @@ function CopyButton({ text, label }: { text: string; label: string }) {
  * A delivered dispatch states the fact and stops offering the verb.
  */
 export function DeliverSection({ dispatch }: { dispatch: Dispatch }) {
-  const canAct = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  // P8-5: marking a notification sent and recording a delivery are the
+  // floor's acts, and their endpoints ask for sales.fulfil.
+  const canAct = usePermission(PERMISSIONS.SALES_FULFIL);
   const deliver = useDeliverDispatch();
   const [open, setOpen] = useState(false);
   const [receivedBy, setReceivedBy] = useState('');

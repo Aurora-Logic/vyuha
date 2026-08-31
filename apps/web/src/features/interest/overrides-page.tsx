@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { BooksIcon, LockKeyIcon, PercentIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { BooksIcon, LockKeyIcon, PercentIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/empty';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -49,24 +48,6 @@ function terms(row: InterestPartySetting): string {
   if (row.creditDaysOverride !== null) return `${String(row.creditDaysOverride)} days (override)`;
   if (row.tallyCreditDays !== null) return `${String(row.tallyCreditDays)} days (Tally)`;
   return 'From day zero';
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading interest overrides" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-40 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-4 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export function InterestOverridesPage() {
@@ -271,7 +252,7 @@ function OverridesBody() {
     <>
       <PageHeader description="A rate or credit days set here beats what the Tally sync carries, per party. The organisation rate and day basis live under Settings." />
 
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         <div className="flex flex-col gap-4 border p-4">
           <SectionHeading
             title="Set an override"
@@ -359,17 +340,24 @@ function OverridesBody() {
         </div>
 
         {upsert.isError || remove.isError ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>The override was not saved</AlertTitle>
-            <AlertDescription>
-              {(upsert.error ?? remove.error)?.message ??
-                'Nothing was sent to the server, so nothing changed.'}
-            </AlertDescription>
-          </Alert>
+          <QueryErrorAlert
+            error={upsert.error ?? remove.error}
+            subject="the override"
+            onRetry={() => {
+              // Retry re-runs the mutation that failed: the form still holds
+              // a failed save's values, and the remove keeps its party id in
+              // the mutation's own variables.
+              if (upsert.isError) {
+                save();
+                return;
+              }
+              const failed = settings.find((setting) => setting.partyId === remove.variables);
+              if (failed !== undefined) removeOverride(failed);
+            }}
+          />
         ) : null}
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading interest overrides" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert
@@ -425,7 +413,7 @@ function OverridesBody() {
               note="Neither Tally nor an override names credit days, so overdue interest accrues from the voucher date (D-22)."
             />
             {missing.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
+              <p className="text-muted-foreground border px-3 py-2.5 text-xs">
                 Every debtor and creditor has credit terms, from Tally or from an override.
               </p>
             ) : (

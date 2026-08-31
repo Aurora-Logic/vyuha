@@ -11,6 +11,7 @@ import {
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
 import { CopyField } from '@/components/shared/copy-field';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
@@ -44,7 +45,6 @@ import {
 } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { Textarea } from '@/components/ui/textarea';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -90,24 +90,6 @@ function heartbeatAge(value: string | null): string {
   const parsed = parseISO(value);
   if (Number.isNaN(parsed.getTime())) return EMPTY_VALUE;
   return `${formatDistanceToNow(parsed)} ago`;
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading integrations" className="border">
-      {Array.from({ length: 2 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-40 shrink-0" />
-          <Skeleton className="hidden h-3 w-16 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-4 w-24 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export function IntegrationsPage() {
@@ -179,7 +161,7 @@ export function IntegrationsPage() {
             title: allOpen ? 'Pulls are already queued' : 'Pull queued',
             description: allOpen
               ? `${connection.name} has open pulls for every master; the agent takes them on its next poll.`
-              : `Parties, stock items and price lists queued; the agent picks them up on its next poll of ${connection.name}.`,
+              : `Parties, stock items, price lists and bill allocations queued; the agent picks them up on its next poll of ${connection.name}.`,
           });
         },
         // The server names what is missing — an unbound company, an entity
@@ -437,7 +419,7 @@ export function IntegrationsPage() {
           </Alert>
         ) : null}
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={2} label="Loading integrations" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

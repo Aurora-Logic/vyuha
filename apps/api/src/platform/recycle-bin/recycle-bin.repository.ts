@@ -3,6 +3,7 @@ import { and, desc, eq, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
+import { escapeLike } from '../db/like.js';
 import { deletionRecords, users } from '../db/schema/index.js';
 import type { OrgContext, ScopedTable } from '../db/scoped-repository.js';
 import type { BlockingReferenceSpec, SoftDeletableSpec } from './soft-deletable.js';
@@ -305,7 +306,3 @@ function widen(table: ScopedTable): PgTable {
   return table;
 }
 
-/** `%` and `_` typed into a search box are characters, not wildcards. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/gu, (match) => `\\${match}`);
-}

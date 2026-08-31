@@ -3,6 +3,7 @@ import { LockKeyIcon, ScanIcon, TruckIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -13,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -59,26 +59,11 @@ const COLUMNS: RecordColumn<Dispatch>[] = [
   { key: 'by', header: 'By', cell: (row) => row.dispatchedByName ?? '', secondary: true },
 ];
 
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading dispatches" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** `stage="delivered"` is the Delivered screen: the same list, only what the customer has signed for. */
 export function DispatchesPage({ stage }: { stage?: 'delivered' } = {}) {
   const delivered = stage === 'delivered';
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
+  // P8-5: dispatches are the floor's list, gated like their endpoint.
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -218,7 +203,7 @@ export function DispatchesPage({ stage }: { stage?: 'delivered' } = {}) {
           ) : null}
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading dispatches" /> : null}
         {query.isError ? (
           <QueryErrorAlert
             error={query.error}

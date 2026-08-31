@@ -39,6 +39,16 @@ import { employeeNameSql } from './employee-name.js';
  */
 const managers = alias(employees, 'reporting_manager');
 
+/**
+ * `EmployeeDetail` plus the holiday calendar link (OS-3, REQ-H-02): the
+ * employee's own calendar, overriding the location's in the day engine.
+ * Declared here rather than in `@vyuha/shared` because the id is validated
+ * against an attendance-owned table the shared package knows nothing about.
+ */
+export interface EmployeeDetailView extends EmployeeDetail {
+  readonly holidayCalendarId: string | null;
+}
+
 const SORT_COLUMNS: Record<EmployeeSortField, PgColumn> = {
   employeeCode: employees.employeeCode,
   firstName: employees.firstName,
@@ -75,6 +85,7 @@ interface JoinedRow {
   employmentType: EmploymentType;
   status: EmployeeStatus;
   isFieldStaff: boolean;
+  holidayCalendarId: string | null;
   tallyRef: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -121,7 +132,7 @@ export class EmployeeRepository extends ScopedRepository<typeof employees> {
    * Operations user who guesses one outside their team must get the same
    * answer as for an id that does not exist.
    */
-  async detail(id: string, scope: SQL): Promise<EmployeeDetail | null> {
+  async detail(id: string, scope: SQL): Promise<EmployeeDetailView | null> {
     const rows = await this.joinedSelect()
       .where(this.scoped(scope, eq(employees.id, id)))
       .limit(1);
@@ -204,6 +215,7 @@ export class EmployeeRepository extends ScopedRepository<typeof employees> {
         employmentType: employees.employmentType,
         status: employees.status,
         isFieldStaff: employees.isFieldStaff,
+        holidayCalendarId: employees.holidayCalendarId,
         tallyRef: employees.tallyRef,
         createdAt: employees.createdAt,
         updatedAt: employees.updatedAt,
@@ -401,11 +413,12 @@ function toListItem(row: JoinedRow): EmployeeListItem {
   };
 }
 
-function toDetail(row: JoinedRow): EmployeeDetail {
+function toDetail(row: JoinedRow): EmployeeDetailView {
   return {
     ...toListItem(row),
     personalEmail: row.personalEmail,
     isFieldStaff: row.isFieldStaff,
+    holidayCalendarId: row.holidayCalendarId,
     tallyRef: row.tallyRef,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

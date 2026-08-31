@@ -1,38 +1,19 @@
-import { Global, Module } from '@nestjs/common';
-import { SettingsModule } from '../settings/settings.module.js';
+import { Module } from '@nestjs/common';
 
-import { DashboardLayoutService } from './dashboard-layout.service.js';
-import { ExportService } from './export.service.js';
-import { ReportController } from './report.controller.js';
-import { ReportExportHandler } from './report-export.handler.js';
-import { ReportSourceRegistry } from './report-source.registry.js';
-import { SavedViewService } from './saved-view.service.js';
-import { ScheduleSweepHandler } from './schedule-sweep.handler.js';
-import { ScheduleService } from './schedule.service.js';
+import { DownloadsController } from './downloads.controller.js';
+import { DownloadsService } from './downloads.service.js';
 
 /**
- * The export framework (REQ-P-02): the report shell endpoints, the export
- * job, saved views, schedules and the Downloads tray. Content-agnostic — what
- * a report *is* comes from whichever module registered a `ReportSource`.
- *
- * `@Global()` for the same reason `JobsModule` and `SearchModule` are: the
- * registry is filled by modules during their own `onModuleInit`, and a
- * registry every module can reach without an import edge is what keeps the
- * arrow pointing one way.
+ * What remains of the export framework after the reports module's removal
+ * (owner, 26 Aug 2026): the Downloads tray. The report shell, its sources,
+ * saved views, schedules and dashboards are gone; the employee data export
+ * (REQ-M-05) still writes `export_jobs` rows through its own module and its
+ * files land here. No longer `@Global()` -- there is no registry for other
+ * modules to fill any more.
  */
-@Global()
 @Module({
-  imports: [SettingsModule],
-  controllers: [ReportController],
-  providers: [
-    ReportSourceRegistry,
-    ExportService,
-    SavedViewService,
-    DashboardLayoutService,
-    ScheduleService,
-    ReportExportHandler,
-    ScheduleSweepHandler,
-  ],
-  exports: [ReportSourceRegistry, ExportService],
+  controllers: [DownloadsController],
+  providers: [DownloadsService],
+  exports: [DownloadsService],
 })
 export class ExportModule {}

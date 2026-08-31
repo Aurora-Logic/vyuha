@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router';
+import { Link } from 'react-router';
 import { CaretRightIcon } from '@phosphor-icons/react';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -10,37 +10,30 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { ADMIN_GROUPS, type NavItem } from '@/lib/nav';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { adminRailFor } from '@/lib/nav';
 import { usePermissions } from '@/lib/session/permissions';
 
 /**
  * The workspace's own screens, in one place (REQ-O-02).
  *
- * These eight used to sit in the attendance sidebar, which was the wrong shelf:
+ * These used to sit in the attendance sidebar, which was the wrong shelf:
  * there is one audit log for the whole system, one recycle bin and one set of
- * roles, and CRM will not be getting copies of them. Leaving them where they
- * were would have meant either duplicating them into every module sidebar or
- * making one module the odd owner of everything shared.
+ * roles, and CRM will not be getting copies of them.
  *
- * A list of links rather than a settings surface of its own. Each destination
- * already has a screen; this exists so they are reachable and so their grouping
- * says what they are, not to wrap them in another layer of chrome.
+ * A directory, not a settings surface of its own: each destination already
+ * has a screen, and the rail beside this one (AdminShell) lists the same
+ * entries. The directory earns its place on a phone, where there is no rail
+ * and this is what the bottom bar's Administration tab lands on, and it says
+ * one line more than the rail can -- what each screen decides. Shaped like
+ * Supabase's add-ons list: one bordered list per group, a row per screen.
  */
-
-function isVisible(item: NavItem, granted: ReadonlySet<string>): boolean {
-  return !item.permission || granted.has(item.permission);
-}
-
 export function AdministrationScreen() {
   const granted = usePermissions();
-
-  const groups = ADMIN_GROUPS.map((group) => ({
-    label: group.label,
-    items: group.items.filter((item) => isVisible(item, granted)),
-  })).filter((group) => group.items.length > 0);
+  const groups = adminRailFor(granted);
 
   return (
-    <div className="flex flex-col gap-6">
+    <>
       {/* No title: the breadcrumb in the app header states the page's name
           once, and PageHeader carries only what belongs to the screen. */}
       <PageHeader description="Settings, people and records that belong to the whole workspace rather than to one module." />
@@ -52,7 +45,7 @@ export function AdministrationScreen() {
          * found" rather than an explanation. Every destination inside is gated
          * individually, server-side as well.
          */
-        <Empty>
+        <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <CaretRightIcon />
@@ -67,32 +60,33 @@ export function AdministrationScreen() {
       ) : (
         <div className="flex flex-col gap-8">
           {groups.map((group) => (
-            <section key={group.label} className="flex flex-col gap-3">
+            <section key={group.label} aria-label={group.label} className="flex flex-col gap-3">
               <SectionHeading title={group.label} />
-              {/*
-                A divided list, not a grid of cards. CLAUDE.md section 3 rule 3:
-                one card must not contain another, and a page is header ->
-                toolbar -> content surface. Rules and spacing separate these
-                perfectly well.
-              */}
-              <ul className="divide-border divide-y border-y">
+              <ItemGroup className="gap-0 divide-y border">
                 {group.items.map((item) => (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      className="hover:bg-accent active:bg-muted focus-visible:ring-ring flex items-center gap-3 px-1 py-3 outline-none focus-visible:ring-2"
-                    >
-                      <item.icon className="text-muted-foreground size-5 shrink-0" />
-                      <span className="min-w-0 flex-1 text-sm font-medium">{item.label}</span>
-                      <CaretRightIcon className="text-muted-foreground size-4 shrink-0" />
-                    </NavLink>
-                  </li>
+                  <Item
+                    key={item.to}
+                    size="sm"
+                    className="min-h-11 border-0"
+                    render={<Link to={item.to} />}
+                  >
+                    <ItemMedia variant="icon">
+                      <item.icon />
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>{item.label}</ItemTitle>
+                      {item.blurb ? <ItemDescription>{item.blurb}</ItemDescription> : null}
+                    </ItemContent>
+                    <ItemActions>
+                      <CaretRightIcon aria-hidden className="text-muted-foreground size-4" />
+                    </ItemActions>
+                  </Item>
                 ))}
-              </ul>
+              </ItemGroup>
             </section>
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

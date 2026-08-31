@@ -1,8 +1,10 @@
+import { useParty } from './use-parties';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon, XIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { DateRange } from 'react-day-picker';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -24,12 +26,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { DASHBOARD_PRESETS } from '@/features/reports/dashboard-v2.presets';
+import { DASHBOARD_PRESETS } from '@/lib/range-presets';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -96,24 +97,6 @@ function toDateParam(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${String(date.getFullYear())}-${month}-${day}`;
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading vouchers" className="border">
-      {Array.from({ length: 5 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-20 shrink-0" />
-          <Skeleton className="hidden h-3 w-32 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-16 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -223,6 +206,8 @@ export function VouchersPage() {
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const includeCancelled = searchParams.get('cancelled') === '1';
   const voucherType = searchParams.get('type') ?? '';
+  // R1: a drill from a customer cell arrives here with the party fixed.
+  const partyId = searchParams.get('party') ?? '';
   const company = searchParams.get('company') ?? '';
   const from = searchParams.get('from') ?? '';
   const to = searchParams.get('to') ?? '';
@@ -234,7 +219,8 @@ export function VouchersPage() {
     ? { field: sortField, descending: sort.startsWith('-') }
     : null;
   const period: DateRange = { from: fromDateParam(from || null), to: fromDateParam(to || null) };
-  const hasFilters = q !== '' || voucherType !== '' || company !== '' || from !== '' || to !== '' || includeCancelled;
+  const hasFilters = q !== '' || voucherType !== '' || company !== '' || from !== '' || to !== '' || includeCancelled || partyId !== '';
+  const drillParty = useParty(partyId === '' ? null : partyId);
 
   /** Every filter writes through here: one page reset, one replace, one place to read. */
   function setParams(edit: (next: URLSearchParams) => void) {
@@ -281,6 +267,7 @@ export function VouchersPage() {
       page,
       ...(q ? { q } : {}),
       ...(voucherType ? { voucherType } : {}),
+      ...(partyId ? { partyId } : {}),
       ...(company ? { connectionId: company } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
@@ -290,12 +277,6 @@ export function VouchersPage() {
     { enabled: canView, prefetchNext: true },
   );
 
-  // Proactively re-evaluate and refetch when company or filter changes
-  useEffect(() => {
-    if (canView) {
-      void query.refetch();
-    }
-  }, [company, voucherType, includeCancelled, canView]);
   const types = useVoucherTypes({ enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
@@ -417,6 +398,23 @@ export function VouchersPage() {
               register is a control that does nothing, which teaches the reader
               to stop trusting the row. The sort is deliberately not cleared --
               it is how the register is being read, not what it is showing. */}
+          {partyId !== '' ? (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              {drillParty.data?.name ?? 'Customer'}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Remove the customer filter"
+                onClick={() => {
+                  setParams((next) => {
+                    next.delete('party');
+                  });
+                }}
+              >
+                <XIcon />
+              </Button>
+            </Badge>
+          ) : null}
           {hasFilters ? (
             <Button
               variant="ghost"
@@ -429,6 +427,7 @@ export function VouchersPage() {
                   next.delete('from');
                   next.delete('to');
                   next.delete('cancelled');
+                  next.delete('party');
                 });
               }}
             >
@@ -438,7 +437,7 @@ export function VouchersPage() {
           ) : null}
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={5} label="Loading vouchers" /> : null}
 
         {query.isError ? (
           <QueryErrorAlert

@@ -13,8 +13,9 @@ const HEAT_STEPS = ['bg-muted', 'bg-[var(--chart-1)]', 'bg-[var(--chart-2)]', 'b
  * a phone; every cell is a button with the value in its name, so a screen
  * reader and a finger both get the number; a row can be a door.
  */
-export function HeatmapTable({ grid, rowLabel, format, onRow }: { grid: HeatGrid; rowLabel: string; format?: (value: number) => string; onRow?: (rowId: string) => void }) {
+export function HeatmapTable({ grid, rowLabel, format, columnLabel, onRow }: { grid: HeatGrid; rowLabel: string; format?: (value: number) => string; /** Column keys are YYYY-MM by default; a caller with day or bucket keys prints them its own way. */ columnLabel?: (key: string) => string; onRow?: (rowId: string) => void }) {
   const show = format ?? ((value: number) => value.toLocaleString('en-IN', { maximumFractionDigits: 3 }));
+  const head = columnLabel ?? ((month: string) => `${month.slice(5)}/${month.slice(2, 4)}`);
   return (
     <div className="overflow-x-auto">
       <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
@@ -23,7 +24,7 @@ export function HeatmapTable({ grid, rowLabel, format, onRow }: { grid: HeatGrid
             <TableHead className="text-muted-foreground bg-background sticky left-0 h-7 pr-2 text-left font-normal">{rowLabel}</TableHead>
             {grid.months.map((month) => (
               <TableHead key={month} className="text-muted-foreground h-7 min-w-12 text-center font-normal tabular-nums">
-                {month.slice(5)}/{month.slice(2, 4)}
+                {head(month)}
               </TableHead>
             ))}
           </TableRow>

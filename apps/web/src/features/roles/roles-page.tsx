@@ -7,9 +7,15 @@ import {
   ShieldCheckIcon,
 } from '@phosphor-icons/react';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { RowActions } from '@/components/shared/row-actions';
+import { SearchField } from '@/components/shared/search-field';
 import { SectionHeading } from '@/components/shared/section-heading';
+import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { TabsToolbar, TabsToolbarAction } from '@/components/shared/tabs-toolbar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,12 +26,13 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Item, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission, usePermissions } from '@/lib/session/permissions';
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 
+import { DeleteRoleDialog } from './delete-role-dialog';
 import { RoleEditorSheet } from './role-editor-sheet';
 import { PERMISSION_GROUPS, countAllPermissions, type Role } from './types';
 import { useRoles } from './use-roles';
@@ -41,55 +48,31 @@ import { useRoles } from './use-roles';
  * P2-3 recorded that this screen was read-only because `PATCH /roles` did not
  * exist. It does now, and every write goes through a confirm step that takes a
  * typed reason.
+ *
+ * Laid out on Supabase's Team page (owner, 27 Aug 2026): the strip and the one
+ * primary action share a row, a filter sits under it, then the table, then a
+ * quiet count -- so this register reads like every other in the
+ * administration column.
  */
 
-const ROLE_COLUMNS: RecordColumn<Role>[] = [
-  {
-    key: 'name',
-    header: 'Role',
-    cell: (row) => <span className="font-medium">{row.name}</span>,
-  },
-  {
-    key: 'description',
-    header: 'Description',
-    cell: (row) => row.description ?? 'No description',
-    secondary: true,
-  },
-  {
-    key: 'permissions',
-    header: 'Permissions',
-    cell: (row) => row.permissions.length,
-    numeric: true,
-  },
-  {
-    key: 'members',
-    header: 'Members',
-    cell: (row) => row.memberCount,
-    numeric: true,
-  },
-  {
-    key: 'kind',
-    header: 'Kind',
-    cell: (row) =>
-      row.isSystem ? <Badge variant="secondary">Seeded</Badge> : <Badge>Custom</Badge>,
-  },
-];
+/** "7 roles", "1 role": the quiet line under a table. */
+function countOf(count: number, noun: string): string {
+  return `${String(count)} ${count === 1 ? noun : `${noun}s`}`;
+}
 
-function ListSkeleton() {
+/** The one state a row wears: a seeded role can be edited but not renamed or deleted. */
+function KindChip({ role }: { role: Role }) {
+  return role.isSystem ? (
+    <Badge variant="secondary">Seeded</Badge>
+  ) : (
+    <Badge variant="outline">Custom</Badge>
+  );
+}
+
+function matchesRole(role: Role, needle: string): boolean {
   return (
-    <div role="status" aria-busy="true" aria-label="Loading roles" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
-        >
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-64 shrink-0 xl:block" />
-          <Skeleton className="ml-auto h-4 w-16 shrink-0" />
-        </div>
-      ))}
-    </div>
+    role.name.toLowerCase().includes(needle) ||
+    (role.description ?? '').toLowerCase().includes(needle)
   );
 }
 
@@ -101,39 +84,43 @@ export function RolesPage() {
       <PageHeader description="Roles are named bundles of permissions. Nothing in the system branches on a role name, and every change takes a reason." />
 
       <Tabs defaultValue="roles" className="gap-4">
-        <TabsList>
-          <TabsTrigger value="roles" className="px-3">
-            <ShieldCheckIcon data-icon="inline-start" />
-            Roles
-          </TabsTrigger>
-          <TabsTrigger value="permissions" className="px-3">
-            <ListChecksIcon data-icon="inline-start" />
-            Permissions
-          </TabsTrigger>
-        </TabsList>
+        <TabsToolbar
+          list={
+            <TabsList>
+              <TabsTrigger value="roles" className="px-3">
+                <ShieldCheckIcon data-icon="inline-start" />
+                Roles
+              </TabsTrigger>
+              <TabsTrigger value="permissions" className="px-3">
+                <ListChecksIcon data-icon="inline-start" />
+                Permissions
+              </TabsTrigger>
+            </TabsList>
+          }
+        >
+          <TabsContent value="roles">
+            {canManage ? (
+              <RolesTab />
+            ) : (
+              <Empty className="border">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <LockKeyIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>You cannot view the role definitions</EmptyTitle>
+                  <EmptyDescription>
+                    This needs the roles.manage permission. Your own permissions are on the
+                    Permissions tab, which needs nothing.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </TabsContent>
 
-        <TabsContent value="roles">
-          {canManage ? (
-            <RolesTab />
-          ) : (
-            <Empty className="border">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <LockKeyIcon />
-                </EmptyMedia>
-                <EmptyTitle>You cannot view the role definitions</EmptyTitle>
-                <EmptyDescription>
-                  This needs the roles.manage permission. Your own permissions are on the
-                  Permissions tab, which needs nothing.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </TabsContent>
-
-        <TabsContent value="permissions">
-          <PermissionCatalogueTab />
-        </TabsContent>
+          <TabsContent value="permissions">
+            <PermissionCatalogueTab />
+          </TabsContent>
+        </TabsToolbar>
       </Tabs>
     </>
   );
@@ -142,29 +129,124 @@ export function RolesPage() {
 function RolesTab() {
   const [editing, setEditing] = useState<Role | null>(null);
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState<Role | null>(null);
+  const [search, setSearch] = useState('');
   const query = useRoles();
   const roles = query.data?.data ?? [];
+
+  // Filtered here rather than by the server: the list is every role the
+  // organisation has, a dozen rows already in hand, and a round trip per
+  // keystroke would be slower than the filter it replaced.
+  const needle = search.trim().toLowerCase();
+  const visible = needle === '' ? roles : roles.filter((role) => matchesRole(role, needle));
 
   function openRole(role: Role | null) {
     setEditing(role);
     setOpen(true);
   }
 
+  // PRD §6.4: Alt+C creates the record the screen is about.
+  useShortcut({
+    id: 'roles.create',
+    keys: 'alt+c',
+    label: 'New role',
+    scope: 'screen',
+    run: () => {
+      openRole(null);
+    },
+  });
+
+  const actionsFor = (row: Role) => (
+    <RowActions
+      label={`Actions for ${row.name}`}
+      actions={[
+        {
+          key: 'edit',
+          label: 'Edit role',
+          icon: ACTION_ICONS.edit,
+          onSelect: () => {
+            openRole(row);
+          },
+        },
+        {
+          key: 'delete',
+          label: 'Delete role',
+          icon: ACTION_ICONS.remove,
+          destructive: true,
+          onSelect: () => {
+            setDeleting(row);
+          },
+          ...(row.isSystem
+            ? { unavailableReason: 'A seeded role cannot be deleted; the seed would recreate it.' }
+            : {}),
+        },
+      ]}
+    />
+  );
+
+  const columns: RecordColumn<Role>[] = [
+    {
+      key: 'name',
+      header: 'Role',
+      cell: (row) => (
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium">{row.name}</span>
+          <KindChip role={row} />
+        </span>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      cell: (row) =>
+        row.description ?? <span className="text-muted-foreground">No description</span>,
+      secondary: true,
+    },
+    {
+      key: 'permissions',
+      header: 'Permissions',
+      cell: (row) => row.permissions.length,
+      numeric: true,
+    },
+    {
+      key: 'members',
+      header: 'Members',
+      cell: (row) => row.memberCount,
+      numeric: true,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'w-12 text-right',
+      cell: actionsFor,
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Toolbar row (PRD §6.2). */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <TabsToolbarAction>
         <Button
+          size="sm"
           onClick={() => {
             openRole(null);
           }}
         >
           <PlusIcon data-icon="inline-start" />
           New role
+          <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
         </Button>
-      </div>
+      </TabsToolbarAction>
 
-      {query.isPending ? <ListSkeleton /> : null}
+      <SearchField
+        id="role-search"
+        label="Filter roles by name or description"
+        placeholder="Name or description"
+        value={search}
+        onValueChange={setSearch}
+        className="min-w-0 sm:max-w-xs"
+      />
+
+      {query.isPending ? <ListSkeleton rows={4} label="Loading roles" /> : null}
 
       {query.isError ? (
         <QueryErrorAlert
@@ -192,25 +274,48 @@ function RolesTab() {
         </Empty>
       ) : null}
 
+      {roles.length > 0 && visible.length === 0 ? (
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ShieldCheckIcon />
+            </EmptyMedia>
+            <EmptyTitle>No matching roles</EmptyTitle>
+            <EmptyDescription>
+              No role is named or described like that. Clear the filter to see them all.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : null}
+
+      {visible.length > 0 ? (
+        <RecordTable
+          columns={columns}
+          rows={visible}
+          rowKey={(row) => row.id}
+          mobilePrimary={(row) => row.name}
+          mobileStatus={(row) => <KindChip role={row} />}
+          mobileSupporting={(row) =>
+            `${countOf(row.permissions.length, 'permission')} · ${countOf(row.memberCount, 'member')}`
+          }
+          onRowActivate={openRole}
+        />
+      ) : null}
+
       {roles.length > 0 ? (
-        <>
-          <RecordTable
-            columns={ROLE_COLUMNS}
-            rows={roles}
-            rowKey={(row) => row.id}
-            mobilePrimary={(row) => row.name}
-            mobileStatus={(row) => <Badge variant="secondary">{row.permissions.length} keys</Badge>}
-            mobileSupporting={(row) => row.description ?? 'No description'}
-            onRowActivate={openRole}
-          />
-          <p className="text-muted-foreground text-xs">
-            Open a role to change what it carries. Seeded roles can be edited but not renamed or
-            deleted.
-          </p>
-        </>
+        <p className="text-muted-foreground text-xs">
+          {visible.length === 0 ? 'No roles match' : countOf(visible.length, 'role')}
+        </p>
       ) : null}
 
       <RoleEditorSheet role={editing} open={open} onOpenChange={setOpen} canManage />
+      <DeleteRoleDialog
+        role={deleting}
+        open={deleting !== null}
+        onOpenChange={(next) => {
+          if (!next) setDeleting(null);
+        }}
+      />
     </div>
   );
 }
@@ -232,7 +337,7 @@ function PermissionRow({
   granted: boolean;
 }) {
   return (
-    <Item size="sm" className="min-h-11 rounded-none px-0">
+    <Item size="sm" className="min-h-11 px-0">
       <ItemContent className="min-w-0 gap-0.5">
         <ItemTitle className="truncate font-mono text-xs">{permissionKey}</ItemTitle>
         <ItemDescription className="truncate text-xs">{description}</ItemDescription>
@@ -284,6 +389,8 @@ function PermissionCatalogueTab() {
           </div>
         ))}
       </div>
+
+      <p className="text-muted-foreground text-xs">{countOf(countAllPermissions(), 'permission')}</p>
     </div>
   );
 }

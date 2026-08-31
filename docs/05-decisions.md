@@ -71,7 +71,7 @@ Last updated: 11 August 2026
 | Native elements | **None** — this explicitly includes date pickers, time pickers, dropdowns, checkboxes, and every other small control |
 | Date/time inputs | shadcn Calendar / Popover / Command compositions. Never `<input type="date">`, never a third-party picker |
 | Mobile | **Fully responsive throughout.** Pickers open as a bottom Sheet on small screens, touch targets ≥44px, no hover-only interaction anywhere |
-| Emojis | None. Icons only (`lucide-react`) |
+| Emojis | None. Icons only (`@phosphor-icons/react`; owner confirmed Phosphor 28 Aug 2026) |
 | Layout | One consistent hierarchy, no card-inside-a-card |
 | Keyboard | TallyPrime key parity, hint chip on every control that has a shortcut |
 

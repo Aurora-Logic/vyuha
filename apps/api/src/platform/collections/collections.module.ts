@@ -8,7 +8,6 @@ import type { Principal } from '../rbac/principal.js';
 import { TaskSubjectRegistry } from '../tasks/task-subject.registry.js';
 import { BrokenPromiseSweepHandler } from './broken-promise-sweep.handler.js';
 import { CollectionsController } from './collections.controller.js';
-import { CollectionsReportSource } from './collections-report.source.js';
 import { CollectionsService } from './collections.service.js';
 import { ReminderService } from './reminder.service.js';
 
@@ -49,7 +48,7 @@ export class PartyTaskSubject implements OnModuleInit {
 @Module({
   imports: [MastersModule, DocumentsModule],
   controllers: [CollectionsController],
-  providers: [CollectionsService, ReminderService, CollectionsReportSource, BrokenPromiseSweepHandler, PartyTaskSubject],
+  providers: [CollectionsService, ReminderService, BrokenPromiseSweepHandler, PartyTaskSubject],
   exports: [CollectionsService, ReminderService],
 })
 export class CollectionsModule {}

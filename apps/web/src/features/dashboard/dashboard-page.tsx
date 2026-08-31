@@ -39,7 +39,7 @@ import {
   teamHoursInsight,
   summarise,
 } from './series';
-import { DASHBOARD_PRESETS } from '@/features/reports/dashboard-v2.presets';
+import { DASHBOARD_PRESETS } from '@/lib/range-presets';
 
 import { useAttendanceRange } from './use-attendance-range';
 import { useChartIntro } from './use-chart-motion';

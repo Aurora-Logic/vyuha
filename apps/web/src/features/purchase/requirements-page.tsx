@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { type PickerOption } from '@/components/shared/record-picker';
@@ -20,7 +21,6 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -54,20 +54,6 @@ const SOURCE_LABELS: Record<Requirement['source'], string> = { shortage: 'Shorta
 
 function isState(value: string | null): value is RequirementState {
   return REQUIREMENT_STATES.some((s) => s === value);
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading requirements" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-32 shrink-0" />
-          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function StateBadge({ state }: { state: RequirementState }) {
@@ -332,7 +318,7 @@ export function RequirementsPage() {
           </div>
         ) : null}
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading requirements" /> : null}
         {query.isError ? (
           <QueryErrorAlert
             error={query.error}

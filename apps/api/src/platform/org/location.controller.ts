@@ -10,11 +10,11 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { PERMISSIONS, type LocationSummary, type Paginated } from '@vyuha/shared';
+import { PERMISSIONS, type Paginated } from '@vyuha/shared';
 
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
-import { LocationService } from './location.service.js';
+import { LocationService, type LocationView } from './location.service.js';
 import { CreateLocationDto, MasterListQueryDto, UpdateLocationDto } from './org.dto.js';
 
 /**
@@ -36,7 +36,7 @@ export class LocationController {
   list(
     @CurrentUser() principal: Principal,
     @Query() query: MasterListQueryDto,
-  ): Promise<Paginated<LocationSummary>> {
+  ): Promise<Paginated<LocationView>> {
     return this.locations.list(principal, query);
   }
 
@@ -46,7 +46,7 @@ export class LocationController {
   create(
     @CurrentUser() principal: Principal,
     @Body() body: CreateLocationDto,
-  ): Promise<LocationSummary> {
+  ): Promise<LocationView> {
     return this.locations.create(principal, body);
   }
 
@@ -56,7 +56,7 @@ export class LocationController {
     @CurrentUser() principal: Principal,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateLocationDto,
-  ): Promise<LocationSummary> {
+  ): Promise<LocationView> {
     return this.locations.update(principal, id, body);
   }
 }

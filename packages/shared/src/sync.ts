@@ -111,7 +111,7 @@ export interface AgentClaimResponse {
  * job the API enqueues names one of these, and the results endpoint only
  * ingests kinds it has a writer for.
  */
-export const SYNC_ENTITY_TYPES = ['party', 'stock_item', 'price_list'] as const;
+export const SYNC_ENTITY_TYPES = ['party', 'stock_item', 'price_list', 'bill_allocation'] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];
 
@@ -301,6 +301,38 @@ export const voucherPullRowSchema = z.object({
 
 export type VoucherPullRow = z.infer<typeof voucherPullRowSchema>;
 
+/**
+ * One bill allocation (REQ-AJ-02, owner decision 28 Aug 2026). Tally keeps
+ * bill-wise detail inside a voucher's ledger entries; the agent flattens it
+ * to rows so ageing and a promise-to-pay's kept state can be derived from
+ * the projection. The row names its voucher by GUID — the writer resolves
+ * it through the same mapping the voucher upsert anchored — and `alterId`
+ * rides on that voucher's alteration, the way a price entry rides its item's.
+ */
+export const billAllocationPullRowSchema = z.object({
+  alterId: z.number().int().min(0),
+  /** The voucher the allocation was read from. */
+  voucherGuid: z.string().min(1).max(120),
+  /** The party ledger the bill belongs to, verbatim — Tally's own reference. */
+  partyName: z.string().min(1).max(200),
+  /** Tally's bill reference — the invoice number as the customer knows it. */
+  billName: z.string().min(1).max(200),
+  /**
+   * How the row relates to the bill, Tally's own four: `new` raises it,
+   * `against` settles some of it, `advance` is money before a bill exists,
+   * `on_account` names no bill at all.
+   */
+  refType: z.enum(['new', 'against', 'advance', 'on_account']),
+  /** ISO date (YYYY-MM-DD). Omitted on `on_account`, which has no bill to date. */
+  billDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  /** Tally's credit period on the bill, when the company sets one. */
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  /** Signed against the party: positive raises, negative settles (D-01). */
+  amount: decimalString,
+});
+
+export type BillAllocationPullRow = z.infer<typeof billAllocationPullRowSchema>;
+
 /** Chunk bounds: small enough to commit fast, large enough not to chatter. */
 export const SYNC_CHUNK_MAX_ROWS = 500;
 
@@ -345,6 +377,11 @@ export const agentResultsSchema = z.discriminatedUnion('entityType', [
     entityType: z.literal('price_list'),
     rows: z.array(priceListPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
   }),
+  z.object({
+    ...resultsCommon,
+    entityType: z.literal('bill_allocation'),
+    rows: z.array(billAllocationPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
+  }),
   /**
    * The outcome of one push (09 §3.3), reported by the agent and never
    * inferred (REQ-W-06). `accepted` carries what Tally answered with;
@@ -368,6 +405,11 @@ export type AgentResultsInput = z.infer<typeof agentResultsSchema>;
 export interface AgentResultsAck {
   readonly jobId: string;
   readonly written: number;
+  /**
+   * Rows the writer counted out rather than wrote — an allocation whose
+   * voucher has not arrived yet. Present only when something was skipped.
+   */
+  readonly skipped?: number;
   /** The cursor after this chunk committed — what the next pull filters above. */
   readonly lastAlterId: number;
   readonly jobState: 'CLAIMED' | 'DONE';

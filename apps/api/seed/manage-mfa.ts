@@ -73,7 +73,7 @@ async function main(): Promise<void> {
 
       const targetUser = existing.rows[0];
       if (targetUser === undefined) {
-        console.error(`\n❌ User with email "${targetEmail}" was not found.\n`);
+        console.error(`\nFailed: User with email "${targetEmail}" was not found.\n`);
         process.exit(1);
       }
 
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
           })
           .where(eq(users.id, targetUser.id));
 
-        console.log(`\n✅ Successfully disabled MFA for ${targetUser.email}\n`);
+        console.log(`\nDone: Successfully disabled MFA for ${targetUser.email}\n`);
         return;
       }
 
@@ -111,8 +111,8 @@ async function main(): Promise<void> {
         try {
           const plainBase32 = openSecret(targetUser.totp_secret, refreshSecret, 'totp');
           secret = Secret.fromBase32(plainBase32);
-        } catch (err: any) {
-          console.warn(`⚠️ Could not decrypt existing TOTP secret (${err.message}). Generating a fresh secret...`);
+        } catch (err) {
+          console.warn(`Warning: Could not decrypt existing TOTP secret (${(err instanceof Error ? err.message : String(err))}). Generating a fresh secret...`);
           secret = new Secret({ size: 20 });
           const sealed = sealSecret(secret.base32, refreshSecret, 'totp');
           await db
@@ -139,19 +139,19 @@ async function main(): Promise<void> {
       });
 
       console.log('\n' + '='.repeat(60));
-      console.log(` 🔐 2FA / TOTP Authenticator Setup for ${targetUser.email}`);
+      console.log(` 2FA / TOTP Authenticator Setup for ${targetUser.email}`);
       console.log('='.repeat(60));
       console.log(qrAscii);
       console.log('='.repeat(60));
-      console.log(`📧 User Email:      ${targetUser.email}`);
-      console.log(`🏷️ App / Issuer:    ${issuer}`);
-      console.log(`🔑 Secret Key:      ${secret.base32}  (for manual entry)`);
-      console.log(`⏱️ Current OTP:     ${currentToken}  (valid for ${secondsRemaining}s)`);
-      console.log(`📌 State:           ${isNewSecret ? '✨ New secret generated & activated' : 'Retrieved existing active secret'}`);
-      console.log(`🌐 OTPAuth URI:     ${otpauthUri}`);
+      console.log(`User Email:      ${targetUser.email}`);
+      console.log(`App / Issuer:    ${issuer}`);
+      console.log(`Secret Key:      ${secret.base32}  (for manual entry)`);
+      console.log(`Current OTP:     ${currentToken}  (valid for ${secondsRemaining}s)`);
+      console.log(`State:           ${isNewSecret ? 'New secret generated & activated' : 'Retrieved existing active secret'}`);
+      console.log(`OTPAuth URI:     ${otpauthUri}`);
       console.log('='.repeat(60) + '\n');
-      console.log('📱 Scan the QR code above with Google Authenticator, Authy, or 1Password.');
-      console.log('   If your terminal has display issues, use the Secret Key for manual setup.\n');
+      console.log('Scan the QR code above with Google Authenticator, Authy, or 1Password.');
+      console.log('If your terminal has display issues, use the Secret Key for manual setup.\n');
     } else {
       console.log('\n=== CURRENT USERS IN DATABASE & MFA STATUS ===\n');
       const result = await pool.query(`
@@ -161,9 +161,9 @@ async function main(): Promise<void> {
           u.status, 
           COALESCE(r.name, 'No Role') as role,
           CASE 
-            WHEN u.totp_secret IS NOT NULL AND u.totp_confirmed_at IS NOT NULL THEN '🟢 Enrolled (Active)'
-            WHEN u.totp_secret IS NOT NULL AND u.totp_confirmed_at IS NULL THEN '🟡 Enrolled (Pending Confirmation)'
-            ELSE '⚪ Disabled'
+            WHEN u.totp_secret IS NOT NULL AND u.totp_confirmed_at IS NOT NULL THEN 'Enrolled (Active)'
+            WHEN u.totp_secret IS NOT NULL AND u.totp_confirmed_at IS NULL THEN 'Enrolled (Pending Confirmation)'
+            ELSE ' Disabled'
           END as mfa_status,
           COALESCE(e.first_name || ' ' || e.last_name, 'Not Linked') as employee_name
         FROM users u
@@ -178,13 +178,13 @@ async function main(): Promise<void> {
 
       console.log(`\nActive Environment: ${process.env.NODE_ENV ?? 'development'} (Issuer: "${issuer}")\n`);
       console.log('Commands to manage MFA:');
-      console.log('  1. View / retrieve QR code for a user:');
-      console.log('     pnpm --filter @vyuha/api user:mfa -- --email <email>');
-      console.log('     pnpm --filter @vyuha/api user:mfa -- --email <email> --issuer "Vyuha Local"\n');
-      console.log('  2. Reset and generate a new 2FA secret:');
-      console.log('     pnpm --filter @vyuha/api user:mfa -- --email <email> --reset\n');
-      console.log('  3. Disable 2FA for a user:');
-      console.log('     pnpm --filter @vyuha/api user:mfa -- --email <email> --disable\n');
+      console.log('1. View / retrieve QR code for a user:');
+      console.log('pnpm --filter @vyuha/api user:mfa -- --email <email>');
+      console.log('pnpm --filter @vyuha/api user:mfa -- --email <email> --issuer "Vyuha Local"\n');
+      console.log('2. Reset and generate a new 2FA secret:');
+      console.log('pnpm --filter @vyuha/api user:mfa -- --email <email> --reset\n');
+      console.log('3. Disable 2FA for a user:');
+      console.log('pnpm --filter @vyuha/api user:mfa -- --email <email> --disable\n');
     }
   } finally {
     await pool.end();

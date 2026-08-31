@@ -10,6 +10,7 @@ import { addMonths, format, isSameMonth, parse, startOfMonth } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { PersonChip } from '@/components/shared/person';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -138,24 +139,6 @@ function CalendarSkeleton() {
           <Skeleton key={index} aria-hidden className="h-10 w-full" />
         ))}
       </div>
-    </div>
-  );
-}
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading who is away" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          className="flex min-h-14 items-center gap-4 border-b px-3 py-2.5 last:border-b-0 md:min-h-9"
-        >
-          <Skeleton className="h-3 w-32 shrink-0" />
-          <Skeleton className="h-3 w-20 shrink-0" />
-          <Skeleton className="ml-auto h-4 w-16 shrink-0" />
-        </div>
-      ))}
     </div>
   );
 }
@@ -464,7 +447,7 @@ export function TeamLeavePage() {
           }
         />
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading who is away" /> : null}
 
         {query.isSuccess && listed.length === 0 ? (
           <Empty className="border">

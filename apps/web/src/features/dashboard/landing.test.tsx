@@ -9,6 +9,7 @@ vi.mock('@/lib/session/permissions', () => ({
   usePermissions: () => permission.held,
 }));
 import { LandingPage } from './landing';
+import { MODULES } from '@/lib/nav';
 
 /**
  * Where "/" sends somebody. The failure this guards is quiet: an owner signing
@@ -56,14 +57,13 @@ describe('the landing screen', () => {
 });
 
 describe('every module home opens something', () => {
-  it('points no module at a route that only redirects', async () => {
+  it('points no module at a route that only redirects', () => {
     /*
      * The bug in one assertion. Attendance's home was "/", and "/" redirects,
      * so the switcher navigated to a route that immediately sent you
      * elsewhere -- clicking Attendance did nothing visible. A module's home
      * must be a screen, not the chooser.
      */
-    const { MODULES } = await import('@/lib/nav');
     for (const module of MODULES) {
       expect(module.home, `${module.id} points at the redirecting root`).not.toBe('/');
       expect(module.home.startsWith('/'), `${module.id} home is not a path`).toBe(true);

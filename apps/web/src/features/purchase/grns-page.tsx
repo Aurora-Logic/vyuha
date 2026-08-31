@@ -3,6 +3,7 @@ import { LockKeyIcon, PackageIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -12,7 +13,6 @@ import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
 import { formatRelativeAge } from '@/lib/format';
@@ -50,20 +50,6 @@ const COLUMNS: RecordColumn<Grn>[] = [
   { key: 'pending', header: 'Allocation', cell: (row) => <PendingBadge grn={row} /> },
   { key: 'by', header: 'Received by', cell: (row) => <PersonChip name={row.receivedByName} />, secondary: true },
 ];
-
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading goods receipts" className="border">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-24 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function GrnsPage() {
   const canView = usePermission(PERMISSIONS.PURCHASE_DOCUMENT_VIEW);
@@ -128,7 +114,7 @@ export function GrnsPage() {
           ) : null}
         </div>
 
-        {query.isPending ? <ListSkeleton /> : null}
+        {query.isPending ? <ListSkeleton rows={4} label="Loading goods receipts" /> : null}
         {query.isError ? (
           <QueryErrorAlert
             error={query.error}

@@ -3,25 +3,14 @@ import { epochDay, isoOfEpochDay } from '../../platform/receivables/bill-series.
 /**
  * Pure date and bucket arithmetic for the receivable snapshot (D-23).
  * Deterministic over its inputs, like the ledger it sits beside: nothing
- * here reads a clock, a database or a setting, so the bucket edges and the
- * day boundary can be pinned exactly in `cfo-math.test.ts`.
+ * here reads a clock, a database or a setting, so the bucket edges can be
+ * pinned exactly in `cfo-math.test.ts`. The snapshot's IST day boundary is
+ * `istDateOf` in `platform/tasks/local-date.ts`, shared with the interest
+ * build so the two nightly photographs agree on which date a night is.
  */
 
 export type ReceivableBucket = 'current' | '0-30' | '31-60' | '61-90' | '91-180' | '180+';
 export type ReceivableSource = 'billwise' | 'voucher';
-
-const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-
-/**
- * The IST calendar date of an instant. Dates are stored UTC and displayed
- * IST, so the snapshot's day boundary is IST midnight: an instant from
- * 18:30Z onward already belongs to the next IST day, and a snapshot keyed
- * by the UTC date would file the evening's book under yesterday's page.
- * IST has no daylight saving, so the fixed +05:30 offset is the whole rule.
- */
-export function istDateOf(instantIso: string): string {
-  return new Date(Date.parse(instantIso) + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
 
 /** GREATEST(0, snapshot - due): a bill not yet due is 0 days overdue. A bill with no due date cannot age. */
 export function daysOverdueOn(snapshotDate: string, dueDate: string | null): number {

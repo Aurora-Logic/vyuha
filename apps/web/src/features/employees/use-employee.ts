@@ -24,7 +24,17 @@ import {
 
 const namedRefSchema = z.object({ id: z.string(), name: z.string() });
 
-const employeeDetailSchema: z.ZodType<EmployeeDetail> = z.object({
+/**
+ * The shared detail plus the holiday calendar override (OS-3, REQ-H-02).
+ * Widened here rather than in the contract for the reason the API gives: the
+ * id belongs to an attendance-owned table the shared package does not
+ * describe.
+ */
+export interface EmployeeRecord extends EmployeeDetail {
+  readonly holidayCalendarId: string | null;
+}
+
+const employeeDetailSchema: z.ZodType<EmployeeRecord> = z.object({
   id: z.string(),
   employeeCode: z.string(),
   firstName: z.string(),
@@ -41,12 +51,13 @@ const employeeDetailSchema: z.ZodType<EmployeeDetail> = z.object({
   reportingManager: namedRefSchema.nullable(),
   personalEmail: z.string().nullable(),
   isFieldStaff: z.boolean(),
+  holidayCalendarId: z.string().nullable(),
   tallyRef: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
-export function useEmployee(id: string | undefined): UseQueryResult<EmployeeDetail, Error> {
+export function useEmployee(id: string | undefined): UseQueryResult<EmployeeRecord, Error> {
   return useQuery({
     // Not `enabled: false` with a fabricated key: an absent id means the route
     // matched without one, which cannot happen for `/employees/:id`, so the

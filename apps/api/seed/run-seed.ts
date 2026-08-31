@@ -102,6 +102,9 @@ function print(report: SeedReport, elapsedMs: number): void {
       `${String(master.links.departmentHeads)} department head(s), ` +
       `${String(master.links.defaultShifts)} default shift(s)`,
   );
+  lines.push(
+    `leave types   ${String(report.leaveTypes.created)} created, ${String(report.leaveTypes.total)} defined`,
+  );
 
   process.stdout.write(`${lines.join('\n')}\n`);
 

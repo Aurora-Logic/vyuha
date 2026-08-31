@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PackageIcon, PrinterIcon, ScanIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
+import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { FulfilmentTabs } from './fulfilment-tabs';
 import { PersonChip } from '@/components/shared/person';
@@ -11,7 +12,6 @@ import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -54,26 +54,12 @@ const COLUMNS: RecordColumn<PackRecord>[] = [
   { key: 'print', header: '', className: 'w-36 text-right', cell: (pack) => <PrintSlips pack={pack} /> },
 ];
 
-function ListSkeleton() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading packed boxes" className="border">
-      {Array.from({ length: 6 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
-          <Skeleton className="h-3 w-28 shrink-0" />
-          <Skeleton className="hidden h-3 w-40 shrink-0 sm:block" />
-          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function PackedPage() {
   const navigate = useNavigate();
-  const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
-  const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
-  const canView = canViewSelf || canViewAll;
-  const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  // P8-5: sight and act are both sales.fulfil here (the scan behind the
+  // action button is a fulfilment route too).
+  const canView = usePermission(PERMISSIONS.SALES_FULFIL);
+  const canCreate = canView;
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
@@ -137,7 +123,7 @@ export function PackedPage() {
           <SearchField id="packed-search" label="Search packs" value={draft} onValueChange={setDraft} placeholder="Order number or customer" />
         </div>
 
-        {packs.isPending ? <ListSkeleton /> : null}
+        {packs.isPending ? <ListSkeleton rows={6} label="Loading packed boxes" /> : null}
         {packs.isError ? (
           <QueryErrorAlert
             error={packs.error}

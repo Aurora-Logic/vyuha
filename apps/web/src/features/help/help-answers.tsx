@@ -1,8 +1,11 @@
-import { CompassIcon, QuestionIcon } from '@phosphor-icons/react';
+import { CompassIcon, PaperPlaneTiltIcon, QuestionIcon } from '@phosphor-icons/react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toast';
+import { apiRequest } from '@/lib/api/client';
 
 import { rankHelpCards } from './rank';
 import { useHelpCards } from './use-help-cards';
@@ -47,6 +50,22 @@ interface HelpAnswersProps {
 
 export function HelpAnswers({ query, route, onAskInstead, onShowMe }: HelpAnswersProps) {
   const { data: cards, isPending, isError, error, refetch } = useHelpCards(true);
+  // REQ-AJ-05: sending is an explicit act and the confirmation must survive
+  // re-ranking, so the sent question is remembered rather than a boolean.
+  const [sentQuestion, setSentQuestion] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  async function sendToAdmin() {
+    setSending(true);
+    try {
+      await apiRequest('/help/questions', { method: 'POST', body: { question: query } });
+      setSentQuestion(query);
+    } catch (sendError) {
+      toast.add({ type: 'error', title: 'Could not send the question', description: sendError instanceof Error ? sendError.message : 'Try again.' });
+    } finally {
+      setSending(false);
+    }
+  }
 
   if (isPending) {
     return (
@@ -96,6 +115,18 @@ export function HelpAnswers({ query, route, onAskInstead, onShowMe }: HelpAnswer
               : 'Nothing here covers it. Your administrator can add an answer for it.'}
           </EmptyDescription>
         </EmptyHeader>
+        {/* Sending is deliberate, never silent: the question is employee free
+            text and leaves the panel only on this click (REQ-AJ-05). */}
+        {query.trim().length >= 3 ? (
+          sentQuestion === query ? (
+            <p className="text-muted-foreground text-sm">Sent. Your administrator sees it in their notifications.</p>
+          ) : (
+            <Button size="sm" variant="outline" disabled={sending} onClick={() => void sendToAdmin()}>
+              <PaperPlaneTiltIcon data-icon="inline-start" />
+              Send this question to your administrator
+            </Button>
+          )
+        ) : null}
         {nearMisses.length > 0 ? (
           <div className="flex w-full flex-col">
             {nearMisses.map(({ card }) => (

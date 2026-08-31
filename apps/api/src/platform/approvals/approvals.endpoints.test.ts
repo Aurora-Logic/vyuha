@@ -250,6 +250,24 @@ describe('raising a request (REQ-I-01, REQ-I-02)', () => {
     expect(detail.escalateAfterDays).toBe(3);
   });
 
+  it('P2-2: the org setting decides the default escalation window', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO settings (org_id, scope, scope_id, key, value, created_by, updated_by)
+      VALUES (${ORG_ID}, 'ORG', NULL, 'attendance.auto_escalation_days', '7'::jsonb, NULL, NULL)
+      ON CONFLICT (org_id, scope, (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)), key) WHERE deleted_at IS NULL
+      DO UPDATE SET value = EXCLUDED.value
+    `);
+    try {
+      const detail = await raise({ requesterUserId: empUserId });
+      expect(detail.escalateAfterDays).toBe(7);
+      // An explicit choice from the raising slice still wins over the setting.
+      const explicit = await raise({ requesterUserId: empUserId, escalateAfterDays: 2 });
+      expect(explicit.escalateAfterDays).toBe(2);
+    } finally {
+      await harness.db.execute(sql`DELETE FROM settings WHERE org_id = ${ORG_ID} AND key = 'attendance.auto_escalation_days'`);
+    }
+  });
+
   it('names the requester from their employee record, not their email', async () => {
     const detail = await raise({ requesterUserId: empUserId });
     expect(detail.requester.name).toBe('Esha Rao');

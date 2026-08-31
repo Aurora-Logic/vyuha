@@ -98,4 +98,17 @@ describe('the three slip layouts', () => {
       unmount();
     }
   });
+
+  it('the ruled item tables are the shadcn table primitives, in print clothes', () => {
+    // CLAUDE.md §3 rule 1: even the printed sheet builds on ui/table, with
+    // its theme heights and hover washes overridden -- this pins the last
+    // raw <table> in the product to stay converted.
+    for (const slipTemplate of ['barcode', 'list'] as const) {
+      const { container, unmount } = render(<PackingSlipPaper design={design(slipTemplate)} profile={profile} orgName="Acme" logoUrl={LOGO} model={slipModel(2)} box={1} />);
+      expect(container.querySelector('[data-slot="table"]')).toBeTruthy();
+      expect(container.querySelector('table:not([data-slot="table"])')).toBeNull();
+      expect(container.querySelectorAll('[data-slot="table-row"]').length).toBeGreaterThanOrEqual(2);
+      unmount();
+    }
+  });
 });

@@ -1,9 +1,8 @@
+import type { ReactNode } from 'react';
 import { MoonIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
-import { SectionHeading } from '@/components/shared/section-heading';
+import { SettingsPanel, SettingsPanelSkeleton, SettingsRow, SettingsSection } from '@/components/shared/settings-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { TimeField } from '@/features/attendance/pickers';
@@ -18,7 +17,7 @@ import type { AccessWindowDraftState } from './use-access-window';
  * organisation's clock, on the days chosen (REQ-AB-01, AB-02). Only a holder
  * of `access.outside_window` signs in or works between the two (REQ-AB-03);
  * the refusal names when it reopens (REQ-AB-04); punch is never refused
- * (REQ-AB-06). The Save is the screen's one Save, in the toolbar.
+ * (REQ-AB-06). The panel's own footer saves it; Ctrl+A saves it with the rest.
  */
 
 /** Sunday first because the server counts 0 = Sunday; the labels follow it. */
@@ -40,22 +39,19 @@ function describeDays(days: readonly number[]): string {
     .join(', ');
 }
 
-export function AccessWindowPanel({ window: state, saveError }: { window: AccessWindowDraftState; saveError: unknown }) {
+interface AccessWindowPanelProps {
+  window: AccessWindowDraftState;
+  saveError: unknown;
+  /** The panel footer, from the screen that owns the writer. */
+  status?: ReactNode;
+  footer?: ReactNode;
+}
+
+export function AccessWindowPanel({ window: state, saveError, status, footer }: AccessWindowPanelProps) {
   const { query, draft } = state;
   return (
-    <div className="flex flex-col gap-4 border p-4">
-      <SectionHeading title="Access window" note="When sign-in closes and reopens, on the organisation's clock. Punch is always allowed." />
-
-      {query.isPending ? (
-        <div role="status" aria-busy="true" aria-label="Loading access window" className="grid gap-6 md:grid-cols-2">
-          {Array.from({ length: 3 }, (_, index) => (
-            <div key={index} aria-hidden className="flex flex-col gap-2">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-9 w-full" />
-            </div>
-          ))}
-        </div>
-      ) : null}
+    <SettingsSection title="Access window" note="When sign-in closes and reopens, on the organisation's clock. Punch is always allowed.">
+      {query.isPending ? <SettingsPanelSkeleton label="Loading access window" rows={3} /> : null}
 
       {query.isError ? (
         <QueryErrorAlert
@@ -76,66 +72,75 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
       ) : null}
 
       {draft !== null ? (
-        <FieldGroup className="grid gap-5 md:grid-cols-2">
-          <Field orientation="horizontal" className="md:col-span-2">
-            <FieldLabel htmlFor="access-window-enabled">Refuse sign-in outside the window</FieldLabel>
-            <Switch
-              id="access-window-enabled"
-              checked={draft.enabled}
-              onCheckedChange={(next: boolean) => {
-                state.edit({ enabled: next });
-              }}
-            />
-          </Field>
+        <>
+          <SettingsPanel status={status} footer={footer}>
+            <SettingsRow layout="end" label="Refuse sign-in outside the window" htmlFor="access-window-enabled">
+              <Switch
+                id="access-window-enabled"
+                checked={draft.enabled}
+                onCheckedChange={(next: boolean) => {
+                  state.edit({ enabled: next });
+                }}
+              />
+            </SettingsRow>
 
-          <Field>
-            <FieldLabel htmlFor="access-window-closes">Closes at</FieldLabel>
-            <TimeField
-              id="access-window-closes"
+            <SettingsRow
               label="Closes at"
-              value={draft.closesAt}
-              onValueChange={(next) => {
-                state.edit({ closesAt: next });
-              }}
-            />
-            <FieldDescription>Sign-in is refused from this time. Sessions already open run on until their token expires.</FieldDescription>
-          </Field>
-
-          <Field>
-            <FieldLabel htmlFor="access-window-reopens">Reopens at</FieldLabel>
-            <TimeField
-              id="access-window-reopens"
-              label="Reopens at"
-              value={draft.reopensAt}
-              onValueChange={(next) => {
-                state.edit({ reopensAt: next });
-              }}
-            />
-            <FieldDescription>Named in the refusal, so nobody is told only "access denied". A reopen earlier than the close means overnight.</FieldDescription>
-          </Field>
-
-          <Field className="md:col-span-2">
-            <FieldLabel>Applies on</FieldLabel>
-            <ToggleGroup
-              multiple
-              variant="outline"
-              aria-label="Days the window applies"
-              value={draft.days.map(String)}
-              onValueChange={(value) => {
-                state.edit({ days: value.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort((a, b) => a - b) });
-              }}
-              className="flex-wrap"
+              htmlFor="access-window-closes"
+              description="Sign-in is refused from this time. Sessions already open run on until their token expires."
             >
-              {DAYS.map((day) => (
-                <ToggleGroupItem key={day.value} value={String(day.value)} aria-label={day.long} className="min-w-12">
-                  {day.short}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <FieldDescription>Weekly-off days can be left out; no day chosen means the window never applies.</FieldDescription>
-          </Field>
+              <TimeField
+                id="access-window-closes"
+                label="Closes at"
+                value={draft.closesAt}
+                onValueChange={(next) => {
+                  state.edit({ closesAt: next });
+                }}
+              />
+            </SettingsRow>
 
-          <Alert className="md:col-span-2">
+            <SettingsRow
+              label="Reopens at"
+              htmlFor="access-window-reopens"
+              description='Named in the refusal, so nobody is told only "access denied". A reopen earlier than the close means overnight.'
+            >
+              <TimeField
+                id="access-window-reopens"
+                label="Reopens at"
+                value={draft.reopensAt}
+                onValueChange={(next) => {
+                  state.edit({ reopensAt: next });
+                }}
+              />
+            </SettingsRow>
+
+            <SettingsRow
+              layout="full"
+              label="Applies on"
+              description="Weekly-off days can be left out; no day chosen means the window never applies."
+            >
+              <ToggleGroup
+                multiple
+                variant="outline"
+                aria-label="Days the window applies"
+                value={draft.days.map(String)}
+                onValueChange={(value) => {
+                  state.edit({ days: value.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort((a, b) => a - b) });
+                }}
+                className="flex-wrap"
+              >
+                {DAYS.map((day) => (
+                  <ToggleGroupItem key={day.value} value={String(day.value)} aria-label={day.long} className="min-w-12">
+                    {day.short}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </SettingsRow>
+          </SettingsPanel>
+
+          {/* Reads the draft, not the saved row: it is the sentence the
+              controls above add up to, read back before Save. */}
+          <Alert>
             <MoonIcon />
             <AlertTitle>{draft.enabled ? 'What this does' : 'Off: sign-in is open around the clock'}</AlertTitle>
             <AlertDescription>
@@ -143,8 +148,8 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
               sign-in is audited.
             </AlertDescription>
           </Alert>
-        </FieldGroup>
+        </>
       ) : null}
-    </div>
+    </SettingsSection>
   );
 }

@@ -1,0 +1,169 @@
+import { Bar, BarChart, Cell, LabelList, XAxis, YAxis } from 'recharts';
+
+import { MatrixGrid } from '@/components/shared/matrix-grid';
+import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
+import { formatMoneyShort } from '@/lib/format';
+
+import { BANDS, STATES } from './movement-states';
+import type { GrowthBridgeData, MovementCell } from './use-cfo';
+
+/**
+ * The growth screen's two drawings, shared with the person scorecard: the
+ * five-factor waterfall (D1) and the movement matrix (D2). Same component
+ * at company scope and at one person's book -- B3's rule made visible.
+ */
+
+const WATERFALL_CONFIG: ChartConfig = {
+  delta: { label: 'Change' },
+};
+
+interface WaterfallStep {
+  readonly name: string;
+  readonly base: number;
+  readonly delta: number;
+  readonly signed: number;
+  readonly kind: 'total' | 'up' | 'down';
+}
+
+function waterfallOf(bridge: GrowthBridgeData): WaterfallStep[] {
+  const steps: WaterfallStep[] = [];
+  let running = bridge.lastYear;
+  steps.push({ name: 'Last year', base: 0, delta: bridge.lastYear, signed: bridge.lastYear, kind: 'total' });
+  for (const [name, value] of [
+    ['Volume', bridge.volumeEffect],
+    ['Price', bridge.priceEffect],
+    ['Mix', bridge.mixEffect],
+    ['New customers', bridge.newCustomerEffect],
+    ['Lost customers', bridge.lostCustomerEffect],
+  ] as const) {
+    const next = running + value;
+    steps.push({
+      name,
+      base: Math.min(running, next),
+      delta: Math.abs(value),
+      signed: value,
+      kind: value >= 0 ? 'up' : 'down',
+    });
+    running = next;
+  }
+  steps.push({ name: 'This year', base: 0, delta: bridge.thisYear, signed: bridge.thisYear, kind: 'total' });
+  return steps;
+}
+
+export function BridgeWaterfall({ bridge }: { bridge: GrowthBridgeData }) {
+  const steps = waterfallOf(bridge);
+  const fillOf = (step: WaterfallStep): string =>
+    step.kind === 'total' ? 'var(--fresh-1)' : step.kind === 'up' ? 'var(--fresh-4)' : 'var(--destructive)';
+  return (
+    <ChartContainer config={WATERFALL_CONFIG} className="aspect-auto h-64 w-full min-w-0">
+      <BarChart accessibilityLayer data={steps} margin={{ left: 4, right: 12, top: 20 }} barCategoryGap="18%">
+        <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} interval={0} />
+        <YAxis
+          width={52}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 11 }}
+          tickCount={4}
+          tickFormatter={(value: number) => formatMoneyShort(value)}
+        />
+        {/* The invisible shelf each floating step stands on. */}
+        <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
+        <Bar dataKey="delta" stackId="w" radius={0} isAnimationActive={false}>
+          {steps.map((step) => (
+            <Cell key={step.name} fill={fillOf(step)} fillOpacity={step.kind === 'total' ? 0.9 : 0.75} />
+          ))}
+          <LabelList
+            position="top"
+            offset={6}
+            className="fill-foreground"
+            fontSize={10}
+            valueAccessor={(entry: { payload?: WaterfallStep }) =>
+              entry.payload
+                ? `${entry.payload.kind === 'down' ? '−' : entry.payload.kind === 'up' ? '+' : ''}${formatMoneyShort(Math.abs(entry.payload.signed))}`
+                : ''
+            }
+          />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+
+export function MovementMatrix({ cells, onCell }: { cells: readonly MovementCell[]; onCell: (cell: MovementCell) => void }) {
+  const find = (state: string, band: string) => cells.find((c) => c.state === state && c.band === band);
+  return (
+    <MatrixGrid
+      rows={STATES}
+      columns={BANDS.map((b) => ({ key: b, label: `${b} band` }))}
+      cellOf={(state, band) => {
+        const cell = find(state, band);
+        return cell === undefined ? undefined : { count: cell.count, amount: Number(cell.amount) };
+      }}
+      // Intensity carries magnitude only; "Declining x A" -- big accounts
+      // shrinking -- is the loudest cell on the screen.
+      toneOf={(state, band) => {
+        const trouble = state === 'declining' || state === 'lost';
+        return { tone: trouble ? 'var(--destructive)' : 'var(--fresh-1)', emphasis: trouble && band === 'A' ? 0.5 : 0.35 };
+      }}
+      onCell={(state, band) => {
+        const cell = find(state, band);
+        if (cell) onCell(cell);
+      }}
+      className="min-w-0"
+    />
+  );
+}
+
+
+export interface WaterfallInput {
+  readonly name: string;
+  readonly value: number;
+  /** An absolute landing (drawn from zero) rather than a floating delta. */
+  readonly total?: boolean;
+}
+
+/** The margin walk and any other additive story, drawn by the bridge's rules. */
+function stepsOf(steps: readonly WaterfallInput[]): { name: string; base: number; delta: number; signed: number; kind: 'total' | 'up' | 'down' }[] {
+  let running = 0;
+  return steps.map((step) => {
+    if (step.total) {
+      running = step.value;
+      return { name: step.name, base: 0, delta: Math.abs(step.value), signed: step.value, kind: 'total' as const };
+    }
+    const next = running + step.value;
+    const row = { name: step.name, base: Math.min(running, next), delta: Math.abs(step.value), signed: step.value, kind: step.value >= 0 ? ('up' as const) : ('down' as const) };
+    running = next;
+    return row;
+  });
+}
+
+export function StepsWaterfall({ steps }: { steps: readonly WaterfallInput[] }) {
+  const data = stepsOf(steps);
+  const fillOf = (kind: 'total' | 'up' | 'down'): string => (kind === 'total' ? 'var(--fresh-1)' : kind === 'up' ? 'var(--fresh-4)' : 'var(--destructive)');
+  return (
+    <ChartContainer config={WATERFALL_CONFIG} className="aspect-auto h-64 w-full min-w-0">
+      <BarChart accessibilityLayer data={data} margin={{ left: 4, right: 12, top: 20 }} barCategoryGap="18%">
+        <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 10 }} interval={0} />
+        <YAxis width={56} tickLine={false} axisLine={false} tick={{ fontSize: 11 }} tickFormatter={(v: number) => formatMoneyShort(v)} />
+        <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
+        <Bar dataKey="delta" stackId="w" isAnimationActive={false}>
+          {data.map((row) => (
+            <Cell key={row.name} fill={fillOf(row.kind)} fillOpacity={row.kind === 'total' ? 0.85 : 0.7} />
+          ))}
+          <LabelList
+            position="top"
+            offset={6}
+            className="fill-foreground"
+            fontSize={10}
+            valueAccessor={(entry: { payload?: { signed?: number; kind?: string } }) => {
+              const signed = entry.payload?.signed ?? 0;
+              const sign = entry.payload?.kind === 'total' ? '' : signed >= 0 ? '+' : '−';
+              return `${sign}${formatMoneyShort(Math.abs(signed))}`;
+            }}
+          />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}

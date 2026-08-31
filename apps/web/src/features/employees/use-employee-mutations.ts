@@ -14,11 +14,12 @@ import {
   EMPLOYMENT_TYPES,
   employeeDisplayName,
   type CreateEmployeeInput,
-  type EmployeeDetail,
   type EmployeeStatus,
   type EmploymentType,
   type UpdateEmployeeInput,
 } from '@vyuha/shared';
+
+import type { EmployeeRecord } from './use-employee';
 
 /**
  * REQ-A-03 … REQ-A-05: creating, editing and retiring an employee.
@@ -37,7 +38,7 @@ import {
 
 const namedRefSchema = z.object({ id: z.string(), name: z.string() });
 
-const employeeDetailSchema: z.ZodType<EmployeeDetail> = z.object({
+const employeeDetailSchema: z.ZodType<EmployeeRecord> = z.object({
   id: z.string(),
   employeeCode: z.string(),
   firstName: z.string(),
@@ -54,6 +55,7 @@ const employeeDetailSchema: z.ZodType<EmployeeDetail> = z.object({
   reportingManager: namedRefSchema.nullable(),
   personalEmail: z.string().nullable(),
   isFieldStaff: z.boolean(),
+  holidayCalendarId: z.string().nullable(),
   tallyRef: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -73,6 +75,8 @@ export interface EmployeeFormValues {
   locationId: string | null;
   reportingManagerId: string | null;
   isFieldStaff: boolean;
+  /** REQ-H-02: this person's own calendar, overriding the location's. */
+  holidayCalendarId: string | null;
 }
 
 type QueryClient = ReturnType<typeof useQueryClient>;
@@ -86,7 +90,7 @@ function invalidateEmployees(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ['attendance'] });
 }
 
-export function useCreateEmployee(): UseMutationResult<EmployeeDetail, Error, EmployeeFormValues> {
+export function useCreateEmployee(): UseMutationResult<EmployeeRecord, Error, EmployeeFormValues> {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -95,7 +99,7 @@ export function useCreateEmployee(): UseMutationResult<EmployeeDetail, Error, Em
       // ACTIVE by the server's own default, and REQ-A-05's retirement is a
       // separate action with a date of its own -- creating somebody already
       // retired is not a thing anybody means to do from this form.
-      const body: CreateEmployeeInput = {
+      const body: CreateEmployeeInput & { holidayCalendarId: string | null } = {
         ...values,
         employmentType: values.employmentType,
         status: 'ACTIVE',
@@ -114,7 +118,7 @@ export function useCreateEmployee(): UseMutationResult<EmployeeDetail, Error, Em
 }
 
 export function useUpdateEmployee(): UseMutationResult<
-  EmployeeDetail,
+  EmployeeRecord,
   Error,
   { id: string; values: EmployeeFormValues }
 > {
@@ -126,7 +130,7 @@ export function useUpdateEmployee(): UseMutationResult<
       // answers 422 EMPLOYEE_CODE_IMMUTABLE for a change -- but it answers it
       // for a *resent identical* code too on some paths, so the field the form
       // never lets anybody edit is simply not in the body.
-      const body: UpdateEmployeeInput = {
+      const body: UpdateEmployeeInput & { holidayCalendarId: string | null } = {
         firstName: values.firstName,
         lastName: values.lastName,
         workEmail: values.workEmail,
@@ -139,6 +143,7 @@ export function useUpdateEmployee(): UseMutationResult<
         locationId: values.locationId,
         reportingManagerId: values.reportingManagerId,
         isFieldStaff: values.isFieldStaff,
+        holidayCalendarId: values.holidayCalendarId,
       };
       return parseOrThrow(
         employeeDetailSchema,
@@ -171,7 +176,7 @@ export interface LifecycleChange {
  * alone is how you get a 400 that names a field the reader did not touch.
  */
 export function useChangeEmployeeLifecycle(): UseMutationResult<
-  EmployeeDetail,
+  EmployeeRecord,
   Error,
   LifecycleChange
 > {

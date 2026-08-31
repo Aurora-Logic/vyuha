@@ -1,4 +1,7 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { z } from 'zod';
+
+import { createZodDto } from '../common/zod-validation.pipe.js';
 import type { HelpCardsResponse } from '@vyuha/shared';
 
 import { CurrentUser, type Principal } from '../rbac/principal.js';
@@ -23,6 +26,9 @@ import { HelpService } from './help.service.js';
  *
  * No query parameter: the client takes the set once and ranks it locally.
  */
+const askSchema = z.object({ question: z.string().trim().min(3).max(500) });
+class AskDto extends createZodDto(askSchema) {}
+
 @Controller('help')
 export class HelpController {
   constructor(private readonly help: HelpService) {}
@@ -32,4 +38,14 @@ export class HelpController {
   cards(@CurrentUser() principal: Principal): HelpCardsResponse {
     return this.help.cardsFor(principal);
   }
+
+  /** REQ-AJ-05: a question the panel had no card for, sent on deliberately. */
+  @Post('questions')
+  @Authenticated()
+  @HttpCode(201)
+  async ask(@CurrentUser() principal: Principal, @Body() body: AskDto): Promise<{ ok: true }> {
+    await this.help.ask(principal, body.question);
+    return { ok: true };
+  }
 }
+

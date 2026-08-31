@@ -171,18 +171,24 @@ describe('guided tour length', () => {
    * so a filter that silently empties itself fails here rather than in front
    * of somebody taking the tour.
    */
+  // Recounted when the reports module returned as the observed areas (owner,
+  // 26 Aug 2026), and again when the CFO's credit screens joined it: each
+  // step sits behind its own key, so a role gains exactly the pages its
+  // permissions open -- the sales roles the work lists, the credit-sighted
+  // roles the receivable book, Employee and Purchase none at all.
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
-    Employee: { desktop: 11, phone: 10 },
-    Operations: { desktop: 19, phone: 18 },
-    HR: { desktop: 24, phone: 23 },
-    Admin: { desktop: 54, phone: 53 },
+    Employee: { desktop: 13, phone: 12 },
+    Operations: { desktop: 22, phone: 21 },
+    HR: { desktop: 27, phone: 26 },
+    Admin: { desktop: 78, phone: 77 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
-    Sales: { desktop: 24, phone: 23 },
-    'Sales manager': { desktop: 29, phone: 28 },
-    'Relationship manager': { desktop: 24, phone: 23 },
-    Purchase: { desktop: 14, phone: 13 },
-    Accounts: { desktop: 29, phone: 28 },
+    Sales: { desktop: 35, phone: 34 },
+    'Sales manager': { desktop: 48, phone: 47 },
+    'Relationship manager': { desktop: 34, phone: 33 },
+    Purchase: { desktop: 15, phone: 14 },
+    Accounts: { desktop: 45, phone: 44 },
+    Warehouse: { desktop: 14, phone: 13 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [

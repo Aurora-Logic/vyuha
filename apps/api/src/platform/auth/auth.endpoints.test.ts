@@ -333,9 +333,12 @@ describe('GET /auth/me', () => {
     expect(result.body.roles.map((role) => role.name)).toEqual([SYSTEM_ROLES.EMPLOYEE]);
     expect(result.body.employee?.employeeCode).toBe('AE-001');
 
-    // PRD §2.1 for the Employee role, exactly.
+    // PRD §2.1 for the Employee role, plus the two task keys P7-2 added
+    // (owner, 28 Aug 2026) so anyone can be handed a task and work it.
     expect(result.body.permissions).toEqual([
       PERMISSIONS.ATTENDANCE_VIEW_SELF,
+      PERMISSIONS.CRM_TASK_MANAGE,
+      PERMISSIONS.CRM_TASK_VIEW_SELF,
       PERMISSIONS.LEAVE_APPLY_SELF,
       PERMISSIONS.PUNCH_SELF,
     ]);

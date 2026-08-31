@@ -450,18 +450,7 @@ describe('query key registrations', () => {
     expect(resolved.get('ROLES_KEY')).toEqual(['roles', 'list']);
     expect(resolved.get('LOCKS_QUERY_KEY')).toEqual(['attendance', 'locks']);
     expect(resolved.get('SETTINGS_QUERY_KEY')).toEqual(['settings']);
-    expect(resolved.get('reportKeys.catalogue')).toEqual(['reports', 'catalogue']);
-
-    // The report shell registers one key for every report, parameterised by the
-    // report it is showing - there is no longer a hook per report to hardcode
-    // one. The registration therefore resolves with the report key as a
-    // wildcard, and that is the honest reading of the source.
-    expect(resolved.get('reportKeys.rows(reportKey, query)')).toEqual([
-      'reports',
-      'rows',
-      '*',
-      '*',
-    ]);
+    expect(resolved.get('downloadKeys.exports')).toEqual(['downloads', 'exports']);
 
     // A spread constant has to expand, or every leave key would read as
     // '*,requests' and two of them would look identical.
@@ -474,29 +463,13 @@ describe('query key registrations', () => {
     expect(byReference.length).toBeGreaterThanOrEqual(10);
   });
 
-  it('carries a factory\'s literal arguments into their parameter positions', () => {
-    // Exercised directly rather than through a call site, because no hook
-    // writes a literal into a key factory any more: the report shell became
-    // generic over the report it is showing. The behaviour still has to hold -
-    // the moment one does, two of them must resolve apart rather than to the
-    // same key, which would report a collision that does not exist, and a test
-    // that cries wolf is a test somebody deletes.
-    expect(resolve("reportKeys.rows('late-arrivals', query)")).toEqual([
-      'reports',
-      'rows',
-      'late-arrivals',
-      '*',
-    ]);
-    expect(resolve("reportKeys.rows('punch-audit', query)")).toEqual([
-      'reports',
-      'rows',
-      'punch-audit',
-      '*',
-    ]);
-    expect(resolve("reportKeys.rows('late-arrivals', query)")).not.toEqual(
-      resolve("reportKeys.rows('punch-audit', query)"),
-    );
-  });
+  // The factory-argument case ('carries a factory's literal arguments into
+  // their parameter positions') left with the last key factory in the source:
+  // reportKeys died with the reports module (owner, 26 Aug 2026), and a
+  // resolve() against a name the scan no longer finds proves nothing. The
+  // first feature to declare a parameterised key factory must bring that test
+  // back with it -- two literal calls resolving apart is what stops the
+  // collision detector crying wolf.
 
   it('finds no key constant declared under a name another file also uses', () => {
     // The resolver looks constants up by name across the whole app, so two

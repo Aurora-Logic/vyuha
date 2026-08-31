@@ -445,6 +445,26 @@ checklist:
 
 Any unticked box moves the launch, not the bar.
 
+## 3b. Go-live data the operator supplies (owner's decision, 28 Aug 2026: checklist, not open questions)
+
+These closed every remaining "supply the real number" row in
+`docs/OPEN-QUESTIONS.md`. Each names its screen; none blocks a build.
+
+- [ ] Geofence centre and radius per office (Administration > Organisation > location).
+- [ ] Office IP allowlist for web punch (same screen).
+- [ ] Real shift timings replacing the placeholder General shift (Attendance setup > Shifts).
+- [ ] Leave types: entitlements, carry-forward, negative caps (Attendance setup > Leave types; the five seeded rows carry their placeholder notes until edited).
+- [ ] This year's holiday calendar, restricted days marked (Attendance setup > Holidays), and each location pointed at its calendar.
+- [ ] Payroll column sign-off against REQ-J-04 before the first month-end export.
+- [ ] Attendance cycle confirmed (calendar month stands until said otherwise).
+- [ ] Brand colour and logo (Settings > Appearance; Settings > Logo).
+- [ ] Legal: operator entity name and registered address, grievance officer contact (DPDP), counsel review of the terms and privacy drafts.
+- [ ] Sentry project created and SENTRY_DSN set (the API reports only when set).
+- [ ] Cloudflare R2 bucket `vyuha-backups` + rclone credentials; add the copy line to the backup cron (WS-A-2).
+- [ ] OpsTally: one baseline pass with the lookback raised to cover the history wanted (P6b-5), then drop it back.
+- [ ] OpsTally agent owner asked for `bill_allocation` rows (REQ-AJ-02; the server-side writer is live and waiting).
+- [ ] Delete the dev verification account verify@vyuha.local before real users arrive.
+
 ## 4. After the pilot — the remaining ~10 sessions
 
 Week 1: the leave/approvals join (supervised, per OPEN-QUESTIONS — subject-
