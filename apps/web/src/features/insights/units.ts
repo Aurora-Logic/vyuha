@@ -14,8 +14,10 @@ import { EMPTY_VALUE, formatCount, formatMoney, formatMoneyShort } from '@/lib/f
 export function formatHeadline(unit: MetricUnit, headline: string): string {
   if (headline === '') return EMPTY_VALUE;
   switch (unit) {
-    case 'money':
-      return formatMoney(headline);
+    case 'money': {
+      const text = headline.startsWith('-') ? headline.slice(1) : headline;
+      return formatMoney(text);
+    }
     case 'minutes':
       return formatDuration(Number(headline));
     case 'percent':
@@ -29,7 +31,7 @@ export function formatHeadline(unit: MetricUnit, headline: string): string {
 export function formatTick(unit: MetricUnit, value: number): string {
   switch (unit) {
     case 'money':
-      return formatMoneyShort(value);
+      return formatMoneyShort(Math.abs(value));
     case 'minutes':
       return formatDuration(value);
     case 'percent':
@@ -41,7 +43,11 @@ export function formatTick(unit: MetricUnit, value: number): string {
 
 /** A breakdown cell, by its column's declared unit. */
 export function formatCell(unit: MetricUnit | undefined, value: string | number): string {
-  if (unit === 'money') return formatMoney(typeof value === 'number' ? value : String(value));
+  if (unit === 'money') {
+    const text = typeof value === 'number' ? (Number.isFinite(value) ? Math.abs(value).toFixed(2) : '') : value;
+    const absText = text.startsWith('-') ? text.slice(1) : text;
+    return formatMoney(absText);
+  }
   if (unit === 'minutes') return formatDuration(Number(value));
   if (typeof value === 'number') return formatCount(value);
   return value === '' ? EMPTY_VALUE : value;

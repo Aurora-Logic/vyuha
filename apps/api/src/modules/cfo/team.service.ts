@@ -189,13 +189,13 @@ export class TeamService {
       const totals = await this.db.execute<{ kind: string; value: string | null }>(sql`
         SELECT kind, sum(value)::numeric(16,2)::text AS value FROM (
           SELECT CASE WHEN voucher_date BETWEEN ${from} AND ${to} THEN 'sales' ELSE 'salesLy' END AS kind,
-                 CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END AS value
+                 CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END AS value
           FROM vouchers
           WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${parties}
             AND voucher_type IN ('Sales', 'Credit Note')
             AND (voucher_date BETWEEN ${from} AND ${to} OR voucher_date BETWEEN ${lyFrom} AND ${lyTo})
           UNION ALL
-          SELECT 'collections', amount FROM vouchers
+          SELECT 'collections', abs(amount) FROM vouchers
           WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${parties}
             AND voucher_type = 'Receipt' AND voucher_date BETWEEN ${from} AND ${to}
         ) parts GROUP BY 1

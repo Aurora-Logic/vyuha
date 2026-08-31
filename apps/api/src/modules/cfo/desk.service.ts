@@ -426,7 +426,7 @@ export class DeskService {
   > {
     const value = await this.db.execute<{ partyId: string; net: string }>(sql`
       SELECT party_id AS "partyId",
-             sum(CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END)::numeric(16,2)::text AS net
+             sum(CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
       FROM vouchers WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IS NOT NULL
         AND voucher_type IN ('Sales', 'Credit Note') AND voucher_date > (${today}::date - 365)
       GROUP BY 1
@@ -520,7 +520,7 @@ export class DeskService {
     const lyEnd = `${String(Number(today.slice(0, 4)) - 1)}${today.slice(4)}`;
     const years = await this.db.execute<{ kind: string; net: string }>(sql`
       SELECT CASE WHEN voucher_date >= ${fyStart} THEN 'ty' ELSE 'ly' END AS kind,
-             sum(CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END)::numeric(16,2)::text AS net
+             sum(CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
       FROM vouchers WHERE org_id = ${principal.orgId} AND party_id = ${partyId} AND is_cancelled = false
         AND voucher_type IN ('Sales', 'Credit Note')
         AND (voucher_date BETWEEN ${fyStart} AND ${today} OR voucher_date BETWEEN ${lyStart} AND ${lyEnd})

@@ -124,7 +124,7 @@ export class CreditControlService {
     // the period's end, from the voucher projection (ex-cancelled).
     const months = await this.db.execute<{ month: string; sales: string; days: number }>(sql`
       SELECT to_char(voucher_date, 'YYYY-MM') AS month,
-             sum(CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END)::numeric(16,2)::text AS sales,
+             sum(CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS sales,
              extract(day FROM (date_trunc('month', min(voucher_date)) + interval '1 month' - interval '1 day'))::int AS days
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND is_cancelled = false
@@ -287,9 +287,9 @@ export class CreditControlService {
     }>(sql`
       SELECT v.party_id AS "partyId", max(v.party_name) AS party,
              sum(CASE WHEN v.voucher_date BETWEEN ${from} AND ${to}
-                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN v.amount ELSE -v.amount END) ELSE 0 END)::numeric(16,2)::text AS ty,
+                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) ELSE -abs(v.amount) END) ELSE 0 END)::numeric(16,2)::text AS ty,
              sum(CASE WHEN v.voucher_date BETWEEN ${lyFrom} AND ${lyTo}
-                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN v.amount ELSE -v.amount END) ELSE 0 END)::numeric(16,2)::text AS ly,
+                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) ELSE -abs(v.amount) END) ELSE 0 END)::numeric(16,2)::text AS ly,
              max(v.voucher_date) FILTER (WHERE v.voucher_type = 'Sales' AND v.voucher_date < ${from})::text AS "lastBefore",
              min(v.voucher_date) FILTER (WHERE v.voucher_type = 'Sales' AND v.voucher_date BETWEEN ${from} AND ${to})::text AS "firstIn"
       FROM vouchers v
@@ -441,7 +441,7 @@ export class CreditControlService {
     }
     const annualValue = await this.db.execute<{ partyId: string; net: string }>(sql`
       SELECT party_id AS "partyId",
-             sum(CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END)::numeric(16,2)::text AS net
+             sum(CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IS NOT NULL
         AND voucher_type IN ('Sales', 'Credit Note') AND voucher_date > (${today}::date - 365)
@@ -491,8 +491,8 @@ export class CreditControlService {
     const fyStart = Number(today.slice(5, 7)) >= 4 ? `${today.slice(0, 4)}-04-01` : `${String(Number(today.slice(0, 4)) - 1)}-04-01`;
     const decline = await this.db.execute<{ partyId: string; party: string; ty: string; ly: string }>(sql`
       SELECT party_id AS "partyId", max(party_name) AS party,
-             sum(CASE WHEN voucher_date >= ${fyStart} THEN (CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END) ELSE 0 END)::numeric(16,2)::text AS ty,
-             sum(CASE WHEN voucher_date < ${fyStart} THEN (CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END) ELSE 0 END)::numeric(16,2)::text AS ly
+             sum(CASE WHEN voucher_date >= ${fyStart} THEN (CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END) ELSE 0 END)::numeric(16,2)::text AS ty,
+             sum(CASE WHEN voucher_date < ${fyStart} THEN (CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END) ELSE 0 END)::numeric(16,2)::text AS ly
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IS NOT NULL
         AND voucher_type IN ('Sales', 'Credit Note')

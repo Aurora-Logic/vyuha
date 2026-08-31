@@ -172,14 +172,14 @@ export class InsightsService {
 
   private async receivables(principal: Principal, q: InsightsQuery, days: string[]): Promise<MetricView[]> {
     const invoiced = await this.db.execute<DayRow>(sql`
-      SELECT voucher_date::text AS day, 'invoiced' AS key, sum(amount)::text AS value
+      SELECT voucher_date::text AS day, 'invoiced' AS key, sum(abs(amount))::text AS value
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
         AND voucher_type = 'Sales' AND is_cancelled = false
       GROUP BY 1
     `);
     const receipts = await this.db.execute<DayRow>(sql`
-      SELECT voucher_date::text AS day, 'received' AS key, sum(amount)::text AS value
+      SELECT voucher_date::text AS day, 'received' AS key, sum(abs(amount))::text AS value
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
         AND voucher_type = 'Receipt' AND is_cancelled = false
@@ -202,11 +202,11 @@ export class InsightsService {
       GROUP BY 1, 2
     `);
     const parties = await this.db.execute<{ party: string; vouchers: number; amount: string }>(sql`
-      SELECT coalesce(nullif(party_name, ''), 'No party') AS party, count(*)::int AS vouchers, sum(amount)::text AS amount
+      SELECT coalesce(nullif(party_name, ''), 'No party') AS party, count(*)::int AS vouchers, sum(abs(amount))::text AS amount
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
         AND voucher_type = 'Sales' AND is_cancelled = false
-      GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 8
+      GROUP BY 1 ORDER BY sum(abs(amount)) DESC LIMIT 8
     `);
 
     const sumText = (rows: readonly DayRow[]): string => {
