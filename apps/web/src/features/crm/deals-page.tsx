@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
@@ -23,6 +23,7 @@ import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -143,22 +144,7 @@ export function DealsPage() {
   const ownerParam = searchParams.get('owner') ?? '';
   const stageParam = searchParams.get('stage') ?? '';
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setParam('q', draft.trim() || null);
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setParam is stable in effect
-  }, [draft, q]);
+  const [draft, setDraft] = useSearchDraft();
 
   function setParam(name: string, value: string | null) {
     setSearchParams(

@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { ArrowsClockwiseIcon, LockKeyIcon, PackageIcon } from '@phosphor-icons/react';
 import { useSearchParams, useNavigate } from 'react-router';
 
@@ -22,6 +21,7 @@ import {
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { PERMISSIONS, STOCK_ITEM_SORT_FIELDS } from '@vyuha/shared';
 
 import { useStockItems, type StockItem } from './use-stock-items';
@@ -71,33 +71,7 @@ export function StockItemsPage() {
   const company = searchParams.get('company') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
-  const [draft, setDraft] = useState(q);
-  // The same incoming-filter sync the parties screen carries, for the same
-  // reason: Go To can navigate here with a fresh ?q while mounted.
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   const { sort, activeSort, onSortChange } = useUrlSort(STOCK_ITEM_SORT_FIELDS);
   const query = useStockItems(

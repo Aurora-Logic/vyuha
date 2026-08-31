@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CaretLeftIcon, CaretRightIcon, InfoIcon, UsersThreeIcon } from '@phosphor-icons/react';
 import { addDays, isToday, startOfDay } from 'date-fns';
 import { useSearchParams } from 'react-router';
@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { cn } from '@/lib/utils';
 import {
@@ -238,36 +239,7 @@ export function TeamAttendancePage() {
   // The search box is typed into continuously and committed to the URL on a
   // pause, so it needs a local value. `syncedQ` is what makes the two agree
   // again when the URL moves on its own — a Back press, or Clear filters.
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          // Narrowing the list invalidates the page number: page 4 of three
-          // pages of results is an empty screen that looks like no matches.
-          next.delete('page');
-          return next;
-        },
-        // Replace, so Back leaves the search rather than walking backwards
-        // through every prefix that was typed to reach it.
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   function patchParams(apply: (params: URLSearchParams) => void) {
     setSearchParams((current) => {

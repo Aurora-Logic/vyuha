@@ -6,9 +6,13 @@ import { useSearchParams } from 'react-router';
  * 300ms after typing stops, and follows the URL back when something else
  * changes it -- a cleared filter, or Back.
  *
- * Nine registers hand-rolled this character for character before it lived
- * here, which is how one screen gets a flush fix and the other eight keep the
- * bug. Same reasoning as `useDebouncedValue`, one level up.
+ * The sync back matters because Go To can navigate to a register that is
+ * already mounted, carrying a fresh ?q. A draft that ignored that would
+ * debounce the incoming filter straight back out of the URL.
+ *
+ * Sixteen registers hand-rolled this before it lived here, which is how one
+ * screen gets a flush fix and the other fifteen keep the bug. Same reasoning
+ * as `useDebouncedValue`, one level up.
  */
 export function useSearchDraft(param = 'q'): readonly [string, (value: string) => void] {
   const [searchParams, setSearchParams] = useSearchParams();

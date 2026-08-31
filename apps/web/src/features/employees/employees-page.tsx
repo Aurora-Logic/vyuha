@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   PlusIcon,
   UploadSimpleIcon,
@@ -36,6 +36,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api/client';
 import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import {
@@ -259,38 +260,7 @@ export function EmployeesPage() {
   // again when the URL moves on its own — a Back press, or Clear filters.
   // Adjusting state during render rather than in an effect is the documented
   // way to do this; an effect would render the stale value first.
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    // Guarded, so committing "abc " does not yank the trailing space back out
-    // from under someone who is still typing.
-    if (draft.trim() !== q) setDraft(q);
-  }
-
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          // Narrowing the list invalidates the page number: page 4 of three
-          // pages of results is an empty screen that looks like no matches.
-          next.delete('page');
-          return next;
-        },
-        // Replace, so Back leaves the search rather than walking backwards
-        // through every prefix that was typed to reach it.
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   // Base UI hands back null when a select is cleared, which this one cannot be
   // — there is always a chosen option — but the handler has to accept it.

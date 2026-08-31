@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { CheckSquareIcon, GearIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
@@ -27,6 +27,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useIsMobile } from '@/hooks/use-mobile';
 
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, REALTIME_RESOURCES, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_SORT_FIELDS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
@@ -200,22 +201,7 @@ export function TasksPage() {
   const subjectType = searchParams.get('subjectType') ?? '';
   const subjectId = searchParams.get('subjectId') ?? '';
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setParam('q', draft.trim() || null);
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setParam is stable in effect; listing it would re-run per render
-  }, [draft, q]);
+  const [draft, setDraft] = useSearchDraft();
 
   function setParam(name: string, value: string | null) {
     setSearchParams(
