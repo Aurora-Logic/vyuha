@@ -705,14 +705,6 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'The backlog as a picture: how much is open and how much is late, where it is sitting, who is carrying it, and whether work is being closed as fast as it arrives. Counted on the server under your own task scope, so it counts exactly the tasks your register would show.',
   },
   {
-    id: 'screen.crm-dashboard',
-    route: '/crm/dashboard',
-    anchor: ANCHORS.screenHeader,
-    permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
-    title: 'CRM dashboard',
-    body: 'The pipeline as a picture: what is open and where it is stuck, what closed and when, and who is carrying it. Every figure is totalled on the server under your own deal scope, so it counts exactly the deals the list would show you.',
-  },
-  {
     id: 'screen.sales-estimates',
     route: '/sales/estimates',
     anchor: ANCHORS.screenHeader,

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowSquareOutIcon, BuildingsIcon, CalendarBlankIcon, CheckIcon, TrashIcon, TruckIcon, UserIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
+import { ArrowSquareOutIcon, BuildingsIcon, CalendarBlankIcon, CheckIcon, CircleDashedIcon, FlagIcon, LinkSimpleIcon, NotePencilIcon, PackageIcon, TrashIcon, TruckIcon, UserIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
@@ -9,7 +9,7 @@ import { RecordPicker, type PickerOption } from '@/components/shared/record-pick
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PresenceAvatars } from '@/components/shared/presence-avatars';
@@ -48,11 +48,38 @@ interface TaskSheetProps {
   onSaved?: (task: Task) => void;
 }
 
+/**
+ * A property label in the record sheet: a type icon, a quiet name, and a
+ * fixed column so every value on the page starts at the same x.
+ *
+ * The shape is Notion's property list (owner, 31 Aug 2026). The width only
+ * applies once `Field`'s own `responsive` orientation has turned the row
+ * horizontal, which it does above the phone breakpoint -- at 360px the label
+ * sits above its control, which is what PRD §6.5 asks for anyway.
+ */
+const PROPERTY_LABEL = 'text-muted-foreground gap-1.5 font-normal [&_svg]:size-3.5';
+
+/**
+ * Pins the label column so every value starts at the same x.
+ *
+ * Written on the row rather than the label because `Field`'s horizontal
+ * variant sets the label to `flex-auto` through a `*:` selector, which a
+ * plain utility on the label cannot outrank -- the labels sat left and the
+ * controls were flung to the right margin.
+ */
+const PROPERTY_ROW =
+  '@md/field-group:[&>[data-slot=field-label]]:w-32 @md/field-group:[&>[data-slot=field-label]]:flex-none';
+
 export function TaskSheet({ draft, onOpenChange, onSaved }: TaskSheetProps) {
   const isMobile = useIsMobile();
   return (
     <Sheet open={draft !== null} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 sm:max-w-md max-md:max-h-[90vh]">
+      {/* Wider than the other sheets on purpose. `Field`'s responsive
+            orientation turns a property into a label|value row at its `@md`
+            container width, and at the old 448px the group never reached it,
+            so every label stayed stacked above its control. A record page is
+            roomy in Notion for the same reason. */}
+        <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 sm:max-w-xl max-md:max-h-[90vh]">
         {draft ? (
           <TaskSheetBody
             key={draft.id ?? 'new'}
@@ -163,12 +190,19 @@ function TaskSheetBody({
             </Alert>
           ) : null}
 
+          {/* The title is the page's heading, the way a Notion record opens
+              with its name typed straight into the page: no label above it
+              and no box around it until the caret is in it. */}
           <Field>
-            <FieldLabel htmlFor="task-title">Title</FieldLabel>
+            <FieldLabel htmlFor="task-title" className="sr-only">
+              Title
+            </FieldLabel>
             <Input
               id="task-title"
               autoFocus
               autoComplete="off"
+              placeholder="Untitled"
+              className="h-auto rounded-none border-0 bg-transparent px-0 py-1 text-xl font-semibold shadow-none focus-visible:ring-0 md:text-xl"
               value={draft.title}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, title: event.target.value }));
@@ -177,8 +211,10 @@ function TaskSheetBody({
           </Field>
 
           {draft.subjectType !== null && draft.subjectId !== null ? (
-            <Field>
-              <FieldLabel>On</FieldLabel>
+            <Field orientation="responsive" className={PROPERTY_ROW}>
+              <FieldLabel className={PROPERTY_LABEL}>
+                <LinkSimpleIcon /> On
+              </FieldLabel>
               <div className="flex items-center gap-2 text-sm">
                 {subjectKind === null ? (
                   <span>{draft.subjectLabel ?? draft.subjectType}</span>
@@ -208,8 +244,10 @@ function TaskSheetBody({
           ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
+            <Field orientation="responsive" className={PROPERTY_ROW}>
+              <FieldLabel htmlFor="task-priority" className={PROPERTY_LABEL}>
+                <FlagIcon /> Priority
+              </FieldLabel>
               <Select
                 value={draft.priority}
                 onValueChange={(next: string | null) => {
@@ -230,8 +268,10 @@ function TaskSheetBody({
               </Select>
             </Field>
 
-            <Field>
-              <FieldLabel htmlFor="task-column">Status</FieldLabel>
+            <Field orientation="responsive" className={PROPERTY_ROW}>
+              <FieldLabel htmlFor="task-column" className={PROPERTY_LABEL}>
+                <CircleDashedIcon /> Status
+              </FieldLabel>
               <Select
                 value={draft.columnId ?? columnList.find((c) => !c.isDone)?.id ?? ''}
                 onValueChange={(next: string | null) => {
@@ -255,8 +295,10 @@ function TaskSheetBody({
             </Field>
           </div>
 
-          <Field>
-            <FieldLabel>Due</FieldLabel>
+          <Field orientation="responsive" className={PROPERTY_ROW}>
+            <FieldLabel className={PROPERTY_LABEL}>
+              <CalendarBlankIcon /> Due
+            </FieldLabel>
             {draft.dueDate === null ? (
               <Button
                 type="button"
@@ -270,7 +312,7 @@ function TaskSheetBody({
                 <span className="text-muted-foreground">No due date — set one</span>
               </Button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <DateField
                     label="Due date"
@@ -298,8 +340,10 @@ function TaskSheetBody({
           </Field>
 
           {canManage ? (
-            <Field>
-              <FieldLabel htmlFor="task-assignee">Assigned to</FieldLabel>
+            <Field orientation="responsive" className={PROPERTY_ROW}>
+              <FieldLabel htmlFor="task-assignee" className={PROPERTY_LABEL}>
+                <UserIcon /> Assigned to
+              </FieldLabel>
               <RecordPicker
                 id="task-assignee"
                 label="Assignee"
@@ -316,12 +360,15 @@ function TaskSheetBody({
                   setDraft((current) => ({ ...current, assigneeId: next?.id ?? null }));
                 }}
               />
-              <FieldDescription>They are told when it lands on them.</FieldDescription>
             </Field>
           ) : null}
 
-          <Field>
-            <FieldLabel htmlFor="task-description">Notes</FieldLabel>
+          {/* The body of the page, under a rule -- properties above, writing
+              below, which is the order a Notion record reads in. */}
+          <Field className="border-t pt-4">
+            <FieldLabel htmlFor="task-description" className={PROPERTY_LABEL}>
+              <NotePencilIcon /> Notes
+            </FieldLabel>
             {/* The same markdown editor the deal notes use, so a written
                 instruction can carry a list and an emphasis rather than
                 being one grey paragraph. */}
@@ -336,8 +383,10 @@ function TaskSheetBody({
             />
           </Field>
 
-          <Field>
-            <FieldLabel htmlFor="task-party">Customer</FieldLabel>
+          <Field orientation="responsive" className={PROPERTY_ROW}>
+            <FieldLabel htmlFor="task-party" className={PROPERTY_LABEL}>
+              <BuildingsIcon /> Customer
+            </FieldLabel>
             <PartyPicker
               id="task-party"
               label="Customer"
@@ -360,8 +409,10 @@ function TaskSheetBody({
             />
           </Field>
 
-          <Field>
-            <FieldLabel htmlFor="task-vendor">Supplier</FieldLabel>
+          <Field orientation="responsive" className={PROPERTY_ROW}>
+            <FieldLabel htmlFor="task-vendor" className={PROPERTY_LABEL}>
+              <TruckIcon /> Supplier
+            </FieldLabel>
             <PartyPicker
               id="task-vendor"
               label="Supplier"
@@ -386,8 +437,10 @@ function TaskSheetBody({
             />
           </Field>
 
-          <Field>
-            <FieldLabel htmlFor="task-items">Items</FieldLabel>
+          <Field orientation="responsive" className={PROPERTY_ROW}>
+            <FieldLabel htmlFor="task-items" className={PROPERTY_LABEL}>
+              <PackageIcon /> Items
+            </FieldLabel>
             <TaskItemsField
               value={draft.items}
               enabled={canSeeItems}
@@ -395,9 +448,6 @@ function TaskSheetBody({
                 setDraft((current) => ({ ...current, items }));
               }}
             />
-            <FieldDescription>
-              Which stock this is about. No quantities — a task is a piece of work, not a document.
-            </FieldDescription>
           </Field>
         </FieldGroup>
         {/* Only on a saved task: an attachment needs an id to hang off, and a

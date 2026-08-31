@@ -88,11 +88,14 @@ export const RELEASES: Release[] = [
       },
       {
         kind: 'added',
-        title: 'A dashboard for the CRM, and a deal that knows its paperwork',
-        body: 'The pipeline read as a whole, and opening a deal shows the estimate, order and invoice raised against it.',
-        reqs: ['REQ-U-10', 'REQ-U-12'],
-        route: '/crm/dashboard',
-        guideStep: 'screen.crm-dashboard',
+        // The CRM dashboard this once announced was removed on the owner's
+        // word (31 Aug 2026). What shipped and stayed is the paperwork a deal
+        // carries, so that is what the entry says.
+        title: 'A deal knows its paperwork',
+        body: 'Opening a deal shows the estimate, order and invoice raised against it, and whether it has been ordered or invoiced.',
+        reqs: ['REQ-U-12'],
+        route: '/crm/deals',
+        guideStep: 'screen.crm-deals',
         permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
       },
     ],

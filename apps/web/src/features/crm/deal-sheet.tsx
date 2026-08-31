@@ -447,14 +447,19 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                 Set a date
               </Button>
             ) : (
-              <span className="flex items-center gap-2">
-                <DateField
-                  label="Next follow-up"
-                  value={fromDateParam(draft.nextFollowUpDate)}
-                  onValueChange={(next) => {
-                    setDraft((current) => ({ ...current, nextFollowUpDate: toDateParam(next) }));
-                  }}
-                />
+              <span className="flex min-w-0 items-center gap-2">
+                {/* The trigger is w-full, so beside a clear button it demanded
+                    100% and pushed the sheet into a horizontal scroll. Same
+                    wrapper the task sheet's due date already uses. */}
+                <span className="min-w-0 flex-1">
+                  <DateField
+                    label="Next follow-up"
+                    value={fromDateParam(draft.nextFollowUpDate)}
+                    onValueChange={(next) => {
+                      setDraft((current) => ({ ...current, nextFollowUpDate: toDateParam(next) }));
+                    }}
+                  />
+                </span>
                 <Button
                   type="button"
                   variant="ghost"
