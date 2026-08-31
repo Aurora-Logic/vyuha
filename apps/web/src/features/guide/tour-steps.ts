@@ -697,6 +697,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'The pipeline, whose stages are configurable rather than fixed. A deal has no accounting existence and is never pushed to Tally; opening a won one shows the documents raised against it.',
   },
   {
+    id: 'screen.crm-dashboard',
+    route: '/crm/dashboard',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
+    title: 'CRM dashboard',
+    body: 'The pipeline as a picture: what is open and where it is stuck, what closed and when, and who is carrying it. Every figure is totalled on the server under your own deal scope, so it counts exactly the deals the list would show you.',
+  },
+  {
     id: 'screen.sales-estimates',
     route: '/sales/estimates',
     anchor: ANCHORS.screenHeader,

@@ -587,6 +587,16 @@ export const MODULES: ModuleDef[] = [
             phase: 7,
             reqs: 'REQ-U-04, REQ-U-05, REQ-U-06',
           },
+          {
+            to: '/crm/dashboard',
+            label: 'Dashboard',
+            icon: ChartLineUpIcon,
+            // The same key the deals it reports on need: an account that
+            // cannot open a deal must not read a total built from deals.
+            permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-10',
+          },
         ],
       },
       {

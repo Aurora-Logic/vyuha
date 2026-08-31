@@ -23,6 +23,9 @@ import {
   type UpdatePipelineInput,
   type UpdatePipelineStageInput,
   REALTIME_RESOURCES,
+  type CrmAnalyticsQuery,
+  type CrmAnalyticsView,
+  type CrmOutcomeMonth,
   type RealtimeResource,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
@@ -32,12 +35,14 @@ import { FileService } from '../../../platform/files/file.service.js';
 import { isAcceptedUpload, sniffType } from '../../../platform/files/magic-bytes.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import { employees } from '../../../platform/db/schema/index.js';
+import { employees, organizations } from '../../../platform/db/schema/index.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
+import { localDateIn } from '../../../platform/tasks/local-date.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { RealtimeService } from '../../../platform/realtime/realtime.service.js';
 import { CrmService } from '../contacts/crm.service.js';
 import { crmDeals } from '../schema/index.js';
+import { DealAnalyticsRepository } from './deal-analytics.repository.js';
 import { DealRepository, PipelineRepository } from './deal.repository.js';
 
 /**
@@ -55,6 +60,29 @@ const DEAL_GRANTS: ScopeGrants = {
 };
 
 const SQL_TRUE = sql`true`;
+
+
+/** How many owners the load chart names before the rest are noise. */
+const OWNER_LOAD_LIMIT = 8;
+
+/**
+ * Put back the months in which nothing closed.
+ *
+ * A grouped query returns only the months that have rows, so a quiet
+ * September simply would not be drawn -- and a line chart joins August
+ * straight to October, which reads as continuity across a gap that is
+ * actually the story.
+ */
+function fillMonths(rows: readonly CrmOutcomeMonth[], since: Date, months: number): CrmOutcomeMonth[] {
+  const bySlot = new Map(rows.map((row) => [row.month, row]));
+  const filled: CrmOutcomeMonth[] = [];
+  for (let index = 0; index < months; index += 1) {
+    const at = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth() + index, 1));
+    const month = `${String(at.getUTCFullYear())}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
+    filled.push(bySlot.get(month) ?? { month, won: 0, lost: 0, wonValue: '0' });
+  }
+  return filled;
+}
 
 @Injectable()
 export class DealService {
@@ -418,6 +446,64 @@ export class DealService {
       recordId,
       actorUserId: principal.userId,
     });
+  }
+
+
+  // ----------------------------------------------------------- the dashboard
+
+  /**
+   * REQ-U-10. Six questions a sales manager actually asks, answered in one
+   * round trip: what is in the pipeline, where it is stuck, what closed
+   * lately, who is carrying it, and what needs them today.
+   *
+   * Aggregated in the database under `this.scope(principal)` -- the same
+   * predicate the list and board use. A dashboard built in the browser from
+   * a page of deals would be wrong for two separate reasons: it would total
+   * fifty rows out of however many exist, and a self-scoped viewer would be
+   * shown a pipeline they are not allowed to read.
+   */
+  async analytics(principal: Principal, query: CrmAnalyticsQuery): Promise<CrmAnalyticsView> {
+    const scope = this.scope(principal);
+    const repository = new DealAnalyticsRepository(this.db, orgContextOf(principal));
+    const { timezone } = await this.orgClock(principal.orgId);
+    const today = localDateIn(new Date(), timezone);
+
+    // The window starts at the first of the month, `months` back including
+    // this one, so the first and last columns of the chart are whole months
+    // rather than a part-month that reads as a collapse in sales.
+    const since = new Date(`${today.slice(0, 7)}-01T00:00:00Z`);
+    since.setUTCMonth(since.getUTCMonth() - (query.months - 1));
+
+    const [totals, stages, outcomes, owners, attention] = await Promise.all([
+      repository.totals(scope, query.pipelineId, since),
+      repository.stages(scope, query.pipelineId),
+      repository.outcomes(scope, query.pipelineId, since, timezone),
+      repository.owners(scope, query.pipelineId, OWNER_LOAD_LIMIT),
+      repository.attention(scope, query.pipelineId, today),
+    ]);
+
+    const decided = totals.wonCount + totals.lostCount;
+    return {
+      totals: {
+        ...totals,
+        // Null, not zero: a quarter in which nothing has closed has no win
+        // rate, and printing 0% reads as "we lost everything".
+        winRatePct: decided === 0 ? null : Math.round((totals.wonCount / decided) * 1000) / 10,
+      },
+      stages,
+      outcomes: fillMonths(outcomes, since, query.months),
+      owners,
+      attention,
+    };
+  }
+
+  private async orgClock(orgId: string): Promise<{ timezone: string }> {
+    const rows = await this.db
+      .select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
+    return { timezone: rows[0]?.timezone ?? 'Asia/Kolkata' };
   }
 
   // ---------------------------------------------------------------- helpers

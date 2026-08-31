@@ -448,3 +448,91 @@ export interface ActivityPage {
   readonly data: readonly ActivityView[];
   readonly nextCursor: string | null;
 }
+
+/**
+ * REQ-U-10: the CRM dashboard.
+ *
+ * Every figure here is aggregated on the server, under the same deal scope
+ * the list and board apply. Computing it in the browser from a page of deals
+ * would be wrong twice over: the page is fifty rows of however many exist,
+ * and a self-scoped viewer would be shown a pipeline total built from rows
+ * their role does not let them see.
+ *
+ * Money stays exact decimal text, as it is everywhere else in this contract
+ * (`DealView.value`, `DealBoardLane.valueTotal`). A total that went through
+ * a float on its way to the screen would disagree with the deals it came
+ * from, in the last place, on exactly the screen someone checks it against.
+ */
+export const crmAnalyticsQuerySchema = z.object({
+  /** One pipeline, or every pipeline the viewer can see when omitted. */
+  pipelineId: z.uuid().optional(),
+  /** How many months of won/lost history to plot, including this one. */
+  months: z.coerce.number().int().min(3).max(24).default(6),
+});
+
+export type CrmAnalyticsQuery = z.infer<typeof crmAnalyticsQuerySchema>;
+
+export interface CrmStageSlice {
+  readonly stageId: string;
+  readonly stageName: string;
+  readonly position: number;
+  readonly isWon: boolean;
+  readonly isLost: boolean;
+  readonly count: number;
+  /** Exact decimal text. */
+  readonly value: string;
+}
+
+export interface CrmOutcomeMonth {
+  /** `YYYY-MM`, in the organisation's timezone. */
+  readonly month: string;
+  readonly won: number;
+  readonly lost: number;
+  /** Exact decimal text. */
+  readonly wonValue: string;
+}
+
+export interface CrmOwnerLoad {
+  readonly ownerId: string | null;
+  readonly ownerName: string | null;
+  readonly openCount: number;
+  /** Exact decimal text. */
+  readonly openValue: string;
+}
+
+export interface CrmAnalyticsView {
+  readonly totals: {
+    readonly openCount: number;
+    /** Exact decimal text. */
+    readonly openValue: string;
+    readonly wonCount: number;
+    readonly lostCount: number;
+    /** Exact decimal text. */
+    readonly wonValue: string;
+    /** Won as a percentage of decided deals in the window; null when nothing closed. */
+    readonly winRatePct: number | null;
+    /** Mean days from creation to a won close; null when nothing has been won. */
+    readonly avgDaysToWin: number | null;
+  };
+  readonly stages: readonly CrmStageSlice[];
+  readonly outcomes: readonly CrmOutcomeMonth[];
+  readonly owners: readonly CrmOwnerLoad[];
+  readonly attention: {
+    /** Open deals with an expected close date already past. */
+    readonly overdue: number;
+    /** Open deals whose next follow-up date is today or earlier. */
+    readonly followUpDue: number;
+    /** Open deals untouched for longer than the stale threshold. */
+    readonly stale: number;
+    /** Open deals expected to close inside the next seven days. */
+    readonly closingSoon: number;
+  };
+}
+
+/**
+ * How long an open deal may sit untouched before the dashboard calls it
+ * stale. Fourteen days is two working weeks -- long enough that a deal
+ * waiting on a customer is not nagged about, short enough that one which
+ * has genuinely been forgotten surfaces inside a month.
+ */
+export const DEAL_STALE_DAYS = 14;

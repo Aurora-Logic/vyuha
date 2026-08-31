@@ -19,6 +19,7 @@ import {
   type DealAttachmentView,
   PERMISSIONS,
   createDealSchema,
+  crmAnalyticsQuerySchema,
   createPipelineSchema,
   createPipelineStageSchema,
   dealBoardQuerySchema,
@@ -27,6 +28,7 @@ import {
   updateDealSchema,
   updatePipelineSchema,
   updatePipelineStageSchema,
+  type CrmAnalyticsView,
   type DealBoardView,
   type DealView,
   type Paginated,
@@ -43,6 +45,7 @@ import { DealService } from './deal.service.js';
 /** 3 MB, the platform's upload ceiling; the service refuses anything larger too. */
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
+class CrmAnalyticsQueryDto extends createZodDto(crmAnalyticsQuerySchema) {}
 class DealListQueryDto extends createZodDto(dealListQuerySchema) {}
 class DealBoardQueryDto extends createZodDto(dealBoardQuerySchema) {}
 class CreateDealDto extends createZodDto(createDealSchema) {}
@@ -142,6 +145,19 @@ export class DealController {
   @RequirePermission(...DEAL_VIEW_KEYS)
   board(@CurrentUser() principal: Principal, @Query() query: DealBoardQueryDto): Promise<DealBoardView> {
     return this.deals.board(principal, query);
+  }
+
+  /**
+   * REQ-U-10. Declared above `:id`, or Nest would read "analytics" as a deal
+   * id and answer 400 for a route that exists.
+   */
+  @Get('analytics')
+  @RequirePermission(...DEAL_VIEW_KEYS)
+  analytics(
+    @CurrentUser() principal: Principal,
+    @Query() query: CrmAnalyticsQueryDto,
+  ): Promise<CrmAnalyticsView> {
+    return this.deals.analytics(principal, query);
   }
 
   @Get(':id')

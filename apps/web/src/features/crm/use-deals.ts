@@ -66,6 +66,54 @@ function filterParams(filters: DealFilters): URLSearchParams {
   return params;
 }
 
+
+/**
+ * Parsed rather than trusted, like every other response this file reads.
+ * Money stays a string end to end: the server sends exact decimal text and a
+ * total that went through a float would disagree with the deals it came from.
+ */
+const analyticsSchema = z.object({
+  totals: z.object({
+    openCount: z.number(),
+    openValue: z.string(),
+    wonCount: z.number(),
+    lostCount: z.number(),
+    wonValue: z.string(),
+    winRatePct: z.number().nullable(),
+    avgDaysToWin: z.number().nullable(),
+  }),
+  stages: z.array(
+    z.object({
+      stageId: z.string(),
+      stageName: z.string(),
+      position: z.number(),
+      isWon: z.boolean(),
+      isLost: z.boolean(),
+      count: z.number(),
+      value: z.string(),
+    }),
+  ),
+  outcomes: z.array(
+    z.object({ month: z.string(), won: z.number(), lost: z.number(), wonValue: z.string() }),
+  ),
+  owners: z.array(
+    z.object({
+      ownerId: z.string().nullable(),
+      ownerName: z.string().nullable(),
+      openCount: z.number(),
+      openValue: z.string(),
+    }),
+  ),
+  attention: z.object({
+    overdue: z.number(),
+    followUpDue: z.number(),
+    stale: z.number(),
+    closingSoon: z.number(),
+  }),
+});
+
+export type CrmAnalytics = z.infer<typeof analyticsSchema>;
+
 export function usePipelines(options: { enabled?: boolean } = {}): UseQueryResult<Pipeline[], Error> {
   return useQuery({
     enabled: options.enabled ?? true,
@@ -301,4 +349,30 @@ export function useDealAttachmentActions(dealId: string): {
       await refresh();
     },
   };
+}
+
+/**
+ * REQ-U-10: the dashboard's figures, aggregated server-side under the
+ * viewer's own deal scope.
+ *
+ * Under the `['crm']` prefix on purpose, so a live change to any deal
+ * refreshes the dashboard through the same invalidation every other CRM
+ * screen uses -- a dashboard that stayed stale while the board beside it
+ * moved would be the most confusing screen in the product.
+ */
+export function useCrmAnalytics(
+  filters: { pipelineId?: string | undefined; months?: number | undefined } = {},
+): UseQueryResult<CrmAnalytics, Error> {
+  const params = new URLSearchParams();
+  if (filters.pipelineId !== undefined) params.set('pipelineId', filters.pipelineId);
+  if (filters.months !== undefined) params.set('months', String(filters.months));
+  const key = params.toString();
+  return useQuery({
+    queryKey: ['crm', 'analytics', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/crm/deals/analytics${key === '' ? '' : `?${key}`}`, { signal });
+      return parseOrThrow(analyticsSchema, body, 'CRM analytics');
+    },
+    staleTime: 60_000,
+  });
 }
