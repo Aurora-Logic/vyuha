@@ -62,7 +62,7 @@ export class HelpService {
       before: null,
       after: { question },
     });
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.HELP_QUESTION_ASKED,
       audience: { kind: 'permission', key: PERMISSIONS.SETTINGS_MANAGE },

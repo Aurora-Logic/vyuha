@@ -32,11 +32,6 @@ export interface MissingOutCandidate {
   readonly managerEmployeeId: string | null;
 }
 
-/** An active employee with no attendance day at all for the swept date. */
-export interface AbsentCandidate {
-  readonly employeeId: string;
-}
-
 export class PunchNotificationRepository {
   constructor(
     private readonly db: Database,
@@ -139,9 +134,9 @@ export class PunchNotificationRepository {
    * status); this only finds who to ask about. A non-rostered account resolves
    * to no shift and the engine skips it, so it costs one compute and no row.
    */
-  async absentCandidates(date: string): Promise<AbsentCandidate[]> {
+  async absentCandidates(date: string): Promise<string[]> {
     const rows = await this.db
-      .select({ employeeId: employees.id })
+      .select({ id: employees.id })
       .from(employees)
       .where(
         and(
@@ -166,6 +161,6 @@ export class PunchNotificationRepository {
       )
       .orderBy(asc(employees.id));
 
-    return rows;
+    return rows.map((row) => row.id);
   }
 }

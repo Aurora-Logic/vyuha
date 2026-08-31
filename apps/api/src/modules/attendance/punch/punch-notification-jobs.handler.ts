@@ -338,10 +338,11 @@ export class MarkAbsentSweepHandler implements JobHandler<'mark-absent'>, OnModu
 
       const engine = this.engine.forOrg({ orgId: org.id, actorUserId: null });
 
-      for (const candidate of candidates) {
+      for (const employeeId of candidates) {
         scanned += 1;
         try {
-          const outcome = await engine.computeDay(candidate.employeeId, date, { now });
+          // ponytail: writes rest-day rows too (reusing the engine); filter to ABSENT here if that ever costs.
+          const outcome = await engine.computeDay(employeeId, date, { now });
           if (outcome.outcome === 'written') {
             written += 1;
             if (outcome.day.status === 'ABSENT') absent += 1;
@@ -352,7 +353,7 @@ export class MarkAbsentSweepHandler implements JobHandler<'mark-absent'>, OnModu
           // shape of an account without a shift, not a failure of the sweep.
           this.logger.debug({
             msg: 'Skipped an employee with no resolvable shift in the mark-absent sweep.',
-            employeeId: candidate.employeeId,
+            employeeId,
             orgId: org.id,
             date,
             reason: error instanceof Error ? error.message : String(error),

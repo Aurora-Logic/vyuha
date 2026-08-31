@@ -381,7 +381,7 @@ export class TaskService {
   private async notifyAssigned(principal: Principal, task: TaskView, previousAssigneeId: string | null): Promise<void> {
     if (task.assigneeId === null || task.assigneeId === previousAssigneeId) return;
     if (task.assigneeId === principal.employeeId) return;
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.TASK_ASSIGNED,
       audience: { kind: 'employees', employeeIds: [task.assigneeId] },

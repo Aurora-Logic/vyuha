@@ -442,3 +442,40 @@ describe('the fixture leaves nothing behind that a re-run would trip over', () =
     expect(rows.rows[0]?.n).toBeGreaterThan(0);
   });
 });
+
+describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', () => {
+  it('saves and assigns the task even when the notification cannot be queued', async () => {
+    // What the owner saw: "Saving the task failed - background work could not
+    // be queued". The task was already written and audited; only the notice
+    // to the assignee failed, and the obvious retry made a second task.
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const failing = vi.spyOn(dispatcher, 'emit').mockRejectedValue(
+      new Error('Background work could not be queued just now. Try again shortly.'),
+    );
+    try {
+      const created = await harness.post<TaskView>('/tasks', {
+        token: adminToken,
+        body: { title: 'Ohmnova tech - Dispatch Via Courier', assigneeId: meeraId, priority: 'HIGH' },
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      expect(created.body.title).toBe('Ohmnova tech - Dispatch Via Courier');
+      expect(created.body.assigneeId).toBe(meeraId);
+      expect(failing, 'the notice was genuinely attempted').toHaveBeenCalled();
+
+      // And on a reassignment, which notifies the same way.
+      const moved = await harness.patch<TaskView>(`/tasks/${created.body.id}`, {
+        token: adminToken,
+        body: { assigneeId: raviId },
+      });
+      expect(moved.status).toBe(200);
+      expect(moved.body.assigneeId).toBe(raviId);
+    } finally {
+      failing.mockRestore();
+      // Put the capturing spy back for anything that runs after this file.
+      vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
+        emitted.push(event);
+        return Promise.resolve('spied');
+      });
+    }
+  });
+});

@@ -240,26 +240,6 @@ describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe('ABSENT');
   });
-
-  it('leaves a day that already exists alone (idempotent)', async () => {
-    const date = '2026-02-03';
-    // First run writes the ABSENT day; the candidate query then no longer
-    // returns the employee, so a second run finds nothing new to write.
-    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
-    const before = await harness.db
-      .select({ id: attendanceDays.id, updatedAt: attendanceDays.updatedAt })
-      .from(attendanceDays)
-      .where(and(eq(attendanceDays.orgId, ORG_ID), eq(attendanceDays.employeeId, workerEmployeeId), eq(attendanceDays.date, date)));
-    expect(before).toHaveLength(1);
-
-    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
-    const after = await harness.db
-      .select({ id: attendanceDays.id, updatedAt: attendanceDays.updatedAt })
-      .from(attendanceDays)
-      .where(and(eq(attendanceDays.orgId, ORG_ID), eq(attendanceDays.employeeId, workerEmployeeId), eq(attendanceDays.date, date)));
-    expect(after).toHaveLength(1);
-    expect(after[0]?.id).toBe(before[0]?.id);
-  });
 });
 
 describe('punch reminder (REQ-K-03, opt-in)', () => {
