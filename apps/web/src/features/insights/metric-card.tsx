@@ -156,7 +156,10 @@ function chartConfigOf(metric: Metric, palette: WidgetPalette, shift = 0): Chart
 function numericPoints(metric: Metric, options: ChartOptions, series: Metric['series']): Record<string, string | number>[] {
   let points = metric.points.map((point) => {
     const out: Record<string, string | number> = { t: point.t };
-    for (const s of series) out[s.key] = Number(point[s.key] ?? 0);
+    for (const s of series) {
+      const val = Number(point[s.key] ?? 0);
+      out[s.key] = metric.unit === 'money' ? Math.abs(val) : val;
+    }
     return out;
   });
   if (options.omitZero ?? false) {
@@ -241,7 +244,10 @@ export function MetricChart({
   // A zero wears no label: thirty "0"s along a baseline say nothing the
   // baseline does not.
   const totalOf = (point: Record<string, string | number>): string => {
-    const total = series.reduce((sum, s) => sum + Number(point[s.key] ?? 0), 0);
+    const total = series.reduce((sum, s) => {
+      const val = Number(point[s.key] ?? 0);
+      return sum + (metric.unit === 'money' ? Math.abs(val) : val);
+    }, 0);
     return total === 0 ? '' : formatTick(metric.unit, total);
   };
   // Grouped bars have no shared total; each series would need its own label,
