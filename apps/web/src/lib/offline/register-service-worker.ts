@@ -35,8 +35,44 @@ function scheduleUpdates(registration: ServiceWorkerRegistration): void {
   window.addEventListener('online', check);
 }
 
+/**
+ * Development has no use for the worker, and a standing cost for keeping it.
+ *
+ * The precache list is computed in the bundler's `generateBundle`, so the dev
+ * server renders `/sw.js` with an empty one -- there is no offline capability
+ * in development to test (`scripts/verify-offline.mjs` drives the real thing
+ * against a static server over `dist/`, which is why that gate exists).
+ *
+ * What a worker installed on `localhost` does buy is a white screen. It
+ * answers navigations network-first and falls back to the cached shell, so
+ * the moment the vite server is not there -- restarted on another port,
+ * stopped for the night -- the browser is handed a document whose every
+ * module request then fails, and the app paints nothing at all. That reads as
+ * "the product is broken" rather than "the server is down", and it has cost
+ * the owner a working session more than once.
+ *
+ * So in development the worker is not registered, and any worker a previous
+ * build left behind is removed along with its caches: a fix that only applied
+ * to browsers that had never run the old code would not be a fix at all.
+ * Set `VITE_DEV_SERVICE_WORKER=true` to work on the worker itself.
+ */
+async function unregisterInDevelopment(): Promise<void> {
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(registrations.map((registration) => registration.unregister()));
+
+  const names = await caches.keys();
+  await Promise.all(names.filter((name) => name.startsWith('vyuha-shell-')).map((name) => caches.delete(name)));
+}
+
 export function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) return;
+
+  if (import.meta.env.DEV && import.meta.env.VITE_DEV_SERVICE_WORKER !== 'true') {
+    void unregisterInDevelopment().catch((cause: unknown) => {
+      console.warn('Could not remove the development service worker.', cause);
+    });
+    return;
+  }
 
   // Registered as soon as this module runs, not on `load`. `load` waits for
   // every image, font and stylesheet in the document, and the whole of that
