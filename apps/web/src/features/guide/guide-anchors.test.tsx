@@ -179,19 +179,21 @@ describe('guided tour length', () => {
   //
   // Each of the four deal-sighted roles gained one for the CRM dashboard
   // (REQ-U-11), and no other role moved -- which is the permission gate on
-  // that step doing its job.
+  // that step doing its job. The task dashboard (REQ-V-11) then moved every
+  // role holding a task view key, which after P7-2 is all of them but
+  // Warehouse: it is the one role with no task keys, and it did not move.
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
-    Employee: { desktop: 13, phone: 12 },
-    Operations: { desktop: 22, phone: 21 },
-    HR: { desktop: 27, phone: 26 },
-    Admin: { desktop: 79, phone: 78 },
+    Employee: { desktop: 14, phone: 13 },
+    Operations: { desktop: 23, phone: 22 },
+    HR: { desktop: 28, phone: 27 },
+    Admin: { desktop: 80, phone: 79 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
-    Sales: { desktop: 36, phone: 35 },
-    'Sales manager': { desktop: 49, phone: 48 },
-    'Relationship manager': { desktop: 35, phone: 34 },
-    Purchase: { desktop: 15, phone: 14 },
-    Accounts: { desktop: 45, phone: 44 },
+    Sales: { desktop: 37, phone: 36 },
+    'Sales manager': { desktop: 50, phone: 49 },
+    'Relationship manager': { desktop: 36, phone: 35 },
+    Purchase: { desktop: 16, phone: 15 },
+    Accounts: { desktop: 46, phone: 45 },
     Warehouse: { desktop: 14, phone: 13 },
   };
 

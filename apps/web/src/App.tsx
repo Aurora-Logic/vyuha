@@ -28,6 +28,7 @@ const BUILT_ROUTES = new Set([
   '/tasks',
   '/crm/deals',
   '/crm/dashboard',
+  '/tasks/dashboard',
   '/crm/contacts',
   '/crm/companies',
   '/masters/parties',
@@ -138,6 +139,7 @@ const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ def
 const NotificationsPage = lazy(() => import('@/features/notifications').then((m) => ({ default: m.NotificationsPage })));
 const CompaniesPage = lazy(() => import('@/features/crm/companies-page').then((m) => ({ default: m.CompaniesPage })));
 const ContactsPage = lazy(() => import('@/features/crm/contacts-page').then((m) => ({ default: m.ContactsPage })));
+const TasksDashboardPage = lazy(() => import('@/features/tasks/tasks-dashboard-page').then((m) => ({ default: m.TasksDashboardPage })));
 const CrmDashboardPage = lazy(() => import('@/features/crm/crm-dashboard-page').then((m) => ({ default: m.CrmDashboardPage })));
 const DealsPage = lazy(() => import('@/features/crm/deals-page').then((m) => ({ default: m.DealsPage })));
 const EstimatesPage = lazy(() => import('@/features/sales/estimates-page').then((m) => ({ default: m.EstimatesPage })));
@@ -273,6 +275,7 @@ export default function App() {
               <Route path="tasks" element={<TasksPage />} />
               <Route path="tasks/:id" element={<TasksPage />} />
               <Route path="crm/dashboard" element={<CrmDashboardPage />} />
+              <Route path="tasks/dashboard" element={<TasksDashboardPage />} />
               <Route path="crm/deals" element={<DealsPage />} />
               <Route path="crm/deals/:id" element={<DealsPage />} />
               <Route path="sales/estimates" element={<EstimatesPage />} />

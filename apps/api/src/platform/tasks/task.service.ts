@@ -20,6 +20,9 @@ import {
   type UpdateTaskInput,
   REALTIME_RESOURCES,
   PARTY_LEDGER_GROUPS,
+  type TaskAnalyticsQuery,
+  type TaskAnalyticsView,
+  type TaskFlowWeek,
 } from '@vyuha/shared';
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
@@ -33,6 +36,7 @@ import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { localDateIn } from './local-date.js';
 import { TaskSubjectRegistry } from './task-subject.registry.js';
+import { TaskAnalyticsRepository } from './task-analytics.repository.js';
 import { BoardColumnRepository, TaskRepository } from './task.repository.js';
 
 /**
@@ -56,6 +60,28 @@ const TASK_GRANTS: ScopeGrants = {
 };
 
 const SQL_TRUE = sql`true`;
+
+/** How many people the load chart names before the rest is noise. */
+const ASSIGNEE_LOAD_LIMIT = 8;
+
+/**
+ * Put back the weeks in which nothing happened.
+ *
+ * A grouped query returns only the weeks that have rows, so a quiet week
+ * would simply not be drawn -- and a line joins the week before straight to
+ * the week after, which reads as steady work across a gap that is the story.
+ */
+function fillWeeks(rows: readonly TaskFlowWeek[], since: Date, weeks: number): TaskFlowWeek[] {
+  const bySlot = new Map(rows.map((row) => [row.weekStart, row]));
+  const filled: TaskFlowWeek[] = [];
+  for (let index = 0; index < weeks; index += 1) {
+    const at = new Date(since);
+    at.setUTCDate(at.getUTCDate() + index * 7);
+    const weekStart = at.toISOString().slice(0, 10);
+    filled.push(bySlot.get(weekStart) ?? { weekStart, raised: 0, closed: 0 });
+  }
+  return filled;
+}
 
 @Injectable()
 export class TaskService {
@@ -432,7 +458,50 @@ export class TaskService {
     });
   }
 
-/**
+  // ----------------------------------------------------------- the dashboard
+
+  /**
+   * REQ-V-11. What a manager asks about a task list: how much is open, how
+   * much is late, where it is sitting, who is carrying it, and whether it is
+   * being closed as fast as it arrives.
+   *
+   * Aggregated under `this.scope(principal)` -- the same predicate the
+   * register uses -- so the totals equal the totals of the tasks that
+   * person's own list would show.
+   */
+  async analytics(principal: Principal, query: TaskAnalyticsQuery): Promise<TaskAnalyticsView> {
+    const scope = this.scope(principal);
+    const repository = new TaskAnalyticsRepository(this.db, orgContextOf(principal));
+    const timezone = await this.orgTimezone(principal.orgId);
+    const today = localDateIn(new Date(), timezone);
+
+    // Whole weeks, back from the Monday of this one, so neither the first
+    // nor the last column is a part-week that reads as a collapse.
+    const since = new Date(`${today}T00:00:00Z`);
+    since.setUTCDate(since.getUTCDate() - (since.getUTCDay() === 0 ? 6 : since.getUTCDay() - 1));
+    since.setUTCDate(since.getUTCDate() - (query.weeks - 1) * 7);
+
+    const [totals, columns, assignees, priorities, flow] = await Promise.all([
+      repository.totals(scope, today, since),
+      repository.columns(scope),
+      repository.assignees(scope, today, ASSIGNEE_LOAD_LIMIT),
+      repository.priorities(scope),
+      repository.flow(scope, since, timezone),
+    ]);
+
+    return { totals, columns, assignees, priorities, flow: fillWeeks(flow, since, query.weeks) };
+  }
+
+  private async orgTimezone(orgId: string): Promise<string> {
+    const rows = await this.db
+      .select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
+    return rows[0]?.timezone ?? 'Asia/Kolkata';
+  }
+
+  /**
    * A party this organisation actually has, with the name snapshotted.
    *
    * The group is checked, not just the id: a customer chosen in the vendor

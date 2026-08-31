@@ -697,6 +697,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'The pipeline, whose stages are configurable rather than fixed. A deal has no accounting existence and is never pushed to Tally; opening a won one shows the documents raised against it.',
   },
   {
+    id: 'screen.tasks-dashboard',
+    route: '/tasks/dashboard',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
+    title: 'Task dashboard',
+    body: 'The backlog as a picture: how much is open and how much is late, where it is sitting, who is carrying it, and whether work is being closed as fast as it arrives. Counted on the server under your own task scope, so it counts exactly the tasks your register would show.',
+  },
+  {
     id: 'screen.crm-dashboard',
     route: '/crm/dashboard',
     anchor: ANCHORS.screenHeader,

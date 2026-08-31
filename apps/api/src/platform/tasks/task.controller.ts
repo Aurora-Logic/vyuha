@@ -18,12 +18,14 @@ import {
   createTaskSchema,
   reorderBoardColumnsSchema,
   taskBoardQuerySchema,
+  taskAnalyticsQuerySchema,
   taskListQuerySchema,
   updateBoardColumnSchema,
   updateTaskSchema,
   type Paginated,
   type TaskBoardColumnView,
   type TaskBoardView,
+  type TaskAnalyticsView,
   type TaskView,
 } from '@vyuha/shared';
 
@@ -32,6 +34,7 @@ import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import { TaskService } from './task.service.js';
 
+class TaskAnalyticsQueryDto extends createZodDto(taskAnalyticsQuerySchema) {}
 class TaskListQueryDto extends createZodDto(taskListQuerySchema) {}
 class TaskBoardQueryDto extends createZodDto(taskBoardQuerySchema) {}
 class CreateTaskDto extends createZodDto(createTaskSchema) {}
@@ -107,6 +110,19 @@ export class TaskController {
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteColumn(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.tasksService.deleteColumn(principal, id);
+  }
+
+  /**
+   * REQ-V-11. Declared above `:id`, or Nest reads "analytics" as a task id
+   * and answers 400 for a route that exists.
+   */
+  @Get('analytics')
+  @RequirePermission(...VIEW_KEYS)
+  analytics(
+    @CurrentUser() principal: Principal,
+    @Query() query: TaskAnalyticsQueryDto,
+  ): Promise<TaskAnalyticsView> {
+    return this.tasksService.analytics(principal, query);
   }
 
   @Get(':id')

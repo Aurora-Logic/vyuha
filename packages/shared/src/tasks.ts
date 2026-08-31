@@ -227,3 +227,63 @@ export const DEFAULT_BOARD_COLUMNS: readonly { name: string; isDone: boolean }[]
   { name: 'In progress', isDone: false },
   { name: 'Done', isDone: true },
 ];
+
+/**
+ * REQ-V-11: the task dashboard.
+ *
+ * Aggregated on the server under the same scope the register applies -- a
+ * self-scoped viewer's totals must equal the totals of the tasks their own
+ * list would show, or the dashboard becomes a way to learn how much work
+ * exists that you are not allowed to see.
+ */
+export const taskAnalyticsQuerySchema = z.object({
+  /** How many weeks of raised-and-closed history to plot, including this one. */
+  weeks: z.coerce.number().int().min(4).max(26).default(8),
+});
+
+export type TaskAnalyticsQuery = z.infer<typeof taskAnalyticsQuerySchema>;
+
+export interface TaskColumnLoad {
+  readonly columnId: string;
+  readonly columnName: string;
+  readonly sortOrder: number;
+  readonly isDone: boolean;
+  readonly count: number;
+}
+
+export interface TaskAssigneeLoad {
+  readonly assigneeId: string | null;
+  readonly assigneeName: string | null;
+  readonly openCount: number;
+  readonly overdueCount: number;
+}
+
+export interface TaskFlowWeek {
+  /** The Monday of the week, `YYYY-MM-DD`, in the organisation's timezone. */
+  readonly weekStart: string;
+  readonly raised: number;
+  readonly closed: number;
+}
+
+export interface TaskAnalyticsView {
+  readonly totals: {
+    readonly open: number;
+    readonly overdue: number;
+    readonly dueToday: number;
+    readonly dueThisWeek: number;
+    readonly unassigned: number;
+    readonly closedInPeriod: number;
+    /** Mean days from raising to closing, for what closed in the period; null when nothing did. */
+    readonly avgDaysToClose: number | null;
+  };
+  readonly columns: readonly TaskColumnLoad[];
+  readonly assignees: readonly TaskAssigneeLoad[];
+  readonly priorities: readonly { readonly priority: TaskPriority; readonly openCount: number }[];
+  readonly flow: readonly TaskFlowWeek[];
+}
+
+/**
+ * Below this many closed tasks, a mean time-to-close is one slow task
+ * wearing a statistic's clothes.
+ */
+export const MIN_CLOSED_FOR_AVERAGE = 5;

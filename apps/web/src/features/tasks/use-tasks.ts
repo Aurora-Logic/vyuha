@@ -6,6 +6,8 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { z } from 'zod';
+import { TASK_PRIORITIES } from '@vyuha/shared';
 import type {
   CreateBoardColumnInput,
   CreateTaskInput,
@@ -127,6 +129,40 @@ function useInvalidateTasks(): () => Promise<void> {
 
 const blank = (value: string): string | null => (value.trim() === '' ? null : value.trim());
 
+/** Parsed rather than trusted, like every other response this file reads. */
+const taskAnalyticsSchema = z.object({
+  totals: z.object({
+    open: z.number(),
+    overdue: z.number(),
+    dueToday: z.number(),
+    dueThisWeek: z.number(),
+    unassigned: z.number(),
+    closedInPeriod: z.number(),
+    avgDaysToClose: z.number().nullable(),
+  }),
+  columns: z.array(
+    z.object({
+      columnId: z.string(),
+      columnName: z.string(),
+      sortOrder: z.number(),
+      isDone: z.boolean(),
+      count: z.number(),
+    }),
+  ),
+  assignees: z.array(
+    z.object({
+      assigneeId: z.string().nullable(),
+      assigneeName: z.string().nullable(),
+      openCount: z.number(),
+      overdueCount: z.number(),
+    }),
+  ),
+  priorities: z.array(z.object({ priority: z.enum(TASK_PRIORITIES), openCount: z.number() })),
+  flow: z.array(z.object({ weekStart: z.string(), raised: z.number(), closed: z.number() })),
+});
+
+export type TaskAnalytics = z.infer<typeof taskAnalyticsSchema>;
+
 export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
   const invalidate = useInvalidateTasks();
   return useMutation({
@@ -220,5 +256,28 @@ export function useDeleteBoardColumn(): UseMutationResult<void, Error, string> {
       await apiRequest<void>(`/tasks/columns/${id}`, { method: 'DELETE' });
     },
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * REQ-V-11: the dashboard's figures, aggregated server-side under the
+ * viewer's own task scope.
+ *
+ * Under the `['tasks']` prefix on purpose, so a live change to any task
+ * refreshes the dashboard through the same invalidation every other task
+ * screen uses — a dashboard that stayed stale while the board beside it
+ * moved would be the most confusing screen in the product.
+ */
+export function useTaskAnalytics(filters: { weeks?: number } = {}): UseQueryResult<TaskAnalytics, Error> {
+  const params = new URLSearchParams();
+  if (filters.weeks !== undefined) params.set('weeks', String(filters.weeks));
+  const key = params.toString();
+  return useQuery({
+    queryKey: ['tasks', 'analytics', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks/analytics${key === '' ? '' : `?${key}`}`, { signal });
+      return parseOrThrow(taskAnalyticsSchema, body, 'task analytics');
+    },
+    staleTime: 60_000,
   });
 }

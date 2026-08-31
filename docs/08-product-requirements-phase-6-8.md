@@ -220,6 +220,7 @@ The sidebar carries nineteen items today and already scrolls. Three modules will
 | REQ-V-08 | Task notifications on assignment, on due date, and on overdue, through the existing notification dispatcher and respecting existing per-user preferences. |
 | REQ-V-09 | **A task names its customer and its supplier**, as two separate fields — a task is often about both at once. Which side of the Tally ledger a party sits on is checked, not just its id: a Sundry Debtor cannot be saved in the vendor field. Both are chosen by typing, searched on the server across the whole ledger. (Owner, 31 Aug 2026.) |
 | REQ-V-10 | **A task names the stock items it is about**, chosen by typing from the whole catalogue, up to twenty. No quantities and no rates: a task is a piece of work, not a document. The description is rich text (markdown with a preview), the same editor deal notes use. (Owner, 31 Aug 2026.) |
+| REQ-V-11 | **Task dashboard.** How much is open, how much is overdue, due today and due this week, how much has nobody on it; open tasks by board column, by assignee (with the overdue part inside the bar) and by priority; raised against closed per week on one axis. Every figure is counted server-side under the viewer's own task scope, so it counts exactly the tasks their register would show. A mean time-to-close is withheld below five closed tasks rather than printed from one slow one. (Owner, 31 Aug 2026.) |
 
 ### Area W — Sales documents
 
