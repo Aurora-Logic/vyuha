@@ -46,11 +46,6 @@ async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function purgeMailpit(): Promise<void> {
-  const response = await fetch(`${MAILPIT_API}/messages`, { method: 'DELETE' });
-  if (!response.ok) throw new Error(`Mailpit purge answered ${String(response.status)}.`);
-}
-
 /**
  * Polls until a message with this subject arrives. SMTP acceptance and the
  * message becoming visible in the API are two different moments, so reading

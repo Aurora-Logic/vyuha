@@ -38,7 +38,7 @@ export const base = tseslint.config(
         'error',
         {
           selector: 'Literal[value=/\\p{Extended_Pictographic}/u]',
-          message: 'No emojis (CLAUDE.md §3). Use a lucide-react icon.',
+          message: 'No emojis (CLAUDE.md §3). Use a Phosphor icon.',
         },
       ],
     },

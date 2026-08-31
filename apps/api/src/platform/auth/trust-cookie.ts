@@ -32,11 +32,6 @@ export function setTrustCookie(res: Response, token: string): void {
   res.cookie(TRUST_COOKIE_NAME, token, trustCookieOptions());
 }
 
-export function clearTrustCookie(res: Response): void {
-  const { httpOnly, secure, sameSite, path } = trustCookieOptions();
-  res.clearCookie(TRUST_COOKIE_NAME, { httpOnly, secure, sameSite, path });
-}
-
 export function readTrustCookie(req: Request): string | null {
   return readCookie(req, TRUST_COOKIE_NAME);
 }

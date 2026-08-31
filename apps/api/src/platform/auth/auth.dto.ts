@@ -2,7 +2,6 @@ import { mfaCodeOnlySchema, mfaVerifySchema, type MfaChallengeResponse, type Mfa
 import { z } from 'zod';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
-import { MIN_PASSWORD_LENGTH } from './password-policy.js';
 
 /**
  * Every request body on the auth surface. Definition of Done: "Zod schema
@@ -113,6 +112,3 @@ export interface MeResponse {
   /** REQ-B-09: whether this person has an authenticator, must have one, and so must enrol before anything else. */
   readonly mfa: MfaSummary;
 }
-
-/** Minimum password length, echoed so the web client shows one number, not two. */
-export const PASSWORD_RULES = { minLength: MIN_PASSWORD_LENGTH } as const;

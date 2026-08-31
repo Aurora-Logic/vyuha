@@ -50,8 +50,6 @@ export const orgProfilePatchSchema = z
   })
   .partial();
 
-export type OrgProfilePatchInput = z.infer<typeof orgProfilePatchSchema>;
-
 export const updateSettingsSchema = z
   .object({
     organisation: orgProfilePatchSchema,
