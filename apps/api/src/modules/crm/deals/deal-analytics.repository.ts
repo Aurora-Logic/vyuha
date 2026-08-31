@@ -13,7 +13,7 @@ import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-r
 import { crmDeals, crmPipelineStages } from '../schema/index.js';
 
 /**
- * The dashboard's arithmetic (REQ-U-10), done in the database.
+ * The dashboard's arithmetic (REQ-U-11), done in the database.
  *
  * Every query here carries `this.scoped(scope, ...)`, the same pair of
  * predicates the list and the board carry: the organisation, and whatever

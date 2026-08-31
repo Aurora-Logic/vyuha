@@ -595,7 +595,7 @@ export const MODULES: ModuleDef[] = [
             // cannot open a deal must not read a total built from deals.
             permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
             phase: 7,
-            reqs: 'REQ-U-10',
+            reqs: 'REQ-U-11',
           },
         ],
       },

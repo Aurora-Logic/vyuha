@@ -452,7 +452,7 @@ export class DealService {
   // ----------------------------------------------------------- the dashboard
 
   /**
-   * REQ-U-10. Six questions a sales manager actually asks, answered in one
+   * REQ-U-11. Six questions a sales manager actually asks, answered in one
    * round trip: what is in the pipeline, where it is stuck, what closed
    * lately, who is carrying it, and what needs them today.
    *

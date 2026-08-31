@@ -178,7 +178,7 @@ describe('guided tour length', () => {
   // roles the receivable book, Employee and Purchase none at all.
   //
   // Each of the four deal-sighted roles gained one for the CRM dashboard
-  // (REQ-U-10), and no other role moved -- which is the permission gate on
+  // (REQ-U-11), and no other role moved -- which is the permission gate on
   // that step doing its job.
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
     Employee: { desktop: 13, phone: 12 },

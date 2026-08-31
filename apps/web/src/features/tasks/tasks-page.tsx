@@ -63,7 +63,7 @@ const COLUMNS: RecordColumn<Task>[] = [
         {row.subjectLabel === null ? null : (
           <span className="text-muted-foreground truncate text-xs">on {row.subjectLabel}</span>
         )}
-        {/* REQ-U-09: the owner's words were "highlight if someone is working
+        {/* REQ-U-10: the owner's words were "highlight if someone is working
             on any task". The list is where most people read tasks, so it has
             to be here and not only on the board. */}
         <RecordPresence resource={REALTIME_RESOURCES.TASK} recordId={row.id} />

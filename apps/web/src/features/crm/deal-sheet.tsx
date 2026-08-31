@@ -92,7 +92,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
 
-  // REQ-U-09: say this deal is open for as long as the sheet is, and show
+  // REQ-U-10: say this deal is open for as long as the sheet is, and show
   // who else has it. A new deal has no id, so there is nothing to be in.
   const dealId = initial.id ?? null;
   usePresence(REALTIME_RESOURCES.CRM_DEAL, dealId);

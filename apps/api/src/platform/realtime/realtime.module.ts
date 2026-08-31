@@ -5,7 +5,7 @@ import { RealtimeController } from './realtime.controller.js';
 import { RealtimeService } from './realtime.service.js';
 
 /**
- * The live channel (REQ-U-08, REQ-U-09).
+ * The live channel (REQ-U-09, REQ-U-10).
  *
  * Global for the same reason `AuditModule` is: any module that writes a
  * record may want to say so, and `RealtimeService` holds the connected

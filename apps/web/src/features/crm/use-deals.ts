@@ -352,7 +352,7 @@ export function useDealAttachmentActions(dealId: string): {
 }
 
 /**
- * REQ-U-10: the dashboard's figures, aggregated server-side under the
+ * REQ-U-11: the dashboard's figures, aggregated server-side under the
  * viewer's own deal scope.
  *
  * Under the `['crm']` prefix on purpose, so a live change to any deal

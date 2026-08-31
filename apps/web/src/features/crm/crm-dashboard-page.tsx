@@ -16,7 +16,7 @@ import { crmInsights, funnelSeries, outcomeSeries, ownerSeries, readableWinRate 
 import { useCrmAnalytics, usePipelines } from './use-deals';
 
 /**
- * REQ-U-10: the CRM dashboard.
+ * REQ-U-11: the CRM dashboard.
  *
  * Six questions in one screen, in the order somebody asks them: what is the
  * pipeline worth, what needs me today, where are deals piling up, what have

@@ -82,7 +82,7 @@ function TaskSheetBody({
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
 
-  // REQ-U-09: hold this task open for as long as the sheet is, and show who
+  // REQ-U-10: hold this task open for as long as the sheet is, and show who
   // else is in it. A new task has no id, so there is nothing to be in.
   const taskId = initial.id ?? null;
   usePresence(REALTIME_RESOURCES.TASK, taskId);

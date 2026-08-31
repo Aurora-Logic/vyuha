@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { FunnelPoint, OutcomePoint, OwnerPoint } from './analytics-series';
 
 /**
- * The three charts the CRM dashboard draws (REQ-U-10). Presentational only:
+ * The three charts the CRM dashboard draws (REQ-U-11). Presentational only:
  * every number arrives shaped by `analytics-series.ts`.
  *
  * **Won is blue and lost is red, and green was measured and rejected.** The

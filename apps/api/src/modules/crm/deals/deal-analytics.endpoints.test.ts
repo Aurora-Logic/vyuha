@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 
 /**
- * The CRM dashboard's figures (REQ-U-10).
+ * The CRM dashboard's figures (REQ-U-11).
  *
  * The property this suite exists for is the scope one. Every number is a
  * `count(*)` or a `sum()` over the deals table, and an aggregate is a way to

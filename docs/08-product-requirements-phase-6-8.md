@@ -201,6 +201,9 @@ The sidebar carries nineteen items today and already scrolls. Three modules will
 | REQ-U-06 | A deal links to the sales documents raised against it. Opening a won deal shows its estimate, sales order and invoice. |
 | REQ-U-07 | Activity log per contact, company and deal: calls, meetings, notes, with timestamp and actor. Written through the platform audit interceptor, not a parallel mechanism. |
 | REQ-U-08 | Duplicate detection on contact creation by phone and email, warning rather than blocking. |
+| REQ-U-09 | **The CRM updates live for everyone.** A change any colleague makes to a deal, contact, company, activity or task reaches every open screen without a reload. The channel carries what changed, never the changed row — a payload would have to be filtered per recipient against that person's scope, and one mistake there leaks a record. Delivery is best-effort: a screen that cannot connect behaves exactly as it did before. (Owner, 31 Aug 2026.) |
+| REQ-U-10 | **Presence.** A record shows who else has it open, by name and initials avatar — on the deal and task registers, on both the list and the board, and in the record sheet. Someone who closes the record or the tab disappears from it at once. Presence is ephemeral and never audited. (Owner, 31 Aug 2026.) |
+| REQ-U-11 | **CRM dashboard.** Open pipeline value and count, win rate, average days to win; what needs attention today (past close date, follow-up due, closing within seven days, untouched for 14); open deals by stage; won and lost by month; open deals by owner. Every figure is aggregated server-side under the viewer's own deal scope, so it counts exactly the deals their list would show. A win rate is withheld below five decided deals rather than printed from a coincidence. (Owner, 31 Aug 2026.) |
 
 ### Area V — Tasks and board
 

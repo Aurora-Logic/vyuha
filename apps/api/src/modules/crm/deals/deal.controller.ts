@@ -148,7 +148,7 @@ export class DealController {
   }
 
   /**
-   * REQ-U-10. Declared above `:id`, or Nest would read "analytics" as a deal
+   * REQ-U-11. Declared above `:id`, or Nest would read "analytics" as a deal
    * id and answer 400 for a route that exists.
    */
   @Get('analytics')

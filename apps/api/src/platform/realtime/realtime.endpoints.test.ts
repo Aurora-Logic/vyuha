@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 
 /**
- * The live channel over a real socket (REQ-U-08, REQ-U-09).
+ * The live channel over a real socket (REQ-U-09, REQ-U-10).
  *
  * Driven through `fetch` against the harness's own server rather than a
  * stubbed response, because everything that makes this endpoint different

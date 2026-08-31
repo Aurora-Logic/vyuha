@@ -195,7 +195,7 @@ export default function App() {
       <BrowserRouter>
         <SessionGate>
         {/* Inside the gate, so a stream is only opened for someone signed in;
-            above the router, so it survives every navigation (REQ-U-08). */}
+            above the router, so it survives every navigation (REQ-U-09). */}
         <RealtimeProvider>
         <ShortcutProvider>
           <Suspense fallback={null}>

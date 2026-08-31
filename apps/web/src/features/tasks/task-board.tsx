@@ -70,7 +70,7 @@ export function TaskBoard({
                 <span className="truncate">{task.subjectLabel}</span>
               </span>
             )}
-            {/* REQ-U-09: who has this card open right now, so two people do
+            {/* REQ-U-10: who has this card open right now, so two people do
                 not start the same task without knowing. */}
             <RecordPresence resource={REALTIME_RESOURCES.TASK} recordId={task.id} className="ml-auto" />
           </span>
