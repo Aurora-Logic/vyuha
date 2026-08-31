@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PresenceAvatars } from '@/components/shared/presence-avatars';
+import { usePresence, useRecordViewers } from '@/lib/realtime/realtime-provider';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
@@ -24,7 +26,7 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEAL_PRIORITIES, PERMISSIONS, type DealPriority } from '@vyuha/shared';
+import { DEAL_PRIORITIES, PERMISSIONS, REALTIME_RESOURCES, type DealPriority } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
 import { DealAttachments } from './deal-attachments';
@@ -90,6 +92,12 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
 
+  // REQ-U-09: say this deal is open for as long as the sheet is, and show
+  // who else has it. A new deal has no id, so there is nothing to be in.
+  const dealId = initial.id ?? null;
+  usePresence(REALTIME_RESOURCES.CRM_DEAL, dealId);
+  const viewers = useRecordViewers(REALTIME_RESOURCES.CRM_DEAL, dealId);
+
   const pipelineList = pipelines.data ?? [];
   const pipeline = pipelineList.find((p) => p.id === (draft.pipelineId ?? pipelineList.find((x) => x.isDefault)?.id)) ?? pipelineList[0] ?? null;
   const stages = pipeline?.stages ?? [];
@@ -129,6 +137,10 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
         <SheetTitle className="flex items-center gap-2">
           {isNew ? 'New deal' : initial.name}
           {record?.status === 'won' ? <Badge>Won</Badge> : record?.status === 'lost' ? <Badge variant="outline">Lost</Badge> : null}
+          {/* Beside the name, before the fields: whoever is about to type
+              needs to know a colleague is already in here, and finding that
+              out below the fold is finding it out too late. */}
+          <PresenceAvatars viewers={viewers} className="ml-auto" />
         </SheetTitle>
         <SheetDescription>
           {isNew

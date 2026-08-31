@@ -18,6 +18,7 @@ import {
   type TaskView,
   type UpdateBoardColumnInput,
   type UpdateTaskInput,
+  REALTIME_RESOURCES,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
@@ -28,6 +29,7 @@ import { employees, organizations, tasks } from '../db/schema/index.js';
 import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 import { hasPermission, orgContextOf, type Principal } from '../rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { localDateIn } from './local-date.js';
 import { TaskSubjectRegistry } from './task-subject.registry.js';
 import { BoardColumnRepository, TaskRepository } from './task.repository.js';
@@ -62,6 +64,7 @@ export class TaskService {
     private readonly scopes: ScopeService,
     private readonly subjects: TaskSubjectRegistry,
     private readonly notifications: NotificationDispatcher,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // ------------------------------------------------------------------ reads
@@ -141,6 +144,7 @@ export class TaskService {
       before: null,
       after: taskAuditView(task),
     });
+    this.announce(principal, 'created', task.id);
     await this.notifyAssigned(principal, task, null);
     return task;
   }
@@ -198,6 +202,7 @@ export class TaskService {
       before: taskAuditView(existing),
       after: taskAuditView(task),
     });
+    this.announce(principal, 'updated', id);
 
     if (patch.assigneeId !== undefined && task.assigneeId !== null) {
       await this.notifyAssigned(principal, task, existing.assigneeId);
@@ -216,6 +221,7 @@ export class TaskService {
       before: taskAuditView(existing),
       after: null,
     });
+    this.announce(principal, 'deleted', id);
   }
 
   // ---------------------------------------------------------------- columns
@@ -239,6 +245,7 @@ export class TaskService {
       before: null,
       after: { ...view },
     });
+    this.announce(principal, 'updated', null);
     return view;
   }
 
@@ -277,6 +284,7 @@ export class TaskService {
       before: { ...existing },
       after: { ...view },
     });
+    this.announce(principal, 'updated', null);
     return view;
   }
 
@@ -295,6 +303,7 @@ export class TaskService {
       before: { order: before.map((c) => c.id) },
       after: { order: after.map((c) => c.id) },
     });
+    this.announce(principal, 'updated', null);
     return after;
   }
 
@@ -321,6 +330,7 @@ export class TaskService {
       before: { ...existing },
       after: null,
     });
+    this.announce(principal, 'updated', null);
   }
 
   // ---------------------------------------------------------------- helpers
@@ -423,6 +433,20 @@ export class TaskService {
   private columns(principal: Principal): BoardColumnRepository {
     return new BoardColumnRepository(this.db, orgContextOf(principal));
   }
+
+  /**
+   * Tell everyone else's open boards. A column change names no record: every
+   * card on the board moved, so naming one would leave the rest stale.
+   */
+  private announce(principal: Principal, action: 'created' | 'updated' | 'deleted', recordId: string | null): void {
+    this.realtime.publish(principal.orgId, {
+      resource: REALTIME_RESOURCES.TASK,
+      action,
+      recordId,
+      actorUserId: principal.userId,
+    });
+  }
+
 }
 
 function taskAuditView(task: TaskView): Record<string, unknown> {
@@ -439,4 +463,5 @@ function taskAuditView(task: TaskView): Record<string, unknown> {
     columnName: task.columnName,
     isClosed: task.isClosed,
   };
+
 }

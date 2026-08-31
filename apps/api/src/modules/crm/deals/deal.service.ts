@@ -22,6 +22,8 @@ import {
   type UpdateDealInput,
   type UpdatePipelineInput,
   type UpdatePipelineStageInput,
+  REALTIME_RESOURCES,
+  type RealtimeResource,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
@@ -33,6 +35,7 @@ import { InjectDatabase, type Database } from '../../../platform/db/db.provider.
 import { employees } from '../../../platform/db/schema/index.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { RealtimeService } from '../../../platform/realtime/realtime.service.js';
 import { CrmService } from '../contacts/crm.service.js';
 import { crmDeals } from '../schema/index.js';
 import { DealRepository, PipelineRepository } from './deal.repository.js';
@@ -61,6 +64,7 @@ export class DealService {
     private readonly scopes: ScopeService,
     private readonly crm: CrmService,
     private readonly files: FileService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // -------------------------------------------------------------- pipelines
@@ -88,6 +92,7 @@ export class DealService {
       before: null,
       after: { name: view.name, isDefault: view.isDefault },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'created', view.id);
     return view;
   }
 
@@ -118,6 +123,7 @@ export class DealService {
       before: { name: existing.name, isDefault: existing.isDefault },
       after: { name: view.name, isDefault: view.isDefault },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', id);
     return view;
   }
 
@@ -136,6 +142,7 @@ export class DealService {
       before: null,
       after: { pipelineId, ...stage },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
     return stage;
   }
 
@@ -185,6 +192,7 @@ export class DealService {
       before: { ...existing },
       after: { ...updated },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
     return updated;
   }
 
@@ -207,6 +215,7 @@ export class DealService {
       before: { order: pipeline.stages.map((s) => s.id) },
       after: { order: after.stages.map((s) => s.id) },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
     return after;
   }
 
@@ -232,6 +241,7 @@ export class DealService {
       before: { ...existing },
       after: null,
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
   }
 
   // ------------------------------------------------------------------ deals
@@ -310,6 +320,7 @@ export class DealService {
       before: null,
       after: dealAuditView(deal),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'created', deal.id);
     return deal;
   }
 
@@ -371,6 +382,7 @@ export class DealService {
       before: dealAuditView(existing),
       after: dealAuditView(deal),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'updated', id);
     return deal;
   }
 
@@ -384,6 +396,27 @@ export class DealService {
       entityId: id,
       before: dealAuditView(existing),
       after: null,
+    });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'deleted', id);
+  }
+
+
+  /**
+   * Tell everyone else's open screens. Never awaited and never able to throw:
+   * the record is already written and audited by the time this runs, and a
+   * live update that fails must not turn a saved deal into a failed request.
+   */
+  private announce(
+    principal: Principal,
+    resource: RealtimeResource,
+    action: 'created' | 'updated' | 'deleted',
+    recordId: string,
+  ): void {
+    this.realtime.publish(principal.orgId, {
+      resource,
+      action,
+      recordId,
+      actorUserId: principal.userId,
     });
   }
 
@@ -464,6 +497,7 @@ export class DealService {
       entityId: deal.id,
       after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'updated', deal.id);
     return { id: row.id, fileId: stored.id, filename: file.filename, mime: stored.mime, bytes: stored.bytes, uploadedAt: new Date(row.createdAt).toISOString() };
   }
 
@@ -505,6 +539,7 @@ export class DealService {
       entityId: dealId,
       before: { filename: found.filename },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'updated', dealId);
   }
 
 }

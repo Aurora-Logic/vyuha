@@ -22,6 +22,8 @@ import {
   type Paginated,
   type UpdateCompanyInput,
   type UpdateContactInput,
+  REALTIME_RESOURCES,
+  type RealtimeResource,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
@@ -30,6 +32,7 @@ import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { employees } from '../../../platform/db/schema/index.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
+import { RealtimeService } from '../../../platform/realtime/realtime.service.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { crmCompanies, crmContacts } from '../schema/index.js';
 import { CompanyRepository, ContactRepository } from './crm.repository.js';
@@ -59,6 +62,7 @@ export class CrmService {
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // -------------------------------------------------------------- contacts
@@ -116,6 +120,7 @@ export class CrmService {
       before: null,
       after: contactAuditView(contact),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_CONTACT, 'created', contact.id);
     return contact;
   }
 
@@ -154,6 +159,7 @@ export class CrmService {
       before: contactAuditView(existing),
       after: contactAuditView(contact),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_CONTACT, 'updated', id);
     return contact;
   }
 
@@ -168,6 +174,7 @@ export class CrmService {
       before: contactAuditView(existing),
       after: null,
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_CONTACT, 'deleted', id);
   }
 
   /** REQ-U-08. Any holder of the family may ask; see the repository for why the answer ignores scope. */
@@ -225,6 +232,7 @@ export class CrmService {
       before: null,
       after: companyAuditView(company),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_COMPANY, 'created', company.id);
     return company;
   }
 
@@ -255,6 +263,7 @@ export class CrmService {
       before: companyAuditView(existing),
       after: companyAuditView(company),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_COMPANY, 'updated', id);
     return company;
   }
 
@@ -313,6 +322,22 @@ export class CrmService {
       before: companyAuditView(existing),
       after: null,
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_COMPANY, 'deleted', id);
+  }
+
+
+  /**
+   * Tell everyone else's open screens. Never awaited and never able to throw:
+   * the record is written and audited by the time this runs, and a live
+   * update that fails must not turn a saved record into a failed request.
+   */
+  private announce(
+    principal: Principal,
+    resource: RealtimeResource,
+    action: 'created' | 'updated' | 'deleted',
+    recordId: string | null,
+  ): void {
+    this.realtime.publish(principal.orgId, { resource, action, recordId, actorUserId: principal.userId });
   }
 
   // --------------------------------------------------------------- helpers

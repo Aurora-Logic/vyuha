@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { RecordPresence } from '@/components/shared/presence-avatars';
 import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
 import { PageHeader } from '@/components/shared/page-header';
@@ -25,7 +26,7 @@ import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
-import { DEAL_STATUSES, PERMISSIONS, type DealStatusFilter } from '@vyuha/shared';
+import { DEAL_STATUSES, PERMISSIONS, REALTIME_RESOURCES, type DealStatusFilter } from '@vyuha/shared';
 
 import { DealSheet } from './deal-sheet';
 import { PipelineSheet } from './pipeline-sheet';
@@ -473,6 +474,9 @@ export function DealsPage() {
                     </span>
                   )}
                   {deal.ownerName === null ? null : <PersonChip name={deal.ownerName} tiny />}
+                  {/* Beside the owner, because the question they answer is the
+                      same one: who is this deal's, and who is in it now. */}
+                  <RecordPresence resource={REALTIME_RESOURCES.CRM_DEAL} recordId={deal.id} className="ml-auto" />
                 </span>
               </>
             )}

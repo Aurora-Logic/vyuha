@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PresenceAvatars } from '@/components/shared/presence-avatars';
+import { usePresence, useRecordViewers } from '@/lib/realtime/realtime-provider';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,7 +25,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { kindOf } from '@/lib/go-to-records';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskPriority } from '@vyuha/shared';
+import { PERMISSIONS, REALTIME_RESOURCES, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskPriority } from '@vyuha/shared';
 
 import { DeleteTaskDialog } from './delete-task-dialog';
 import type { Task, TaskDraft } from './types';
@@ -80,6 +82,12 @@ function TaskSheetBody({
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
 
+  // REQ-U-09: hold this task open for as long as the sheet is, and show who
+  // else is in it. A new task has no id, so there is nothing to be in.
+  const taskId = initial.id ?? null;
+  usePresence(REALTIME_RESOURCES.TASK, taskId);
+  const viewers = useRecordViewers(REALTIME_RESOURCES.TASK, taskId);
+
   const assigneeOptions: PickerOption[] = (owners.data ?? []).map((o) => ({
     id: o.id,
     label: o.name,
@@ -122,7 +130,10 @@ function TaskSheetBody({
       <SheetShortcuts onSave={() => { submit(); }} onDone={markDone} />
 
       <SheetHeader className="shrink-0 border-b">
-        <SheetTitle>{isNew ? 'New task' : initial.title}</SheetTitle>
+        <SheetTitle className="flex items-center gap-2">
+          {isNew ? 'New task' : initial.title}
+          <PresenceAvatars viewers={viewers} className="ml-auto" />
+        </SheetTitle>
         <SheetDescription>
           {isNew
             ? 'Assigned to you unless you name somebody. Every change is audited.'

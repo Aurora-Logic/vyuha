@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
 import { AdminShell } from '@/features/administration/admin-shell';
+import { RealtimeProvider } from '@/lib/realtime/realtime-provider';
 import { SessionGate } from '@/app/session-gate';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
 import { ALL_NAV_ITEMS } from '@/lib/nav';
@@ -191,6 +192,9 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <SessionGate>
+        {/* Inside the gate, so a stream is only opened for someone signed in;
+            above the router, so it survives every navigation (REQ-U-08). */}
+        <RealtimeProvider>
         <ShortcutProvider>
           <Suspense fallback={null}>
           <Routes>
@@ -347,6 +351,7 @@ export default function App() {
           </Routes>
           </Suspense>
         </ShortcutProvider>
+        </RealtimeProvider>
         </SessionGate>
       </BrowserRouter>
     </QueryClientProvider>
