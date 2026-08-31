@@ -365,8 +365,12 @@ describe('deal attachments (REQ-U-05, owner 31 Aug 2026)', () => {
     expect(added.body?.mime).toBe('application/pdf');
     expect(await harness.waitForAuditAction('crm.deal.attachment_added')).toBe(true);
 
-    const listed = await harness.get<{ id: string; filename: string }[]>(`/crm/deals/${deal.body.id}/attachments`, { token: salesToken });
+    const listed = await harness.get<{ id: string; filename: string; bytes: number }[]>(`/crm/deals/${deal.body.id}/attachments`, { token: salesToken });
     expect(listed.body.map((a) => a.filename)).toEqual(['quotation.pdf']);
+    // The contract says number, and raw SQL hands back text: the create path
+    // returned a real number while the list returned a string, so the sheet
+    // refused the shape. Asserted here because the screen is where it showed.
+    expect(typeof listed.body[0]?.bytes).toBe('number');
 
     const url = await harness.get<{ url: string; expiresInSeconds: number }>(
       `/crm/deals/${deal.body.id}/attachments/${listed.body[0]?.id ?? ''}/url`,

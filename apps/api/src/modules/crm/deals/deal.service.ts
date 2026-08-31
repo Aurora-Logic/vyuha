@@ -469,13 +469,13 @@ export class DealService {
 
   async listAttachments(principal: Principal, dealId: string): Promise<DealAttachmentView[]> {
     const deal = await this.findDeal(principal, dealId);
-    const rows = await this.db.execute<{ id: string; fileId: string; filename: string; mime: string; bytes: number; uploadedAt: string | Date }>(sql`
+    const rows = await this.db.execute<{ id: string; fileId: string; filename: string; mime: string; bytes: string | number; uploadedAt: string | Date }>(sql`
       SELECT a.id, a.file_id AS "fileId", a.filename, f.mime, f.bytes, a.created_at AS "uploadedAt"
       FROM crm_deal_attachments a JOIN files f ON f.id = a.file_id
       WHERE a.org_id = ${principal.orgId} AND a.deal_id = ${deal.id} AND a.deleted_at IS NULL
       ORDER BY a.created_at DESC
     `);
-    return rows.rows.map((row) => ({ ...row, uploadedAt: new Date(row.uploadedAt).toISOString() }));
+    return rows.rows.map((row) => ({ ...row, bytes: Number(row.bytes), uploadedAt: new Date(row.uploadedAt).toISOString() }));
   }
 
   /** A short-lived link, minted through the files policy (CRM_ATTACHMENT). */
