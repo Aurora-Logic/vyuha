@@ -141,6 +141,7 @@ export const ORG_SCOPED_TABLES = [
   'sync_journal',
   'task_board_columns',
   'task_items',
+  'task_attachments',
   'tasks',
   'users',
   'voucher_lines',

@@ -21,6 +21,7 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { PartyPicker } from '@/features/masters/party-picker';
+import { TaskAttachments } from './task-attachments';
 import { TaskItemsField } from './task-items-field';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -399,6 +400,14 @@ function TaskSheetBody({
             </FieldDescription>
           </Field>
         </FieldGroup>
+        {/* Only on a saved task: an attachment needs an id to hang off, and a
+            file chosen before the task exists would have nowhere to go. The
+            deal sheet places it exactly here, for the same reason. */}
+        {isNew ? null : (
+          <div className="mt-6 border-t pt-4">
+            <TaskAttachments taskId={initial.id ?? ''} />
+          </div>
+        )}
       </Form>
 
       <SheetFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t">

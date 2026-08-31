@@ -59,6 +59,8 @@ const MAX_EDGE_BY_PURPOSE: Record<FilePurpose, number> = {
   DISPATCH_PHOTO: 1600,
   // A drawing or a site photograph on a deal: legible when opened full size.
   CRM_ATTACHMENT: 1600,
+  // The same thing on a task, for the same reason.
+  TASK_ATTACHMENT: 1600,
 };
 
 const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
@@ -70,6 +72,7 @@ const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
   IMPORT: BUCKETS.EXPORTS,
   DISPATCH_PHOTO: BUCKETS.PHOTOS,
   CRM_ATTACHMENT: BUCKETS.PHOTOS,
+  TASK_ATTACHMENT: BUCKETS.PHOTOS,
 };
 
 /** The leading path segment, so a bucket listing is readable by a human. */
@@ -82,6 +85,7 @@ const PREFIX_BY_PURPOSE: Record<FilePurpose, string> = {
   IMPORT: 'imports',
   DISPATCH_PHOTO: 'dispatches',
   CRM_ATTACHMENT: 'crm',
+  TASK_ATTACHMENT: 'tasks',
 };
 
 export interface StoreImageInput {
@@ -119,7 +123,13 @@ export interface StoreImageInput {
 export interface StoreUploadInput {
   readonly orgId: string;
   readonly uploadedBy: string;
-  readonly purpose: Extract<FilePurpose, 'CRM_ATTACHMENT'>;
+  /**
+   * Narrowed on purpose: this is the one entry point that stores bytes a
+   * person chose, so every purpose that uses it is a deliberate decision
+   * rather than a default. A deal's attachment and a task's are both files
+   * somebody picked off their own machine (REQ-U-05, REQ-V-12).
+   */
+  readonly purpose: Extract<FilePurpose, 'CRM_ATTACHMENT' | 'TASK_ATTACHMENT'>;
   readonly bytes: Buffer;
   /** The browser's filename: evidence for which Office type, never for whether. */
   readonly filename: string;

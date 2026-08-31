@@ -30,6 +30,11 @@ export const taskSchema = z.object({
   vendorId: z.string().nullable().default(null),
   vendorName: z.string().nullable().default(null),
   items: z.array(z.object({ itemId: z.string(), itemName: z.string() })).default([]),
+  // REQ-V-12. Defaulted like the rest: a client built before the server
+  // shipped it must still read a task. Missing it entirely is what made the
+  // Files cell render blank instead of a count -- zod drops what it does not
+  // declare, so the card asked for a field that had already been stripped.
+  attachmentCount: z.number().default(0),
   dueDate: z.string().nullable(),
   priority: z.enum(TASK_PRIORITIES),
   columnId: z.string(),

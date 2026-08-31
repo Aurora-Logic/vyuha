@@ -136,6 +136,13 @@ export const FILE_PURPOSES = [
    * with CRM keys.
    */
   'CRM_ATTACHMENT',
+  /**
+   * REQ-V-12 (owner, 31 Aug 2026): a drawing, challan or photograph on a
+   * task. Its own purpose rather than CRM_ATTACHMENT, because that one is
+   * read with deal keys and a task is read with task keys -- an account that
+   * may see its own tasks and no deals must still open its own attachments.
+   */
+  'TASK_ATTACHMENT',
 ] as const;
 export type FilePurpose = (typeof FILE_PURPOSES)[number];
 

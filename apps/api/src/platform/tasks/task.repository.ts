@@ -11,7 +11,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'd
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
-import { employees, taskBoardColumns, taskItems, tasks } from '../db/schema/index.js';
+import { employees, taskAttachments, taskBoardColumns, taskItems, tasks } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
 import { masterSearch } from '../org/master-query.js';
 
@@ -98,6 +98,30 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
       byTask.set(row.taskId, list);
     }
     return byTask;
+  }
+
+  /**
+   * How many files each task on a page carries, in one query.
+   *
+   * The same batching as `itemsFor`, for the same reason: the board draws a
+   * hundred cards and a count per card would be a hundred round trips.
+   */
+  private async attachmentCounts(taskIds: readonly string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (taskIds.length === 0) return counts;
+    const rows = await this.db
+      .select({ taskId: taskAttachments.taskId, count: sql<number>`count(*)::int` })
+      .from(taskAttachments)
+      .where(
+        and(
+          eq(taskAttachments.orgId, this.ctx.orgId),
+          isNull(taskAttachments.deletedAt),
+          inArray(taskAttachments.taskId, [...taskIds]),
+        ),
+      )
+      .groupBy(taskAttachments.taskId);
+    for (const row of rows) counts.set(row.taskId, row.count);
+    return counts;
   }
 
   /** Replace a task's items wholesale. Absent means "leave them alone"; empty means "clear them". */
@@ -222,8 +246,9 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
       .limit(options.limit)
       .offset(options.offset);
     const total = await this.count(and(scope, predicate));
-    const items = await this.itemsFor(rows.map((row) => row.id));
-    return { rows: rows.map((row) => toTaskView(row, items)), total };
+    const ids = rows.map((row) => row.id);
+    const [items, attachments] = await Promise.all([this.itemsFor(ids), this.attachmentCounts(ids)]);
+    return { rows: rows.map((row) => toTaskView(row, items, attachments)), total };
   }
 
   /**
@@ -247,8 +272,9 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
         rows.length < TASK_BOARD_LANE_CAP
           ? rows.length
           : await this.count(and(scope, predicate, eq(tasks.columnId, column.id)));
-      const items = await this.itemsFor(rows.map((row) => row.id));
-      lanes.push({ columnId: column.id, tasks: rows.map((row) => toTaskView(row, items)), total });
+      const ids = rows.map((row) => row.id);
+      const [items, attachments] = await Promise.all([this.itemsFor(ids), this.attachmentCounts(ids)]);
+      lanes.push({ columnId: column.id, tasks: rows.map((row) => toTaskView(row, items, attachments)), total });
     }
     return lanes;
   }
@@ -257,7 +283,8 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
     const rows = await this.query(this.scoped(scope, eq(tasks.id, id))).limit(1);
     const row = rows[0];
     if (row === undefined) return null;
-    return toTaskView(row, await this.itemsFor([row.id]));
+    const [items, attachments] = await Promise.all([this.itemsFor([row.id]), this.attachmentCounts([row.id])]);
+    return toTaskView(row, items, attachments);
   }
 
   /** How many open tasks sit in a column — the guard on deleting one. */
@@ -395,7 +422,11 @@ interface TaskRow {
 /** Shared by every task with no items, so the common case allocates nothing. */
 const EMPTY_ITEMS: readonly TaskItemView[] = [];
 
-function toTaskView(row: TaskRow, items: ReadonlyMap<string, TaskItemView[]>): TaskView {
+function toTaskView(
+  row: TaskRow,
+  items: ReadonlyMap<string, TaskItemView[]>,
+  attachments: ReadonlyMap<string, number>,
+): TaskView {
   return {
     id: row.id,
     title: row.title,
@@ -412,6 +443,7 @@ function toTaskView(row: TaskRow, items: ReadonlyMap<string, TaskItemView[]>): T
     vendorId: row.vendorId,
     vendorName: row.vendorName,
     items: items.get(row.id) ?? EMPTY_ITEMS,
+    attachmentCount: attachments.get(row.id) ?? 0,
     dueDate: row.dueDate,
     priority: row.priority,
     columnId: row.columnId,

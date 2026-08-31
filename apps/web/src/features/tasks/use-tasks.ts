@@ -18,6 +18,7 @@ import type {
 } from '@vyuha/shared';
 
 import { apiRequest } from '@/lib/api/client';
+import { postMultipart } from '@/lib/offline/multipart';
 import { parseOrThrow } from '@/lib/api/parse';
 
 import {
@@ -280,4 +281,61 @@ export function useTaskAnalytics(filters: { weeks?: number } = {}): UseQueryResu
     },
     staleTime: 60_000,
   });
+}
+
+/** REQ-V-12: what is attached to a task, as the list reads it. */
+const taskAttachmentSchema = z.object({
+  id: z.string(),
+  fileId: z.string(),
+  filename: z.string(),
+  mime: z.string(),
+  bytes: z.number(),
+  uploadedAt: z.string(),
+  uploadedByName: z.string().nullable().default(null),
+});
+
+export type TaskAttachment = z.infer<typeof taskAttachmentSchema>;
+
+export function useTaskAttachments(
+  taskId: string | null,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<TaskAttachment[], Error> {
+  return useQuery({
+    enabled: (options.enabled ?? true) && taskId !== null,
+    queryKey: ['tasks', 'attachments', taskId],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks/${taskId ?? ''}/attachments`, { signal });
+      return parseOrThrow(z.array(taskAttachmentSchema), body, 'task attachments');
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * REQ-V-12. The file rides as multipart through `postMultipart`, the same
+ * helper the punch, dispatch and deal uploads use — the browser writes the
+ * boundary, and the shared helper carries the auth and refresh behaviour.
+ */
+export function useTaskAttachmentActions(taskId: string): {
+  upload: (file: File) => Promise<void>;
+  remove: (attachmentId: string) => Promise<void>;
+} {
+  const client = useQueryClient();
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: ['tasks', 'attachments', taskId] });
+  };
+  return {
+    upload: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      await postMultipart(`/tasks/${taskId}/attachments`, form, (body) =>
+        parseOrThrow(taskAttachmentSchema, body, 'task attachment'),
+      );
+      await refresh();
+    },
+    remove: async (attachmentId: string) => {
+      await apiRequest(`/tasks/${taskId}/attachments/${attachmentId}`, { method: 'DELETE' });
+      await refresh();
+    },
+  };
 }

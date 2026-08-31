@@ -1,6 +1,7 @@
-import { BuildingsIcon, CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon, PackageIcon, TruckIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon, PackageIcon, PaperclipIcon, TruckIcon } from '@phosphor-icons/react';
 
 import { RecordPresence } from '@/components/shared/presence-avatars';
+import { useTaskCardFields } from './card-fields';
 import { PersonChip } from '@/components/shared/person';
 import { KanbanBoard } from '@/components/shared/kanban-board';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,7 @@ export function TaskBoard({
   onMove: (task: Task, columnId: string) => void;
   moving: boolean;
 }) {
+  const { shown } = useTaskCardFields();
   return (
     <KanbanBoard
       ariaLabel="Task board"
@@ -60,38 +62,51 @@ export function TaskBoard({
       renderItem={(task) => (
         <>
           <span className={cn('font-medium', task.isClosed && 'text-muted-foreground line-through')}>{task.title}</span>
+          {/* REQ-V-13: every detail the task carries, and any of them can be
+              hidden. Which ones matter depends on the desk -- operations
+              wants the supplier and the items, a manager wants the assignee
+              and the date -- so no default is right for both and the reader
+              chooses. Presence is never hidden: it is not a detail about the
+              task, it is somebody else being in it right now. */}
           <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
-            {task.priority === 'HIGH' ? <span className={PRIORITY_CHIP}>{TASK_PRIORITY_LABELS.HIGH}</span> : null}
-            <DueDate value={task.dueDate} closed={task.isClosed} />
-            {task.assigneeName === null ? null : <PersonChip name={task.assigneeName} tiny />}
-            {task.subjectLabel === null ? null : (
+            {shown.priority && task.priority === 'HIGH' ? (
+              <span className={PRIORITY_CHIP}>{TASK_PRIORITY_LABELS.HIGH}</span>
+            ) : null}
+            {shown.due ? <DueDate value={task.dueDate} closed={task.isClosed} /> : null}
+            {shown.assignee && task.assigneeName !== null ? <PersonChip name={task.assigneeName} tiny /> : null}
+            {shown.subject && task.subjectLabel !== null ? (
               <span className="flex min-w-0 items-center gap-1">
                 <LinkSimpleIcon className="shrink-0" />
                 <span className="truncate">{task.subjectLabel}</span>
               </span>
-            )}
-            {/* REQ-V-09 / REQ-V-10: who it is for, who it is on, and what it
-                is about -- the three things read off a card without opening
-                it. Items collapse to a count: five names would push the
-                assignee off a 360px card. */}
-            {task.partyName === null ? null : (
+            ) : null}
+            {shown.party && task.partyName !== null ? (
               <span className="flex min-w-0 items-center gap-1">
                 <BuildingsIcon className="shrink-0" />
                 <span className="truncate">{task.partyName}</span>
               </span>
-            )}
-            {task.vendorName === null ? null : (
+            ) : null}
+            {shown.vendor && task.vendorName !== null ? (
               <span className="flex min-w-0 items-center gap-1">
                 <TruckIcon className="shrink-0" />
                 <span className="truncate">{task.vendorName}</span>
               </span>
-            )}
-            {task.items.length === 0 ? null : (
+            ) : null}
+            {/* Items collapse to a count past the first: five names would
+                push the assignee off a 360px card. The full list is in the
+                title attribute for a pointer, and on the sheet for everyone. */}
+            {shown.items && task.items.length > 0 ? (
               <span className="flex items-center gap-1" title={task.items.map((item) => item.itemName).join(', ')}>
                 <PackageIcon className="shrink-0" />
                 {task.items.length === 1 ? task.items[0]?.itemName : `${String(task.items.length)} items`}
               </span>
-            )}
+            ) : null}
+            {shown.attachments && task.attachmentCount > 0 ? (
+              <span className="flex items-center gap-1 tabular-nums">
+                <PaperclipIcon className="shrink-0" />
+                {task.attachmentCount}
+              </span>
+            ) : null}
             {/* REQ-U-10: who has this card open right now, so two people do
                 not start the same task without knowing. */}
             <RecordPresence resource={REALTIME_RESOURCES.TASK} recordId={task.id} className="ml-auto" />

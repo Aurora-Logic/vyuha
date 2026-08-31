@@ -11,6 +11,8 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   PERMISSIONS,
@@ -26,13 +28,20 @@ import {
   type TaskBoardColumnView,
   type TaskBoardView,
   type TaskAnalyticsView,
+  type TaskAttachmentView,
   type TaskView,
 } from '@vyuha/shared';
 
+import { FileInterceptor } from '@nestjs/platform-express';
+
+import { AppError } from '../common/errors.js';
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import { TaskService } from './task.service.js';
+
+/** 3 MB, the platform's upload ceiling; the service refuses anything larger too. */
+const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
 class TaskAnalyticsQueryDto extends createZodDto(taskAnalyticsQuerySchema) {}
 class TaskListQueryDto extends createZodDto(taskListQuerySchema) {}
@@ -110,6 +119,60 @@ export class TaskController {
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteColumn(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.tasksService.deleteColumn(principal, id);
+  }
+
+  // ------------------------------------------------------------ attachments
+
+  /**
+   * REQ-V-12 (owner, 31 Aug 2026). Attaching is a change to the task, so it
+   * takes `crm.task.manage`; reading one takes what reading the task takes.
+   * The bytes are sniffed in the service -- a filename is never the evidence.
+   */
+  @Post(':id/attachments')
+  @RequirePermission(PERMISSIONS.CRM_TASK_MANAGE)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1, fields: 2 } }))
+  addAttachment(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: { buffer?: Buffer; originalname?: string } | undefined,
+  ): Promise<TaskAttachmentView> {
+    if (file?.buffer === undefined) throw AppError.validation('No file was uploaded.');
+    return this.tasksService.addAttachment(principal, id, {
+      bytes: file.buffer,
+      filename: file.originalname ?? 'attachment',
+    });
+  }
+
+  @Get(':id/attachments')
+  @RequirePermission(...VIEW_KEYS)
+  listAttachments(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TaskAttachmentView[]> {
+    return this.tasksService.listAttachments(principal, id);
+  }
+
+  /** A short-lived link rather than the bytes: the same rule every file here follows. */
+  @Get(':id/attachments/:attachmentId/url')
+  @RequirePermission(...VIEW_KEYS)
+  attachmentUrl(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    return this.tasksService.attachmentUrl(principal, id, attachmentId);
+  }
+
+  @Delete(':id/attachments/:attachmentId')
+  @RequirePermission(PERMISSIONS.CRM_TASK_MANAGE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeAttachment(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+  ): Promise<void> {
+    return this.tasksService.removeAttachment(principal, id, attachmentId);
   }
 
   /**

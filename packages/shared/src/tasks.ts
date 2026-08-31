@@ -87,6 +87,12 @@ export interface TaskView {
   readonly vendorName: string | null;
   /** REQ-V-10: the stock items this task is about, in the order they were added. */
   readonly items: readonly TaskItemView[];
+  /**
+   * REQ-V-12: how many files are on it. A count, not the list: a register of
+   * a hundred rows wants a paperclip and a number, and the sheet fetches the
+   * names when somebody actually opens the task.
+   */
+  readonly attachmentCount: number;
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
   readonly ownerId: string | null;
@@ -287,3 +293,19 @@ export interface TaskAnalyticsView {
  * wearing a statistic's clothes.
  */
 export const MIN_CLOSED_FOR_AVERAGE = 5;
+
+/**
+ * REQ-V-12: a document or photograph on a task — the deal attachment's shape,
+ * because the need is the same one. `bytes` is a number and not text: it is a
+ * file size shown as "2.1 MB", never money.
+ */
+export interface TaskAttachmentView {
+  readonly id: string;
+  readonly fileId: string;
+  readonly filename: string;
+  readonly mime: string;
+  readonly bytes: number;
+  readonly uploadedAt: string;
+  /** Who put it there, as a colleague reads it. */
+  readonly uploadedByName: string | null;
+}

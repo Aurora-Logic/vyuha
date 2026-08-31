@@ -1,6 +1,7 @@
 import { boolean, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../columns.js';
+import { files } from './file.schema.js';
 import { organizations } from './organizations.schema.js';
 import { employees } from './people.schema.js';
 import { parties, stockItems } from './projections.schema.js';
@@ -117,4 +118,36 @@ export const taskItems = pgTable(
     // quantity -- a task carries no quantities.
     uniqueIndex('task_items_unique_idx').on(t.taskId, t.itemId).where(ALIVE),
   ],
+);
+
+/**
+ * REQ-V-12: a document or a photograph on a task.
+ *
+ * The deal attachment's shape exactly (`crm_deal_attachments`), because the
+ * need is the same one: a drawing, a signed challan, a photograph of what
+ * arrived damaged. The file itself goes through the platform pipeline and
+ * this row is only the link, so a task never holds bytes.
+ *
+ * `restrict` on the file, `cascade` on the task: deleting the task takes its
+ * links with it, while a file that something still points at cannot vanish
+ * underneath it.
+ */
+export const taskAttachments = pgTable(
+  'task_attachments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'restrict' }),
+    /** As the browser gave it, shown in the list and used for the download. */
+    filename: text('filename').notNull(),
+    ...standardColumns(),
+  },
+  (t) => [index('task_attachments_task_idx').on(t.orgId, t.taskId).where(ALIVE)],
 );

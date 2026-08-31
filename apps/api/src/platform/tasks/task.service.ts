@@ -22,11 +22,14 @@ import {
   PARTY_LEDGER_GROUPS,
   type TaskAnalyticsQuery,
   type TaskAnalyticsView,
+  type TaskAttachmentView,
   type TaskFlowWeek,
 } from '@vyuha/shared';
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
+import { FileService } from '../files/file.service.js';
+import { isAcceptedUpload, sniffType } from '../files/magic-bytes.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { employees, organizations, parties, stockItems, tasks } from '../db/schema/index.js';
@@ -92,6 +95,7 @@ export class TaskService {
     private readonly subjects: TaskSubjectRegistry,
     private readonly notifications: NotificationDispatcher,
     private readonly realtime: RealtimeService,
+    private readonly files: FileService,
   ) {}
 
   // ------------------------------------------------------------------ reads
@@ -456,6 +460,126 @@ export class TaskService {
         assignedBy: await this.actorName(principal),
       },
     });
+  }
+
+  // ------------------------------------------------------------ attachments
+
+  /**
+   * REQ-V-12: a drawing, a signed challan, a photograph of what arrived
+   * damaged.
+   *
+   * `find` first, so the task's own scope decides whether this person may
+   * touch it at all -- an attachment is not a back door into a task their
+   * role does not reach. An image is re-encoded through the pipeline;
+   * anything else is sniffed and stored as it came, which is what stops an
+   * executable renamed `.pdf` from being served back as a document.
+   */
+  async addAttachment(
+    principal: Principal,
+    taskId: string,
+    file: { bytes: Buffer; filename: string },
+  ): Promise<TaskAttachmentView> {
+    const task = await this.find(principal, taskId);
+    const isImage = isAcceptedUpload(sniffType(file.bytes));
+    const stored = isImage
+      ? await this.files.storeImage({
+          orgId: principal.orgId,
+          uploadedBy: principal.userId,
+          purpose: 'TASK_ATTACHMENT',
+          bytes: file.bytes,
+          pathSegments: [task.id],
+        })
+      : await this.files.storeUpload({
+          orgId: principal.orgId,
+          uploadedBy: principal.userId,
+          purpose: 'TASK_ATTACHMENT',
+          bytes: file.bytes,
+          filename: file.filename,
+          pathSegments: [task.id],
+        });
+
+    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
+      INSERT INTO task_attachments (org_id, task_id, file_id, filename, created_by, updated_by)
+      VALUES (${principal.orgId}, ${task.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+      RETURNING id, created_at AS "createdAt"
+    `);
+    const row = inserted.rows[0];
+    if (row === undefined) throw new Error('Attachment insert returned no row.');
+
+    this.auditContext.record({
+      action: 'task.attachment_added',
+      entityType: 'task',
+      entityId: task.id,
+      after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
+    });
+    this.announce(principal, 'updated', task.id);
+    return {
+      id: row.id,
+      fileId: stored.id,
+      filename: file.filename,
+      mime: stored.mime,
+      bytes: stored.bytes,
+      uploadedAt: new Date(row.createdAt).toISOString(),
+      uploadedByName: await this.actorName(principal),
+    };
+  }
+
+  async listAttachments(principal: Principal, taskId: string): Promise<TaskAttachmentView[]> {
+    const task = await this.find(principal, taskId);
+    const rows = await this.db.execute<{
+      id: string;
+      fileId: string;
+      filename: string;
+      mime: string;
+      bytes: string | number;
+      uploadedAt: string | Date;
+      uploadedByName: string | null;
+    }>(sql`
+      SELECT a.id, a.file_id AS "fileId", a.filename, f.mime, f.bytes,
+             a.created_at AS "uploadedAt",
+             CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS "uploadedByName"
+      FROM task_attachments a
+      JOIN files f ON f.id = a.file_id
+      LEFT JOIN users u ON u.id = a.created_by
+      LEFT JOIN employees e ON e.id = u.employee_id
+      WHERE a.org_id = ${principal.orgId} AND a.task_id = ${task.id} AND a.deleted_at IS NULL
+      ORDER BY a.created_at DESC
+    `);
+    // `bytes` comes back as text from the driver on a bigint column; a string
+    // where the client expects a number breaks the size it renders.
+    return rows.rows.map((row) => ({
+      ...row,
+      bytes: Number(row.bytes),
+      uploadedAt: new Date(row.uploadedAt).toISOString(),
+    }));
+  }
+
+  async attachmentUrl(
+    principal: Principal,
+    taskId: string,
+    attachmentId: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    const found = (await this.listAttachments(principal, taskId)).find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    return this.files.signedUrlFor(principal, found.fileId);
+  }
+
+  async removeAttachment(principal: Principal, taskId: string, attachmentId: string): Promise<void> {
+    const found = (await this.listAttachments(principal, taskId)).find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    // Soft, like every other record here: the file itself stays, because the
+    // trail names it and a purge is the recycle bin's job, not a delete key's.
+    await this.db.execute(sql`
+      UPDATE task_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
+      WHERE org_id = ${principal.orgId} AND id = ${attachmentId}
+    `);
+    this.auditContext.record({
+      action: 'task.attachment_removed',
+      entityType: 'task',
+      entityId: taskId,
+      before: { filename: found.filename },
+    });
+    this.announce(principal, 'updated', taskId);
   }
 
   // ----------------------------------------------------------- the dashboard

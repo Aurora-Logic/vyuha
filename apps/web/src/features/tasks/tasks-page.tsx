@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { CheckSquareIcon, GearIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { CheckSquareIcon, GearIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordPresence } from '@/components/shared/presence-avatars';
+import { CardFieldsMenu } from './card-fields-menu';
+import { useTaskCardFields, type TaskCardField } from './card-fields';
 import { EMPTY_VALUE } from '@/lib/format';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { PersonChip } from '@/components/shared/person';
@@ -53,6 +55,26 @@ const DUE_LABELS: Record<TaskDueFilter, string> = {
   undated: 'No date',
 };
 
+/**
+ * The linked record, shown inside the title cell rather than as a column of
+ * its own — it reads as part of what the task is about. Its own component so
+ * it can read the Fields preference, which a column's `cell` callback cannot.
+ */
+function SubjectHint({ label }: { readonly label: string | null }) {
+  const { shown } = useTaskCardFields();
+  if (label === null || !shown.subject) return null;
+  return <span className="text-muted-foreground truncate text-xs">on {label}</span>;
+}
+
+/**
+ * REQ-V-13: the columns a task row can carry, keyed so the Fields menu can
+ * take any of them away.
+ *
+ * Title and status stay: a row with neither is not a row, and the status is
+ * what a register is scanned for. Everything else is the reader's choice —
+ * the same set the board card offers, so turning the supplier off in one
+ * place turns it off in both.
+ */
 const COLUMNS: RecordColumn<Task>[] = [
   {
     key: 'title',
@@ -61,9 +83,7 @@ const COLUMNS: RecordColumn<Task>[] = [
     cell: (row) => (
       <span className="flex min-w-0 items-center gap-2">
         <span className={row.isClosed ? 'text-muted-foreground line-through' : 'font-medium'}>{row.title}</span>
-        {row.subjectLabel === null ? null : (
-          <span className="text-muted-foreground truncate text-xs">on {row.subjectLabel}</span>
-        )}
+        <SubjectHint label={row.subjectLabel} />
         {/* REQ-U-10: the owner's words were "highlight if someone is working
             on any task". The list is where most people read tasks, so it has
             to be here and not only on the board. */}
@@ -98,7 +118,39 @@ const COLUMNS: RecordColumn<Task>[] = [
       ),
     secondary: true,
   },
+  {
+    key: 'attachments',
+    header: 'Files',
+    cell: (row) =>
+      row.attachmentCount === 0 ? (
+        EMPTY_VALUE
+      ) : (
+        <span className="flex items-center gap-1 tabular-nums">
+          <PaperclipIcon className="text-muted-foreground shrink-0" />
+          {row.attachmentCount}
+        </span>
+      ),
+    secondary: true,
+  },
 ];
+
+/** Which columns the Fields menu governs; the rest are always on. */
+const OPTIONAL_COLUMNS: Partial<Record<string, TaskCardField>> = {
+  due: 'due',
+  priority: 'priority',
+  assignee: 'assignee',
+  party: 'party',
+  vendor: 'vendor',
+  items: 'items',
+  attachments: 'attachments',
+};
+
+function visibleColumns(shown: Record<TaskCardField, boolean>): RecordColumn<Task>[] {
+  return COLUMNS.filter((column) => {
+    const governed = OPTIONAL_COLUMNS[column.key];
+    return governed === undefined || shown[governed];
+  });
+}
 
 /** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet, a preset subject). */
 function viewQuery(params: URLSearchParams): string {
@@ -139,6 +191,10 @@ export function TasksPage() {
   const assigneeParam = searchParams.get('assignee') ?? '';
   const viewParam = searchParams.get('view');
   const view: TaskViewMode = viewParam === 'board' || viewParam === 'list' ? viewParam : defaultView;
+  // REQ-V-13: the same preference governs the board card and this table, so
+  // hiding the supplier hides it in both renderings of the one query.
+  const { shown: shownFields } = useTaskCardFields();
+  const columns = visibleColumns(shownFields);
   const openId = params.id ?? null;
   const creating = searchParams.get('new') === '1';
   const subjectType = searchParams.get('subjectType') ?? '';
@@ -340,6 +396,11 @@ export function TasksPage() {
           </Label>
 
           <div className="ml-auto flex items-center gap-2">
+            {/* REQ-V-13. Beside the saved views and before "Columns", which
+                configures the board's lanes -- two different things, and the
+                labels say which is which: Fields is what a card shows,
+                Columns is what the board is made of. */}
+            <CardFieldsMenu />
             <SavedViews
               storageKey="vyuha.views.tasks"
               current={viewQuery(searchParams)}
@@ -423,7 +484,7 @@ export function TasksPage() {
         {view === 'list' && rows.length > 0 ? (
           <>
             <RecordTable
-              columns={COLUMNS}
+              columns={columns}
               rows={rows}
               rowKey={(row) => row.id}
               sort={activeSort}
