@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from 'recharts';
 
-import { compactCount } from '@/components/shared/chart-labels';
+import { compactCount, stackTotal } from '@/components/shared/chart-labels';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
 import {
   ChartContainer,
@@ -43,7 +43,7 @@ const FLOW_CONFIG = {
 } satisfies ChartConfig;
 
 const LOAD_CONFIG = {
-  open: { label: 'Open', color: 'var(--chart-1)' },
+  onTime: { label: 'On time', color: 'var(--chart-1)' },
   overdue: { label: 'Overdue', color: 'var(--warning)' },
 } satisfies ChartConfig;
 
@@ -143,34 +143,31 @@ export function AssigneeLoadChart({ points, animate }: ChartProps<LoadPoint>) {
         <YAxis type="category" dataKey="person" width={CATEGORY_WIDTH} tickLine={false} axisLine={false} tick={TICK} />
         <ChartTooltip content={<ChartTooltipContent />} />
         <ChartLegend content={<ChartLegendContent />} />
-        {/* Overdue is drawn over the open bar at the same origin, so it reads
-            as the late part of that number rather than a number beside it. */}
+        {/* Stacked, so the bar's whole length is that person's open work and
+            the amber head is the late part of it. Drawn as two separate bars
+            they read as two different numbers -- 17 beside 6 looks like 23. */}
         <Bar
-          dataKey="open"
-          fill="var(--color-open)"
-          radius={4}
+          dataKey="onTime"
+          stackId="load"
+          fill="var(--color-onTime)"
+          maxBarSize={18}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        />
+        <Bar
+          dataKey="overdue"
+          stackId="load"
+          fill="var(--color-overdue)"
+          radius={[0, 4, 4, 0]}
           maxBarSize={18}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
         >
-          <LabelList
-            dataKey="open"
-            position="right"
-            offset={8}
-            className="fill-foreground text-xs tabular-nums"
-            formatter={countLabel}
-          />
+          {/* The total on the end of the stack, which is the open count. */}
+          <LabelList {...stackTotal([...points], ['onTime', 'overdue'])} />
         </Bar>
-        <Bar
-          dataKey="overdue"
-          fill="var(--color-overdue)"
-          radius={4}
-          maxBarSize={8}
-          isAnimationActive={animate}
-          animationDuration={CHART_INTRO_MS}
-          animationEasing="ease-out"
-        />
       </BarChart>
     </ChartContainer>
   );

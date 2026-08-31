@@ -44,7 +44,16 @@ export interface FlowPoint {
 
 export interface LoadPoint {
   readonly person: string;
-  readonly open: number;
+  /**
+   * Split so the two parts sum to the person's open count.
+   *
+   * Drawn as `overdue` beside `open` they were two bars of different lengths
+   * with no stated relationship, under a caption claiming one was inside the
+   * other -- and 17 open beside 6 overdue reads as 23 pieces of work. On time
+   * and overdue stack to exactly the open total, which is the true shape:
+   * overdue is part of open, not another number next to it.
+   */
+  readonly onTime: number;
   readonly overdue: number;
 }
 
@@ -75,7 +84,10 @@ export function loadSeries(assignees: readonly TaskAssigneeLoad[]): LoadPoint[] 
     // Work with nobody on it is a real state and the most actionable row on
     // the chart, so it is named rather than dropped.
     person: row.assigneeName ?? 'Unassigned',
-    open: row.openCount,
+    // Clamped at zero: the two counts come from one query and cannot disagree,
+    // but a bar of negative length would be the loudest possible way to find
+    // out if they ever did.
+    onTime: Math.max(0, row.openCount - row.overdueCount),
     overdue: row.overdueCount,
   }));
 }

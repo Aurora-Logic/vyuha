@@ -65,7 +65,24 @@ describe('flowSeries', () => {
 describe('loadSeries', () => {
   it('names work with nobody on it rather than dropping it', () => {
     const points = loadSeries([{ assigneeId: null, assigneeName: null, openCount: 3, overdueCount: 1 }]);
-    expect(points[0]).toEqual({ person: 'Unassigned', open: 3, overdue: 1 });
+    expect(points[0]).toEqual({ person: 'Unassigned', onTime: 2, overdue: 1 });
+  });
+
+  it('splits so the two parts sum to the open count, never past it', () => {
+    // The bar is stacked: if these did not sum to `openCount` the chart would
+    // draw a length that is not the person's workload.
+    const points = loadSeries([{ assigneeId: 'a', assigneeName: 'Meera Iyer', openCount: 17, overdueCount: 6 }]);
+    expect(points[0]?.onTime).toBe(11);
+    expect((points[0]?.onTime ?? 0) + (points[0]?.overdue ?? 0)).toBe(17);
+  });
+
+  it('never draws a negative bar, however the counts disagree', () => {
+    const points = loadSeries([{ assigneeId: 'a', assigneeName: 'Odd', openCount: 2, overdueCount: 5 }]);
+    expect(points[0]?.onTime).toBe(0);
+  });
+
+  it('has nothing to draw when nothing is open', () => {
+    expect(loadSeries([])).toEqual([]);
   });
 });
 

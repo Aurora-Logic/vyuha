@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import {
   PRESENCE_HEARTBEAT_MS,
+  REALTIME_RESOURCES,
   type RealtimeResource,
   type RealtimeViewer,
 } from '@vyuha/shared';
@@ -182,6 +183,29 @@ export function useRecordViewers(resource: RealtimeResource, recordId: string | 
     const viewers = presence.get(presenceKey(resource, recordId)) ?? [];
     return viewers.filter((viewer) => viewer.userId !== myId);
   }, [presence, resource, recordId, myId]);
+}
+
+/**
+ * Every task somebody has open, with who is in it — the roster read whole
+ * rather than one record at a time (REQ-V-14).
+ *
+ * Yourself included here, unlike `useRecordViewers`. On a record you are
+ * looking at, your own avatar tells you nothing; on a list of who is working,
+ * leaving yourself out would make the list disagree with what a colleague
+ * sees of the same moment.
+ *
+ * Sorted by record so the rows do not reshuffle under the eye each time a
+ * heartbeat lands.
+ */
+export function useTaskPresence(): readonly { recordId: string; viewers: readonly RealtimeViewer[] }[] {
+  const { presence } = useContext(RealtimeContext);
+  return useMemo(() => {
+    const prefix = `${REALTIME_RESOURCES.TASK}:`;
+    return [...presence.entries()]
+      .filter(([key, viewers]) => key.startsWith(prefix) && viewers.length > 0)
+      .map(([key, viewers]) => ({ recordId: key.slice(prefix.length), viewers }))
+      .sort((a, b) => a.recordId.localeCompare(b.recordId));
+  }, [presence]);
 }
 
 /**
