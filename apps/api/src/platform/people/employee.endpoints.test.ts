@@ -1,4 +1,5 @@
 import {
+  PERMISSIONS,
   SYSTEM_ROLES,
   type EmployeeDetail,
   type EmployeeListItem,
@@ -553,5 +554,45 @@ describe('PATCH /employees/:id', () => {
     const malformed = await harness.get<ErrorBody>('/employees/not-a-uuid', { token: hrToken });
     expect(malformed.status).toBe(400);
     expect(malformed.body.error.code).toBe('VALIDATION_FAILED');
+  });
+});
+
+describe('GET /employees/assignable (the owner and assignee picker, fixed 31 Aug 2026)', () => {
+  it('gives every active colleague to a role that cannot read the register at all', async () => {
+    // A salesperson holds neither employee.view nor employee.manage, so the
+    // register answers 403 -- which is what emptied the deal owner picker.
+    const salesRoleId = await harness.createRole('Sales picker probe', [PERMISSIONS.CRM_DEAL_MANAGE]);
+    const salesUser = await harness.createUser({
+      email: scopedEmail('employees-sales-picker'),
+      roleIds: [salesRoleId],
+      employeeId: people.chandni,
+    });
+    const salesToken = (await harness.login(salesUser.email, salesUser.password)).token;
+
+    const register = await harness.get('/employees?status=ACTIVE', { token: salesToken });
+    expect(register.status, 'the register is still closed to them').toBe(403);
+
+    const directory = await harness.get<{ id: string; firstName: string; employeeCode: string }[]>(
+      '/employees/assignable',
+      { token: salesToken },
+    );
+    expect(directory.status).toBe(200);
+    const codes = directory.body.map((row) => row.employeeCode).sort();
+    // Everyone living and ACTIVE, whatever the reporting line: this fixture's
+    // people hang off four different managers.
+    expect(codes).toContain('EN-0001');
+    expect(codes).toContain('EN-0004');
+    expect(codes).toContain('EN-0006');
+    // Not the person who has left. ON_NOTICE stays: they still own their
+    // deals, and a picker that cannot show the current owner clears them.
+    expect(codes).not.toContain('EN-0007');
+    expect(codes).toContain('EN-0005');
+    // Names only -- the register's own fields never travel through here.
+    expect(Object.keys(directory.body[0] ?? {}).sort()).toEqual(['employeeCode', 'firstName', 'id', 'lastName']);
+  });
+
+  it('refuses an unauthenticated caller', async () => {
+    const anonymous = await harness.get('/employees/assignable');
+    expect(anonymous.status).toBe(401);
   });
 });

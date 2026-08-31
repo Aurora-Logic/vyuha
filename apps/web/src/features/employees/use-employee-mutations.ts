@@ -237,19 +237,18 @@ export function useLocationOptions(): UseQueryResult<PickerRow[], Error> {
   return useMasterOptions('locations', 'locations');
 }
 
-const managerOptionsSchema = z.object({
-  data: z.array(
-    z.object({
-      id: z.string(),
-      firstName: z.string(),
-      lastName: z.string().nullable(),
-      employeeCode: z.string(),
-    }),
-  ),
-});
+const managerOptionsSchema = z.array(
+  z.object({
+    id: z.string(),
+    firstName: z.string(),
+    lastName: z.string().nullable(),
+    employeeCode: z.string(),
+  }),
+);
 
 /**
- * Who somebody may report to (REQ-A-07).
+ * Colleagues a record can be pointed at: a reporting manager (REQ-A-07), a
+ * deal's owner (REQ-U-05), a task's assignee (REQ-V-02).
  *
  * Only active people, and never the person being edited -- the caller filters
  * themselves out. The server checks the whole chain for a cycle and is the
@@ -264,9 +263,14 @@ export function useManagerOptions(): UseQueryResult<PickerRow[], Error> {
     // the employee-mutation invalidations reach it.
     queryKey: ['employees', 'manager-options'],
     queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>('/employees?pageSize=200&status=ACTIVE', { signal });
+      // Fixed 31 Aug 2026: this read the employee register, whose whole-org
+      // breadth is `employee.manage` -- so a salesperson opening a deal or a
+      // task got a 403 and an empty picker, not a short list. `/employees/
+      // assignable` is the directory those pickers need: every living ACTIVE
+      // colleague, name and code, readable by anyone signed in.
+      const body = await apiRequest<unknown>('/employees/assignable', { signal });
       const parsed = parseOrThrow(managerOptionsSchema, body, 'employee list');
-      return parsed.data.map((row) => ({
+      return parsed.map((row) => ({
         id: row.id,
         name: employeeDisplayName(row.firstName, row.lastName),
         hint: row.employeeCode,

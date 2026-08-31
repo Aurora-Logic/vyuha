@@ -86,6 +86,20 @@ export class EmployeeService {
     return paginated(rows, query, total);
   }
 
+  /**
+   * REQ-U-05 / REQ-V-02, fixed 31 Aug 2026: the owner picker on a deal and
+   * the assignee picker on a task were reading the employee register, whose
+   * `all` breadth is `employee.manage` -- a key Sales, Sales manager and
+   * Relationship manager do not hold. They were not seeing a short list;
+   * they were seeing a 403. This is the narrow directory those pickers
+   * actually need: living ACTIVE colleagues, name and code only.
+   */
+  async assignable(principal: Principal): Promise<{ id: string; firstName: string; lastName: string | null; employeeCode: string }[]> {
+    // A roster, not a page: every picker wants the whole list to search
+    // locally. The cap is a guard against an absurd org, not a page size.
+    return this.repository(principal).assignable(1000);
+  }
+
   async findOne(principal: Principal, id: string): Promise<EmployeeDetailView> {
     const employee = await this.repository(principal).detail(id, this.scopeFor(principal));
     // Out of scope and non-existent are the same answer deliberately. A 403

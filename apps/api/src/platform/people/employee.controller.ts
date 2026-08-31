@@ -18,7 +18,7 @@ import {
 } from '@vyuha/shared';
 
 import { CurrentUser, type Principal } from '../rbac/principal.js';
-import { RequirePermission } from '../rbac/route-policy.js';
+import { Authenticated, RequirePermission } from '../rbac/route-policy.js';
 import {
   CreateEmployeeDto,
   EmployeeImportDto,
@@ -47,6 +47,20 @@ import { EmployeeService } from './employee.service.js';
 @Controller('employees')
 export class EmployeeController {
   constructor(private readonly employees: EmployeeService) {}
+
+  /**
+   * Who a record can be assigned to. `@Authenticated()` rather than a
+   * permission key, for the reason the Go To palette gives about search:
+   * there is no key that means "may name a colleague", and since P7-2 every
+   * role can hold and hand on a task. It discloses what a workplace
+   * directory discloses -- names and codes of people who work here -- and
+   * nothing the register carries.
+   */
+  @Get('assignable')
+  @Authenticated()
+  assignable(@CurrentUser() principal: Principal): Promise<{ id: string; firstName: string; lastName: string | null; employeeCode: string }[]> {
+    return this.employees.assignable(principal);
+  }
 
   @Get()
   @RequirePermission(PERMISSIONS.EMPLOYEE_VIEW)
