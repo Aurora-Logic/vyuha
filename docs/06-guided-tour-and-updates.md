@@ -88,6 +88,35 @@ which a stubbed API cannot produce, so what they depend on is asserted in a
 test instead: every one of the seven reaches `DocumentEditor`, and
 `DocumentEditor` carries the anchor.
 
+**The changelog is the half that rots quietly.** On 31 Aug 2026 the Updates
+page still named 0.9.0 from 13 Aug — eighteen days and 496 commits to the web
+app behind, with two-step sign-in, the Tally masters projection, the rebuilt
+reports, order-to-dispatch, collections, the CRM dashboard and the task
+dashboard all shipped and none of them mentioned. One entry was actively wrong:
+it said Reports had been removed, while the router serves twenty-seven report
+screens.
+
+`changelog.test.ts` could not see any of that. It checks every entry is
+*correct* — the route exists, the tour step exists, the permission matches the
+navigation — and a missing entry is invisible to a test of the entries that are
+there. `scripts/check-changelog.mjs` now reports what has shipped since the
+newest release and which REQ ids are undescribed. Run against the stale state
+it reported 496 commits and 195 undescribed ids, which is the proof it works.
+
+It is **advisory and exits zero**, deliberately. Release notes are editorial,
+and a build that refuses to pass until somebody writes prose gets worked around
+rather than obeyed. It is a list to read when closing a phase, not a gate.
+
+**What the sweep is worth beyond the guide.** Driving all seventy-one
+navigable screens to see whether the pin works is also, incidentally, a crash
+detector: a screen that fails while drawing itself renders no `PageHeader`, so
+the guide reports it. Sixty-seven started their guide. Two crashed -
+`/collections` and `/masters/portal-links` - and two more were probe timing,
+confirmed by re-running them. The crashes are recorded as OPEN-QUESTIONS G-11
+with what is and is not proven: the payloads were the probe's, but the reason
+they crashed rather than degraded is that twelve of sixty-six files calling
+`apiRequest` never parse the response, where the other fifty-four do.
+
 A page guide is composed by **looking at the page**, not from a per-route list
 that would go stale the first time a screen gained a table. The screen's intro
 comes from the registry; the rest is whatever of the shared kit is actually on
