@@ -39,6 +39,7 @@ import { employees, organizations } from '../../../platform/db/schema/index.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { localDateIn } from '../../../platform/tasks/local-date.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { DealDocumentRegistry } from '../../../platform/deals/deal-document.registry.js';
 import { RealtimeService } from '../../../platform/realtime/realtime.service.js';
 import { CrmService } from '../contacts/crm.service.js';
 import { crmDeals } from '../schema/index.js';
@@ -93,6 +94,7 @@ export class DealService {
     private readonly crm: CrmService,
     private readonly files: FileService,
     private readonly realtime: RealtimeService,
+    private readonly dealDocuments: DealDocumentRegistry,
   ) {}
 
   // -------------------------------------------------------------- pipelines
@@ -282,7 +284,7 @@ export class DealService {
       limit,
       offset,
     });
-    return paginated(rows, query, total);
+    return paginated(await this.withPaperwork(principal.orgId, rows), query, total);
   }
 
   async board(principal: Principal, query: DealBoardQuery): Promise<DealBoardView> {
@@ -291,11 +293,20 @@ export class DealService {
       query.pipelineId === undefined ? await repository.defaultPipeline() : await repository.findWithStages(query.pipelineId);
     if (pipeline === null) throw AppError.notFound('Pipeline', query.pipelineId);
     const lanes = await this.deals(principal).board(this.scope(principal), { ...query, pipelineId: pipeline.id }, pipeline.stages);
+    // One call for the whole board rather than one per lane: the summariser
+    // is batched precisely so a six-stage board is one query, not six.
+    const decorated = await this.withPaperwork(principal.orgId, lanes.flatMap((lane) => lane.deals));
+    const byId = new Map(decorated.map((deal) => [deal.id, deal]));
     return {
       pipeline,
       lanes: pipeline.stages.map((stage) => {
         const lane = lanes.find((l) => l.stageId === stage.id);
-        return { stage, deals: lane?.deals ?? [], total: lane?.total ?? 0, valueTotal: lane?.valueTotal ?? '0' };
+        return {
+          stage,
+          deals: (lane?.deals ?? []).map((deal) => byId.get(deal.id) ?? deal),
+          total: lane?.total ?? 0,
+          valueTotal: lane?.valueTotal ?? '0',
+        };
       }),
     };
   }
@@ -303,7 +314,8 @@ export class DealService {
   async findDeal(principal: Principal, id: string): Promise<DealView> {
     const deal = await this.deals(principal).view(this.scope(principal), id);
     if (deal === null) throw AppError.notFound('Deal', id);
-    return deal;
+    const [decorated] = await this.withPaperwork(principal.orgId, [deal]);
+    return decorated ?? deal;
   }
 
   async createDeal(principal: Principal, input: CreateDealInput): Promise<DealView> {
@@ -504,6 +516,23 @@ export class DealService {
       .where(eq(organizations.id, orgId))
       .limit(1);
     return { timezone: rows[0]?.timezone ?? 'Asia/Kolkata' };
+  }
+
+/**
+   * Fill in what paperwork each deal has (REQ-U-12).
+   *
+   * One batched call for the whole page, through the platform registry the
+   * sales module registers into -- CRM may not import sales, and a deal at a
+   * time would be fifty round trips to paint a board.
+   */
+  private async withPaperwork(orgId: string, deals: DealView[]): Promise<DealView[]> {
+    if (deals.length === 0) return deals;
+    const summary = await this.dealDocuments.summarise(orgId, deals.map((deal) => deal.id));
+    if (summary.size === 0) return deals;
+    return deals.map((deal) => {
+      const paperwork = summary.get(deal.id);
+      return paperwork === undefined ? deal : { ...deal, ...paperwork };
+    });
   }
 
   // ---------------------------------------------------------------- helpers

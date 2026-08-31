@@ -153,6 +153,10 @@ export const pipelinesSchema = z.array(pipelineSchema);
 export const dealSchema = z.object({
   id: z.string(),
   name: z.string(),
+  // REQ-U-12, derived server-side from the documents themselves. Defaulted
+  // so a client built before the server shipped them still reads a deal.
+  hasOrder: z.boolean().default(false),
+  hasInvoice: z.boolean().default(false),
   companyId: z.string().nullable(),
   companyName: z.string().nullable(),
   partyId: z.string().nullable(),

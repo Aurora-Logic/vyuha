@@ -137,6 +137,13 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
         <SheetTitle className="flex items-center gap-2">
           {isNew ? 'New deal' : initial.name}
           {record?.status === 'won' ? <Badge>Won</Badge> : record?.status === 'lost' ? <Badge variant="outline">Lost</Badge> : null}
+          {/* REQ-U-12: read from the invoice itself, never set by hand, so
+              it cannot say Invoiced when no invoice exists. */}
+          {record?.hasInvoice === true ? (
+            <Badge variant="secondary">Invoiced</Badge>
+          ) : record?.hasOrder === true ? (
+            <Badge variant="outline">Ordered</Badge>
+          ) : null}
           {/* Beside the name, before the fields: whoever is about to type
               needs to know a colleague is already in here, and finding that
               out below the fold is finding it out too late. */}

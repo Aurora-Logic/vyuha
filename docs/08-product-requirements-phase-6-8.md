@@ -204,6 +204,7 @@ The sidebar carries nineteen items today and already scrolls. Three modules will
 | REQ-U-09 | **The CRM updates live for everyone.** A change any colleague makes to a deal, contact, company, activity or task reaches every open screen without a reload. The channel carries what changed, never the changed row — a payload would have to be filtered per recipient against that person's scope, and one mistake there leaks a record. Delivery is best-effort: a screen that cannot connect behaves exactly as it did before. (Owner, 31 Aug 2026.) |
 | REQ-U-10 | **Presence.** A record shows who else has it open, by name and initials avatar — on the deal and task registers, on both the list and the board, and in the record sheet. Someone who closes the record or the tab disappears from it at once. Presence is ephemeral and never audited. (Owner, 31 Aug 2026.) |
 | REQ-U-11 | **CRM dashboard.** Open pipeline value and count, win rate, average days to win; what needs attention today (past close date, follow-up due, closing within seven days, untouched for 14); open deals by stage; won and lost by month; open deals by owner. Every figure is aggregated server-side under the viewer's own deal scope, so it counts exactly the deals their list would show. A win rate is withheld below five decided deals rather than printed from a coincidence. (Owner, 31 Aug 2026.) |
+| REQ-U-12 | **A deal knows its paperwork.** It shows whether a sales order and an invoice have been raised against it, and its Documents panel lists estimates, orders and invoices together. Both flags are derived from the documents themselves on every read, never stored and never set by hand: a stage somebody drags a deal into drifts, and this is the figure checked against the books. A sales order is raised from the deal, carrying the deal, company and party — items and rates are chosen in the order, which is the one place that computes them. (Owner, 31 Aug 2026.) |
 
 ### Area V — Tasks and board
 
@@ -217,6 +218,8 @@ The sidebar carries nineteen items today and already scrolls. Three modules will
 | REQ-V-06 | A drag is a status change is an audit entry. There is no unaudited write path. |
 | REQ-V-07 | My tasks is the CRM landing screen: assigned to me, due today or overdue, ordered by due date. |
 | REQ-V-08 | Task notifications on assignment, on due date, and on overdue, through the existing notification dispatcher and respecting existing per-user preferences. |
+| REQ-V-09 | **A task names its customer and its supplier**, as two separate fields — a task is often about both at once. Which side of the Tally ledger a party sits on is checked, not just its id: a Sundry Debtor cannot be saved in the vendor field. Both are chosen by typing, searched on the server across the whole ledger. (Owner, 31 Aug 2026.) |
+| REQ-V-10 | **A task names the stock items it is about**, chosen by typing from the whole catalogue, up to twenty. No quantities and no rates: a task is a piece of work, not a document. The description is rich text (markdown with a preview), the same editor deal notes use. (Owner, 31 Aug 2026.) |
 
 ### Area W — Sales documents
 

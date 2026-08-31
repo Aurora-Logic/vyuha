@@ -83,6 +83,9 @@ const COLUMNS: RecordColumn<Deal>[] = [
       <span className="flex items-center gap-2">
         <span className="font-medium">{row.name}</span>
         {row.status === 'won' ? <Badge>Won</Badge> : row.status === 'lost' ? <Badge variant="outline">Lost</Badge> : null}
+        {/* REQ-U-12: where the deal has got to in paperwork, which is not
+            the same question as which stage it sits in. */}
+        {row.hasInvoice ? <Badge variant="secondary">Invoiced</Badge> : row.hasOrder ? <Badge variant="outline">Ordered</Badge> : null}
         {/* REQ-U-10 in the list as well as the board. The list is the view
             this screen opens in, so presence that only appeared on the board
             was presence most people would never see. */}
@@ -460,7 +463,14 @@ export function DealsPage() {
             itemLabel={(deal) => deal.name}
             renderItem={(deal) => (
               <>
-                <span className={cn('font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className={cn('truncate font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
+                  {deal.hasInvoice ? (
+                    <Badge variant="secondary" className="shrink-0">Invoiced</Badge>
+                  ) : deal.hasOrder ? (
+                    <Badge variant="outline" className="shrink-0">Ordered</Badge>
+                  ) : null}
+                </span>
                 <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
                   {deal.companyName === null ? null : (
                     <span className="flex min-w-0 items-center gap-1">

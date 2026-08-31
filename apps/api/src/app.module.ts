@@ -33,6 +33,7 @@ import { OrgModule } from './platform/org/org.module.js';
 import { PeopleModule } from './platform/people/people.module.js';
 import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
+import { DealsLinkModule } from './platform/deals/deals-link.module.js';
 import { RealtimeModule } from './platform/realtime/realtime.module.js';
 import { RecycleBinModule } from './platform/recycle-bin/recycle-bin.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
@@ -76,6 +77,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     // dependency order is how a reader learns that the registry exists.
     RecycleBinModule,
     RealtimeModule,
+    DealsLinkModule,
     FileModule,
     JobsModule,
     NotificationsModule,

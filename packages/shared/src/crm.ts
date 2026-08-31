@@ -281,6 +281,17 @@ export interface DealView {
   readonly notes: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * REQ-U-12: what paperwork stands behind this deal.
+   *
+   * Derived from the documents themselves, never stored and never set by
+   * hand. A stage somebody drags a deal into drifts -- a deal sits in
+   * "Invoiced" with no invoice, or is invoiced and never moved -- and the
+   * one number a manager checks against the books is the one that must not
+   * be able to lie.
+   */
+  readonly hasOrder: boolean;
+  readonly hasInvoice: boolean;
 }
 
 export const dealFilterSchema = z.object({

@@ -796,6 +796,15 @@ export const invoiceListQuerySchema = pageQuerySchema.extend({
   syncState: z.enum(SYNC_STATES).optional(),
   partyId: z.uuid().optional(),
   sourceDocumentId: z.uuid().optional(),
+  /**
+   * The deal the invoice was ultimately raised for (REQ-U-12).
+   *
+   * Every `sales_documents` row carries `deal_id` and the repository has
+   * always filtered on it; only this query left it out, which is why a deal
+   * could show its estimates and its orders but never learn it had been
+   * invoiced.
+   */
+  dealId: z.uuid().optional(),
   sort: z.string().max(200).optional(),
 });
 export type InvoiceListQuery = z.infer<typeof invoiceListQuerySchema>;

@@ -411,8 +411,16 @@ interface DealRow {
   updatedAt: Date;
 }
 
+/**
+ * Paperwork is not the repository's to know: `sales_documents` belongs to
+ * another module and this one may not import it. The flags default to false
+ * here and `DealService` fills them from the registry the sales module
+ * registers into (REQ-U-12).
+ */
 function toDealView(row: DealRow): DealView {
   return {
+    hasOrder: false,
+    hasInvoice: false,
     id: row.id,
     name: row.name,
     companyId: row.companyId,
