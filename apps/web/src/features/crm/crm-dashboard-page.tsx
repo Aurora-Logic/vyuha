@@ -129,6 +129,7 @@ export function CrmDashboardPage() {
       {isError ? (
         <QueryErrorAlert
           error={error}
+          subject="the dashboard"
           onRetry={() => {
             void refetch();
           }}

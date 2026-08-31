@@ -171,7 +171,13 @@ export default defineConfig({
             return undefined
           }
           if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id) || id.includes("@tanstack")) return "react-vendor"
-          if (id.includes("@base-ui-components") || id.includes("/cmdk/") || id.includes("/vaul/") || id.includes("/sonner/")) return "ui-vendor"
+          // No vendor rule for the UI primitives. One was written here
+          // spelled `@base-ui-components`, which is not what the package is
+          // called, so it matched nothing; spelled correctly as `@base-ui/`
+          // it matches and changes nothing, because Rollup folds a chunk
+          // whose only importer is `ui` back into it. Measured both ways:
+          // 5 preloaded files and 1.58 MB either side. A rule that cannot
+          // move a byte is worse than no rule -- it reads like a decision.
           return undefined
         },
       },

@@ -221,6 +221,19 @@ describe('the schedulers are registered (technical design §11)', () => {
 });
 
 describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
+  /*
+   * A minute, not the default five seconds.
+   *
+   * The sweep is organisation-wide by design -- it walks every organisation
+   * and computes a day for every active employee in each. In production that
+   * is one organisation; against the shared test database it is every fixture
+   * organisation every suite has ever created, which is currently 113 of them
+   * and ten thousand employees, and takes about forty seconds.
+   *
+   * The budget is raised rather than the sweep narrowed: an org filter on the
+   * job would exist only to make this test fast, and a production code path
+   * that exists for a test is how a sweep quietly stops sweeping.
+   */
   it('writes an ABSENT day for an employee who never punched', async () => {
     // A Monday, safely in the past; the worker carries the 09:00-18:00 default
     // shift, so REQ-C-04 resolves one for the date and nothing else touched it.
@@ -239,7 +252,7 @@ describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
       );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe('ABSENT');
-  });
+  }, 60_000);
 });
 
 describe('punch reminder (REQ-K-03, opt-in)', () => {

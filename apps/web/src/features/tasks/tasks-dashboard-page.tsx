@@ -59,7 +59,7 @@ export function TasksDashboardPage() {
           value={weeks}
           onValueChange={(value) => {
             const next = new URLSearchParams(params);
-            next.set('weeks', value);
+            next.set('weeks', value ?? DEFAULT_WEEKS);
             setParams(next, { replace: true });
           }}
         >
@@ -79,6 +79,7 @@ export function TasksDashboardPage() {
       {isError ? (
         <QueryErrorAlert
           error={error}
+          subject="the dashboard"
           onRetry={() => {
             void refetch();
           }}

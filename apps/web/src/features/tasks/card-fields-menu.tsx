@@ -30,13 +30,19 @@ export function CardFieldsMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm">
-          <SlidersHorizontalIcon data-icon="inline-start" />
-          Fields
-          {hidden > 0 ? <span className="text-muted-foreground tabular-nums">{hidden} hidden</span> : null}
-        </Button>
-      </DropdownMenuTrigger>
+      {/* Base UI takes the trigger's element through `render`, where Radix
+          would have taken `asChild`. The Radix spelling is silently ignored
+          here -- the menu still opened, which is why only the project's own
+          `tsc -b` caught it. */}
+      <DropdownMenuTrigger
+        render={
+          <Button variant="outline" size="sm">
+            <SlidersHorizontalIcon data-icon="inline-start" />
+            Fields
+            {hidden > 0 ? <span className="text-muted-foreground tabular-nums">{hidden} hidden</span> : null}
+          </Button>
+        }
+      />
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel>Show on cards and rows</DropdownMenuLabel>
         <DropdownMenuSeparator />
