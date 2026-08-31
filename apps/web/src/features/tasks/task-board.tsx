@@ -1,4 +1,4 @@
-import { CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon, PackageIcon, TruckIcon } from '@phosphor-icons/react';
 
 import { RecordPresence } from '@/components/shared/presence-avatars';
 import { PersonChip } from '@/components/shared/person';
@@ -68,6 +68,28 @@ export function TaskBoard({
               <span className="flex min-w-0 items-center gap-1">
                 <LinkSimpleIcon className="shrink-0" />
                 <span className="truncate">{task.subjectLabel}</span>
+              </span>
+            )}
+            {/* REQ-V-09 / REQ-V-10: who it is for, who it is on, and what it
+                is about -- the three things read off a card without opening
+                it. Items collapse to a count: five names would push the
+                assignee off a 360px card. */}
+            {task.partyName === null ? null : (
+              <span className="flex min-w-0 items-center gap-1">
+                <BuildingsIcon className="shrink-0" />
+                <span className="truncate">{task.partyName}</span>
+              </span>
+            )}
+            {task.vendorName === null ? null : (
+              <span className="flex min-w-0 items-center gap-1">
+                <TruckIcon className="shrink-0" />
+                <span className="truncate">{task.vendorName}</span>
+              </span>
+            )}
+            {task.items.length === 0 ? null : (
+              <span className="flex items-center gap-1" title={task.items.map((item) => item.itemName).join(', ')}>
+                <PackageIcon className="shrink-0" />
+                {task.items.length === 1 ? task.items[0]?.itemName : `${String(task.items.length)} items`}
               </span>
             )}
             {/* REQ-U-10: who has this card open right now, so two people do

@@ -55,6 +55,16 @@ export interface TaskBoardColumnView {
   readonly isDone: boolean;
 }
 
+/**
+ * One stock item on a task. No quantity and no rate: a task is a piece of
+ * work, not a document -- the moment it carries amounts it is a sales order
+ * wearing the wrong name, and sales owns that model.
+ */
+export interface TaskItemView {
+  readonly itemId: string;
+  readonly itemName: string;
+}
+
 export interface TaskView {
   readonly id: string;
   readonly title: string;
@@ -63,6 +73,20 @@ export interface TaskView {
   readonly subjectId: string | null;
   /** The subject's name at the time it was attached; the client routes by type + id. */
   readonly subjectLabel: string | null;
+  /**
+   * REQ-V-09: the customer and the supplier this task is about.
+   *
+   * Both, and separately: "chase Sanghvi for the coupler Acme is waiting on"
+   * names a vendor and a party at once, and they are not the same slot. The
+   * name is the snapshot taken when it was chosen, so a register of hundreds
+   * of rows never joins the projection to print a word.
+   */
+  readonly partyId: string | null;
+  readonly partyName: string | null;
+  readonly vendorId: string | null;
+  readonly vendorName: string | null;
+  /** REQ-V-10: the stock items this task is about, in the order they were added. */
+  readonly items: readonly TaskItemView[];
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
   readonly ownerId: string | null;
@@ -90,6 +114,10 @@ export const taskFilterSchema = z.object({
   due: z.enum(TASK_DUE_FILTERS).optional(),
   subjectType: subjectTypeField.optional(),
   subjectId: z.uuid().optional(),
+  /** Every task about one customer, or one supplier, or naming one item. */
+  partyId: z.uuid().optional(),
+  vendorId: z.uuid().optional(),
+  itemId: z.uuid().optional(),
   /** Closed tasks are hidden unless asked for; `due` other than `open` implies open. */
   includeClosed: z.coerce.boolean().optional(),
 });
@@ -117,6 +145,12 @@ export interface TaskBoardView {
 /** How many cards a lane carries before it says "and N more" (REQ-V-04's board is a rendering, not a report). */
 export const TASK_BOARD_LANE_CAP = 100;
 
+/**
+ * How many items one task may name. A task listing thirty items is a picking
+ * list, and this product has one of those already.
+ */
+export const TASK_ITEM_CAP = 20;
+
 const titleField = z.string().trim().min(1).max(200);
 const descriptionField = z.string().trim().max(4000);
 
@@ -128,6 +162,12 @@ export const createTaskSchema = z
     subjectId: z.uuid().nullish(),
     /** Defaults to the creator; a `manage` holder may assign anyone in the organisation. */
     assigneeId: z.uuid().nullish(),
+    /** REQ-V-09: a Tally party under Sundry Debtors. */
+    partyId: z.uuid().nullish(),
+    /** REQ-V-09: a Tally party under Sundry Creditors. */
+    vendorId: z.uuid().nullish(),
+    /** REQ-V-10: stock item ids. Order is kept; a repeat is a slip, not a quantity. */
+    itemIds: z.array(z.uuid()).max(TASK_ITEM_CAP).optional(),
     dueDate: z.iso.date().nullish(),
     priority: taskPrioritySchema.default('MEDIUM'),
     /** Defaults to the first column. */
@@ -146,6 +186,10 @@ export const updateTaskSchema = z
     subjectType: subjectTypeField.nullish(),
     subjectId: z.uuid().nullish(),
     assigneeId: z.uuid().nullish(),
+    partyId: z.uuid().nullish(),
+    vendorId: z.uuid().nullish(),
+    /** The whole list, or absent to leave it alone. An empty array clears it. */
+    itemIds: z.array(z.uuid()).max(TASK_ITEM_CAP).optional(),
     dueDate: z.iso.date().nullish(),
     priority: taskPrioritySchema.optional(),
     /** REQ-V-06: a drag is this field changing, and nothing else. */

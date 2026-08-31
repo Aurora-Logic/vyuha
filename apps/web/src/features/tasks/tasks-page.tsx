@@ -6,6 +6,7 @@ import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordPresence } from '@/components/shared/presence-avatars';
+import { EMPTY_VALUE } from '@/lib/format';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
@@ -80,6 +81,23 @@ const COLUMNS: RecordColumn<Task>[] = [
     secondary: true,
   },
   { key: 'assignee', header: 'Assigned to', cell: (row) => <PersonChip name={row.assigneeName} />, secondary: true },
+  // REQ-V-09 / REQ-V-10, all three secondary: they fold away on a phone
+  // rather than pushing the title and the due date off the row.
+  { key: 'party', header: 'Customer', cell: (row) => row.partyName ?? EMPTY_VALUE, secondary: true },
+  { key: 'vendor', header: 'Supplier', cell: (row) => row.vendorName ?? EMPTY_VALUE, secondary: true },
+  {
+    key: 'items',
+    header: 'Items',
+    cell: (row) =>
+      row.items.length === 0 ? (
+        EMPTY_VALUE
+      ) : (
+        // The names, not a count: this column exists to be scanned, and "2
+        // items" makes the reader open the task to learn which two.
+        <span className="truncate">{row.items.map((item) => item.itemName).join(', ')}</span>
+      ),
+    secondary: true,
+  },
 ];
 
 /** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet, a preset subject). */

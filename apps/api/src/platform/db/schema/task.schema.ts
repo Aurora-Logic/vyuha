@@ -3,6 +3,7 @@ import { boolean, date, index, integer, pgEnum, pgTable, text, timestamp, unique
 import { ALIVE, primaryId, standardColumns } from '../columns.js';
 import { organizations } from './organizations.schema.js';
 import { employees } from './people.schema.js';
+import { parties, stockItems } from './projections.schema.js';
 
 /**
  * Tasks (08 Area V, D-17): platform, not CRM. The subject is polymorphic —
@@ -52,6 +53,20 @@ export const tasks = pgTable(
     /** Employees, like every scoped record (08 §2.1: a salesperson is an employee). */
     assigneeId: uuid('assignee_id').references(() => employees.id, { onDelete: 'restrict' }),
     ownerId: uuid('owner_id').references(() => employees.id, { onDelete: 'restrict' }),
+    /**
+     * REQ-V-09: the customer and the supplier a task is about.
+     *
+     * Two columns rather than a second polymorphic subject, because a task
+     * genuinely has both at once -- "chase Sanghvi for the coupler Acme is
+     * waiting on" names a vendor and a party and they are not the same slot.
+     * The name is snapshotted beside the id for the same reason
+     * `subjectLabel` is: the register lists hundreds of rows and must not
+     * join the projection to print a word.
+     */
+    partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
+    partyName: text('party_name'),
+    vendorId: uuid('vendor_id').references(() => parties.id, { onDelete: 'set null' }),
+    vendorName: text('vendor_name'),
     dueDate: date('due_date', { mode: 'string' }),
     priority: taskPriorityEnum('priority').notNull().default('MEDIUM'),
     columnId: uuid('column_id')
@@ -67,5 +82,39 @@ export const tasks = pgTable(
     index('tasks_org_subject_idx').on(t.orgId, t.subjectType, t.subjectId).where(ALIVE),
     // The reminder sweep: open tasks by due date, across the organisation.
     index('tasks_org_due_open_idx').on(t.orgId, t.dueDate).where(ALIVE),
+  ],
+);
+
+/**
+ * REQ-V-10: the stock items a task is about.
+ *
+ * Its own table rather than an array column: an item is a real record with a
+ * real id, and `restrict` on the reference is what stops a synced item
+ * disappearing under a task that names it. The name is snapshotted for the
+ * same reason the party's is -- the task list must not join the catalogue to
+ * render a row.
+ */
+export const taskItems = pgTable(
+  'task_items',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => stockItems.id, { onDelete: 'restrict' }),
+    itemName: text('item_name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...standardColumns(),
+  },
+  (t) => [
+    index('task_items_task_idx').on(t.orgId, t.taskId).where(ALIVE),
+    // One item once per task: adding the same coupler twice is a slip, not a
+    // quantity -- a task carries no quantities.
+    uniqueIndex('task_items_unique_idx').on(t.taskId, t.itemId).where(ALIVE),
   ],
 );

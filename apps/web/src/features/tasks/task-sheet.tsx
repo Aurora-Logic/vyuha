@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ArrowSquareOutIcon, CalendarBlankIcon, CheckIcon, TrashIcon, UserIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
+import { ArrowSquareOutIcon, BuildingsIcon, CalendarBlankIcon, CheckIcon, TrashIcon, TruckIcon, UserIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
+import { NotesEditor } from '@/components/shared/notes-editor';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -15,17 +16,18 @@ import { PresenceAvatars } from '@/components/shared/presence-avatars';
 import { usePresence, useRecordViewers } from '@/lib/realtime/realtime-provider';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { TaskItemsField } from './task-items-field';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { kindOf } from '@/lib/go-to-records';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, REALTIME_RESOURCES, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskPriority } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS, REALTIME_RESOURCES, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskPriority } from '@vyuha/shared';
 
 import { DeleteTaskDialog } from './delete-task-dialog';
 import type { Task, TaskDraft } from './types';
@@ -78,6 +80,13 @@ function TaskSheetBody({
   const [deleting, setDeleting] = useState(false);
   const save = useSaveTask();
   const canManage = usePermission(PERMISSIONS.CRM_TASK_MANAGE);
+  // The masters key gates both pickers: a task may name a party and an item,
+  // but only for someone entitled to read the ledger and the catalogue in the
+  // first place. The field is shown disabled rather than hidden, so a saved
+  // link is still legible to whoever opens the task (Definition of Done: RBAC
+  // reflected in the UI, disabled with a reason).
+  const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
+  const canSeeItems = canSeeParties;
   const columns = useBoardColumns();
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
@@ -312,14 +321,82 @@ function TaskSheetBody({
 
           <Field>
             <FieldLabel htmlFor="task-description">Notes</FieldLabel>
-            <Textarea
+            {/* The same markdown editor the deal notes use, so a written
+                instruction can carry a list and an emphasis rather than
+                being one grey paragraph. */}
+            <NotesEditor
               id="task-description"
-              rows={4}
+              rows={5}
               value={draft.description}
-              onChange={(event) => {
-                setDraft((current) => ({ ...current, description: event.target.value }));
+              placeholder="What has to happen, and anything the person picking it up needs to know."
+              onValueChange={(next) => {
+                setDraft((current) => ({ ...current, description: next }));
               }}
             />
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="task-party">Customer</FieldLabel>
+            <PartyPicker
+              id="task-party"
+              label="Customer"
+              placeholder="No customer"
+              parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
+              partyId={draft.partyId}
+              {...(draft.partyName === null ? {} : { partyName: draft.partyName })}
+              clearable
+              clearLabel="No customer"
+              enabled={canSeeParties}
+              disabled={!canSeeParties}
+              icon={<BuildingsIcon className="text-muted-foreground" />}
+              onValueChange={(party) => {
+                setDraft((current) => ({
+                  ...current,
+                  partyId: party?.id ?? null,
+                  partyName: party?.name ?? null,
+                }));
+              }}
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="task-vendor">Supplier</FieldLabel>
+            <PartyPicker
+              id="task-vendor"
+              label="Supplier"
+              placeholder="No supplier"
+              // The other side of the ledger. The server refuses a customer
+              // here, so offering one would offer a choice that cannot save.
+              parentGroup={PARTY_LEDGER_GROUPS.SUPPLIER}
+              partyId={draft.vendorId}
+              {...(draft.vendorName === null ? {} : { partyName: draft.vendorName })}
+              clearable
+              clearLabel="No supplier"
+              enabled={canSeeParties}
+              disabled={!canSeeParties}
+              icon={<TruckIcon className="text-muted-foreground" />}
+              onValueChange={(party) => {
+                setDraft((current) => ({
+                  ...current,
+                  vendorId: party?.id ?? null,
+                  vendorName: party?.name ?? null,
+                }));
+              }}
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="task-items">Items</FieldLabel>
+            <TaskItemsField
+              value={draft.items}
+              enabled={canSeeItems}
+              onValueChange={(items) => {
+                setDraft((current) => ({ ...current, items }));
+              }}
+            />
+            <FieldDescription>
+              Which stock this is about. No quantities — a task is a piece of work, not a document.
+            </FieldDescription>
           </Field>
         </FieldGroup>
       </Form>

@@ -596,6 +596,13 @@
       "when": 1788158646945,
       "tag": "0084_crm_deal_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1788167547970,
+      "tag": "0085_task_party_vendor_items",
+      "breakpoints": true
     }
   ]
 }

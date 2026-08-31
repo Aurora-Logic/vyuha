@@ -23,6 +23,13 @@ export const taskSchema = z.object({
   assigneeName: z.string().nullable(),
   ownerId: z.string().nullable(),
   ownerName: z.string().nullable(),
+  // REQ-V-09 / REQ-V-10. Defaulted, so a client built before the server
+  // shipped these reads a task without throwing on a missing key.
+  partyId: z.string().nullable().default(null),
+  partyName: z.string().nullable().default(null),
+  vendorId: z.string().nullable().default(null),
+  vendorName: z.string().nullable().default(null),
+  items: z.array(z.object({ itemId: z.string(), itemName: z.string() })).default([]),
   dueDate: z.string().nullable(),
   priority: z.enum(TASK_PRIORITIES),
   columnId: z.string(),
@@ -59,6 +66,12 @@ export interface TaskDraft {
   subjectType: string | null;
   subjectId: string | null;
   subjectLabel: string | null;
+  partyId: string | null;
+  /** Carried beside the id so the picker's trigger reads without a second fetch. */
+  partyName: string | null;
+  vendorId: string | null;
+  vendorName: string | null;
+  items: { itemId: string; itemName: string }[];
 }
 
 export function emptyTaskDraft(overrides: Partial<TaskDraft> = {}): TaskDraft {
@@ -72,6 +85,11 @@ export function emptyTaskDraft(overrides: Partial<TaskDraft> = {}): TaskDraft {
     subjectType: null,
     subjectId: null,
     subjectLabel: null,
+    partyId: null,
+    partyName: null,
+    vendorId: null,
+    vendorName: null,
+    items: [],
     ...overrides,
   };
 }
@@ -88,5 +106,10 @@ export function taskToDraft(task: Task): TaskDraft {
     subjectType: task.subjectType,
     subjectId: task.subjectId,
     subjectLabel: task.subjectLabel,
+    partyId: task.partyId,
+    partyName: task.partyName,
+    vendorId: task.vendorId,
+    vendorName: task.vendorName,
+    items: task.items.map((item) => ({ ...item })),
   };
 }

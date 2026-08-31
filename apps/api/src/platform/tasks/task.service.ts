@@ -19,13 +19,14 @@ import {
   type UpdateBoardColumnInput,
   type UpdateTaskInput,
   REALTIME_RESOURCES,
+  PARTY_LEDGER_GROUPS,
 } from '@vyuha/shared';
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { employees, organizations, tasks } from '../db/schema/index.js';
+import { employees, organizations, parties, stockItems, tasks } from '../db/schema/index.js';
 import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 import { hasPermission, orgContextOf, type Principal } from '../rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
@@ -121,6 +122,12 @@ export class TaskService {
         : await columns.find(input.columnId);
     if (column === null) throw AppError.validation('The board column was not found.', { columnId: input.columnId ?? null });
 
+    // Resolved before the insert, so a task naming a party that does not
+    // exist fails without leaving half of itself behind.
+    const party = await this.resolveParty(principal, input.partyId, 'party');
+    const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
+    const items = await this.resolveItems(principal, input.itemIds);
+
     const created = await repository.insert({
       title: input.title,
       description: input.description ?? null,
@@ -129,11 +136,16 @@ export class TaskService {
       subjectLabel: subject?.label ?? null,
       assigneeId,
       ownerId: principal.employeeId,
+      partyId: party?.id ?? null,
+      partyName: party?.name ?? null,
+      vendorId: vendor?.id ?? null,
+      vendorName: vendor?.name ?? null,
       dueDate: input.dueDate ?? null,
       priority: input.priority,
       columnId: column.id,
       closedAt: column.isDone ? new Date() : null,
     });
+    if (items !== null) await repository.setItems(created.id, items);
     const task = await repository.view(SQL_TRUE, created.id);
     if (task === null) throw new Error(`Task ${created.id} vanished between insert and read-back.`);
 
@@ -168,6 +180,17 @@ export class TaskService {
       patch.subjectLabel = subject?.label ?? null;
     }
 
+    if (input.partyId !== undefined) {
+      const party = await this.resolveParty(principal, input.partyId, 'party');
+      patch.partyId = party?.id ?? null;
+      patch.partyName = party?.name ?? null;
+    }
+    if (input.vendorId !== undefined) {
+      const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
+      patch.vendorId = vendor?.id ?? null;
+      patch.vendorName = vendor?.name ?? null;
+    }
+
     let moved: { from: string; to: TaskBoardColumnView } | null = null;
     if (input.columnId !== undefined && input.columnId !== existing.columnId) {
       const column = await this.columns(principal).find(input.columnId);
@@ -180,8 +203,12 @@ export class TaskService {
       moved = { from: existing.columnName, to: column };
     }
 
+    // Resolved before the write for the same reason as on create.
+    const items = await this.resolveItems(principal, input.itemIds);
+
     const updated = await repository.update(id, patch);
     if (updated === null) throw AppError.notFound('Task', id);
+    if (items !== null) await repository.setItems(id, items);
     const task = await repository.view(SQL_TRUE, id);
     if (task === null) throw AppError.notFound('Task', id);
 
@@ -405,6 +432,72 @@ export class TaskService {
     });
   }
 
+/**
+   * A party this organisation actually has, with the name snapshotted.
+   *
+   * The group is checked, not just the id: a customer chosen in the vendor
+   * field is a mistake worth refusing rather than a row that quietly reads
+   * "Vendor: Acme Trading Co" for ever. `null` clears the field; `undefined`
+   * never reaches here.
+   */
+  private async resolveParty(
+    principal: Principal,
+    partyId: string | null | undefined,
+    role: 'party' | 'vendor',
+  ): Promise<{ id: string; name: string } | null> {
+    if (partyId === null || partyId === undefined) return null;
+    const rows = await this.db
+      .select({ id: parties.id, name: parties.name, parentGroup: parties.parentGroup })
+      .from(parties)
+      .where(and(eq(parties.orgId, principal.orgId), eq(parties.id, partyId)))
+      .limit(1);
+    const row = rows[0];
+    if (row === undefined) {
+      throw AppError.validation(`The ${role} was not found.`, { [`${role}Id`]: partyId });
+    }
+    // Sundry Creditors is the supplier group and Sundry Debtors the customer
+    // one, verbatim from Tally (08 §3). Anything else -- a bank, an expense
+    // ledger -- is neither and belongs in no task field.
+    const wanted = role === 'vendor' ? PARTY_LEDGER_GROUPS.SUPPLIER : PARTY_LEDGER_GROUPS.CUSTOMER;
+    if (row.parentGroup !== wanted) {
+      throw AppError.validation(
+        role === 'vendor'
+          ? 'A vendor must be a party under Sundry Creditors.'
+          : 'A party must be a customer under Sundry Debtors.',
+        { [`${role}Id`]: partyId, parentGroup: row.parentGroup },
+      );
+    }
+    return { id: row.id, name: row.name };
+  }
+
+  /**
+   * The stock items named, in the order they were given.
+   *
+   * `null` means the caller said nothing and the existing list stands; an
+   * empty array means they cleared it. Duplicates are dropped rather than
+   * refused -- picking the same coupler twice is a slip, and a task carries
+   * no quantities for a second row to mean anything.
+   */
+  private async resolveItems(
+    principal: Principal,
+    itemIds: readonly string[] | undefined,
+  ): Promise<{ id: string; name: string }[] | null> {
+    if (itemIds === undefined) return null;
+    const unique = [...new Set(itemIds)];
+    if (unique.length === 0) return [];
+    const rows = await this.db
+      .select({ id: stockItems.id, name: stockItems.name })
+      .from(stockItems)
+      .where(and(eq(stockItems.orgId, principal.orgId), inArray(stockItems.id, unique)));
+    const byId = new Map(rows.map((row) => [row.id, row.name]));
+    const missing = unique.filter((id) => !byId.has(id));
+    if (missing.length > 0) {
+      throw AppError.validation('One of the items was not found.', { itemIds: missing });
+    }
+    // The caller's order, not the database's: the list reads as it was built.
+    return unique.map((id) => ({ id, name: byId.get(id) ?? '' }));
+  }
+
   /** The actor as the assignee will read it: their employee name, or their email when they have no record. */
   private async actorName(principal: Principal): Promise<string> {
     if (principal.employeeId === null) return principal.email;
@@ -457,6 +550,11 @@ function taskAuditView(task: TaskView): Record<string, unknown> {
     subjectId: task.subjectId,
     assigneeId: task.assigneeId,
     ownerId: task.ownerId,
+    partyId: task.partyId,
+    vendorId: task.vendorId,
+    // The ids, not the snapshotted names: the trail records what was linked,
+    // and a name that changed in Tally later did not change this task.
+    itemIds: task.items.map((item) => item.itemId),
     dueDate: task.dueDate,
     priority: task.priority,
     columnId: task.columnId,
