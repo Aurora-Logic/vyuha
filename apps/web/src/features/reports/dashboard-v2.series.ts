@@ -74,7 +74,7 @@ export interface MonthlySeries extends Series<Point> {
  */
 export function monthlyInvoiced(rows: readonly ReportRowView[], thisMonth: string): MonthlySeries {
   const points = rows
-    .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
+    .map((row) => ({ label: text(row, 'label'), value: Math.abs(num(row, 'value')) }))
     .sort((a, b) => a.label.localeCompare(b.label));
   const total = sum(points.map((p) => p.value));
 
@@ -118,7 +118,7 @@ export interface TopCustomers extends Series<Point> {
 /** The top `keep` by value, with everyone else folded into a tail figure. */
 export function topCustomers(rows: readonly ReportRowView[], keep = 5): TopCustomers {
   const all = rows
-    .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
+    .map((row) => ({ label: text(row, 'label'), value: Math.abs(num(row, 'value')) }))
     .sort((a, b) => b.value - a.value);
   const points = all.slice(0, keep);
   const rest = all.slice(keep);
@@ -549,7 +549,7 @@ export function invoiceMix(rows: readonly ReportRowView[]): MixSeries {
     .map((row) => ({
       label: text(row, 'label'),
       invoices: num(row, 'vouchers'),
-      value: num(row, 'value'),
+      value: Math.abs(num(row, 'value')),
     }))
     .filter((p) => p.label !== '' && p.invoices > 0)
     .sort((a, b) => a.invoices - b.invoices);

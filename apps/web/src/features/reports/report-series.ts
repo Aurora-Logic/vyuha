@@ -47,12 +47,12 @@ export interface ValueBarPoint {
 /** Which group carries the value? Top groups of the current page, one hue. */
 export function salesAnalysisSeries(rows: readonly ChartRow[]): { points: ValueBarPoint[]; insight: string | null } {
   const points = rows
-    .map((row) => ({ label: text(row.cells.label), value: num(row.cells.value) }))
+    .map((row) => ({ label: text(row.cells.label), value: Math.abs(num(row.cells.value)) }))
     .filter((p) => p.label !== '' && p.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, MAX_BARS);
   if (points.length < 2) return { points, insight: null };
-  const total = rows.reduce((sum, row) => sum + num(row.cells.value), 0);
+  const total = rows.reduce((sum, row) => sum + Math.abs(num(row.cells.value)), 0);
   const top = points[0];
   if (top === undefined || total <= 0) return { points, insight: null };
   const share = Math.round((top.value / total) * 100);

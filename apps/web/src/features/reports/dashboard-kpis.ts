@@ -72,7 +72,7 @@ export const DASHBOARD_KPIS: Record<DashboardKpiMetric, KpiMetricSpec> = {
     reportKey: 'sales-analysis',
     params: { groupBy: 'month' },
     compute: (rows) => ({
-      value: formatMoney(sumColumn(rows, 'value')),
+      value: formatMoney(Math.abs(sumColumn(rows, 'value'))),
       note: `Across ${String(rows.length)} month${rows.length === 1 ? '' : 's'}`,
     }),
     drillQuery: { report: 'sales-analysis', groupBy: 'month' },

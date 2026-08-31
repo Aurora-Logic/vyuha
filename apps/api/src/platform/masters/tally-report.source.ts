@@ -267,7 +267,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
              count(*) FILTER (WHERE is_cancelled)::int AS cancelled,
              -- Cancelled vouchers do not count towards value: Tally's Day
              -- Book excludes them, and the point is to match it.
-             COALESCE(sum(amount) FILTER (WHERE NOT is_cancelled), 0)::text AS total,
+             COALESCE(sum(abs(amount)) FILTER (WHERE NOT is_cancelled), 0)::text AS total,
              max(last_pulled_at) AS last_pulled_at
         FROM vouchers
        WHERE org_id = ${orgId} ${this.periodClause(filters, 'voucher_date')}
@@ -687,7 +687,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
     const dimension = filters.groupBy ?? 'party';
     const orderBy = orderByField(sort, SORTABLE['sales-analysis'], 'value DESC, label ASC', 'label ASC');
     const grand = await this.db.execute<{ value: string }>(sql`
-      SELECT round(COALESCE(sum(l.amount), 0), 2)::text AS value
+      SELECT round(COALESCE(abs(sum(l.amount)), 0), 2)::text AS value
         FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
        WHERE ${this.salesLinesWhere(orgId, filters)}
     `);
@@ -700,7 +700,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
              CASE WHEN count(DISTINCT s.unit) = 1
                   THEN sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text || ' ' || max(s.unit)
                   ELSE NULL END AS quantity,
-             round(COALESCE(sum(l.amount), 0), 2)::text AS value
+             round(COALESCE(abs(sum(l.amount)), 0), 2)::text AS value
         ${this.salesLinesFrom()}
        WHERE ${this.salesLinesWhere(orgId, filters)}
        GROUP BY ${this.dimensionKey(dimension)}
@@ -769,7 +769,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   private async dayBookRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<DayBookSource[]> {
     const order = orderByField(sort, SORTABLE['day-book'], 'voucher_date DESC, created_at DESC', 'voucher_date DESC, created_at DESC');
     const rows = await this.db.execute<{ id: string; voucher_date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; narration: string | null; is_cancelled: boolean }>(sql`
-      SELECT id, voucher_date, voucher_type, voucher_number, party_name, amount::text AS amount, narration, is_cancelled
+      SELECT id, voucher_date, voucher_type, voucher_number, party_name, abs(amount)::text AS amount, narration, is_cancelled
         FROM vouchers
        WHERE ${this.dayBookWhere(orgId, filters)}
        ORDER BY ${order}
@@ -813,7 +813,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       latest AS (
         SELECT party_id, max(party_name) AS party_name, max(voucher_date) AS last_sale,
                count(*) FILTER (WHERE voucher_date >= CURRENT_DATE - 365)::int AS sales_12m,
-               COALESCE(sum(amount) FILTER (WHERE voucher_date >= CURRENT_DATE - 365), 0) AS revenue_12m
+               COALESCE(sum(abs(amount)) FILTER (WHERE voucher_date >= CURRENT_DATE - 365), 0) AS revenue_12m
           FROM sales GROUP BY party_id
       )
       SELECT l.party_id, l.party_name, l.last_sale, r.median_gap,

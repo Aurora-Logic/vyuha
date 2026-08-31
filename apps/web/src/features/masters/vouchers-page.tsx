@@ -69,8 +69,8 @@ const COLUMNS: RecordColumn<Voucher>[] = [
     sortField: 'number',
   },
   { key: 'party', header: 'Party', cell: (row) => row.partyName || EMPTY_VALUE, secondary: true, sortField: 'party' },
-  // Tally's figure verbatim; this application never does arithmetic on it.
-  { key: 'amount', header: 'Amount', cell: (row) => formatMoney(row.amount), numeric: true, sortField: 'amount' },
+  // Display the magnitude without the Tally internal credit sign
+  { key: 'amount', header: 'Amount', cell: (row) => formatMoney(magnitudeOf(row.amount)), numeric: true, sortField: 'amount' },
   {
     key: 'pulled',
     header: 'As of',
