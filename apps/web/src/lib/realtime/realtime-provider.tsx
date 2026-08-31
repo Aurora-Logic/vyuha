@@ -29,8 +29,6 @@ import { drainFrames, invalidationsFor, presenceKey, presenceMapOf, retryDelayMs
 interface RealtimeContextValue {
   /** Everyone currently in a record, keyed `resource:recordId`. */
   readonly presence: PresenceMap;
-  /** True while a stream is open; the shell shows a quiet dot when it is not. */
-  readonly connected: boolean;
   /** "I am looking at this record." Pass null on leaving. */
   readonly announce: (resource: RealtimeResource, recordId: string | null) => void;
 }
@@ -39,7 +37,6 @@ const EMPTY_PRESENCE: PresenceMap = new Map();
 
 const RealtimeContext = createContext<RealtimeContextValue>({
   presence: EMPTY_PRESENCE,
-  connected: false,
   announce: () => undefined,
 });
 
@@ -50,7 +47,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const { data: me } = useMe();
   const [presence, setPresence] = useState<PresenceMap>(() => new Map());
-  const [connected, setConnected] = useState(false);
   const userId = me?.user.id ?? null;
 
   /**
@@ -97,7 +93,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       if (!response.ok || response.body === null) throw new Error(`stream refused: ${response.status}`);
 
       attempt = 0;
-      setConnected(true);
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
       for (;;) {
@@ -146,7 +141,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       } catch {
         // Every failure is the same failure from here: try again later.
       }
-      setConnected(false);
       // A stream that ends cleanly is still a stream that ended -- a proxy
       // timing it out looks exactly like this - so reconnect either way.
       schedule();
@@ -168,11 +162,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   }, [userId, client, announce]);
 
   const value = useMemo<RealtimeContextValue>(
-    () =>
-      userId === null
-        ? { presence: EMPTY_PRESENCE, connected: false, announce }
-        : { presence, connected, announce },
-    [userId, presence, connected, announce],
+    () => (userId === null ? { presence: EMPTY_PRESENCE, announce } : { presence, announce }),
+    [userId, presence, announce],
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
@@ -207,8 +198,4 @@ export function usePresence(resource: RealtimeResource, recordId: string | null)
       announce(resource, null);
     };
   }, [announce, resource, recordId]);
-}
-
-export function useRealtimeConnected(): boolean {
-  return useContext(RealtimeContext).connected;
 }

@@ -83,6 +83,10 @@ const COLUMNS: RecordColumn<Deal>[] = [
       <span className="flex items-center gap-2">
         <span className="font-medium">{row.name}</span>
         {row.status === 'won' ? <Badge>Won</Badge> : row.status === 'lost' ? <Badge variant="outline">Lost</Badge> : null}
+        {/* REQ-U-09 in the list as well as the board. The list is the view
+            this screen opens in, so presence that only appeared on the board
+            was presence most people would never see. */}
+        <RecordPresence resource={REALTIME_RESOURCES.CRM_DEAL} recordId={row.id} />
       </span>
     ),
   },

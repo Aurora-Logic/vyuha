@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
+import { RecordPresence } from '@/components/shared/presence-avatars';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
@@ -25,7 +26,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_SORT_FIELDS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
+import { PERMISSIONS, REALTIME_RESOURCES, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_SORT_FIELDS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
 
 import { BoardColumnsSheet } from './board-columns-sheet';
 import { DueDate } from './due-date';
@@ -62,6 +63,10 @@ const COLUMNS: RecordColumn<Task>[] = [
         {row.subjectLabel === null ? null : (
           <span className="text-muted-foreground truncate text-xs">on {row.subjectLabel}</span>
         )}
+        {/* REQ-U-09: the owner's words were "highlight if someone is working
+            on any task". The list is where most people read tasks, so it has
+            to be here and not only on the board. */}
+        <RecordPresence resource={REALTIME_RESOURCES.TASK} recordId={row.id} />
       </span>
     ),
   },
