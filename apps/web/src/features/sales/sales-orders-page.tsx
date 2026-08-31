@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FileTextIcon, GearIcon, KanbanIcon, ListIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams, Link } from 'react-router';
 
@@ -19,6 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SalesOrderBoard } from './sales-order-board';
 import { formatDate, formatMoney, EMPTY_VALUE } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_SORT_FIELDS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
@@ -73,31 +74,7 @@ export function SalesOrdersPage() {
   const dealParam = searchParams.get('deal') ?? '';
   const partyParam = searchParams.get('party') ?? '';
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   // The register and the fulfilment board draw the same orders two ways; the
   // board loads its own confirmed set, so the list query rests while it shows.

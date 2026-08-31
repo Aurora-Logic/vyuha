@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   CalendarBlankIcon,
   CalendarPlusIcon,
@@ -47,6 +47,7 @@ import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
 import { useDepartments } from '@/features/attendance/use-attendance-days';
 import { DeleteMasterDialog, type DeleteTarget } from '@/features/org-masters';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import {
@@ -539,32 +540,7 @@ function RosterTab() {
   // is a range and a one-day range shows nothing that ends tomorrow.
   const [period, setPeriod] = useState<DateRange>(defaultPeriod);
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   // PRD section 6.4: Alt+F2 changes the period.
   useShortcut({

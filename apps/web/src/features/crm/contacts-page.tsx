@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { AddressBookIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
@@ -13,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
@@ -52,31 +52,7 @@ export function ContactsPage() {
   const openId = params.id ?? null;
   const creating = searchParams.get('new') === '1';
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   const query = useContacts(
     { page, ...(q ? { q } : {}), ...(companyId ? { companyId } : {}) },

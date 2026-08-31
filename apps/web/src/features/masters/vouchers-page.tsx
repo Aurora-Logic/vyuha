@@ -1,5 +1,5 @@
 import { useParty } from './use-parties';
-import { useEffect, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon, XIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { DateRange } from 'react-day-picker';
@@ -34,6 +34,7 @@ import { DASHBOARD_PRESETS } from '@/lib/range-presets';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { PERMISSIONS, VOUCHER_SORT_FIELDS } from '@vyuha/shared';
 
 import { magnitudeOf } from './voucher-amount';
@@ -235,32 +236,7 @@ export function VouchersPage() {
     );
   }
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   const query = useVouchers(
     {

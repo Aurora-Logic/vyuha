@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { LockKeyIcon, ScanIcon, TruckIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
@@ -17,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { DISPATCH_MODES, DISPATCH_MODE_LABELS, PERMISSIONS, SYNC_STATES, SYNC_STATE_LABELS, type DispatchMode, type DocumentSyncState } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
@@ -75,31 +75,7 @@ export function DispatchesPage({ stage }: { stage?: 'delivered' } = {}) {
   const orderParam = searchParams.get('order') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   const query = useDispatches({ page, ...(q ? { q } : {}), delivered: delivered ? 'yes' : 'no', ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
   const rows = query.data?.data ?? [];
