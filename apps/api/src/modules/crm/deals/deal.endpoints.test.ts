@@ -289,3 +289,55 @@ describe('deals (REQ-U-05)', () => {
     expect(after.status).toBe(404);
   });
 });
+
+describe('the pipeline-review fields (owner, 31 Aug 2026)', () => {
+  it('carries lead source, priority, follow-up, competitor and loss reason through create, read and patch', async () => {
+    const created = await harness.post<DealView>('/crm/deals', {
+      token: salesToken,
+      body: {
+        name: 'Nashik switchgear tender',
+        leadSource: 'Referral - Godavari Electricals',
+        priority: 'high',
+        nextFollowUpDate: '2026-09-12',
+        competitor: 'Legrand',
+      },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.leadSource).toBe('Referral - Godavari Electricals');
+    expect(created.body.priority).toBe('high');
+    expect(created.body.nextFollowUpDate).toBe('2026-09-12');
+    expect(created.body.competitor).toBe('Legrand');
+    // Not asked for at creation, and not invented either.
+    expect(created.body.lossReason).toBeNull();
+
+    const read = await harness.get<DealView>(`/crm/deals/${created.body.id}`, { token: salesToken });
+    expect(read.body.priority).toBe('high');
+
+    // A loss reason is written when the deal is lost, and a field can be
+    // cleared by naming it null rather than by omitting it.
+    const patched = await harness.patch<DealView>(`/crm/deals/${created.body.id}`, {
+      token: salesToken,
+      body: { lossReason: 'Price - lost to Legrand by 4%', competitor: null, priority: 'urgent' },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.lossReason).toBe('Price - lost to Legrand by 4%');
+    expect(patched.body.competitor).toBeNull();
+    expect(patched.body.priority).toBe('urgent');
+    // Untouched fields survive a patch that never mentions them.
+    expect(patched.body.leadSource).toBe('Referral - Godavari Electricals');
+    expect(patched.body.nextFollowUpDate).toBe('2026-09-12');
+  });
+
+  it('refuses a priority outside the four and an over-long source', async () => {
+    const badPriority = await harness.post('/crm/deals', {
+      token: salesToken,
+      body: { name: 'Bad priority', priority: 'whenever' },
+    });
+    expect(badPriority.status).toBe(400);
+    const longSource = await harness.post('/crm/deals', {
+      token: salesToken,
+      body: { name: 'Long source', leadSource: 'x'.repeat(121) },
+    });
+    expect(longSource.status).toBe(400);
+  });
+});

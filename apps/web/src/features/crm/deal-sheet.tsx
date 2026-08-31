@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
+import { NotesEditor } from '@/components/shared/notes-editor';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,7 +15,6 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
@@ -24,7 +24,7 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { DEAL_PRIORITIES, PERMISSIONS, type DealPriority } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
 import { DealDocuments } from './deal-documents';
@@ -32,6 +32,15 @@ import { DeleteDealDialog } from './delete-dialogs';
 import type { Deal, DealDraft } from './types';
 import { useCompanyOptions } from './use-crm';
 import { useCompanyContacts, useLinkCompanyParty, usePipelines, useSaveDeal } from './use-deals';
+
+const NO_PRIORITY = '__none__';
+
+const DEAL_PRIORITY_LABELS: Record<DealPriority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  urgent: 'Urgent',
+};
 
 /**
  * One deal (REQ-U-05). Stage is a Select — moving through the pipeline needs
@@ -371,15 +380,114 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
             </Field>
           ) : null}
 
+          {/* Owner, 31 Aug 2026: the five things a pipeline review asks. */}
+          <Field>
+            <FieldLabel htmlFor="deal-lead-source">Lead source</FieldLabel>
+            <Input
+              id="deal-lead-source"
+              placeholder="Referral, exhibition, cold call, existing customer"
+              value={draft.leadSource}
+              onChange={(event) => {
+                setDraft((current) => ({ ...current, leadSource: event.target.value }));
+              }}
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="deal-priority">Priority</FieldLabel>
+            <Select
+              value={draft.priority ?? NO_PRIORITY}
+              onValueChange={(next) => {
+                if (next === null) return;
+                setDraft((current) => ({ ...current, priority: next === NO_PRIORITY ? null : (next as DealPriority) }));
+              }}
+            >
+              <SelectTrigger id="deal-priority" aria-label="Priority">
+                <SelectValue>{(v: string) => (v === NO_PRIORITY ? 'Not set' : DEAL_PRIORITY_LABELS[v as DealPriority])}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PRIORITY}>Not set</SelectItem>
+                {DEAL_PRIORITIES.map((level) => (
+                  <SelectItem key={level} value={level}>{DEAL_PRIORITY_LABELS[level]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field>
+            <FieldLabel>Next follow-up</FieldLabel>
+            {draft.nextFollowUpDate === null ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDraft((current) => ({ ...current, nextFollowUpDate: toDateParam(new Date()) }));
+                }}
+              >
+                Set a date
+              </Button>
+            ) : (
+              <span className="flex items-center gap-2">
+                <DateField
+                  label="Next follow-up"
+                  value={fromDateParam(draft.nextFollowUpDate)}
+                  onValueChange={(next) => {
+                    setDraft((current) => ({ ...current, nextFollowUpDate: toDateParam(next) }));
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Clear the follow-up date"
+                  onClick={() => {
+                    setDraft((current) => ({ ...current, nextFollowUpDate: null }));
+                  }}
+                >
+                  <XIcon />
+                </Button>
+              </span>
+            )}
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="deal-competitor">Competitor</FieldLabel>
+            <Input
+              id="deal-competitor"
+              placeholder="Who else is quoting"
+              value={draft.competitor}
+              onChange={(event) => {
+                setDraft((current) => ({ ...current, competitor: event.target.value }));
+              }}
+            />
+          </Field>
+
+          {/* Only where it belongs: a loss reason on an open deal is a
+              question nobody asked. It stays visible once written, because
+              the pattern of losses is the point of recording it. */}
+          {record?.status === 'lost' || draft.lossReason !== '' ? (
+            <Field>
+              <FieldLabel htmlFor="deal-loss-reason">Loss reason</FieldLabel>
+              <Input
+                id="deal-loss-reason"
+                placeholder="Price, delivery, specification, no decision"
+                value={draft.lossReason}
+                onChange={(event) => {
+                  setDraft((current) => ({ ...current, lossReason: event.target.value }));
+                }}
+              />
+            </Field>
+          ) : null}
+
           <Field>
             <FieldLabel htmlFor="deal-notes">Notes</FieldLabel>
-            <Textarea
+            <NotesEditor
               id="deal-notes"
-              rows={3}
               value={draft.notes}
-              onChange={(event) => {
-                setDraft((current) => ({ ...current, notes: event.target.value }));
+              onValueChange={(next) => {
+                setDraft((current) => ({ ...current, notes: next }));
               }}
+              placeholder="What was discussed, what was quoted, what happens next."
             />
           </Field>
         </FieldGroup>

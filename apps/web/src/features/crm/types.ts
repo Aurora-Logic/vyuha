@@ -1,3 +1,4 @@
+import { DEAL_PRIORITIES, type DealPriority } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -168,6 +169,11 @@ export const dealSchema = z.object({
   ownerName: z.string().nullable(),
   status: z.enum(['open', 'won', 'lost']),
   closedAt: z.string().nullable(),
+  leadSource: z.string().nullable(),
+  priority: z.enum(DEAL_PRIORITIES).nullable(),
+  nextFollowUpDate: z.string().nullable(),
+  competitor: z.string().nullable(),
+  lossReason: z.string().nullable(),
   notes: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -193,6 +199,11 @@ export interface DealDraft {
   value: string;
   expectedCloseDate: string | null;
   ownerId: string | null;
+  leadSource: string;
+  priority: DealPriority | null;
+  nextFollowUpDate: string | null;
+  competitor: string;
+  lossReason: string;
   notes: string;
 }
 
@@ -206,6 +217,11 @@ export function emptyDealDraft(overrides: Partial<DealDraft> = {}): DealDraft {
     value: '',
     expectedCloseDate: null,
     ownerId: null,
+    leadSource: '',
+    priority: null,
+    nextFollowUpDate: null,
+    competitor: '',
+    lossReason: '',
     notes: '',
     ...overrides,
   };
@@ -222,6 +238,11 @@ export function dealToDraft(deal: Deal): DealDraft {
     value: deal.value ?? '',
     expectedCloseDate: deal.expectedCloseDate,
     ownerId: deal.ownerId,
+    leadSource: deal.leadSource ?? '',
+    priority: deal.priority,
+    nextFollowUpDate: deal.nextFollowUpDate,
+    competitor: deal.competitor ?? '',
+    lossReason: deal.lossReason ?? '',
     notes: deal.notes ?? '',
   };
 }

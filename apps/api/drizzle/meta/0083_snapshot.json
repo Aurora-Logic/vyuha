@@ -1,6 +1,6 @@
 {
-  "id": "c9c68bd4-e679-47d6-b3c9-a922ea535f75",
-  "prevId": "5de5603c-2ea4-48f3-9242-24ec492ab5b6",
+  "id": "cf7174f0-65cb-4dda-a3ac-e610159165bb",
+  "prevId": "c9c68bd4-e679-47d6-b3c9-a922ea535f75",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7849,8 +7849,32 @@
           "primaryKey": false,
           "notNull": false
         },
+        "gst_registration_type": {
+          "name": "gst_registration_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "address": {
           "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "country": {
+          "name": "country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pincode": {
+          "name": "pincode",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -7863,6 +7887,12 @@
         },
         "phone": {
           "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_person": {
+          "name": "contact_person",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -7882,6 +7912,18 @@
         "opening_balance": {
           "name": "opening_balance",
           "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closing_balance": {
+          "name": "closing_balance",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bill_wise_tracking": {
+          "name": "bill_wise_tracking",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": false
         },
@@ -8418,6 +8460,42 @@
           "type": "numeric",
           "primaryKey": false,
           "notNull": true
+        },
+        "settlement_type": {
+          "name": "settlement_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_mode": {
+          "name": "settlement_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "instrument_number": {
+          "name": "instrument_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "instrument_date": {
+          "name": "instrument_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bank_name": {
+          "name": "bank_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_favouring": {
+          "name": "payment_favouring",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -8592,6 +8670,126 @@
           "type": "numeric",
           "primaryKey": false,
           "notNull": true
+        },
+        "reference": {
+          "name": "reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_date": {
+          "name": "reference_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "order_ref": {
+          "name": "order_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_order_number": {
+          "name": "buyer_order_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_order_date": {
+          "name": "buyer_order_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_terms": {
+          "name": "payment_terms",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_terms": {
+          "name": "delivery_terms",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatched_through": {
+          "name": "dispatched_through",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatch_doc_no": {
+          "name": "dispatch_doc_no",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vehicle_number": {
+          "name": "vehicle_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination": {
+          "name": "destination",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_name": {
+          "name": "buyer_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_address": {
+          "name": "buyer_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "party_gstin": {
+          "name": "party_gstin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "party_state": {
+          "name": "party_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "place_of_supply": {
+          "name": "place_of_supply",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consignee_name": {
+          "name": "consignee_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consignee_state": {
+          "name": "consignee_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consignee_pincode": {
+          "name": "consignee_pincode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consignee_gstin": {
+          "name": "consignee_gstin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "last_pulled_at": {
           "name": "last_pulled_at",
@@ -17587,6 +17785,37 @@
           "primaryKey": false,
           "notNull": false
         },
+        "lead_source": {
+          "name": "lead_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "crm_deal_priority",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_follow_up_date": {
+          "name": "next_follow_up_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor": {
+          "name": "competitor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loss_reason": {
+          "name": "loss_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "notes": {
           "name": "notes",
           "type": "text",
@@ -23421,6 +23650,16 @@
       "values": [
         "EMPLOYEE",
         "SYSTEM"
+      ]
+    },
+    "public.crm_deal_priority": {
+      "name": "crm_deal_priority",
+      "schema": "public",
+      "values": [
+        "low",
+        "normal",
+        "high",
+        "urgent"
       ]
     },
     "public.purchase_order_status": {

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, organizations, parties } from '../../../platform/db/schema/index.js';
@@ -15,6 +15,9 @@ import { employees, organizations, parties } from '../../../platform/db/schema/i
  * second scoping mechanism keyed on user ids. Nullable: an Admin account with
  * no employee record may still create a company nobody yet owns.
  */
+
+/** Owner, 31 Aug 2026: how hard this one is being chased. */
+export const dealPriorityEnum = pgEnum('crm_deal_priority', ['low', 'normal', 'high', 'urgent']);
 
 export const crmCompanies = pgTable(
   'crm_companies',
@@ -152,6 +155,18 @@ export const crmDeals = pgTable(
     expectedCloseDate: date('expected_close_date', { mode: 'string' }),
     ownerId: uuid('owner_id').references(() => employees.id, { onDelete: 'restrict' }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    /**
+     * Owner, 31 Aug 2026: the five things a pipeline review asks that this
+     * sheet could not answer. Free text where the answer is a name the trade
+     * uses (a competitor, a source), a short enum where it is one of a fixed
+     * set, a date where it is a date. Loss reason is written when a deal is
+     * lost and kept afterwards -- the pattern of losses is the point.
+     */
+    leadSource: text('lead_source'),
+    priority: dealPriorityEnum('priority'),
+    nextFollowUpDate: date('next_follow_up_date', { mode: 'string' }),
+    competitor: text('competitor'),
+    lossReason: text('loss_reason'),
     notes: text('notes'),
     ...standardColumns(),
   },

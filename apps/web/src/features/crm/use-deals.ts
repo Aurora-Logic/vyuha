@@ -146,6 +146,11 @@ export function useSaveDeal(): UseMutationResult<Deal, Error, DealDraft> {
         value: blank(draft.value.replace(/,/gu, '')),
         expectedCloseDate: draft.expectedCloseDate,
         ownerId: draft.ownerId,
+        leadSource: blank(draft.leadSource),
+        priority: draft.priority,
+        nextFollowUpDate: draft.nextFollowUpDate,
+        competitor: blank(draft.competitor),
+        lossReason: blank(draft.lossReason),
         notes: blank(draft.notes),
       };
       const body: CreateDealInput | UpdateDealInput =

@@ -290,6 +290,11 @@ export class DealService {
       expectedCloseDate: input.expectedCloseDate ?? null,
       ownerId,
       closedAt: stage.isWon || stage.isLost ? new Date() : null,
+      leadSource: input.leadSource ?? null,
+      priority: input.priority ?? null,
+      nextFollowUpDate: input.nextFollowUpDate ?? null,
+      competitor: input.competitor ?? null,
+      lossReason: input.lossReason ?? null,
       notes: input.notes ?? null,
     });
     const deal = await repository.view(SQL_TRUE, created.id);
@@ -312,6 +317,11 @@ export class DealService {
     if (input.name !== undefined) patch.name = input.name;
     if (input.value !== undefined) patch.value = input.value;
     if (input.expectedCloseDate !== undefined) patch.expectedCloseDate = input.expectedCloseDate;
+    if (input.leadSource !== undefined) patch.leadSource = input.leadSource;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.nextFollowUpDate !== undefined) patch.nextFollowUpDate = input.nextFollowUpDate;
+    if (input.competitor !== undefined) patch.competitor = input.competitor;
+    if (input.lossReason !== undefined) patch.lossReason = input.lossReason;
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.companyId !== undefined || input.contactId !== undefined) {
       const companyId = input.companyId === undefined ? existing.companyId : input.companyId;

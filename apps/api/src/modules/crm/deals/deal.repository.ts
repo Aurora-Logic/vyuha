@@ -2,6 +2,7 @@ import {
   DEAL_BOARD_LANE_CAP,
   DEFAULT_PIPELINE,
   type DealFilter,
+  type DealPriority,
   type DealView,
   type PipelineStageView,
   type PipelineView,
@@ -62,6 +63,11 @@ export class DealRepository extends ScopedRepository<typeof crmDeals> {
         ownerName: ownerName(dealOwner),
         status: STATUS,
         closedAt: crmDeals.closedAt,
+        leadSource: crmDeals.leadSource,
+        priority: crmDeals.priority,
+        nextFollowUpDate: crmDeals.nextFollowUpDate,
+        competitor: crmDeals.competitor,
+        lossReason: crmDeals.lossReason,
         notes: crmDeals.notes,
         createdAt: crmDeals.createdAt,
         updatedAt: crmDeals.updatedAt,
@@ -395,6 +401,11 @@ interface DealRow {
   ownerName: string | null;
   status: 'open' | 'won' | 'lost';
   closedAt: Date | null;
+  leadSource: string | null;
+  priority: DealPriority | null;
+  nextFollowUpDate: string | null;
+  competitor: string | null;
+  lossReason: string | null;
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -420,6 +431,11 @@ function toDealView(row: DealRow): DealView {
     ownerName: row.ownerName,
     status: row.status,
     closedAt: row.closedAt === null ? null : row.closedAt.toISOString(),
+    leadSource: row.leadSource,
+    priority: row.priority,
+    nextFollowUpDate: row.nextFollowUpDate,
+    competitor: row.competitor,
+    lossReason: row.lossReason,
     notes: row.notes,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
