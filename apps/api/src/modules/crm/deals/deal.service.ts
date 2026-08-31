@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  type DealAttachmentView,
   DATA_SCOPES,
   DEAL_SORT_FIELDS,
   DEFAULT_DEAL_SORT,
@@ -25,6 +26,8 @@ import {
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
+import { FileService } from '../../../platform/files/file.service.js';
+import { isAcceptedUpload, sniffType } from '../../../platform/files/magic-bytes.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { employees } from '../../../platform/db/schema/index.js';
@@ -57,6 +60,7 @@ export class DealService {
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
     private readonly crm: CrmService,
+    private readonly files: FileService,
   ) {}
 
   // -------------------------------------------------------------- pipelines
@@ -428,6 +432,81 @@ export class DealService {
   private pipelines(principal: Principal): PipelineRepository {
     return new PipelineRepository(this.db, orgContextOf(principal));
   }
+
+  // ------------------------------------------------------------ attachments
+
+  /**
+   * REQ-U-05 (owner, 31 Aug 2026): a quote, a drawing, a site photograph.
+   *
+   * `find` first, so the deal's own scope decides whether this person may
+   * touch it at all -- an attachment is not a back door into a deal they
+   * cannot see. Images travel the punch pipeline (re-encoded, EXIF gone);
+   * everything else is sniffed by content, never by the name it arrived
+   * under.
+   */
+  async addAttachment(principal: Principal, dealId: string, file: { bytes: Buffer; filename: string }): Promise<DealAttachmentView> {
+    const deal = await this.findDeal(principal, dealId);
+    const isImage = isAcceptedUpload(sniffType(file.bytes));
+    const stored = isImage
+      ? await this.files.storeImage({ orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, pathSegments: [deal.id] })
+      : await this.files.storeUpload({ orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, filename: file.filename, pathSegments: [deal.id] });
+
+    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
+      INSERT INTO crm_deal_attachments (org_id, deal_id, file_id, filename, created_by, updated_by)
+      VALUES (${principal.orgId}, ${deal.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+      RETURNING id, created_at AS "createdAt"
+    `);
+    const row = inserted.rows[0];
+    if (row === undefined) throw new Error('Attachment insert returned no row.');
+    this.auditContext.record({
+      action: 'crm.deal.attachment_added',
+      entityType: 'crm_deal',
+      entityId: deal.id,
+      after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
+    });
+    return { id: row.id, fileId: stored.id, filename: file.filename, mime: stored.mime, bytes: stored.bytes, uploadedAt: new Date(row.createdAt).toISOString() };
+  }
+
+  async listAttachments(principal: Principal, dealId: string): Promise<DealAttachmentView[]> {
+    const deal = await this.findDeal(principal, dealId);
+    const rows = await this.db.execute<{ id: string; fileId: string; filename: string; mime: string; bytes: number; uploadedAt: string | Date }>(sql`
+      SELECT a.id, a.file_id AS "fileId", a.filename, f.mime, f.bytes, a.created_at AS "uploadedAt"
+      FROM crm_deal_attachments a JOIN files f ON f.id = a.file_id
+      WHERE a.org_id = ${principal.orgId} AND a.deal_id = ${deal.id} AND a.deleted_at IS NULL
+      ORDER BY a.created_at DESC
+    `);
+    return rows.rows.map((row) => ({ ...row, uploadedAt: new Date(row.uploadedAt).toISOString() }));
+  }
+
+  /** A short-lived link, minted through the files policy (CRM_ATTACHMENT). */
+  async attachmentUrl(principal: Principal, dealId: string, attachmentId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const attachments = await this.listAttachments(principal, dealId);
+    const found = attachments.find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    return this.files.signedUrlFor(principal, found.fileId);
+  }
+
+  /**
+   * Soft delete, like every other record here. The file row is left alone:
+   * `files` is what the retention job sweeps, and unpicking storage from
+   * under a row somebody may still be reading is not this method's business.
+   */
+  async removeAttachment(principal: Principal, dealId: string, attachmentId: string): Promise<void> {
+    const attachments = await this.listAttachments(principal, dealId);
+    const found = attachments.find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    await this.db.execute(sql`
+      UPDATE crm_deal_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
+      WHERE org_id = ${principal.orgId} AND id = ${attachmentId}
+    `);
+    this.auditContext.record({
+      action: 'crm.deal.attachment_removed',
+      entityType: 'crm_deal',
+      entityId: dealId,
+      before: { filename: found.filename },
+    });
+  }
+
 }
 
 function dealAuditView(deal: DealView): Record<string, unknown> {
@@ -444,4 +523,5 @@ function dealAuditView(deal: DealView): Record<string, unknown> {
     status: deal.status,
     notes: deal.notes,
   };
+
 }

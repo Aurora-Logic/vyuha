@@ -589,6 +589,13 @@
       "when": 1788157545740,
       "tag": "0083_crm_deal_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1788158646945,
+      "tag": "0084_crm_deal_attachments",
+      "breakpoints": true
     }
   ]
 }

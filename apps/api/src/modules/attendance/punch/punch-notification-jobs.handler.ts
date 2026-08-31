@@ -292,3 +292,77 @@ export class MissingOutSweepHandler implements JobHandler<'sweep-missing-out'>, 
     return { scanned, recomputed, notified };
   }
 }
+
+/**
+ * Mark absent: the day after, the employees who never punched.
+ *
+ * The closeout above only touches days that already carry an IN. An employee
+ * who did not punch in or out has no attendance day at all, so nothing has ever
+ * called them absent -- the muster simply has a gap where they should be. This
+ * runs the same engine over each such employee for the closed day; the engine
+ * resolves their shift and, finding no punch and no leave, holiday or weekly
+ * off, writes ABSENT (REQ-E-02's last arm). A non-rostered account resolves to
+ * no shift and the engine throws, which here is simply nobody who was expected.
+ *
+ * Idempotent by construction: once a day is written the candidate query no
+ * longer returns that employee, so a second run the same night does nothing.
+ */
+@Injectable()
+export class MarkAbsentSweepHandler implements JobHandler<'mark-absent'>, OnModuleInit {
+  readonly jobName = 'mark-absent' as const;
+  private readonly logger = new Logger(MarkAbsentSweepHandler.name);
+
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly engine: DayEngineService,
+    private readonly registry: JobRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+
+  async run(payload: JobPayloads['mark-absent'], _context: JobContext): Promise<JobResult> {
+    const now = new Date();
+    let scanned = 0;
+    let written = 0;
+    let absent = 0;
+
+    for (const org of await PunchNotificationRepository.listOrganisations(this.db)) {
+      // Yesterday in the organisation's own zone, exactly as the closeout does.
+      const date = payload.date ?? addDays(localDateIn(now, org.timezone), -1);
+
+      const repository = new PunchNotificationRepository(this.db, org.id);
+      const candidates = await repository.absentCandidates(date);
+      if (candidates.length === 0) continue;
+
+      const engine = this.engine.forOrg({ orgId: org.id, actorUserId: null });
+
+      for (const candidate of candidates) {
+        scanned += 1;
+        try {
+          const outcome = await engine.computeDay(candidate.employeeId, date, { now });
+          if (outcome.outcome === 'written') {
+            written += 1;
+            if (outcome.day.status === 'ABSENT') absent += 1;
+          }
+        } catch (error: unknown) {
+          // No roster and no default shift: nobody who was expected to work, so
+          // there is nothing to mark. Logged at debug because it is the normal
+          // shape of an account without a shift, not a failure of the sweep.
+          this.logger.debug({
+            msg: 'Skipped an employee with no resolvable shift in the mark-absent sweep.',
+            employeeId: candidate.employeeId,
+            orgId: org.id,
+            date,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+      }
+    }
+
+    this.logger.log({ msg: 'Mark-absent sweep complete', scanned, written, absent });
+    return { scanned, written, absent };
+  }
+}

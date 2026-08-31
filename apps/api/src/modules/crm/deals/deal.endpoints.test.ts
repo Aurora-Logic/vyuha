@@ -341,3 +341,65 @@ describe('the pipeline-review fields (owner, 31 Aug 2026)', () => {
     expect(longSource.status).toBe(400);
   });
 });
+
+describe('deal attachments (REQ-U-05, owner 31 Aug 2026)', () => {
+  const upload = async (dealId: string, token: string, bytes: Buffer, filename: string, type: string) => {
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(bytes)], { type }), filename);
+    const response = await fetch(`${harness.baseUrl}/crm/deals/${dealId}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const text = await response.text();
+    return { status: response.status, body: text === '' ? null : (JSON.parse(text) as Record<string, unknown>) };
+  };
+
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.7', 'latin1'), Buffer.alloc(2048, 0x20)]);
+
+  it('takes a PDF, lists it, mints a link for it and lets it be removed', async () => {
+    const deal = await harness.post<DealView>('/crm/deals', { token: salesToken, body: { name: 'Attachment probe' } });
+    const added = await upload(deal.body.id, salesToken, pdf, 'quotation.pdf', 'application/pdf');
+    expect(added.status, JSON.stringify(added.body)).toBe(201);
+    expect(added.body?.filename).toBe('quotation.pdf');
+    expect(added.body?.mime).toBe('application/pdf');
+    expect(await harness.waitForAuditAction('crm.deal.attachment_added')).toBe(true);
+
+    const listed = await harness.get<{ id: string; filename: string }[]>(`/crm/deals/${deal.body.id}/attachments`, { token: salesToken });
+    expect(listed.body.map((a) => a.filename)).toEqual(['quotation.pdf']);
+
+    const url = await harness.get<{ url: string; expiresInSeconds: number }>(
+      `/crm/deals/${deal.body.id}/attachments/${listed.body[0]?.id ?? ''}/url`,
+      { token: salesToken },
+    );
+    expect(url.status).toBe(200);
+    expect(url.body.url).toContain('http');
+    expect(url.body.expiresInSeconds).toBeGreaterThan(0);
+
+    const removed = await harness.del(`/crm/deals/${deal.body.id}/attachments/${listed.body[0]?.id ?? ''}`, { token: salesToken });
+    expect(removed.status).toBe(204);
+    const after = await harness.get<unknown[]>(`/crm/deals/${deal.body.id}/attachments`, { token: salesToken });
+    expect(after.body).toEqual([]);
+  });
+
+  it('refuses what only claims to be a document, by its bytes', async () => {
+    const deal = await harness.post<DealView>('/crm/deals', { token: salesToken, body: { name: 'Hostile upload probe' } });
+    // An executable wearing a PDF name and a PDF content-type.
+    const disguised = Buffer.concat([Buffer.from('MZ', 'latin1'), Buffer.alloc(2048, 0x41)]);
+    const refused = await upload(deal.body.id, salesToken, disguised, 'invoice.pdf', 'application/pdf');
+    expect(refused.status).toBe(400);
+    // And an empty file.
+    const empty = await upload(deal.body.id, salesToken, Buffer.alloc(0), 'nothing.pdf', 'application/pdf');
+    expect(empty.status).toBe(400);
+    const listed = await harness.get<unknown[]>(`/crm/deals/${deal.body.id}/attachments`, { token: salesToken });
+    expect(listed.body, 'nothing was stored').toEqual([]);
+  });
+
+  it('will not attach to a deal the caller cannot see', async () => {
+    // The sales user holds view.self only, so an admin-created deal is
+    // outside their scope -- and an attachment must not be a way in.
+    const mine = await harness.post<DealView>('/crm/deals', { token: adminToken, body: { name: 'Someone else deal' } });
+    const refused = await upload(mine.body.id, salesToken, pdf, 'quote.pdf', 'application/pdf');
+    expect([403, 404]).toContain(refused.status);
+  });
+});

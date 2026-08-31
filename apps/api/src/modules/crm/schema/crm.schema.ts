@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { boolean, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
-import { employees, organizations, parties } from '../../../platform/db/schema/index.js';
+import { employees, files, organizations, parties } from '../../../platform/db/schema/index.js';
 
 /**
  * CRM tables (09 §4.4). Vyuha's own records: nothing here is written by the
@@ -177,4 +177,33 @@ export const crmDeals = pgTable(
     index('crm_deals_org_contact_idx').on(t.orgId, t.contactId).where(ALIVE),
     index('crm_deals_org_name_idx').on(t.orgId, t.name).where(ALIVE),
   ],
+);
+
+/**
+ * REQ-U-05 (owner, 31 Aug 2026): what is attached to a deal -- a quote, a
+ * drawing, a photograph of a site. The bytes live in object storage like
+ * every other file; this table is only the link, plus the name the person
+ * uploaded it under, because a storage key is not a thing to show anybody.
+ *
+ * `restrict` on the file so a row can never point at nothing, `cascade` on
+ * the deal because an attachment has no life without it.
+ */
+export const crmDealAttachments = pgTable(
+  'crm_deal_attachments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => crmDeals.id, { onDelete: 'cascade' }),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'restrict' }),
+    /** As the browser gave it, shown in the list and used for the download. */
+    filename: text('filename').notNull(),
+    ...standardColumns(),
+  },
+  (t) => [index('crm_deal_attachments_deal_idx').on(t.dealId).where(ALIVE)],
 );

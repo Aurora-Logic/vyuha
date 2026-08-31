@@ -1,3 +1,4 @@
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   Body,
   Controller,
@@ -11,8 +12,11 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
+  type DealAttachmentView,
   PERMISSIONS,
   createDealSchema,
   createPipelineSchema,
@@ -32,8 +36,12 @@ import {
 
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
+import { AppError } from '../../../platform/common/errors.js';
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { DealService } from './deal.service.js';
+
+/** 3 MB, the platform's upload ceiling; the service refuses anything larger too. */
+const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
 class DealListQueryDto extends createZodDto(dealListQuerySchema) {}
 class DealBoardQueryDto extends createZodDto(dealBoardQuerySchema) {}
@@ -165,4 +173,53 @@ export class DealController {
   remove(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.deals.deleteDeal(principal, id);
   }
+
+  // ------------------------------------------------------------ attachments
+
+  /**
+   * REQ-U-05 (owner, 31 Aug 2026). Attaching is a change to the deal, so it
+   * takes `crm.deal.manage`; reading one takes what reading the deal takes.
+   * The bytes are sniffed in the service -- a name is never the evidence.
+   */
+  @Post(':id/attachments')
+  @RequirePermission(PERMISSIONS.CRM_DEAL_MANAGE)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1, fields: 2 } }))
+  addAttachment(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: { buffer?: Buffer; originalname?: string } | undefined,
+  ): Promise<DealAttachmentView> {
+    if (file?.buffer === undefined) throw AppError.validation('No file was uploaded.');
+    return this.deals.addAttachment(principal, id, { bytes: file.buffer, filename: file.originalname ?? 'attachment' });
+  }
+
+  @Get(':id/attachments')
+  @RequirePermission(...DEAL_VIEW_KEYS)
+  listAttachments(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<DealAttachmentView[]> {
+    return this.deals.listAttachments(principal, id);
+  }
+
+  /** A short-lived link rather than the bytes: the same rule every file here follows. */
+  @Get(':id/attachments/:attachmentId/url')
+  @RequirePermission(...DEAL_VIEW_KEYS)
+  attachmentUrl(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    return this.deals.attachmentUrl(principal, id, attachmentId);
+  }
+
+  @Delete(':id/attachments/:attachmentId')
+  @RequirePermission(PERMISSIONS.CRM_DEAL_MANAGE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeAttachment(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+  ): Promise<void> {
+    await this.deals.removeAttachment(principal, id, attachmentId);
+  }
+
 }

@@ -12,6 +12,7 @@ export const filePurposeEnum = pgEnum('file_purpose', [
   'ORG_LOGO',
   'IMPORT',
   'DISPATCH_PHOTO',
+  'CRM_ATTACHMENT',
 ]);
 
 /**

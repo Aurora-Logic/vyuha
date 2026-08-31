@@ -14,8 +14,9 @@ import { JobRegistry } from '../../../platform/jobs/job-handler.js';
 import { JobRunner } from '../../../platform/jobs/job-runner.service.js';
 import { SCHEDULED_JOBS, QUEUES } from '../../../platform/jobs/queue.registry.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
-import { punches, shifts } from '../schema/index.js';
+import { attendanceDays, punches, shifts } from '../schema/index.js';
 import {
+  MarkAbsentSweepHandler,
   MissingOutSweepHandler,
   PunchReminderHandler,
 } from './punch-notification-jobs.handler.js';
@@ -44,6 +45,7 @@ let harness: ApiHarness;
 let runner: JobRunner;
 let reminders: PunchReminderHandler;
 let sweep: MissingOutSweepHandler;
+let absentSweep: MarkAbsentSweepHandler;
 let engine: DayEngineService;
 
 let reminderEmployeeId: string;
@@ -109,6 +111,7 @@ beforeAll(async () => {
   runner = harness.resolve(JobRunner);
   reminders = harness.resolve(PunchReminderHandler);
   sweep = harness.resolve(MissingOutSweepHandler);
+  absentSweep = harness.resolve(MarkAbsentSweepHandler);
   engine = harness.resolve(DayEngineService);
   runner.startWorkers();
 
@@ -205,12 +208,57 @@ describe('the schedulers are registered (technical design §11)', () => {
     const registry = harness.resolve(JobRegistry);
     expect(registry.registeredJobNames()).toContain('send-punch-reminders');
     expect(registry.registeredJobNames()).toContain('sweep-missing-out');
+    expect(registry.registeredJobNames()).toContain('mark-absent');
     expect(registry.get('send-punch-reminders')).toBeInstanceOf(PunchReminderHandler);
     expect(registry.get('sweep-missing-out')).toBeInstanceOf(MissingOutSweepHandler);
+    expect(registry.get('mark-absent')).toBeInstanceOf(MarkAbsentSweepHandler);
 
     const scheduled = SCHEDULED_JOBS.map((job) => job.jobName);
     expect(scheduled).toContain('send-punch-reminders');
     expect(scheduled).toContain('sweep-missing-out');
+    expect(scheduled).toContain('mark-absent');
+  });
+});
+
+describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
+  it('writes an ABSENT day for an employee who never punched', async () => {
+    // A Monday, safely in the past; the worker carries the 09:00-18:00 default
+    // shift, so REQ-C-04 resolves one for the date and nothing else touched it.
+    const date = '2026-02-02';
+    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
+
+    const rows = await harness.db
+      .select({ status: attendanceDays.status })
+      .from(attendanceDays)
+      .where(
+        and(
+          eq(attendanceDays.orgId, ORG_ID),
+          eq(attendanceDays.employeeId, workerEmployeeId),
+          eq(attendanceDays.date, date),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe('ABSENT');
+  });
+
+  it('leaves a day that already exists alone (idempotent)', async () => {
+    const date = '2026-02-03';
+    // First run writes the ABSENT day; the candidate query then no longer
+    // returns the employee, so a second run finds nothing new to write.
+    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
+    const before = await harness.db
+      .select({ id: attendanceDays.id, updatedAt: attendanceDays.updatedAt })
+      .from(attendanceDays)
+      .where(and(eq(attendanceDays.orgId, ORG_ID), eq(attendanceDays.employeeId, workerEmployeeId), eq(attendanceDays.date, date)));
+    expect(before).toHaveLength(1);
+
+    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
+    const after = await harness.db
+      .select({ id: attendanceDays.id, updatedAt: attendanceDays.updatedAt })
+      .from(attendanceDays)
+      .where(and(eq(attendanceDays.orgId, ORG_ID), eq(attendanceDays.employeeId, workerEmployeeId), eq(attendanceDays.date, date)));
+    expect(after).toHaveLength(1);
+    expect(after[0]?.id).toBe(before[0]?.id);
   });
 });
 

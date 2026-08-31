@@ -303,6 +303,16 @@ export type DealListQuery = z.infer<typeof dealListQuerySchema>;
 export const dealBoardQuerySchema = dealFilterSchema;
 export type DealBoardQuery = z.infer<typeof dealBoardQuerySchema>;
 
+/** REQ-U-05: a file attached to a deal, as the sheet lists it. */
+export interface DealAttachmentView {
+  readonly id: string;
+  readonly fileId: string;
+  readonly filename: string;
+  readonly mime: string;
+  readonly bytes: number;
+  readonly uploadedAt: string;
+}
+
 export interface DealBoardLane {
   readonly stage: PipelineStageView;
   readonly deals: readonly DealView[];

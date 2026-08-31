@@ -129,6 +129,13 @@ export const FILE_PURPOSES = [
   'IMPORT',
   /** REQ-AA-20: a dispatch's box and LR photographs, through the same pipeline. */
   'DISPATCH_PHOTO',
+  /**
+   * REQ-U-05 (owner, 31 Aug 2026): a quote, drawing or site photograph
+   * attached to a deal. Its own purpose rather than ATTACHMENT, because
+   * that one is read with attendance and leave keys and a deal is read
+   * with CRM keys.
+   */
+  'CRM_ATTACHMENT',
 ] as const;
 export type FilePurpose = (typeof FILE_PURPOSES)[number];
 

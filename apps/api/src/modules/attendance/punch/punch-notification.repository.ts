@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import { employees, organizations, users } from '../../../platform/db/schema/index.js';
@@ -30,6 +30,11 @@ export interface MissingOutCandidate {
   readonly employeeName: string;
   /** REQ-E-07 notifies the manager too. Null when nobody is above them. */
   readonly managerEmployeeId: string | null;
+}
+
+/** An active employee with no attendance day at all for the swept date. */
+export interface AbsentCandidate {
+  readonly employeeId: string;
 }
 
 export class PunchNotificationRepository {
@@ -125,5 +130,42 @@ export class PunchNotificationRepository {
           : `${row.firstName} ${row.lastName}`,
       managerEmployeeId: row.managerEmployeeId,
     }));
+  }
+
+  /**
+   * Active employees with no attendance day for the date -- nobody wrote one,
+   * which means no punch, no leave, no override touched it. The engine decides
+   * what that day is (ABSENT for an expected working day, or the rest-day
+   * status); this only finds who to ask about. A non-rostered account resolves
+   * to no shift and the engine skips it, so it costs one compute and no row.
+   */
+  async absentCandidates(date: string): Promise<AbsentCandidate[]> {
+    const rows = await this.db
+      .select({ employeeId: employees.id })
+      .from(employees)
+      .where(
+        and(
+          eq(employees.orgId, this.orgId),
+          // REQ-A-05: on their last day they still work; already gone, they do not.
+          eq(employees.status, 'ACTIVE'),
+          isNull(employees.deletedAt),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(attendanceDays)
+              .where(
+                and(
+                  eq(attendanceDays.orgId, this.orgId),
+                  eq(attendanceDays.employeeId, employees.id),
+                  eq(attendanceDays.date, date),
+                  isNull(attendanceDays.deletedAt),
+                ),
+              ),
+          ),
+        ),
+      )
+      .orderBy(asc(employees.id));
+
+    return rows;
   }
 }

@@ -27,6 +27,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { DEAL_PRIORITIES, PERMISSIONS, type DealPriority } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
+import { DealAttachments } from './deal-attachments';
 import { DealDocuments } from './deal-documents';
 import { DeleteDealDialog } from './delete-dialogs';
 import type { Deal, DealDraft } from './types';
@@ -491,6 +492,11 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
             />
           </Field>
         </FieldGroup>
+        {record === null ? null : (
+          <div className="mt-6 border-t pt-4">
+            <DealAttachments dealId={record.id} />
+          </div>
+        )}
         {record === null ? null : (
           <div className="mt-6 border-t pt-4">
             <DealDocuments deal={record} />

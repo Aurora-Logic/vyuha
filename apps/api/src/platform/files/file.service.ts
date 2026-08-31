@@ -16,6 +16,7 @@ import { orgContextOf } from '../rbac/principal.js';
 import { BUCKETS, ObjectStore, type BucketName } from '../storage/object-store.js';
 import { mayReadFile, requiredPermissionsFor } from './file-access.policy.js';
 import { sanitizeImage } from './image-sanitizer.js';
+import { sniffDocument } from './magic-bytes.js';
 
 /**
  * Technical design §7 and NFR-09. Everything that puts bytes into object
@@ -56,6 +57,8 @@ const MAX_EDGE_BY_PURPOSE: Record<FilePurpose, number> = {
   IMPORT: 1280,
   // An LR photograph must stay legible: the widest edge a phone camera gives is kept.
   DISPATCH_PHOTO: 1600,
+  // A drawing or a site photograph on a deal: legible when opened full size.
+  CRM_ATTACHMENT: 1600,
 };
 
 const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
@@ -66,6 +69,7 @@ const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
   EXPORT: BUCKETS.EXPORTS,
   IMPORT: BUCKETS.EXPORTS,
   DISPATCH_PHOTO: BUCKETS.PHOTOS,
+  CRM_ATTACHMENT: BUCKETS.PHOTOS,
 };
 
 /** The leading path segment, so a bucket listing is readable by a human. */
@@ -77,6 +81,7 @@ const PREFIX_BY_PURPOSE: Record<FilePurpose, string> = {
   EXPORT: 'exports',
   IMPORT: 'imports',
   DISPATCH_PHOTO: 'dispatches',
+  CRM_ATTACHMENT: 'crm',
 };
 
 export interface StoreImageInput {
@@ -111,6 +116,16 @@ export interface StoreImageInput {
  * purpose is narrowed to the two server-authored kinds so no upload path can
  * reach this method and skip the sanitiser by naming a different purpose.
  */
+export interface StoreUploadInput {
+  readonly orgId: string;
+  readonly uploadedBy: string;
+  readonly purpose: Extract<FilePurpose, 'CRM_ATTACHMENT'>;
+  readonly bytes: Buffer;
+  /** The browser's filename: evidence for which Office type, never for whether. */
+  readonly filename: string;
+  readonly pathSegments?: readonly string[];
+}
+
 export interface StoreDocumentInput {
   readonly orgId: string;
   /** The user the file was produced for; null for a system-wide artefact. */
@@ -271,6 +286,77 @@ export class FileService {
   }
 
   /**
+   * A document a person uploaded (REQ-U-05, owner 31 Aug 2026).
+   *
+   * Deliberately not `storeDocument`, which fixes the type from the caller
+   * because there the caller is this process. Here the bytes came off the
+   * wire, so they are sniffed: a PDF by its header, an Office file by the
+   * OOXML marker inside the ZIP. Anything else is refused by content, and
+   * the browser's filename only ever decides which Office type it is, never
+   * whether the thing is acceptable. Images do not come here -- they go
+   * through `storeImage`, which re-encodes them.
+   */
+  async storeUpload(input: StoreUploadInput): Promise<StoredFile> {
+    if (input.bytes.length === 0) {
+      throw AppError.validation('No file was uploaded.');
+    }
+    if (input.bytes.length > MAX_UPLOAD_BYTES) {
+      throw AppError.validation(
+        `That file is larger than ${String(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`,
+        { fields: [{ path: 'file', message: 'too large' }] },
+      );
+    }
+    const document = sniffDocument(input.bytes, input.filename);
+    if (document === null) {
+      throw AppError.validation('That file is not a PDF, an Office document or an image this product stores.');
+    }
+
+    const fileId = uuidv7();
+    const digest = createHash('sha256').update(input.bytes).digest();
+    const storageKey = this.buildKey(
+      { orgId: input.orgId, purpose: input.purpose, pathSegments: input.pathSegments },
+      fileId,
+      document.extension,
+    );
+
+    await this.objects.put(
+      BUCKET_BY_PURPOSE[input.purpose],
+      storageKey,
+      input.bytes,
+      document.mime,
+      digest.toString('base64'),
+    );
+
+    const inserted = await this.db
+      .insert(files)
+      .values({
+        id: fileId,
+        orgId: input.orgId,
+        storageKey,
+        mime: document.mime,
+        bytes: input.bytes.length,
+        checksum: digest.toString('hex'),
+        purpose: input.purpose,
+        uploadedBy: input.uploadedBy,
+        createdBy: input.uploadedBy,
+        updatedBy: input.uploadedBy,
+      })
+      .returning({ id: files.id });
+    if (inserted[0] === undefined) {
+      throw new Error(`File row insert returned nothing for object ${storageKey}.`);
+    }
+
+    return {
+      id: fileId,
+      storageKey,
+      mime: document.mime,
+      bytes: input.bytes.length,
+      checksum: digest.toString('hex'),
+      purpose: input.purpose,
+    };
+  }
+
+  /**
    * Stores bytes this server produced, unaltered.
    *
    * The three invariants at the top of this file still hold, with one
@@ -345,7 +431,7 @@ export class FileService {
   }
 
   private buildKey(
-    input: Pick<StoreImageInput, 'orgId' | 'purpose' | 'pathSegments'>,
+    input: { orgId: string; purpose: FilePurpose; pathSegments?: readonly string[] },
     fileId: string,
     extension: string,
   ): string {
