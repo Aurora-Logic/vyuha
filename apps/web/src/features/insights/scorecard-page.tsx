@@ -22,7 +22,6 @@ import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format';
@@ -31,9 +30,10 @@ import { useMe } from '@/lib/session/use-session';
 
 import type { Metric } from './api';
 import { BridgeWaterfall, MovementMatrix } from './growth-charts';
+import { PeriodRangeField } from './period-field';
 import { STATES } from './movement-states';
 import { MetricChart } from './metric-card';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { deltaText, useScorecard, type MovementCell, type ScorecardData } from './use-cfo';
 
 /**
@@ -113,7 +113,7 @@ export function ScorecardPage() {
   const canTeam = usePermission(PERMISSIONS.CFO_TEAM_VIEW);
   const isSelf = me?.user.id !== undefined && ownerRef === `user:${me.user.id}`;
   const allowed = canView && (canTeam || isSelf);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const query = useScorecard(ownerRef, range, { enabled: allowed && ownerRef !== '' });
   const [openCell, setOpenCell] = useState<MovementCell | null>(null);
@@ -159,25 +159,7 @@ export function ScorecardPage() {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const p = new URLSearchParams(current);
-                  p.set('from', from);
-                  p.set('to', to);
-                  return p;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} vs the same days last year
           </span>

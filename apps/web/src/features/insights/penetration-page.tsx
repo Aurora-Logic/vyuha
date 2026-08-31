@@ -17,15 +17,15 @@ import { toast } from '@/components/ui/toast';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { MatrixGrid } from '@/components/shared/matrix-grid';
 import { PageHeader } from '@/components/shared/page-header';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { apiRequest } from '@/lib/api/client';
 import { formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { ExportButton } from './export-button';
+import { PeriodRangeField } from './period-field';
 import { usePenetration, type PenetrationData } from './use-cfo';
 
 /**
@@ -39,7 +39,7 @@ export function PenetrationPage() {
   const canView = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const canTask = usePermission(PERMISSIONS.CRM_TASK_MANAGE);
   const isMobile = useIsMobile();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const range = rangeFromParams(searchParams);
   const query = usePenetration(range, { enabled: canView });
@@ -96,25 +96,7 @@ export function PenetrationPage() {
           <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const p = new URLSearchParams(current);
-                  p.set('from', from);
-                  p.set('to', to);
-                  return p;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} · top {formatCount(data?.customers.length ?? 0)} customers
           </span>

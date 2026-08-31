@@ -18,14 +18,14 @@ import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import { ExportButton } from './export-button';
+import { PeriodRangeField } from './period-field';
 import { StepsWaterfall } from './growth-charts';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { useMargin, type MarginData } from './use-cfo';
 
 /**
@@ -56,7 +56,7 @@ const NEGATIVE_COLUMNS: RecordColumn<NegativeRow>[] = [
 
 export function MarginPage() {
   const canView = usePermission(PERMISSIONS.CFO_MARGIN_VIEW);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const query = useMargin(range, {}, { enabled: canView });
 
@@ -87,17 +87,7 @@ export function MarginPage() {
           <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={query.isFetching} onClick={() => void query.refetch()}>
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams((current) => { const p = new URLSearchParams(current); p.set('from', from); p.set('to', to); return p; }, { replace: true });
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">{formatDate(range.from)} → {formatDate(range.to)}</span>
           <span className="ml-auto"><ExportButton report="margin" range={range} /></span>
         </div>

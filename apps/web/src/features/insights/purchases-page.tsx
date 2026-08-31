@@ -15,13 +15,13 @@ import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import { ExportButton } from './export-button';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
+import { PeriodRangeField } from './period-field';
 import { deltaText, usePurchases, type PurchaseReadData } from './use-cfo';
 
 /**
@@ -51,7 +51,7 @@ const days = (value: number | null): string => (value === null ? EMPTY_VALUE : `
 export function PurchasesPage() {
   const canView = usePermission(PERMISSIONS.CFO_RECEIVABLES_VIEW);
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const query = usePurchases(range, { enabled: canView });
 
@@ -89,22 +89,7 @@ export function PurchasesPage() {
       />
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center gap-2">
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams((current) => {
-                const p = new URLSearchParams(current);
-                p.set('from', from);
-                p.set('to', to);
-                return p;
-              }, { replace: true });
-            }}
-          />
+          <PeriodRangeField range={range} />
         </div>
 
         {query.isPending ? <Skeleton className="h-64" /> : null}

@@ -16,15 +16,15 @@ import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import type { Metric } from './api';
 import { MetricChart } from './metric-card';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { ExportButton } from './export-button';
+import { PeriodRangeField } from './period-field';
 import { useCfoReceivables, type CreditOverviewData } from './use-cfo';
 
 /**
@@ -71,7 +71,7 @@ const OVERDUE_COLUMNS: RecordColumn<CreditOverviewData['topOverdue'][number]>[] 
 
 export function CreditControlPage() {
   const canView = usePermission(PERMISSIONS.CFO_RECEIVABLES_VIEW);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const query = useCfoReceivables(range, { enabled: canView });
 
@@ -110,25 +110,7 @@ export function CreditControlPage() {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const params = new URLSearchParams(current);
-                  params.set('from', from);
-                  params.set('to', to);
-                  return params;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           {data?.asOf ? (
             <span className="text-muted-foreground text-xs tabular-nums">Book as of {formatDate(data.asOf)}</span>
           ) : null}

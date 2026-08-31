@@ -18,7 +18,6 @@ import { DefinitionLink } from '@/components/shared/definition-panel';
 import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { apiRequest } from '@/lib/api/client';
 import { parseOrThrow } from '@/lib/api/parse';
@@ -26,9 +25,10 @@ import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format'
 import { usePermission } from '@/lib/session/permissions';
 
 import type { Metric } from './api';
+import { PeriodRangeField } from './period-field';
 import { deltaReadingSchema, deltaText } from './use-cfo';
 import { MetricChart } from './metric-card';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 
 /**
  * My CFO (brief G3): what each person sees about their own book -- the
@@ -98,7 +98,7 @@ function pacingMetric(data: MyCfoData): Metric {
 
 export function MyCfoPage() {
   const canView = usePermission(PERMISSIONS.CFO_SALES_VIEW);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const range = rangeFromParams(searchParams);
   const query = useMyCfo(range, canView);
@@ -153,25 +153,7 @@ export function MyCfoPage() {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const params = new URLSearchParams(current);
-                  params.set('from', from);
-                  params.set('to', to);
-                  return params;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)}
           </span>

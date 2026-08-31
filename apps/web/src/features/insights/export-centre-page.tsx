@@ -35,7 +35,6 @@ import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -43,7 +42,8 @@ import { usePermission } from '@/lib/session/permissions';
 import { downloadDocumentFile } from '@/features/documents/download';
 
 import { ExportButton } from './export-button';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
+import { PeriodRangeField } from './period-field';
 import { useCustomReports } from './api';
 import { deleteSchedule, saveSchedule, useExportCatalogue, useSchedules, type ScheduleRowData } from './use-cfo';
 
@@ -61,7 +61,7 @@ type ScheduleDraft = { id?: string; report: string; cadence: string; recipients:
 export function ExportCentrePage() {
   const canView = usePermission(PERMISSIONS.CFO_EXPORT);
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const catalogue = useExportCatalogue({ enabled: canView });
   const customReports = useCustomReports({ enabled: canView });
@@ -182,17 +182,7 @@ export function ExportCentrePage() {
       />
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <DateRangeField
-            label="Period for exports"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams((current) => { const p = new URLSearchParams(current); p.set('from', from); p.set('to', to); return p; }, { replace: true });
-            }}
-          />
+          <PeriodRangeField range={range} label="Period for exports" />
           <span className="text-muted-foreground text-xs tabular-nums">{formatDate(range.from)} → {formatDate(range.to)}</span>
         </div>
 
