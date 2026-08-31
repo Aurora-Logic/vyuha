@@ -479,3 +479,26 @@ describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', (
     }
   });
 });
+
+describe('Operations can hand work to anybody (owner, 31 Aug 2026)', () => {
+  it('sees every colleague in the picker and assigns outside its own reporting line', async () => {
+    // The report was "Operations cannot assign everyone a task". The keys
+    // were never the blocker -- Operations holds crm.task.manage -- the
+    // picker was: it read the employee register, whose whole-org breadth is
+    // employee.manage, so an Operations user saw only themselves and their
+    // reporting line and could not name anyone else.
+    const directory = await harness.get<{ id: string }[]>('/employees/assignable', { token: opsToken });
+    expect(directory.status).toBe(200);
+    const ids = directory.body.map((row) => row.id);
+    expect(ids, 'a colleague on nobody in their line').toContain(outsiderId);
+    expect(ids).toContain(raviId);
+    expect(ids).toContain(meeraId);
+
+    const assigned = await harness.post<TaskView>('/tasks', {
+      token: opsToken,
+      body: { title: 'Dispatch via courier', assigneeId: outsiderId, priority: 'HIGH' },
+    });
+    expect(assigned.status, JSON.stringify(assigned.body)).toBe(201);
+    expect(assigned.body.assigneeId).toBe(outsiderId);
+  });
+});
