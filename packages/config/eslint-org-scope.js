@@ -31,6 +31,7 @@ export const ORG_SCOPED_TABLES = [
   'consent_acceptances',
   'crm_companies',
   'crm_contacts',
+  'crm_deal_attachments',
   'crm_deals',
   'crm_pipeline_stages',
   'crm_pipelines',
