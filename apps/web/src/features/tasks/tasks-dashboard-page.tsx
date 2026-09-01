@@ -3,9 +3,11 @@ import {
   CheckSquareIcon,
   ClockCountdownIcon,
   KanbanIcon,
+  SlidersHorizontalIcon,
   UsersThreeIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
+import { Fragment, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -20,6 +22,8 @@ import { EMPTY_VALUE } from '@/lib/format';
 import { AssigneeLoadChart, ColumnLoadChart, FlowChart } from './analytics-charts';
 import { columnSeries, flowSeries, loadSeries, prioritySeries, readableDaysToClose, taskInsights } from './analytics-series';
 import { BlockFigures, BlockNumber, DashboardBlock } from './dashboard-block';
+import { useTaskDashboardBlocks, type TaskDashboardBlock } from './dashboard-blocks';
+import { DashboardBlocksMenu } from './dashboard-blocks-menu';
 import { useTaskAnalytics } from './use-tasks';
 import { useWorkingNowCount } from './working-now-count';
 import { WorkingNow } from './working-now';
@@ -77,7 +81,12 @@ export function TasksDashboardPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader eyebrow="Tasks" title="Dashboard" description="What is open, what is late, and who is on it now." />
+      <PageHeader
+        eyebrow="Tasks"
+        title="Dashboard"
+        description="What is open, what is late, and who is on it now."
+        action={<DashboardBlocksMenu />}
+      />
 
       {isError ? (
         <QueryErrorAlert
@@ -116,6 +125,7 @@ function DashboardGrid({
   const insights = taskInsights(data);
   const daysToClose = readableDaysToClose(data.totals);
   const workingNow = useWorkingNowCount();
+  const { shown, order } = useTaskDashboardBlocks();
 
   if (data.totals.open === 0 && data.totals.closedInPeriod === 0) {
     return (
@@ -133,8 +143,11 @@ function DashboardGrid({
     );
   }
 
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  // Each block built once, then rendered in the order this reader chose and
+  // filtered to what they kept. Keeping them in a lookup rather than inline
+  // is what lets the order be data instead of the shape of the JSX.
+  const blocks: Record<TaskDashboardBlock, ReactNode> = {
+    open: (
       <DashboardBlock icon={<CheckSquareIcon />} label="Open" note="right now">
         <BlockNumber
           value={String(data.totals.open)}
@@ -146,10 +159,11 @@ function DashboardGrid({
           {...(data.totals.overdue > 0 ? { captionTone: 'warning' as const } : {})}
         />
       </DashboardBlock>
+    ),
 
-      {/* REQ-V-14. First row, beside the headline count, because "who is on
-          it now" is the question a dashboard is opened to answer and the one
-          no other screen answers whole. */}
+    // REQ-V-14. "Who is on it now" is the question a dashboard is opened to
+    // answer and the one no other screen answers whole.
+    workingNow: (
       <DashboardBlock
         icon={<BroadcastIcon />}
         label="Working now"
@@ -157,7 +171,9 @@ function DashboardGrid({
       >
         <WorkingNow />
       </DashboardBlock>
+    ),
 
+    attention: (
       <DashboardBlock icon={<WarningCircleIcon />} label="Needs attention" note="open tasks">
         <BlockFigures
           figures={[
@@ -176,7 +192,9 @@ function DashboardGrid({
           ]}
         />
       </DashboardBlock>
+    ),
 
+    priority: (
       <DashboardBlock icon={<KanbanIcon />} label="By priority" note="open tasks">
         <span className="flex flex-wrap items-center gap-1.5">
           {priorities.map((entry) => (
@@ -186,8 +204,10 @@ function DashboardGrid({
           ))}
         </span>
       </DashboardBlock>
+    ),
 
-      {insights.length > 0 ? (
+    insights:
+      insights.length === 0 ? null : (
         <DashboardBlock icon={<CheckSquareIcon />} label="What the numbers say" span="wide">
           <ul className="flex flex-col gap-1.5 text-sm leading-relaxed">
             {insights.map((line) => (
@@ -195,8 +215,9 @@ function DashboardGrid({
             ))}
           </ul>
         </DashboardBlock>
-      ) : null}
+      ),
 
+    columns: (
       <DashboardBlock icon={<KanbanIcon />} label="Where work is sitting" note="by board column">
         {columns.length === 0 ? (
           <p className="text-muted-foreground text-sm">This board has no open columns yet.</p>
@@ -204,7 +225,9 @@ function DashboardGrid({
           <ColumnLoadChart points={columns} animate={animate} />
         )}
       </DashboardBlock>
+    ),
 
+    load: (
       <DashboardBlock icon={<UsersThreeIcon />} label="Who is carrying it" note="overdue shown inside the bar">
         {load.length === 0 ? (
           <p className="text-muted-foreground text-sm">No open tasks to attribute.</p>
@@ -212,9 +235,11 @@ function DashboardGrid({
           <AssigneeLoadChart points={load} animate={animate} />
         )}
       </DashboardBlock>
+    ),
 
-      {/* The period control belongs to this block and nothing else: it is the
-          only figure on the page that has a window. */}
+    // The period control belongs to this block and nothing else: it is the
+    // only figure on the page that has a window.
+    flow: (
       <DashboardBlock
         icon={<ClockCountdownIcon />}
         label="Raised and closed"
@@ -224,6 +249,30 @@ function DashboardGrid({
       >
         <FlowChart points={flow} animate={animate} />
       </DashboardBlock>
+    ),
+  };
+
+  const visible = order.filter((key) => shown[key] && blocks[key] !== null);
+
+  if (visible.length === 0) {
+    return (
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <SlidersHorizontalIcon />
+          </EmptyMedia>
+          <EmptyTitle>Every block is hidden</EmptyTitle>
+          <EmptyDescription>Turn one back on from Blocks, above.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {visible.map((key) => (
+        <Fragment key={key}>{blocks[key]}</Fragment>
+      ))}
     </div>
   );
 }
