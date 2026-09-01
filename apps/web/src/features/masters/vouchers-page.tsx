@@ -37,6 +37,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { useSearchDraft } from '@/lib/use-search-draft';
 import { PERMISSIONS, VOUCHER_SORT_FIELDS } from '@vyuha/shared';
 
+import { DrCr, VoucherTypeLabel } from './dr-cr';
 import { magnitudeOf } from './voucher-amount';
 import { useVoucher, useVouchers, useVoucherTypes, type Voucher } from './use-vouchers';
 import { VoucherPaperPreview } from './voucher-paper-preview';
@@ -58,7 +59,9 @@ import { CompanyFilter } from './company-filter';
  */
 const COLUMNS: RecordColumn<Voucher>[] = [
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums', sortField: 'date' },
-  { key: 'type', header: 'Type', cell: (row) => row.voucherType, sortField: 'type' },
+  // Credit and debit notes are tinted here too, not only on the voucher:
+  // the register is where somebody hunts for them.
+  { key: 'type', header: 'Type', cell: (row) => <VoucherTypeLabel type={row.voucherType} />, sortField: 'type' },
   {
     key: 'number',
     header: 'Number',
@@ -126,7 +129,7 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
           <SheetTitle className="flex flex-wrap items-center gap-2">
             {voucher ? (
               <>
-                <span>{voucher.voucherType}</span>
+                <VoucherTypeLabel type={voucher.voucherType} />
                 <span className="tabular-nums">{voucher.voucherNumber || EMPTY_VALUE}</span>
                 {voucher.isCancelled ? <Badge variant="outline">Cancelled</Badge> : null}
               </>
@@ -164,8 +167,8 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
                       {line.kind === 'ledger' ? (
                         <>
                           <span>{line.ledgerName}</span>
-                          <span className="text-muted-foreground ml-2 text-xs">
-                            {line.isDeemedPositive === true ? 'Dr' : line.isDeemedPositive === false ? 'Cr' : ''}
+                          <span className="ml-2">
+                            <DrCr isDeemedPositive={line.isDeemedPositive} />
                           </span>
                         </>
                       ) : (
