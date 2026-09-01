@@ -236,12 +236,22 @@ export function useRoster(
   });
 }
 
-/** The people the roster form can name, from the employee register (REQ-A-03). */
-export function useRosterCandidates(): UseQueryResult<RosterCandidate[], Error> {
+/**
+ * The people the roster form can name, from the employee register (REQ-A-03).
+ *
+ * Typed at the server. This read 200 people once and let the combobox filter
+ * them in the browser, so past 200 nobody else could be rostered or have
+ * attendance recorded for them, and the field said nobody matched a colleague
+ * who works here.
+ */
+export function useRosterCandidates(search = ''): UseQueryResult<RosterCandidate[], Error> {
+  const q = search.trim();
   return useQuery({
-    queryKey: ['rosters', 'candidates'],
+    queryKey: ['rosters', 'candidates', q],
     queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>('/employees?pageSize=200&status=ACTIVE', { signal });
+      const params = new URLSearchParams({ pageSize: '25', status: 'ACTIVE' });
+      if (q) params.set('q', q);
+      const body = await apiRequest<unknown>(`/employees?${params.toString()}`, { signal });
       const parsed = parseOrThrow(rosterCandidatesResponseSchema, body, 'employee list');
       return parsed.data.map((row) => ({
         id: row.id,

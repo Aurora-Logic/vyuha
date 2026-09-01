@@ -46,6 +46,14 @@ interface EmployeePickerProps {
   value: RosterCandidate | null;
   onValueChange: (value: RosterCandidate) => void;
   candidates: readonly RosterCandidate[];
+  /**
+   * The search term, owned by the parent because the parent owns the query it
+   * feeds — and renders its own alert when that query fails on permission.
+   * Given it, the list is whatever the server returned and is not filtered
+   * again here.
+   */
+  search?: string;
+  onSearchChange?: (search: string) => void;
   loading?: boolean;
   label: string;
   /** Ids that cannot be chosen, with the reason shown beside them. */
@@ -57,6 +65,8 @@ export function EmployeePicker({
   value,
   onValueChange,
   candidates,
+  search,
+  onSearchChange,
   loading = false,
   label,
   disabledReason,
@@ -81,9 +91,20 @@ export function EmployeePicker({
     </Button>
   );
 
+  const serverSearched = search !== undefined && onSearchChange !== undefined;
+  // The chosen person is prepended when the current search page no longer
+  // holds them, so their row keeps its tick and stays selectable.
+  const rows =
+    value !== null && !candidates.some((candidate) => candidate.id === value.id)
+      ? [value, ...candidates]
+      : candidates;
+
   const list = (
-    <Command>
-      <CommandInput placeholder="Search by code or name" />
+    <Command shouldFilter={!serverSearched}>
+      <CommandInput
+        placeholder="Search by code or name"
+        {...(serverSearched ? { value: search, onValueChange: onSearchChange } : {})}
+      />
       <CommandList>
         {loading ? (
           <div className="text-muted-foreground flex items-center gap-2 p-4 text-sm">
@@ -94,7 +115,7 @@ export function EmployeePicker({
           <>
             <CommandEmpty>Nobody matches that code or name.</CommandEmpty>
             <CommandGroup>
-              {candidates.map((candidate) => {
+              {rows.map((candidate) => {
                 const reason = disabledReason?.(candidate) ?? null;
                 return (
                   <CommandItem
