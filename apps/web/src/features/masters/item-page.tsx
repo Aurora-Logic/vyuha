@@ -1,6 +1,7 @@
 import { CubeIcon, LightbulbIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams } from 'react-router';
 
+import { ChartCard } from '@/components/shared/chart-card';
 import { HeatmapTable } from '@/components/shared/heatmap-table';
 import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
@@ -229,9 +230,17 @@ function ItemAnalyticsBody({ a, unit, compareLabel, ready, onParty }: { a: ItemA
         {trendReadable(trend) ? (
           <TrendChart title="Ordered and dispatched, by month" note={compareLabel === null ? undefined : `Dashed: ${compareLabel.toLowerCase()}.`} points={trend} labels={{ a: 'Ordered', b: 'Dispatched' }} compareLabel={compareLabel} format={q} ready={ready} />
         ) : (
-          <section className="flex flex-col gap-2">
-            <SectionHeading title="Ordered and dispatched, by month" note="Not enough months with movement in this period to read a trend." />
-          </section>
+          // The same card the chart would have been, saying why it is not
+          // there. A bare heading beside a bordered card left the row half
+          // furnished: the card looked stranded next to four hundred pixels
+          // of nothing, which is what made it look broken.
+          <ChartCard
+            title="Ordered and dispatched, by month"
+            empty
+            emptyNote="Not enough months with movement in this period to read a trend."
+          >
+            <span />
+          </ChartCard>
         )}
         <RateRadial title="Fulfilment" note="Dispatched as a share of ordered, in the period." pct={kpis.fulfilmentPct.value} previousPct={kpis.fulfilmentPct.previous} label="fulfilled" ready={ready} />
       </div>
@@ -239,10 +248,9 @@ function ItemAnalyticsBody({ a, unit, compareLabel, ready, onParty }: { a: ItemA
       <div className="grid gap-8 lg:grid-cols-2">
         {customers.length > 0 ? <RankingChart title="Who buys it" note="By quantity ordered in the period; eight at most." points={customers} valueLabel="Quantity" format={q} ready={ready} /> : null}
         {grid.rows.length > 0 ? (
-          <section className="flex min-w-0 flex-col gap-2">
-            <SectionHeading title="When each customer buys" note="Quantity ordered, by customer and month." />
+          <ChartCard title="When each customer buys" description="Quantity ordered, by customer and month.">
             <HeatmapTable grid={grid} rowLabel="Customer" format={(v) => qty(v)} onRow={onParty} />
-          </section>
+          </ChartCard>
         ) : null}
       </div>
 
