@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { REALTIME_RESOURCES, TASK_PRIORITY_LABELS } from '@vyuha/shared';
 
 import { DueDate } from './due-date';
+import { PILL, PRIORITY_HUES } from './task-pills';
 import type { BoardResponse, Task } from './types';
 
 /**
@@ -27,23 +28,6 @@ const COLUMN_HUES = [
 ] as const;
 const DONE_HUE = 'bg-success/15 text-success';
 
-/**
- * A property pill, Notion's shape: a soft wash of one hue with its own darker
- * text, never a saturated block (owner, 1 Sep 2026 -- "take all the colours
- * from notion").
- *
- * The hues are this theme's own tokens rather than Notion's hex, so they
- * follow the palette into dark mode and stay the red, amber and blue that
- * already mean urgent, watch and informational everywhere else in the product.
- */
-const PILL = 'rounded-none px-1.5 py-px text-[0.6875rem] font-medium';
-
-/** High is red, medium amber, low blue -- Notion's own ordering of urgency. */
-const PRIORITY_HUES = {
-  HIGH: 'bg-destructive/10 text-destructive',
-  MEDIUM: 'bg-warning/10 text-warning',
-  LOW: 'bg-info/10 text-info',
-} as const;
 export function TaskBoard({
   board,
   onOpen,

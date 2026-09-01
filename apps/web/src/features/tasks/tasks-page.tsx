@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckSquareIcon, GearIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
+import { CheckSquareIcon, GearIcon, CalendarBlankIcon, ChartBarHorizontalIcon, KanbanIcon, SquaresFourIcon, TableIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ListSkeleton } from '@/components/shared/list-skeleton';
@@ -30,13 +30,16 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, REALTIME_RESOURCES, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_SORT_FIELDS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
+import { MAX_PAGE_SIZE, PERMISSIONS, REALTIME_RESOURCES, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_SORT_FIELDS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
 
 import { BoardColumnsSheet } from './board-columns-sheet';
 import { DueDate } from './due-date';
 import { TaskBoard } from './task-board';
 import { TaskSheet } from './task-sheet';
-import { useTaskViewStore, type TaskViewMode } from './task-view-store';
+import { isTaskViewMode, useTaskViewStore, type TaskViewMode } from './task-view-store';
+import { TaskCalendar } from './task-calendar';
+import { TaskGallery } from './task-gallery';
+import { TaskTimeline } from './task-timeline';
 import { emptyTaskDraft, taskToDraft, type Task, type TaskDraft } from './types';
 import { useMoveTask, useTask, useTaskBoard, useTasks, type TaskFilters } from './use-tasks';
 
@@ -191,7 +194,11 @@ export function TasksPage() {
   const priority = TASK_PRIORITIES.find((value) => value === priorityParam);
   const assigneeParam = searchParams.get('assignee') ?? '';
   const viewParam = searchParams.get('view');
-  const view: TaskViewMode = viewParam === 'board' || viewParam === 'list' ? viewParam : defaultView;
+  const view: TaskViewMode = isTaskViewMode(viewParam) ? viewParam : defaultView;
+  // Calendar, gallery and timeline are whole-set views: a month with only
+  // the first 25 of its tasks on it is a lie, not a page. They ask for the
+  // server's maximum and say so below when even that is not everything.
+  const wholeSet = view === 'calendar' || view === 'gallery' || view === 'timeline';
   // REQ-V-13: the same preference governs the board card and this table, so
   // hiding the supplier hides it in both renderings of the one query.
   const { shown: shownFields } = useTaskCardFields();
@@ -228,7 +235,10 @@ export function TasksPage() {
   const owners = useManagerOptions();
   const { sort, activeSort, onSortChange } = useUrlSort(TASK_SORT_FIELDS);
 
-  const list = useTasks({ ...filters, page, ...(sort ? { sort } : {}) }, { enabled: canView && view === 'list' });
+  const list = useTasks(
+    { ...filters, page, ...(sort ? { sort } : {}), ...(wholeSet ? { pageSize: MAX_PAGE_SIZE, page: 1 } : {}) },
+    { enabled: canView && (view === 'list' || wholeSet) },
+  );
   const board = useTaskBoard(filters, { enabled: canView && view === 'board' });
   const open = useTask(canView ? openId : null);
   const move = useMoveTask();
@@ -278,8 +288,14 @@ export function TasksPage() {
 
   const rows = list.data?.data ?? [];
   const meta = list.data?.meta ?? null;
-  const query = view === 'list' ? list : board;
-  const nothing = view === 'list' ? list.isSuccess && rows.length === 0 : board.isSuccess && board.data.lanes.every((l) => l.tasks.length === 0);
+  const query = view === 'board' ? board : list;
+  const openTask = (task: Task) => {
+    void navigate(`/tasks/${task.id}${window.location.search}`);
+  };
+  const nothing =
+    view === 'board'
+      ? board.isSuccess && board.data.lanes.every((l) => l.tasks.length === 0)
+      : list.isSuccess && rows.length === 0;
   const filtered = Boolean(q) || due !== 'open' || !mine || includeClosed || priority !== undefined || assigneeParam !== '';
 
   return (
@@ -418,25 +434,38 @@ export function TasksPage() {
                 Columns
               </Button>
             ) : null}
+            {/* Five layouts, the way Notion's Layout picker offers them.
+                Still hidden on a phone: six icon buttons in a wrapped toolbar
+                is most of a 360px row, and the board and timeline are not
+                what anyone reaches for on one. */}
             {isMobile ? null : (
               <ToggleGroup
                 variant="outline"
                 aria-label="View"
                 value={[view]}
                 onValueChange={(value) => {
-                  const next = value[0];
-                  if (next === 'list' || next === 'board') {
+                  const next = value[0] ?? null;
+                  if (isTaskViewMode(next)) {
                     setParam('view', next);
                     // REQ-V-05: the choice sticks for this person on this device.
                     setDefaultView(next);
                   }
                 }}
               >
-                <ToggleGroupItem value="list" aria-label="List view">
-                  <ListBulletsIcon />
+                <ToggleGroupItem value="list" aria-label="Table view">
+                  <TableIcon />
                 </ToggleGroupItem>
                 <ToggleGroupItem value="board" aria-label="Board view">
                   <KanbanIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="calendar" aria-label="Calendar view">
+                  <CalendarBlankIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="gallery" aria-label="Gallery view">
+                  <SquaresFourIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="timeline" aria-label="Timeline view">
+                  <ChartBarHorizontalIcon />
                 </ToggleGroupItem>
               </ToggleGroup>
             )}
@@ -501,6 +530,22 @@ export function TasksPage() {
             />
             {meta !== null && meta.total > meta.pageSize ? (
               <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} />
+            ) : null}
+          </>
+        ) : null}
+
+        {wholeSet && rows.length > 0 ? (
+          <>
+            {view === 'calendar' ? <TaskCalendar tasks={rows} onOpen={openTask} /> : null}
+            {view === 'gallery' ? <TaskGallery tasks={rows} onOpen={openTask} /> : null}
+            {view === 'timeline' ? <TaskTimeline tasks={rows} onOpen={openTask} /> : null}
+            {/* Said out loud rather than truncated in silence: these views draw
+                what they were given, and the server will not give more than
+                one page of this size. */}
+            {meta !== null && meta.total > rows.length ? (
+              <p className="text-muted-foreground text-xs">
+                Showing {rows.length} of {meta.total}. Narrow the filters to see the rest.
+              </p>
             ) : null}
           </>
         ) : null}
