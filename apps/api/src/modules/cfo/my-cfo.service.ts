@@ -102,19 +102,19 @@ export class MyCfoService {
     const totals = await this.db.execute<{ kind: string; value: string }>(sql`
       SELECT kind, sum(value)::numeric(16,2)::text AS value FROM (
         SELECT 'sales' AS kind,
-               CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END AS value
+               CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END AS value
         FROM vouchers
         WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${book}
           AND voucher_type IN ('Sales', 'Credit Note') AND voucher_date BETWEEN ${from} AND ${to}
         UNION ALL
         SELECT 'salesLy' AS kind,
-               CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END AS value
+               CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END AS value
         FROM vouchers
         WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${book}
           AND voucher_type IN ('Sales', 'Credit Note')
           AND voucher_date BETWEEN (${from}::date - interval '1 year') AND (${to}::date - interval '1 year')
         UNION ALL
-        SELECT 'collections' AS kind, amount AS value
+        SELECT 'collections' AS kind, abs(amount) AS value
         FROM vouchers
         WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${book}
           AND voucher_type = 'Receipt' AND voucher_date BETWEEN ${from} AND ${to}
@@ -140,7 +140,7 @@ export class MyCfoService {
     const daily = await this.db.execute<{ day: string; ty: string; ly: string }>(sql`
       SELECT day::text, sum(ty)::numeric(16,2)::text AS ty, sum(ly)::numeric(16,2)::text AS ly FROM (
         SELECT voucher_date AS day,
-               CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END AS ty,
+               CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END AS ty,
                0 AS ly
         FROM vouchers
         WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${book}
@@ -148,7 +148,7 @@ export class MyCfoService {
         UNION ALL
         SELECT (voucher_date + interval '1 year')::date AS day,
                0 AS ty,
-               CASE WHEN voucher_type = 'Sales' THEN amount ELSE -amount END AS ly
+               CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END AS ly
         FROM vouchers
         WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IN ${book}
           AND voucher_type IN ('Sales', 'Credit Note')
@@ -173,9 +173,9 @@ export class MyCfoService {
     }>(sql`
       SELECT v.party_id AS "partyId", max(v.party_name) AS party,
              sum(CASE WHEN v.voucher_date BETWEEN ${from} AND ${to}
-                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN v.amount ELSE -v.amount END) ELSE 0 END)::numeric(16,2)::text AS ty,
+                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) ELSE -abs(v.amount) END) ELSE 0 END)::numeric(16,2)::text AS ty,
              sum(CASE WHEN v.voucher_date BETWEEN (${from}::date - interval '1 year') AND (${to}::date - interval '1 year')
-                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN v.amount ELSE -v.amount END) ELSE 0 END)::numeric(16,2)::text AS ly,
+                      THEN (CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) ELSE -abs(v.amount) END) ELSE 0 END)::numeric(16,2)::text AS ly,
              max(v.voucher_date) FILTER (WHERE v.voucher_type = 'Sales')::text AS "lastOrder"
       FROM vouchers v
       WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.party_id IN ${book}
