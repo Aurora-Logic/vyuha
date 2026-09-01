@@ -24,7 +24,8 @@ import { PERMISSIONS } from '@vyuha/shared';
 import { ActivityTimeline } from './activity-timeline';
 import { DeleteContactDialog } from './delete-dialogs';
 import type { Contact, ContactDraft } from './types';
-import { useCompanyOptions, useContactDuplicates, useSaveContact } from './use-crm';
+import { CompanyPicker } from './company-picker';
+import { useContactDuplicates, useSaveContact } from './use-crm';
 
 /**
  * One contact (REQ-U-01), created or edited in a Sheet — a bottom sheet on a
@@ -83,7 +84,6 @@ function ContactSheetBody({
   const save = useSaveContact();
   const canAssign = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_ALL);
   const canManage = usePermission(PERMISSIONS.CRM_CONTACT_MANAGE);
-  const companies = useCompanyOptions();
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
 
@@ -95,11 +95,6 @@ function ContactSheetBody({
   });
   const found = duplicates.data ?? [];
 
-  const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({
-    id: c.id,
-    label: c.name,
-    ...(c.city === null ? {} : { hint: c.city }),
-  }));
   const ownerOptions: PickerOption[] = (owners.data ?? []).map((o) => ({
     id: o.id,
     label: o.name,
@@ -236,18 +231,14 @@ function ContactSheetBody({
 
           <Field>
             <FieldLabel htmlFor="contact-company">Company</FieldLabel>
-            <RecordPicker
+            <CompanyPicker
               id="contact-company"
               label="Company"
               placeholder="No company"
-              searchPlaceholder="Search companies"
-              emptyMessage="No company matches that. Add it from the Companies screen first."
               icon={<BuildingsIcon className="text-muted-foreground" />}
-              options={companyOptions}
-              loading={companies.isPending}
               clearable
               clearLabel="No company"
-              value={pick(companyOptions, draft.companyId)}
+              companyId={draft.companyId}
               onValueChange={(next) => {
                 setDraft((current) => ({ ...current, companyId: next?.id ?? null }));
               }}

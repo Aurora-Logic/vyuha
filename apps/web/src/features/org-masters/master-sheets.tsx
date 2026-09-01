@@ -25,12 +25,12 @@ import { toast } from '@/components/ui/toast';
 import { useHolidayCalendarOptions } from '@/features/holidays/use-holidays';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 
 import { CODE_HELP, codeProblem, nameProblem } from './field-rules';
 import type { DepartmentSummary, DesignationSummary, LocationSummary } from './types';
 import {
-  useEmployeeOptions,
   useSaveDepartment,
   useSaveDesignation,
   useSaveLocation,
@@ -214,7 +214,7 @@ function DepartmentBody({
   }));
   const [touched, setTouched] = useState(false);
 
-  const employees = useEmployeeOptions();
+  const employees = useManagerOptions();
   const save = useSaveDepartment();
 
   const nameIssue = nameProblem(draft.name);
@@ -223,7 +223,7 @@ function DepartmentBody({
   const employeeOptions: PickerOption[] = (employees.data ?? []).map((person) => ({
     id: person.id,
     label: person.name,
-    hint: person.employeeCode,
+    ...(person.hint === undefined ? {} : { hint: person.hint }),
   }));
   const head = employeeOptions.find((option) => option.id === draft.headEmployeeId) ?? null;
 

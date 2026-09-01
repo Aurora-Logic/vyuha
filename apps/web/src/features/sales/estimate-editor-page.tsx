@@ -4,7 +4,6 @@ import { ArrowRightIcon, BooksIcon, BuildingsIcon, TrashIcon, WarningCircleIcon 
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -17,7 +16,8 @@ import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { useCompanyOptions } from '@/features/crm/use-crm';
+import { CompanyPicker } from '@/features/crm/company-picker';
+import { useCompany } from '@/features/crm/use-crm';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
 import { useDraftBackup } from '@/features/documents/use-draft-backup';
@@ -134,18 +134,18 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
-  const companies = useCompanyOptions({ enabled: canSeeCompanies });
+  // By id: the preset name below was read out of a 200-company page, so a
+  // company past that got no preset at all.
+  const presetCompany = useCompany(canSeeCompanies ? draft.companyId : null);
 
   const isNew = record === null;
   const editable = canCreate && draft.status === 'DRAFT';
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
-  const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
-  const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
   // Resolved by id, not from a page-one list, so a party chosen past the first
   // page still fills the paper's buyer block and its "Addressed to" name.
   const party = useParty(draft.partyId).data ?? null;
-  const presetName = party?.name ?? pick(companyOptions, draft.companyId)?.label ?? null;
+  const presetName = party?.name ?? presetCompany.data?.name ?? null;
   const customerName = draft.customerName.trim() === '' && presetName !== null ? presetName : draft.customerName;
   const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
   const customerMissing = draft.partyId === null && draft.companyId === null && customerName.trim() === '';
@@ -230,21 +230,18 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
                   setDraft((current) => ({ ...current, partyId: next?.id ?? null, companyId: next === null ? current.companyId : null, customerName: next?.name ?? current.customerName }));
                 }}
               />
-              <RecordPicker
+              <CompanyPicker
                 id="estimate-company"
                 label="CRM company"
                 placeholder="or a CRM company"
-                searchPlaceholder="Search companies"
-                emptyMessage="No company matches."
                 icon={<BuildingsIcon className="text-muted-foreground" />}
-                options={companyOptions}
-                loading={companies.isPending}
+                enabled={canSeeCompanies}
                 disabled={!canSeeCompanies || draft.partyId !== null}
                 clearable
                 clearLabel="No company"
-                value={pick(companyOptions, draft.companyId)}
+                companyId={draft.companyId}
                 onValueChange={(next) => {
-                  setDraft((current) => ({ ...current, companyId: next?.id ?? null, customerName: next?.label ?? current.customerName }));
+                  setDraft((current) => ({ ...current, companyId: next?.id ?? null, customerName: next?.name ?? current.customerName }));
                 }}
               />
             </div>

@@ -33,7 +33,7 @@ import { DealAttachments } from './deal-attachments';
 import { DealDocuments } from './deal-documents';
 import { DeleteDealDialog } from './delete-dialogs';
 import type { Deal, DealDraft } from './types';
-import { useCompanyOptions } from './use-crm';
+import { CompanyPicker } from './company-picker';
 import { useCompanyContacts, useLinkCompanyParty, usePipelines, useSaveDeal } from './use-deals';
 
 const NO_PRIORITY = '__none__';
@@ -87,7 +87,6 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
   const canManageDeal = usePermission(PERMISSIONS.CRM_DEAL_MANAGE);
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const pipelines = usePipelines();
-  const companies = useCompanyOptions();
   const contacts = useCompanyContacts(draft.companyId);
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
@@ -105,7 +104,6 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
 
   const wonWithoutParty = record !== null && record.status === 'won' && record.companyId !== null && record.partyId === null;
 
-  const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const contactOptions: PickerOption[] = (contacts.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.designation === null ? {} : { hint: c.designation }) }));
   const ownerOptions: PickerOption[] = (owners.data ?? []).map((o) => ({ id: o.id, label: o.name, ...(o.hint === undefined ? {} : { hint: o.hint }) }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
@@ -341,18 +339,14 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
 
           <Field>
             <FieldLabel htmlFor="deal-company">Company</FieldLabel>
-            <RecordPicker
+            <CompanyPicker
               id="deal-company"
               label="Company"
               placeholder="No company"
-              searchPlaceholder="Search companies"
-              emptyMessage="No company matches that."
               icon={<BuildingsIcon className="text-muted-foreground" />}
-              options={companyOptions}
-              loading={companies.isPending}
               clearable
               clearLabel="No company"
-              value={pick(companyOptions, draft.companyId)}
+              companyId={draft.companyId}
               onValueChange={(next) => {
                 setDraft((current) => ({ ...current, companyId: next?.id ?? null, contactId: null }));
               }}

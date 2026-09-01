@@ -256,11 +256,10 @@ const managerOptionsSchema = z.array(
  */
 export function useManagerOptions(): UseQueryResult<PickerRow[], Error> {
   return useQuery({
-    // Not ['employees', 'options']: org-masters caches an EmployeeOption[]
-    // (with employeeCode) under that key while this hook caches PickerRow[]
-    // (with hint) - same endpoint, different shape, so sharing the key would
-    // hand one form the other's rows. Still under the 'employees' root, so
-    // the employee-mutation invalidations reach it.
+    // Under the 'employees' root so the employee-mutation invalidations
+    // reach it. This is now the only colleague picker in the app: org-masters
+    // kept a second one against /employees?pageSize=200, which capped the
+    // list and needed `employee.manage` to read it.
     queryKey: ['employees', 'manager-options'],
     queryFn: async ({ signal }) => {
       // Fixed 31 Aug 2026: this read the employee register, whose whole-org

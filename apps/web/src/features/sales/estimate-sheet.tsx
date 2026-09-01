@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -18,7 +17,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
-import { useCompanyOptions } from '@/features/crm/use-crm';
+import { CompanyPicker } from '@/features/crm/company-picker';
+import { useCompany } from '@/features/crm/use-crm';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParty } from '@/features/masters/use-parties';
 import { PartyPicker } from '@/features/masters/party-picker';
@@ -82,17 +82,17 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   // By id, not by scanning a page: the preset name below was resolved out of
   // the first 25 parties, so anyone further down the ledger got no preset.
   const presetParty = useParty(canSeeParties ? draft.partyId : null);
-  const companies = useCompanyOptions({ enabled: canSeeCompanies });
+  // By id: the preset name below was read out of a 200-company page, so a
+  // company past that got no preset at all.
+  const presetCompany = useCompany(canSeeCompanies ? draft.companyId : null);
   const isNew = initial.id === undefined;
   const editable = draft.status === 'DRAFT';
 
-  const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
-  const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
-  // Raised from a record (deal, company, party) the name arrives with the
-  // options, not the URL: "Addressed to" shows the party's or company's name
-  // until somebody types over it, and that is what is saved.
-  const presetName = presetParty.data?.name ?? pick(companyOptions, draft.companyId)?.label ?? null;
+  // Raised from a record (deal, company, party) the name comes from the record,
+  // not the URL: "Addressed to" shows the party's or company's name until
+  // somebody types over it, and that is what is saved.
+  const presetName = presetParty.data?.name ?? presetCompany.data?.name ?? null;
   const customerName = draft.customerName.trim() === '' && presetName !== null ? presetName : draft.customerName;
   const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
 
@@ -180,24 +180,21 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
             {canSeeCompanies ? (
               <Field>
                 <FieldLabel htmlFor="estimate-company">CRM company</FieldLabel>
-                <RecordPicker
+                <CompanyPicker
                   id="estimate-company"
                   label="CRM company"
                   placeholder="No company"
-                  searchPlaceholder="Search companies"
-                  emptyMessage="No company matches."
                   icon={<BuildingsIcon className="text-muted-foreground" />}
-                  options={companyOptions}
-                  loading={companies.isPending}
+                  enabled={canSeeCompanies}
                   clearable
                   clearLabel="No company"
                   disabled={!editable}
-                  value={pick(companyOptions, draft.companyId)}
+                  companyId={draft.companyId}
                   onValueChange={(next) => {
                     setDraft((current) => ({
                       ...current,
                       companyId: next?.id ?? null,
-                      customerName: current.partyId === null ? (next?.label ?? current.customerName) : current.customerName,
+                      customerName: current.partyId === null ? (next?.name ?? current.customerName) : current.customerName,
                     }));
                   }}
                 />
