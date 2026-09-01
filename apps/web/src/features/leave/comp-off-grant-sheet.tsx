@@ -1,4 +1,6 @@
 import { useState } from 'react';
+
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { CheckCircleIcon, GiftIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { Form } from '@/components/shared/form';
@@ -89,7 +91,17 @@ function CompOffGrantBody({ defaultDate, onClose }: { defaultDate?: Date; onClos
   // The picker needs the register. An approver who does not also hold
   // employee.view gets an empty list and a stated reason rather than a control
   // that silently never fills.
-  const employeesQuery = useEmployees({ page: 1, pageSize: 200, q: '', status: 'ACTIVE', departmentId: null });
+  // Typed at the server: this read 200 people once and filtered them here, so
+  // on a larger register the rest could not be granted a comp-off at all.
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const debouncedEmployee = useDebouncedValue(employeeSearch, 200).trim();
+  const employeesQuery = useEmployees({
+    page: 1,
+    pageSize: 25,
+    q: debouncedEmployee,
+    status: 'ACTIVE',
+    departmentId: null,
+  });
   const options: PickerOption[] = (employeesQuery.data?.data ?? []).map((row) => ({
     id: row.id,
     label: [row.firstName, row.lastName].filter(Boolean).join(' '),
@@ -174,8 +186,10 @@ function CompOffGrantBody({ defaultDate, onClose }: { defaultDate?: Date; onClos
               searchPlaceholder="Search by name or code"
               emptyMessage="No employee matches that."
               loading={employeesQuery.isPending}
-              options={options}
+              options={employee && !options.some((row) => row.id === employee.id) ? [employee, ...options] : options}
               value={employee}
+              search={employeeSearch}
+              onSearchChange={setEmployeeSearch}
               onValueChange={setEmployee}
             />
             <FieldDescription>
