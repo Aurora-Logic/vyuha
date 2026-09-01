@@ -45,6 +45,20 @@ const COLUMNS: RecordColumn<StockItem>[] = [
     ),
   },
   { key: 'group', header: 'Stock group', cell: (row) => row.parentGroup, secondary: true },
+  {
+    // Owner, 1 Sep 2026: the register is opened to find out what is on the
+    // shelf, and it was the one thing it did not say -- the number was already
+    // on the response, just never shown. Tally's own closing balance, with the
+    // unit beside it, because "18" and "18 Mtr" are different facts.
+    key: 'stock',
+    header: 'In stock',
+    cell: (row) =>
+      row.closingQty == null || row.closingQty === ''
+        ? EMPTY_VALUE
+        : `${Number(row.closingQty).toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${row.unit}`,
+    numeric: true,
+    className: 'tabular-nums',
+  },
   { key: 'unit', header: 'Unit', cell: (row) => row.unit },
   {
     key: 'gst',
@@ -193,8 +207,18 @@ export function StockItemsPage() {
               mobileStatus={(row) =>
                 row.absentInTally ? <Badge variant="outline">Absent</Badge> : row.duplicate ? <Badge variant="destructive">Duplicate?</Badge> : null
               }
+              // The stock first on a phone card too: it is what the row is
+              // being read for, and it was not on the card at all.
               mobileSupporting={(row) =>
-                `${row.parentGroup} · ${row.unit}${row.gstRate === null ? '' : ` · GST ${row.gstRate}%`}`
+                [
+                  row.closingQty == null || row.closingQty === ''
+                    ? null
+                    : `${Number(row.closingQty).toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${row.unit} in stock`,
+                  row.parentGroup,
+                  row.gstRate === null ? null : `GST ${row.gstRate}%`,
+                ]
+                  .filter((part) => part !== null)
+                  .join(' · ')
               }
             />
             {meta !== null && meta.total > meta.pageSize ? (
