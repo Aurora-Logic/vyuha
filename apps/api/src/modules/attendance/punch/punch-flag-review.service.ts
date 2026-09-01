@@ -80,14 +80,44 @@ export class PunchFlagReviewService {
     }
 
     if (input.action !== 'NOTE') {
-      const approval = await this.approvals.findForSubject(ctx, PUNCH_SUBJECT_TYPE, punchId);
-      if (approval !== null && (approval.status === 'PENDING' || approval.status === 'ESCALATED')) {
-        await this.approvals.decide(
-          principal,
-          approval.id,
-          input.action === 'KEEP' ? 'REJECT' : 'APPROVE',
-          input.note ?? null,
-        );
+      // The whole day, not just this punch (owner, 1 Sep 2026: "once is
+      // fine"). A late morning flags several punches, and answering for one
+      // of them while the others stay pending is how the reviewer ended up
+      // accepting the same morning four times. `raiseFlagApproval` now opens
+      // one request per day; this settles every request the day still has,
+      // including any raised before that change.
+      const decision = input.action === 'KEEP' ? ('REJECT' as const) : ('APPROVE' as const);
+      const dayPunches = await repository.findForDay(punch.employee.id, punch.attendanceDate);
+      const subjects = [punchId, ...dayPunches.map((row) => row.id).filter((id) => id !== punchId)];
+
+      for (const subjectId of subjects) {
+        const approval = await this.approvals.findForSubject(ctx, PUNCH_SUBJECT_TYPE, subjectId);
+        if (approval === null) continue;
+        if (approval.status !== 'PENDING' && approval.status !== 'ESCALATED') continue;
+        await this.approvals.decide(principal, approval.id, decision, input.note ?? null);
+      }
+
+      // And a review row for each flagged sibling, not only for the approvals.
+      // The day engine clears a flag by reading the reviews, so settling the
+      // inbox alone left the day still showing the flag that had just been
+      // accepted -- the reviewer would have seen the decision take and the day
+      // disagree with it.
+      for (const sibling of dayPunches) {
+        if (sibling.id === punchId) continue;
+        if (sibling.flags.length === 0) continue;
+        const reviewed = await this.db
+          .select({ id: punchFlagReviews.id })
+          .from(punchFlagReviews)
+          .where(and(eq(punchFlagReviews.punchId, sibling.id), eq(punchFlagReviews.orgId, principal.orgId)))
+          .limit(1);
+        if (reviewed.length > 0) continue;
+        await this.db.insert(punchFlagReviews).values({
+          orgId: principal.orgId,
+          punchId: sibling.id,
+          action: input.action,
+          note: input.note ?? 'Decided with the rest of the day',
+          decidedBy: principal.userId,
+        });
       }
       // The engine re-reads the reviews, so an accepted flag clears now rather
       // than at the next sweep. The override above already recomputed for a

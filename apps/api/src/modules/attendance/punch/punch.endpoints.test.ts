@@ -1145,3 +1145,96 @@ describe('acting on a flagged punch from Approvals (owner, 21 Aug 2026)', () => 
   });
 });
 
+
+/**
+ * Owner, 1 Sep 2026: "once someone is late why do I have to accept it 3, 4 or
+ * 5 times, once is fine."
+ *
+ * A request was opened for every flagged punch, and a person punches several
+ * times a day -- so one bad morning put four rows in the inbox about the same
+ * morning, and the four answers could disagree. Found in the live database:
+ * one employee, one day, four pending FLAGGED_PUNCH requests.
+ *
+ * The day is what a human decides about, so the day is the unit of the
+ * request. Last in the file and with its own employee: it deliberately makes
+ * several punches, and the describes above assert on their own days' counts.
+ */
+describe('one flagged day, one question', () => {
+  let token = '';
+  const punchIds: string[] = [];
+
+  const pendingForThisEmployee = async (): Promise<number> => {
+    const inbox = await harness.get<{ data: { subjectType: string; subjectId: string }[] }>(
+      '/approvals?status=PENDING',
+      { token: hrToken },
+    );
+    const mine = new Set(punchIds);
+    return inbox.body.data.filter((row) => row.subjectType === 'punch' && mine.has(row.subjectId)).length;
+  };
+
+  beforeAll(async () => {
+    const employeeId = await harness.createEmployee({ code: `PT-F-${runId}`, firstName: 'Farida' });
+    const user = await harness.createUser({
+      email: scopedEmail('punch-f'),
+      roleIds: [employeeRoleId],
+      employeeId,
+    });
+    await harness.db.insert(shiftAssignments).values({
+      orgId: ORG_ID,
+      employeeId,
+      shiftId: probeShiftId,
+      effectiveFrom: today,
+      effectiveTo: today,
+    });
+    token = (await harness.login(user.email, user.password)).token;
+  }, 60_000);
+
+  it('opens one request however many punches on the day are flagged', async () => {
+    // In is inside the window and unflagged; the shift runs for hours yet, so
+    // every OUT is outside it and flagged.
+    const first = await punchIn(token, `pt-f-in-${runId}`);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    punchIds.push(first.body.punch.id);
+
+    const firstOut = await punchIn(token, `pt-f-out-${runId}`, { type: 'OUT' });
+    expect(firstOut.status, JSON.stringify(firstOut.body)).toBe(201);
+    expect(firstOut.body.punch.flags).toContain('outside_window');
+    punchIds.push(firstOut.body.punch.id);
+
+    expect(await pendingForThisEmployee()).toBe(1);
+
+    const backIn = await punchIn(token, `pt-f-in2-${runId}`);
+    expect(backIn.status, JSON.stringify(backIn.body)).toBe(201);
+    punchIds.push(backIn.body.punch.id);
+
+    const secondOut = await punchIn(token, `pt-f-out2-${runId}`, { type: 'OUT' });
+    expect(secondOut.status, JSON.stringify(secondOut.body)).toBe(201);
+    // Flagged exactly like the first, and about the same day.
+    expect(secondOut.body.punch.flags).toContain('outside_window');
+    punchIds.push(secondOut.body.punch.id);
+
+    expect(await pendingForThisEmployee()).toBe(1);
+  });
+
+  it('one accept settles the whole day, and the day stops showing the flag', async () => {
+    const flagged = punchIds[1] ?? '';
+    const accepted = await harness.post<PunchRecord>(`/punches/${flagged}/flag-review`, {
+      token: hrToken,
+      body: { action: 'ACCEPT', note: 'Approved for the day' },
+    });
+    expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
+
+    // Nothing of this employee's is left waiting for a second answer.
+    expect(await pendingForThisEmployee()).toBe(0);
+
+    // And the day agrees with the decision that was just taken. Settling the
+    // inbox alone left it still showing the flag, because the engine clears a
+    // flag by reading the reviews and the other punches had none.
+    const day = await harness.get<{ flags: string[] }>(
+      `/attendance/days/${accepted.body.employee.id}/${accepted.body.attendanceDate}`,
+      { token: hrToken },
+    );
+    expect(day.status, day.text).toBe(200);
+    expect(day.body.flags).not.toContain('outside_window');
+  });
+});

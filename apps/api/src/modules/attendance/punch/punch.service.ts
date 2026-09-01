@@ -1411,6 +1411,17 @@ export class PunchService {
    * decides whether HR is notified decides whether a request is opened, so the
    * notification and the inbox can never disagree about what is worth looking
    * at.
+   *
+   * **One request per employee-day, not per punch** (owner, 1 Sep 2026: "once
+   * someone is late why do I have to accept it 3, 4 or 5 times, once is
+   * fine"). A person punches several times a day and a misconfigured geofence
+   * flags every one of them, so a single late morning was opening four inbox
+   * rows about the same morning. The reviewer was answering the same question
+   * four times, and the four answers could disagree.
+   *
+   * The day is the unit a human actually decides about, so the day is the unit
+   * of the request. `PunchFlagReviewService.review` settles the whole day to
+   * match.
    */
   private async raiseFlagApproval(
     principal: Principal,
@@ -1423,6 +1434,17 @@ export class PunchService {
       // One request per punch: a replayed punch returns the stored row and
       // must not open a second.
       if ((await this.approvals.findForSubject(ctx, PUNCH_SUBJECT_TYPE, punch.id)) !== null) return;
+
+      // And one per day: any sibling punch on the same day that already has an
+      // open request is this day's request. A settled one is not reopened --
+      // the reviewer has answered for the day, and a later punch on a day
+      // already decided is not a second question.
+      const siblings = await new PunchRepository(this.db, ctx).findForDay(punch.employee.id, attendanceDate);
+      for (const sibling of siblings) {
+        if (sibling.id === punch.id) continue;
+        const open = await this.approvals.findForSubject(ctx, PUNCH_SUBJECT_TYPE, sibling.id);
+        if (open !== null && (open.status === 'PENDING' || open.status === 'ESCALATED')) return;
+      }
       await this.approvals.raise(ctx, {
         type: 'FLAGGED_PUNCH',
         subjectType: PUNCH_SUBJECT_TYPE,
