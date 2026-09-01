@@ -5,7 +5,7 @@ import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 import type { Database } from '../../../platform/db/db.provider.js';
 import { employees } from '../../../platform/db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-repository.js';
-import { masterOrderBy, masterSearch } from '../../../platform/org/master-query.js';
+import { masterOrderBy, masterSearch, withRelevance } from '../../../platform/org/master-query.js';
 import { crmCompanies, crmContacts } from '../schema/index.js';
 
 /**
@@ -113,7 +113,9 @@ export class ContactRepository extends ScopedRepository<typeof crmContacts> {
     );
 
     const rows = await this.contactQuery(where)
-      .orderBy(...masterOrderBy(filters.sort, CONTACT_SORT_COLUMNS, crmContacts.name, crmContacts.id))
+      .orderBy(
+        ...withRelevance(filters.q, crmContacts.name, masterOrderBy(filters.sort, CONTACT_SORT_COLUMNS, crmContacts.name, crmContacts.id)),
+      )
       .limit(filters.limit)
       .offset(filters.offset);
 
@@ -254,7 +256,9 @@ export class CompanyRepository extends ScopedRepository<typeof crmCompanies> {
     filters: CompanyListFilters,
   ): Promise<{ rows: CompanyView[]; total: number }> {
     const rows = await this.companyQuery(this.scoped(scope, this.filterPredicate(filters)))
-      .orderBy(...masterOrderBy(filters.sort, COMPANY_SORT_COLUMNS, crmCompanies.name, crmCompanies.id))
+      .orderBy(
+        ...withRelevance(filters.q, crmCompanies.name, masterOrderBy(filters.sort, COMPANY_SORT_COLUMNS, crmCompanies.name, crmCompanies.id)),
+      )
       .limit(filters.limit)
       .offset(filters.offset);
     const total = await this.count(and(scope, this.filterPredicate(filters)));

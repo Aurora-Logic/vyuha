@@ -91,3 +91,60 @@ export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
   // party named Asha in an address in Nashik, which is the useful reading.
   return sql`(${sql.join(perWord, sql` AND `)})`;
 }
+
+/**
+ * Where the match landed, as a number to sort by.
+ *
+ * `masterSearch` is deliberately forgiving, and that is what made the list
+ * unreadable: typing "C" to find "C&S Electric" matched every party with a
+ * "c" anywhere in it -- Acme, Ambad MIDC, Bharat Cables -- and then ordered
+ * the lot alphabetically, so the row the person was typing towards sat fourth
+ * behind three they were not. A forgiving filter needs an opinionated order,
+ * or it is just a longer list.
+ *
+ * Five tiers, best first: the whole name, then the name starting with the
+ * term, then a word inside it starting with the term, then the term anywhere,
+ * then matched only once the separators were stripped out. The caller keeps
+ * its own sort after this, so equally-relevant rows stay alphabetical and
+ * paging stays deterministic.
+ *
+ * The term is used whole rather than per word: somebody typing "c&s el" means
+ * those characters in that order, and the AND-across-words rule in
+ * `masterSearch` has already decided what matches at all. This only decides
+ * what comes first.
+ */
+export function masterRelevance(term: string, column: PgColumn | SQL): SQL | undefined {
+  const trimmed = term.trim();
+  if (trimmed === '') return undefined;
+
+  const escape = (value: string): string => value.replace(/([\\%_])/gu, '\\$1');
+  const lower = trimmed.toLowerCase();
+  const plain = escape(lower);
+  const stripped = escape(lower.replace(SEPARATORS, ''));
+
+  return sql`CASE
+    WHEN lower(${column}) = ${lower} THEN 0
+    WHEN lower(${column}) LIKE ${`${plain}%`} THEN 1
+    WHEN lower(${column}) LIKE ${`% ${plain}%`} THEN 2
+    WHEN lower(${column}) LIKE ${`%${plain}%`} THEN 3
+    WHEN ${stripped} <> '' AND regexp_replace(lower(${column}), '[^a-z0-9]', '', 'g') LIKE ${`${stripped}%`} THEN 4
+    ELSE 5
+  END`;
+}
+
+/**
+ * The caller's ordering, with relevance in front of it when a term was typed.
+ *
+ * Kept as its own step rather than folded into `masterOrderBy` so that an
+ * unfiltered list is byte-for-byte the query it always was: no term, no CASE,
+ * nothing for the planner to think about on the screens that page through
+ * everything.
+ */
+export function withRelevance(
+  term: string | undefined,
+  column: PgColumn | SQL,
+  order: (SQL | PgColumn)[],
+): (SQL | PgColumn)[] {
+  const relevance = term === undefined ? undefined : masterRelevance(term, column);
+  return relevance === undefined ? order : [relevance, ...order];
+}

@@ -29,7 +29,7 @@ import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { DuplicatesService } from './duplicates.service.js';
 import { employees, parties, partyManagers, priceListEntries, stockItems, voucherLines, vouchers } from '../db/schema/index.js';
-import { masterOrderBy, masterSearch } from '../org/master-query.js';
+import { masterOrderBy, masterSearch, withRelevance } from '../org/master-query.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 
 /**
@@ -68,7 +68,16 @@ export class MastersService {
         .select()
         .from(parties)
         .where(where)
-        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays }, parties.name, parties.id))
+        // Relevance first when something was typed, then the requested sort:
+        // a forgiving filter with an alphabetical order buries the row the
+        // person is typing towards behind every other row containing a "c".
+        .orderBy(
+          ...withRelevance(
+            query.q,
+            parties.name,
+            masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays }, parties.name, parties.id),
+          ),
+        )
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(parties).where(where),
@@ -166,7 +175,13 @@ export class MastersService {
         .select()
         .from(stockItems)
         .where(where)
-        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_STOCK_ITEM_SORT, STOCK_ITEM_SORT_FIELDS), { name: stockItems.name, gstRate: stockItems.gstRate }, stockItems.name, stockItems.id))
+        .orderBy(
+          ...withRelevance(
+            query.q,
+            stockItems.name,
+            masterOrderBy(parseSort(query.sort ?? DEFAULT_STOCK_ITEM_SORT, STOCK_ITEM_SORT_FIELDS), { name: stockItems.name, gstRate: stockItems.gstRate }, stockItems.name, stockItems.id),
+          ),
+        )
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(stockItems).where(where),

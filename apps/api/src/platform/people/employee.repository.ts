@@ -19,6 +19,7 @@ import {
   locations,
 } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
+import { withRelevance } from '../org/master-query.js';
 import { employeeNameSql } from './employee-name.js';
 
 /**
@@ -142,7 +143,15 @@ export class EmployeeRepository extends ScopedRepository<typeof employees> {
     // pagination bug the user sees as a blank page three.
     const rows = await this.joinedSelect()
       .where(where)
-      .orderBy(...this.orderBy(filters.sort))
+      // A typed term ranks before the requested sort, so "men" puts Asha Menon
+      // above everyone who merely has those letters somewhere.
+      .orderBy(
+        ...withRelevance(
+          filters.q,
+          employeeNameSql(employees.firstName, employees.lastName),
+          this.orderBy(filters.sort),
+        ),
+      )
       .limit(filters.limit)
       .offset(filters.offset);
 

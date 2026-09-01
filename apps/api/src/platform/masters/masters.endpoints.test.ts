@@ -355,3 +355,69 @@ describe('finding a party the way somebody actually types', () => {
     expect(all.length).toBeGreaterThanOrEqual(0);
   });
 });
+
+/**
+ * Owner, 1 Sep 2026: "eg C&S electic I can just search by C & it shall show
+ * results". It did show results -- every party with a "c" anywhere in it, in
+ * alphabetical order, so the one being typed towards sat behind three that
+ * were not. A forgiving filter needs an opinionated order or it is just a
+ * longer list.
+ *
+ * Every name below is chosen so that alphabetical order and relevance order
+ * DISAGREE. An earlier draft of these tests used names where the two happened
+ * to coincide, and all four passed with the ranking switched off -- which is
+ * to say they tested nothing.
+ */
+describe('what a search puts first', () => {
+  beforeAll(async () => {
+    await harness.db.execute(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group)
+      VALUES
+        (${ORG_ID}, ${connectionId}, 'C&S Electric', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Bharat C&S Spares', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Zenith Cables', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Alpha Zenith Traders', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Amazenco Supply', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'AAA Zenith Cables Ltd', 'Sundry Debtors')
+    `);
+  });
+
+  const ranked = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}&pageSize=100`,
+      { token: adminToken },
+    );
+    expect(res.status).toBe(200);
+    // Deliberately unsorted: the order IS the assertion.
+    return res.body.data.map((p) => p.name);
+  };
+
+  it('ranks starts-with above word-start above buried, against the alphabet', async () => {
+    // Alphabetically this is exactly backwards: Alpha, Amazenco, Zenith.
+    const names = (await ranked('zen')).filter((name) => name.toLowerCase().includes('zen'));
+    expect(names).toEqual([
+      'Zenith Cables',
+      'AAA Zenith Cables Ltd',
+      'Alpha Zenith Traders',
+      'Amazenco Supply',
+    ]);
+  });
+
+  it("puts the owner's own example first, which the alphabet does not", async () => {
+    // "Bharat C&S Spares" sorts first alphabetically and matches just as well.
+    expect((await ranked('c&s'))[0]).toBe('C&S Electric');
+  });
+
+  it('prefers the name that is exactly the term over a longer one containing it', async () => {
+    // Both hold both words, so both match; "AAA Zenith Cables Ltd" sorts first
+    // alphabetically and would have been first before this change.
+    const names = await ranked('zenith cables');
+    expect(names).toEqual(['Zenith Cables', 'AAA Zenith Cables Ltd']);
+  });
+
+  it('still ranks when the separators were typed differently', async () => {
+    // "cselectric" reaches C&S Electric through the stripped branch, and it
+    // must still come before a party that merely contains those letters.
+    expect((await ranked('cs electric'))[0]).toBe('C&S Electric');
+  });
+});
