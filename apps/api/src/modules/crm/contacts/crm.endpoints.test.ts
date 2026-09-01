@@ -92,6 +92,36 @@ describe('companies and contacts, as an administrator', () => {
     expect(await harness.waitForAuditAction('crm.company.created')).toBe(true);
   });
 
+  it('filters the company list on the server, which is the only way the picker reaches past a page', async () => {
+    // CompanyPicker holds 25 rows and types at the server for the rest. If `q`
+    // ever stopped filtering here, the picker would silently go back to
+    // offering whatever the first page happened to hold.
+    const far = await harness.post<CompanyView>('/crm/companies', {
+      token: adminToken,
+      body: { name: 'Zenith Fabricators', city: 'Nashik' },
+    });
+    expect(far.status).toBe(201);
+
+    const byName = await harness.get<Paginated<CompanyView>>('/crm/companies?q=zenith', { token: adminToken });
+    expect(byName.status).toBe(200);
+    expect(byName.body.data.map((c) => c.name)).toEqual(['Zenith Fabricators']);
+
+    // The endpoint promises name, city and website, and the picker's search
+    // placeholder tells the user so.
+    const byCity = await harness.get<Paginated<CompanyView>>('/crm/companies?q=Pune', { token: adminToken });
+    expect(byCity.body.data.map((c) => c.name)).toContain('Acme Trading Co');
+
+    const byWebsite = await harness.get<Paginated<CompanyView>>('/crm/companies?q=acme.example', {
+      token: adminToken,
+    });
+    expect(byWebsite.body.data.map((c) => c.name)).toContain('Acme Trading Co');
+
+    const none = await harness.get<Paginated<CompanyView>>('/crm/companies?q=nobodyhasthisname', {
+      token: adminToken,
+    });
+    expect(none.body.data).toEqual([]);
+  });
+
   it('creates a contact against it, lower-casing the email and keeping the phone as typed', async () => {
     const created = await harness.post<ContactView>('/crm/contacts', {
       token: adminToken,
