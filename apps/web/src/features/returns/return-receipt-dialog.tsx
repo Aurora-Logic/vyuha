@@ -15,7 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { PartyPicker } from '@/features/masters/party-picker';
-import { ResponsiveDialog, ResponsiveDialogActions } from '@/features/sales/responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { useSalesOrder, useSalesOrders } from '@/features/sales/use-estimates';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { usePermission } from '@/lib/session/permissions';

@@ -15,7 +15,7 @@ import { PERMISSIONS } from '@vyuha/shared';
 import { PhotoPicker } from '@/components/shared/photo-picker';
 import { TextField } from './dispatch-dialog';
 import type { PreparedPhoto } from '@/components/shared/prepare-photo';
-import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import type { Dispatch, DispatchNotification } from './types';
 import { useAttachmentUrl, useDeliverDispatch, useMarkNotification } from './use-dispatches';
 

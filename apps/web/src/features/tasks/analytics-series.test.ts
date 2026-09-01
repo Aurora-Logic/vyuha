@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MIN_OPEN_FOR_LOAD_INSIGHT,
+  ageingSeries,
+  customerSeries,
+  hasAgeing,
   columnSeries,
   flowSeries,
   loadSeries,
@@ -30,6 +33,8 @@ function view(overrides: Partial<TaskAnalyticsView> = {}): TaskAnalyticsView {
     assignees: [],
     priorities: [],
     flow: [],
+    ageing: [],
+    customers: [],
     ...overrides,
   };
 }
@@ -153,5 +158,57 @@ describe('taskInsights', () => {
   it('says nothing about flow when the period is empty', () => {
     const insights = taskInsights(view({ totals: { ...view().totals, open: 3 }, flow: [{ weekStart: '2026-08-17', raised: 0, closed: 0 }] }));
     expect(insights.some((line) => line.includes('backlog'))).toBe(false);
+  });
+});
+
+describe('ageingSeries', () => {
+  it('returns every bucket in age order, including the empty ones', () => {
+    // An absent "over a month" bar and a zero-height one mean opposite
+    // things, and only one of them is good news.
+    const points = ageingSeries([{ bucket: 'OLDER', openCount: 4, overdueCount: 1 }]);
+    expect(points.map((point) => point.person)).toEqual([
+      'Under a week',
+      '1 to 2 weeks',
+      '2 to 4 weeks',
+      'Over a month',
+    ]);
+    expect(points[3]).toEqual({ person: 'Over a month', onTime: 3, overdue: 1 });
+    expect(points[0]).toEqual({ person: 'Under a week', onTime: 0, overdue: 0 });
+  });
+
+  it('stacks to the open count, never past it', () => {
+    const points = ageingSeries([{ bucket: 'WEEK', openCount: 9, overdueCount: 2 }]);
+    expect((points[0]?.onTime ?? 0) + (points[0]?.overdue ?? 0)).toBe(9);
+  });
+
+  it('never draws a negative bar, however the counts disagree', () => {
+    const points = ageingSeries([{ bucket: 'WEEK', openCount: 1, overdueCount: 5 }]);
+    expect(points[0]?.onTime).toBe(0);
+  });
+});
+
+describe('hasAgeing', () => {
+  it('is false for an empty backlog and for buckets that are all zero', () => {
+    expect(hasAgeing([])).toBe(false);
+    expect(hasAgeing([{ bucket: 'WEEK', openCount: 0, overdueCount: 0 }])).toBe(false);
+  });
+
+  it('is true the moment anything is open', () => {
+    expect(hasAgeing([{ bucket: 'WEEK', openCount: 1, overdueCount: 0 }])).toBe(true);
+  });
+});
+
+describe('customerSeries', () => {
+  it('keeps the server order, which is busiest first', () => {
+    const points = customerSeries([
+      { partyId: 'a', partyName: 'S P Enterprises', openCount: 6, overdueCount: 2 },
+      { partyId: 'b', partyName: 'C&S Electric', openCount: 3, overdueCount: 0 },
+    ]);
+    expect(points.map((point) => point.person)).toEqual(['S P Enterprises', 'C&S Electric']);
+    expect(points[0]).toEqual({ person: 'S P Enterprises', onTime: 4, overdue: 2 });
+  });
+
+  it('has nothing to draw when no open task names a customer', () => {
+    expect(customerSeries([])).toEqual([]);
   });
 });

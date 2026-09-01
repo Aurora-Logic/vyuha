@@ -11,8 +11,9 @@ import { useTaskCardFields, type TaskCardField } from './card-fields';
 import { EMPTY_VALUE } from '@/lib/format';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { PersonChip } from '@/components/shared/person';
+import { CollapsibleSearch } from '@/components/shared/collapsible-search';
+import { FilterButton, FilterChips, FilterField, type FilterChip } from '@/components/shared/filter-bar';
 import { SavedViews } from '@/components/shared/saved-views';
-import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { useUrlSort } from '@/components/shared/use-url-sort';
 import { Badge } from '@/components/ui/badge';
@@ -298,6 +299,40 @@ export function TasksPage() {
       : list.isSuccess && rows.length === 0;
   const filtered = Boolean(q) || due !== 'open' || !mine || includeClosed || priority !== undefined || assigneeParam !== '';
 
+  /**
+   * What is actually filtered, as chips and as the count on the Filter button.
+   *
+   * One list drives both, so the badge can never say two while three chips are
+   * on screen. Search is deliberately not here: it has its own visible field
+   * with its own clear, and a chip for it would be the same filter twice.
+   */
+  const activeFilters: FilterChip[] = [
+    ...(mine
+      ? []
+      : [{ key: 'all', label: 'Whose', value: 'Everyone', onClear: () => { setParam('all', null); } }]),
+    ...(due === 'open'
+      ? []
+      : [{ key: 'due', label: 'Due', value: DUE_LABELS[due], onClear: () => { setParam('due', null); } }]),
+    ...(priority === undefined
+      ? []
+      : [{ key: 'priority', label: 'Priority', value: TASK_PRIORITY_LABELS[priority], onClear: () => { setParam('priority', null); } }]),
+    ...(assigneeParam === ''
+      ? []
+      : [{
+          key: 'assignee',
+          label: 'Assignee',
+          value: (owners.data ?? []).find((o) => o.id === assigneeParam)?.name ?? 'Someone',
+          onClear: () => { setParam('assignee', null); },
+        }]),
+    ...(includeClosed
+      ? [{ key: 'closed', label: 'Closed', value: 'Shown', onClear: () => { setParam('closed', null); } }]
+      : []),
+  ];
+
+  const clearFilters = () => {
+    for (const chip of activeFilters) chip.onClear();
+  };
+
   return (
     <>
       <PageHeader
@@ -311,109 +346,126 @@ export function TasksPage() {
         }
       />
 
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Bounded. It had no width of its own, so in a flex row it took every
-              pixel the filters left and the toolbar read as one long bar with
-              some controls after it (owner, 1 Sep 2026). Notion gives search a
-              small fixed slot beside its filters; on a phone it still takes the
-              full row, where there is nothing to share it with. */}
-          <SearchField
+      <div className="flex flex-col gap-3">
+        {/* One row, and mostly empty (owner, 1 Sep 2026). Read off Notion: a
+            few icon-sized controls, the filter editor behind one of them, and
+            what is actually filtered shown as chips underneath -- so a screen
+            with nothing filtered carries no filter furniture at all. It was a
+            search box, a toggle, three dropdowns and a switch, always, wrapped
+            onto two rows. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <CollapsibleSearch
             id="task-search"
             label="Search tasks"
-            className="w-full sm:w-56"
             value={draft}
             onValueChange={setDraft}
             placeholder="Title or notes"
           />
 
-          <ToggleGroup
-            variant="outline"
-            aria-label="Whose tasks"
-            value={[mine ? 'mine' : 'all']}
-            onValueChange={(value) => {
-              const next = value[0];
-              if (next === 'mine' || next === 'all') setParam('all', next === 'all' ? '1' : null);
-            }}
+          <FilterButton
+            active={activeFilters.length}
+            onClearAll={clearFilters}
+            description="Narrows every view of this list, including the board and the calendar."
           >
-            <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
-            <ToggleGroupItem value="all">Everyone</ToggleGroupItem>
-          </ToggleGroup>
+            <FilterField label="Whose">
+              <ToggleGroup
+                variant="outline"
+                aria-label="Whose tasks"
+                value={[mine ? 'mine' : 'all']}
+                onValueChange={(value) => {
+                  const next = value[0];
+                  if (next === 'mine' || next === 'all') setParam('all', next === 'all' ? '1' : null);
+                }}
+              >
+                <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
+                <ToggleGroupItem value="all">Everyone</ToggleGroupItem>
+              </ToggleGroup>
+            </FilterField>
 
-          <Select
-            value={due}
-            onValueChange={(value: string | null) => {
-              setParam('due', value === null || value === 'open' ? null : value);
-            }}
-          >
-            <SelectTrigger className="w-36" aria-label="Due">
-              <SelectValue>{(value: TaskDueFilter) => DUE_LABELS[value]}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {TASK_DUE_FILTERS.map((f) => (
-                <SelectItem key={f} value={f}>
-                  {DUE_LABELS[f]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <FilterField label="Due" htmlFor="task-filter-due">
+              <Select
+                value={due}
+                onValueChange={(value: string | null) => {
+                  setParam('due', value === null || value === 'open' ? null : value);
+                }}
+              >
+                <SelectTrigger id="task-filter-due" aria-label="Due">
+                  <SelectValue>{(value: TaskDueFilter) => DUE_LABELS[value]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {TASK_DUE_FILTERS.map((f) => (
+                    <SelectItem key={f} value={f}>
+                      {DUE_LABELS[f]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
 
-          <Select
-            value={priority ?? 'all'}
-            onValueChange={(value: string | null) => {
-              setParam('priority', value === null || value === 'all' ? null : value);
-            }}
-          >
-            <SelectTrigger className="w-32" aria-label="Priority">
-              <SelectValue>{(value: string) => (value === 'all' ? 'Any priority' : TASK_PRIORITY_LABELS[value as TaskPriority])}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any priority</SelectItem>
-              {TASK_PRIORITIES.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {TASK_PRIORITY_LABELS[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <FilterField label="Priority" htmlFor="task-filter-priority">
+              <Select
+                value={priority ?? 'all'}
+                onValueChange={(value: string | null) => {
+                  setParam('priority', value === null || value === 'all' ? null : value);
+                }}
+              >
+                <SelectTrigger id="task-filter-priority" aria-label="Priority">
+                  <SelectValue>{(value: string) => (value === 'all' ? 'Any priority' : TASK_PRIORITY_LABELS[value as TaskPriority])}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any priority</SelectItem>
+                  {TASK_PRIORITIES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {TASK_PRIORITY_LABELS[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
 
-          {mine ? null : (
-            <Select
-              value={assigneeParam === '' ? 'all' : assigneeParam}
-              onValueChange={(value: string | null) => {
-                setParam('assignee', value === null || value === 'all' ? null : value);
-              }}
-            >
-              <SelectTrigger className="w-40" aria-label="Assignee">
-                <SelectValue>{(value: string) => (value === 'all' ? 'Any assignee' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Assignee'))}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Any assignee</SelectItem>
-                {(owners.data ?? []).map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+            {/* "Mine" already answers who, so the picker would be a control
+                that can only contradict the one above it. */}
+            {mine ? null : (
+              <FilterField label="Assignee" htmlFor="task-filter-assignee">
+                <Select
+                  value={assigneeParam === '' ? 'all' : assigneeParam}
+                  onValueChange={(value: string | null) => {
+                    setParam('assignee', value === null || value === 'all' ? null : value);
+                  }}
+                >
+                  <SelectTrigger id="task-filter-assignee" aria-label="Assignee">
+                    <SelectValue>{(value: string) => (value === 'all' ? 'Any assignee' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Assignee'))}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any assignee</SelectItem>
+                    {(owners.data ?? []).map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FilterField>
+            )}
 
-          <Label htmlFor="tasks-closed" className="flex items-center gap-2 text-sm font-normal">
-            <Switch
-              id="tasks-closed"
-              checked={includeClosed}
-              onCheckedChange={(next: boolean) => {
-                setParam('closed', next ? '1' : null);
-              }}
-            />
-            Show closed
-          </Label>
+            <FilterField label="Closed tasks" htmlFor="tasks-closed">
+              <Label htmlFor="tasks-closed" className="flex items-center gap-2 text-sm font-normal">
+                <Switch
+                  id="tasks-closed"
+                  checked={includeClosed}
+                  onCheckedChange={(next: boolean) => {
+                    setParam('closed', next ? '1' : null);
+                  }}
+                />
+                Show closed
+              </Label>
+            </FilterField>
+          </FilterButton>
 
-          <div className="ml-auto flex items-center gap-2">
-            {/* REQ-V-13. Beside the saved views and before "Columns", which
-                configures the board's lanes -- two different things, and the
-                labels say which is which: Fields is what a card shows,
-                Columns is what the board is made of. */}
+          <div className="ml-auto flex items-center gap-1.5">
+            {/* REQ-V-13. Fields is what a card shows; Columns is what the
+                board is made of -- two different things, and the labels say
+                which is which. */}
             <CardFieldsMenu />
             <SavedViews
               storageKey="vyuha.views.tasks"
@@ -434,10 +486,10 @@ export function TasksPage() {
                 Columns
               </Button>
             ) : null}
-            {/* Five layouts, the way Notion's Layout picker offers them.
-                Still hidden on a phone: six icon buttons in a wrapped toolbar
-                is most of a 360px row, and the board and timeline are not
-                what anyone reaches for on one. */}
+            {/* Five layouts, the way Notion's Layout picker offers them. Still
+                hidden on a phone: five icon buttons plus the rest is most of a
+                360px row, and the board and timeline are not what anyone
+                reaches for on one. */}
             {isMobile ? null : (
               <ToggleGroup
                 variant="outline"
@@ -471,6 +523,8 @@ export function TasksPage() {
             )}
           </div>
         </div>
+
+        <FilterChips chips={activeFilters} />
 
         {query.isPending ? <ListSkeleton rows={4} label="Loading tasks" /> : null}
 

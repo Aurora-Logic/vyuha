@@ -7,7 +7,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { z } from 'zod';
-import { TASK_PRIORITIES } from '@vyuha/shared';
+import { TASK_AGE_BUCKETS, TASK_PRIORITIES } from '@vyuha/shared';
 import type {
   CreateBoardColumnInput,
   CreateTaskInput,
@@ -160,6 +160,22 @@ const taskAnalyticsSchema = z.object({
   ),
   priorities: z.array(z.object({ priority: z.enum(TASK_PRIORITIES), openCount: z.number() })),
   flow: z.array(z.object({ weekStart: z.string(), raised: z.number(), closed: z.number() })),
+  // Defaulted, so a client built before the server shipped these still reads
+  // a dashboard. Declared at all because zod strips what it does not declare
+  // -- the attachment count rendered as a blank cell for exactly that reason.
+  ageing: z
+    .array(z.object({ bucket: z.enum(TASK_AGE_BUCKETS), openCount: z.number(), overdueCount: z.number() }))
+    .default([]),
+  customers: z
+    .array(
+      z.object({
+        partyId: z.string(),
+        partyName: z.string(),
+        openCount: z.number(),
+        overdueCount: z.number(),
+      }),
+    )
+    .default([]),
 });
 
 export type TaskAnalytics = z.infer<typeof taskAnalyticsSchema>;

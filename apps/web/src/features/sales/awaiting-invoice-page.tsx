@@ -25,7 +25,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { InvoiceDialog } from './invoice-dialog';
-import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { trimZeros, type AwaitingInvoiceEntry, type UnlinkedInvoice } from './types';
 import { useSalesOrder } from './use-estimates';
 import { useAwaitingInvoice, useLinkInvoice, useUnlinkedInvoices } from './use-fulfilment';

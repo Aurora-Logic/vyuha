@@ -2,6 +2,8 @@ import {
   BroadcastIcon,
   CheckSquareIcon,
   ClockCountdownIcon,
+  BuildingsIcon,
+  HourglassIcon,
   KanbanIcon,
   SlidersHorizontalIcon,
   UsersThreeIcon,
@@ -19,8 +21,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { EMPTY_VALUE } from '@/lib/format';
 
-import { AssigneeLoadChart, ColumnLoadChart, FlowChart } from './analytics-charts';
-import { columnSeries, flowSeries, loadSeries, prioritySeries, readableDaysToClose, taskInsights } from './analytics-series';
+import { AgeingChart, AssigneeLoadChart, ColumnLoadChart, CustomerLoadChart, FlowChart } from './analytics-charts';
+import {
+  ageingSeries,
+  columnSeries,
+  customerSeries,
+  flowSeries,
+  hasAgeing,
+  loadSeries,
+  prioritySeries,
+  readableDaysToClose,
+  taskInsights,
+} from './analytics-series';
 import { BlockFigures, BlockNumber, DashboardBlock } from './dashboard-block';
 import { useTaskDashboardBlocks, type TaskDashboardBlock } from './dashboard-blocks';
 import { DashboardBlocksMenu } from './dashboard-blocks-menu';
@@ -121,6 +133,8 @@ function DashboardGrid({
   const columns = columnSeries(data.columns);
   const flow = flowSeries(data.flow);
   const load = loadSeries(data.assignees);
+  const ageing = ageingSeries(data.ageing);
+  const customers = customerSeries(data.customers);
   const priorities = prioritySeries(data.priorities);
   const insights = taskInsights(data);
   const daysToClose = readableDaysToClose(data.totals);
@@ -233,6 +247,28 @@ function DashboardGrid({
           <p className="text-muted-foreground text-sm">No open tasks to attribute.</p>
         ) : (
           <AssigneeLoadChart points={load} animate={animate} />
+        )}
+      </DashboardBlock>
+    ),
+
+    ageing: (
+      <DashboardBlock icon={<HourglassIcon />} label="How old the backlog is" note="open tasks by age">
+        {!hasAgeing(data.ageing) ? (
+          <p className="text-muted-foreground text-sm">Nothing is open, so there is no backlog to age.</p>
+        ) : (
+          <AgeingChart points={ageing} animate={animate} />
+        )}
+      </DashboardBlock>
+    ),
+
+    customers: (
+      <DashboardBlock icon={<BuildingsIcon />} label="Which customer it is for" note="open tasks, busiest first">
+        {customers.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No open task names a customer yet. Set one on a task and it appears here.
+          </p>
+        ) : (
+          <CustomerLoadChart points={customers} animate={animate} />
         )}
       </DashboardBlock>
     ),

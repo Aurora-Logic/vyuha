@@ -31,6 +31,8 @@ export const TASK_DASHBOARD_BLOCKS = [
   { key: 'insights', label: 'What the numbers say' },
   { key: 'columns', label: 'Where work is sitting' },
   { key: 'load', label: 'Who is carrying it' },
+  { key: 'ageing', label: 'How old the backlog is' },
+  { key: 'customers', label: 'Which customer it is for' },
   { key: 'flow', label: 'Raised and closed' },
 ] as const;
 

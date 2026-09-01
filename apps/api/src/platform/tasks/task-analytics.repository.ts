@@ -1,9 +1,17 @@
-import type { TaskAssigneeLoad, TaskColumnLoad, TaskFlowWeek, TaskPriority } from '@vyuha/shared';
+import type {
+  TaskAgeBucket,
+  TaskAgeLoad,
+  TaskAssigneeLoad,
+  TaskColumnLoad,
+  TaskCustomerLoad,
+  TaskFlowWeek,
+  TaskPriority,
+} from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
-import { employees, taskBoardColumns, tasks } from '../db/schema/index.js';
+import { employees, parties, taskBoardColumns, tasks } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
 
 /**
@@ -108,6 +116,66 @@ export class TaskAnalyticsRepository extends ScopedRepository<typeof tasks> {
       .leftJoin(assignee, eq(assignee.id, tasks.assigneeId))
       .where(this.scoped(scope, sql`${IS_OPEN}`))
       .groupBy(tasks.assigneeId, assignee.id, assignee.firstName, assignee.lastName)
+      .orderBy(sql`count(*) desc`)
+      .limit(limit);
+  }
+
+  /**
+   * How long the open work has been open.
+   *
+   * The count of open tasks cannot answer this and it is the question that
+   * matters: seventeen open is fine if they all arrived this week and a
+   * problem if nine have been sitting a month. Bucketed in SQL rather than in
+   * the browser so the page carries four rows instead of every open task.
+   *
+   * Ages are whole days from `created_at` in the organisation's timezone --
+   * the same clock the flow chart's weeks are cut on, so "this week" means
+   * one thing across the dashboard.
+   */
+  async ageing(scope: SQL, today: string, timezone: string): Promise<TaskAgeLoad[]> {
+    const age = sql`(${today}::date - (${tasks.createdAt} at time zone ${timezone})::date)`;
+    const bucket = sql<TaskAgeBucket>`CASE
+      WHEN ${age} < 7 THEN 'WEEK'
+      WHEN ${age} < 14 THEN 'FORTNIGHT'
+      WHEN ${age} < 30 THEN 'MONTH'
+      ELSE 'OLDER'
+    END`;
+    return this.db
+      .select({
+        bucket,
+        openCount: sql<number>`count(*)::int`,
+        overdueCount: sql<number>`count(*) filter (where ${tasks.dueDate} < ${today}::date)::int`,
+      })
+      .from(tasks)
+      .where(this.scoped(scope, sql`${IS_OPEN}`))
+      // By ordinal, not by the expression. Repeating a CASE that carries
+      // bound parameters renumbers its placeholders in the GROUP BY, and
+      // Postgres answers 500 rather than grouping -- the same trap the CFO
+      // aggregates hit.
+      .groupBy(sql`1`);
+  }
+
+  /**
+   * Open tasks per customer.
+   *
+   * "Who is carrying it" answers which colleague; this answers which account,
+   * which is the one an owner asks about a week before a renewal. Tasks with
+   * no customer are left out rather than grouped as "None": they are the
+   * internal work, and a bar for them would tower over every real account and
+   * say nothing.
+   */
+  async customers(scope: SQL, today: string, limit: number): Promise<TaskCustomerLoad[]> {
+    return this.db
+      .select({
+        partyId: sql<string>`${tasks.partyId}`,
+        partyName: sql<string>`${parties.name}`,
+        openCount: sql<number>`count(*)::int`,
+        overdueCount: sql<number>`count(*) filter (where ${tasks.dueDate} < ${today}::date)::int`,
+      })
+      .from(tasks)
+      .innerJoin(parties, eq(parties.id, tasks.partyId))
+      .where(this.scoped(scope, sql`${IS_OPEN}`))
+      .groupBy(tasks.partyId, parties.name)
       .orderBy(sql`count(*) desc`)
       .limit(limit);
   }

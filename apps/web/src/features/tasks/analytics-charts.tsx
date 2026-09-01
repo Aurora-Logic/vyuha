@@ -173,6 +173,85 @@ export function AssigneeLoadChart({ points, animate }: ChartProps<LoadPoint>) {
   );
 }
 
+/**
+ * How old the open work is, and how much of each age is already late.
+ *
+ * The same stacked shape as the assignee chart, deliberately: they answer two
+ * halves of one question -- who is carrying it and how long they have been --
+ * and a reader should not have to learn a second grammar to read the second
+ * one.
+ */
+export function AgeingChart({ points, animate }: ChartProps<LoadPoint>) {
+  return (
+    <ChartContainer config={LOAD_CONFIG} className="aspect-auto h-48 w-full min-w-0 sm:h-52">
+      <BarChart accessibilityLayer data={[...points]} layout="vertical" margin={ROW_MARGIN}>
+        <CartesianGrid horizontal={false} />
+        <XAxis type="number" hide allowDecimals={false} />
+        <YAxis type="category" dataKey="person" width={CATEGORY_WIDTH} tickLine={false} axisLine={false} tick={TICK} />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar
+          dataKey="onTime"
+          stackId="age"
+          fill="var(--color-onTime)"
+          maxBarSize={18}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        />
+        <Bar
+          dataKey="overdue"
+          stackId="age"
+          fill="var(--color-overdue)"
+          radius={[0, 4, 4, 0]}
+          maxBarSize={18}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        >
+          <LabelList {...stackTotal([...points], ['onTime', 'overdue'])} />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+/** Which customer the open work belongs to, late shown inside the bar. */
+export function CustomerLoadChart({ points, animate }: ChartProps<LoadPoint>) {
+  return (
+    <ChartContainer config={LOAD_CONFIG} className="aspect-auto h-52 w-full min-w-0 sm:h-56">
+      <BarChart accessibilityLayer data={[...points]} layout="vertical" margin={ROW_MARGIN}>
+        <CartesianGrid horizontal={false} />
+        <XAxis type="number" hide allowDecimals={false} />
+        <YAxis type="category" dataKey="person" width={CATEGORY_WIDTH} tickLine={false} axisLine={false} tick={TICK} />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar
+          dataKey="onTime"
+          stackId="customer"
+          fill="var(--color-onTime)"
+          maxBarSize={18}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        />
+        <Bar
+          dataKey="overdue"
+          stackId="customer"
+          fill="var(--color-overdue)"
+          radius={[0, 4, 4, 0]}
+          maxBarSize={18}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        >
+          <LabelList {...stackTotal([...points], ['onTime', 'overdue'])} />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
 /** The loading state, sized like the chart it replaces so the page does not reflow when data lands. */
 export function ChartSkeleton({ className }: { readonly className?: string }) {
   return <Skeleton className={className ?? 'h-48 w-full sm:h-52'} />;

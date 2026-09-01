@@ -18,7 +18,7 @@ import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { DateField } from '@/features/attendance/pickers';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { PartyPicker } from '@/features/masters/party-picker';
-import { ResponsiveDialog, ResponsiveDialogActions } from '@/features/sales/responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { formatDate, formatMoney } from '@/lib/format';
 
 import { useOpenBills, useTakePromise } from './use-collections';

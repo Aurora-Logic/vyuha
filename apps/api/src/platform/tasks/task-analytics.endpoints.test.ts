@@ -176,3 +176,41 @@ describe('a count is not a way around the scope', () => {
     expect((await harness.get('/tasks/analytics')).status).toBe(401);
   });
 });
+
+/**
+ * Owner, 1 Sep 2026: "In Task Dashboard add more charts". Two aggregates the
+ * page could not previously draw -- how old the open work is, and which
+ * customer is generating it.
+ */
+describe('how old the backlog is, and whose it is', () => {
+  it('buckets open work by age, and everything just raised is under a week', async () => {
+    const { body } = await harness.get<TaskAnalyticsView>('/tasks/analytics', { token: adminToken });
+    const week = body.ageing.find((row) => row.bucket === 'WEEK');
+    // The fixture is created in this run, so every open task is minutes old.
+    expect(week?.openCount).toBe(body.totals.open);
+    expect(body.ageing.every((row) => row.overdueCount <= row.openCount)).toBe(true);
+  });
+
+  it('counts the late ones inside the bucket rather than beside it', async () => {
+    const { body } = await harness.get<TaskAnalyticsView>('/tasks/analytics', { token: adminToken });
+    const overdue = body.ageing.reduce((sum, row) => sum + row.overdueCount, 0);
+    expect(overdue).toBe(body.totals.overdue);
+  });
+
+  it('names a customer only once a task actually carries one', async () => {
+    const before = await harness.get<TaskAnalyticsView>('/tasks/analytics', { token: adminToken });
+    // Nothing in the fixture has a party, and internal work must not be
+    // grouped into a "None" bar that towers over every real account.
+    expect(before.body.customers).toEqual([]);
+  });
+
+  it('keeps the age buckets inside the caller‘s own scope', async () => {
+    // The scope property this suite exists for, extended to the new figures:
+    // a self-scoped viewer's buckets must sum to their own open count, not
+    // to the organisation's.
+    const { body } = await harness.get<TaskAnalyticsView>('/tasks/analytics', { token: meeraToken });
+    const open = body.ageing.reduce((sum, row) => sum + row.openCount, 0);
+    expect(open).toBe(body.totals.open);
+    expect(open).toBeLessThan(6);
+  });
+});

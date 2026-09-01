@@ -1,8 +1,12 @@
 import {
   MIN_CLOSED_FOR_AVERAGE,
+  TASK_AGE_BUCKETS,
+  TASK_AGE_BUCKET_LABELS,
   TASK_PRIORITY_LABELS,
+  type TaskAgeLoad,
   type TaskAnalyticsView,
   type TaskAssigneeLoad,
+  type TaskCustomerLoad,
   type TaskColumnLoad,
   type TaskFlowWeek,
 } from '@vyuha/shared';
@@ -170,4 +174,51 @@ export function prioritySeries(
     label: TASK_PRIORITY_LABELS[priority],
     count: byPriority.get(priority) ?? 0,
   }));
+}
+
+/**
+ * How old the open work is (REQ-V-11, owner 1 Sep 2026: "add more charts").
+ *
+ * The question: *is the backlog turning over, or silting up?* A count of
+ * seventeen open says nothing about that; seventeen of which nine are over a
+ * month old says all of it.
+ *
+ * Every bucket is returned, including the empty ones, and in age order. An
+ * absent "over a month" bar and a zero-height one mean opposite things, and
+ * only one of them is good news.
+ */
+export function ageingSeries(ageing: readonly TaskAgeLoad[]): LoadPoint[] {
+  const byBucket = new Map(ageing.map((row) => [row.bucket, row]));
+  return TASK_AGE_BUCKETS.map((bucket) => {
+    const row = byBucket.get(bucket);
+    const open = row?.openCount ?? 0;
+    const overdue = row?.overdueCount ?? 0;
+    return {
+      person: TASK_AGE_BUCKET_LABELS[bucket],
+      // Stacked to the open total, the same shape the assignee chart uses:
+      // overdue is part of open, never a second number beside it.
+      onTime: Math.max(0, open - overdue),
+      overdue,
+    };
+  });
+}
+
+/**
+ * Which customer the open work belongs to.
+ *
+ * "Who is carrying it" answers which colleague; this answers which account.
+ * The server returns only tasks that name a customer and only the busiest
+ * few, so this shapes rather than filters.
+ */
+export function customerSeries(customers: readonly TaskCustomerLoad[]): LoadPoint[] {
+  return customers.map((row) => ({
+    person: row.partyName,
+    onTime: Math.max(0, row.openCount - row.overdueCount),
+    overdue: row.overdueCount,
+  }));
+}
+
+/** Whether the ageing chart has anything to say, or the backlog is empty. */
+export function hasAgeing(ageing: readonly TaskAgeLoad[]): boolean {
+  return ageing.some((row) => row.openCount > 0);
 }

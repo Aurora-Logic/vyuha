@@ -271,6 +271,39 @@ export interface TaskFlowWeek {
   readonly closed: number;
 }
 
+/**
+ * How long the open work has been open (REQ-V-11).
+ *
+ * The backlog's age is the question a count of it cannot answer: seventeen
+ * open is fine if they arrived this week and a problem if nine have been
+ * sitting a month. The buckets are fixed rather than configurable because a
+ * comparison is only readable when everyone is reading the same buckets.
+ */
+export const TASK_AGE_BUCKETS = ['WEEK', 'FORTNIGHT', 'MONTH', 'OLDER'] as const;
+export type TaskAgeBucket = (typeof TASK_AGE_BUCKETS)[number];
+
+export const TASK_AGE_BUCKET_LABELS: Record<TaskAgeBucket, string> = {
+  WEEK: 'Under a week',
+  FORTNIGHT: '1 to 2 weeks',
+  MONTH: '2 to 4 weeks',
+  OLDER: 'Over a month',
+};
+
+export interface TaskAgeLoad {
+  readonly bucket: TaskAgeBucket;
+  readonly openCount: number;
+  /** Of those, past their due date. */
+  readonly overdueCount: number;
+}
+
+/** Open tasks per customer: which account is actually generating the work. */
+export interface TaskCustomerLoad {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly openCount: number;
+  readonly overdueCount: number;
+}
+
 export interface TaskAnalyticsView {
   readonly totals: {
     readonly open: number;
@@ -286,6 +319,8 @@ export interface TaskAnalyticsView {
   readonly assignees: readonly TaskAssigneeLoad[];
   readonly priorities: readonly { readonly priority: TaskPriority; readonly openCount: number }[];
   readonly flow: readonly TaskFlowWeek[];
+  readonly ageing: readonly TaskAgeLoad[];
+  readonly customers: readonly TaskCustomerLoad[];
 }
 
 /**

@@ -22,7 +22,7 @@ import { DISPATCH_MODES, DISPATCH_MODE_LABELS, type CreateDispatchInput, type Di
 
 import { PhotoPicker } from '@/components/shared/photo-picker';
 import { type PreparedPhoto } from '@/components/shared/prepare-photo';
-import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { lineBalances, trimZeros, type Estimate, type SalesLine } from './types';
 import { useCreateDispatch } from './use-dispatches';
 

@@ -67,6 +67,9 @@ const SQL_TRUE = sql`true`;
 /** How many people the load chart names before the rest is noise. */
 const ASSIGNEE_LOAD_LIMIT = 8;
 
+/** Same reasoning for customers: a bar chart of forty accounts is a wall. */
+const CUSTOMER_LOAD_LIMIT = 8;
+
 /**
  * Put back the weeks in which nothing happened.
  *
@@ -605,15 +608,25 @@ export class TaskService {
     since.setUTCDate(since.getUTCDate() - (since.getUTCDay() === 0 ? 6 : since.getUTCDay() - 1));
     since.setUTCDate(since.getUTCDate() - (query.weeks - 1) * 7);
 
-    const [totals, columns, assignees, priorities, flow] = await Promise.all([
+    const [totals, columns, assignees, priorities, flow, ageing, customers] = await Promise.all([
       repository.totals(scope, today, since),
       repository.columns(scope),
       repository.assignees(scope, today, ASSIGNEE_LOAD_LIMIT),
       repository.priorities(scope),
       repository.flow(scope, since, timezone),
+      repository.ageing(scope, today, timezone),
+      repository.customers(scope, today, CUSTOMER_LOAD_LIMIT),
     ]);
 
-    return { totals, columns, assignees, priorities, flow: fillWeeks(flow, since, query.weeks) };
+    return {
+      totals,
+      columns,
+      assignees,
+      priorities,
+      flow: fillWeeks(flow, since, query.weeks),
+      ageing,
+      customers,
+    };
   }
 
   private async orgTimezone(orgId: string): Promise<string> {

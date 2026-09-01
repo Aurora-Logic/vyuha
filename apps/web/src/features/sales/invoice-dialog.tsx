@@ -19,7 +19,7 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 
-import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { lineBalances, trimZeros, type Estimate, type SalesLine } from './types';
 import { useCreateInvoice } from './use-invoices';
 
