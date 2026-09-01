@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { BooksIcon, CubeIcon, TagIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
+import type { PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Badge } from '@/components/ui/badge';
@@ -13,8 +13,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { ItemPicker } from '@/features/masters/item-picker';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { formatMoney } from '@/lib/format';
 import { RATE_SOURCE_LABELS, type RateSimulation } from '@vyuha/shared';
 
@@ -38,21 +38,44 @@ const CONSIDERED_COLUMNS: RecordColumn<Considered>[] = [
 
 export function RateSimulator() {
   const [partyId, setPartyId] = useState<string | null>(null);
-  const [stockItemId, setStockItemId] = useState<string | null>(null);
+  const [item, setItem] = useState<PickerOption | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [date, setDate] = useState(toDateParam(new Date()));
-  const parties = useParties({ page: 1, pageSize: 200 });
-  const items = useStockItems({ page: 1, pageSize: 200 });
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, hint: p.parentGroup }));
-  const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.parentGroup }));
-  const pick = (options: readonly PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
-  const simulation = useRateSimulation({ stockItemId, partyId: partyId ?? undefined, quantity: quantity.trim() === '' ? '1' : quantity.trim(), date });
+  // PartyPicker and ItemPicker search on the server as you type. This read
+  // the first 200 of each and filtered them here, so party 201 and item 201
+  // could not be simulated at all.
+  const [partyName, setPartyName] = useState<string | undefined>(undefined);
+  const simulation = useRateSimulation({ stockItemId: item?.id ?? null, partyId: partyId ?? undefined, quantity: quantity.trim() === '' ? '1' : quantity.trim(), date });
 
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <RecordPicker id="simulate-party" label="Party" showLabel placeholder="Any party (the default list)" searchPlaceholder="Search parties" emptyMessage="No party matches." icon={<BooksIcon className="text-muted-foreground" />} options={partyOptions} loading={parties.isPending} clearable clearLabel="No party" value={pick(partyOptions, partyId)} onValueChange={(next) => { setPartyId(next?.id ?? null); }} />
-        <RecordPicker id="simulate-item" label="Stock item" showLabel placeholder="Stock item" searchPlaceholder="Search stock items" emptyMessage="No item matches." icon={<CubeIcon className="text-muted-foreground" />} options={itemOptions} loading={items.isPending} value={pick(itemOptions, stockItemId)} onValueChange={(next) => { setStockItemId(next?.id ?? null); }} />
+        <PartyPicker
+          id="simulate-party"
+          label="Party"
+          showLabel
+          placeholder="Any party (the default list)"
+          icon={<BooksIcon className="text-muted-foreground" />}
+          partyId={partyId}
+          {...(partyName === undefined ? {} : { partyName })}
+          clearable
+          clearLabel="No party"
+          onValueChange={(next) => {
+            setPartyId(next?.id ?? null);
+            setPartyName(next?.name);
+          }}
+        />
+        <ItemPicker
+          id="simulate-item"
+          label="Stock item"
+          showLabel
+          placeholder="Stock item"
+          icon={<CubeIcon className="text-muted-foreground" />}
+          value={item}
+          onValueChange={(next) => {
+            setItem(next === null ? null : { id: next.id, label: next.name });
+          }}
+        />
         <Field>
           <FieldLabel htmlFor="simulate-qty">Quantity</FieldLabel>
           <Input id="simulate-qty" inputMode="decimal" className="tabular-nums" value={quantity} onChange={(event) => { setQuantity(event.target.value); }} />
@@ -60,7 +83,7 @@ export function RateSimulator() {
         <DateField label="Document date" showLabel value={fromDateParam(date)} onValueChange={(next) => { setDate(toDateParam(next)); }} yearsBack={5} yearsForward={1} />
       </div>
 
-      {stockItemId === null ? (
+      {item === null ? (
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">

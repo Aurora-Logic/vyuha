@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
-import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -21,7 +20,7 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { useCompanyOptions } from '@/features/crm/use-crm';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
+import { useParty } from '@/features/masters/use-parties';
 import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { formatMoney } from '@/lib/format';
@@ -80,19 +79,20 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   const navigate = useNavigate();
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
-  const parties = useParties({ page: 1 }, { enabled: canSeeParties });
+  // By id, not by scanning a page: the preset name below was resolved out of
+  // the first 25 parties, so anyone further down the ledger got no preset.
+  const presetParty = useParty(canSeeParties ? draft.partyId : null);
   const companies = useCompanyOptions({ enabled: canSeeCompanies });
   const isNew = initial.id === undefined;
   const editable = draft.status === 'DRAFT';
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
   // Raised from a record (deal, company, party) the name arrives with the
   // options, not the URL: "Addressed to" shows the party's or company's name
   // until somebody types over it, and that is what is saved.
-  const presetName = pick(partyOptions, draft.partyId)?.label ?? pick(companyOptions, draft.companyId)?.label ?? null;
+  const presetName = presetParty.data?.name ?? pick(companyOptions, draft.companyId)?.label ?? null;
   const customerName = draft.customerName.trim() === '' && presetName !== null ? presetName : draft.customerName;
   const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
 

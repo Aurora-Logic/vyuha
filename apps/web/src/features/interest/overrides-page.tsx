@@ -4,7 +4,6 @@ import { BooksIcon, LockKeyIcon, PercentIcon } from '@phosphor-icons/react';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { useParties } from '@/features/masters/use-parties';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { EMPTY_VALUE } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
@@ -83,19 +82,12 @@ function OverridesBody() {
   const [days, setDays] = useState('');
 
   const query = useInterestPartySettings();
-  const parties = useParties({ page: 1, pageSize: 200 });
   const upsert = useUpsertPartySetting();
   const remove = useRemovePartySetting();
 
   const settings = query.data ?? [];
   const { overridden, missing } = splitSettings(settings);
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({
-    id: p.id,
-    label: p.name,
-    hint: p.parentGroup,
-  }));
-  const picked = partyOptions.find((option) => option.id === partyId) ?? null;
   const existing = settings.find((setting) => setting.partyId === partyId);
 
   const rateParsed = parseRateInput(rate);
@@ -259,17 +251,15 @@ function OverridesBody() {
             note="Leave a field empty to clear that half back to Tally's figure or the organisation rate."
           />
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <RecordPicker
+            {/* No parentGroup: an interest override is set on either side of
+                the book, which is why this one says "Party" and not "Customer". */}
+            <PartyPicker
               id="override-party"
               label="Party"
               showLabel
               placeholder="Choose a party"
-              searchPlaceholder="Search parties"
-              emptyMessage="No party matches."
               icon={<BooksIcon className="text-muted-foreground" />}
-              options={partyOptions}
-              loading={parties.isPending}
-              value={picked}
+              partyId={partyId}
               onValueChange={(next) => {
                 setPartyId(next?.id ?? null);
                 const known = settings.find((setting) => setting.partyId === next?.id);

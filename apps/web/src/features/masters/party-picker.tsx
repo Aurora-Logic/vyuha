@@ -39,6 +39,8 @@ interface PartyPickerProps {
   /** The whole row on a fresh pick, null on clear. */
   onValueChange: (party: Party | null) => void;
   label: string;
+  /** Render the label above the control, as a field rather than a bare trigger. */
+  showLabel?: boolean;
   placeholder: string;
   /** Only customers, or only vendors, when the caller wants one side of the book. */
   parentGroup?: string;
@@ -48,6 +50,7 @@ interface PartyPickerProps {
   disabled?: boolean;
   id?: string;
   icon?: ReactNode;
+  className?: string;
 }
 
 export function PartyPicker({
@@ -55,6 +58,7 @@ export function PartyPicker({
   partyName,
   onValueChange,
   label,
+  showLabel = false,
   placeholder,
   parentGroup,
   enabled = true,
@@ -63,6 +67,7 @@ export function PartyPicker({
   disabled = false,
   id,
   icon,
+  className,
 }: PartyPickerProps) {
   const [search, setSearch] = useState('');
   const debounced = useDebouncedValue(search, 200).trim();
@@ -110,6 +115,8 @@ export function PartyPicker({
       id={id}
       icon={icon}
       label={label}
+      {...(className === undefined ? {} : { className })}
+      showLabel={showLabel}
       placeholder={placeholder}
       searchPlaceholder="Name, alias or GSTIN"
       emptyMessage="No party matches that."
