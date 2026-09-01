@@ -48,6 +48,9 @@ export interface KpiTileProps {
 export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 5 | 6; className?: string }) {
   return (
     <dl
+      // The headline figures, on 21 screens. The page guide names them so the
+      // strip is read as the screen's answer rather than as decoration.
+      data-guide="screen.kpis"
       className={cn(
         // Six is the dashboard strip: a full set of headline figures in one
         // band on a wide screen, stepping down through three to the phone's

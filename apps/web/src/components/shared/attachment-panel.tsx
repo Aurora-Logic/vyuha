@@ -237,7 +237,7 @@ export function AttachmentPanel({
   }
 
   return (
-    <section className="flex flex-col gap-3">
+    <section data-guide="screen.attachments" className="flex flex-col gap-3">
       <SectionHeading title={title} note={note} />
 
       {/* shadcn's own answer for a file field is its Input with type="file"

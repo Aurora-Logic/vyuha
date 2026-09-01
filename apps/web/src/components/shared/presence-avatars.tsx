@@ -63,6 +63,7 @@ export function PresenceAvatars({
 
   return (
     <span
+      data-guide="screen.presence"
       className={cn('inline-flex items-center', className)}
       // The stack is one thing to a reader who cannot see it, not four.
       role="img"

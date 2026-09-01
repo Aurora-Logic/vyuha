@@ -117,6 +117,23 @@ with what is and is not proven: the payloads were the probe's, but the reason
 they crashed rather than degraded is that twelve of sixty-six files calling
 `apiRequest` never parse the response, where the other fifty-four do.
 
+**Breadth was covered; depth was not.** Every screen had a guide, and each one
+said almost nothing: the intro plus whatever of three anchors happened to be
+present - search, table, pagination. Meanwhile the shared kit had grown to
+forty-odd components, and the things people actually ask about were unnamed.
+Nine more anchors now sit on the kit: the KPI strip (21 screens), the chart
+card, the tab strip, the row menu, saved views, presence, the board, the
+matrix reads, and the attachment panel. Ordered the way a screen is read -
+presence, tabs, saved views, search, figures, chart, board, matrix, records,
+row actions, attachments, pagination - so the guide walks down the page.
+
+Measured before and after on the running app: Employees went 2 to 5 steps,
+Roles 1 to 3, the Dashboard 1 to 3, Deals 2 to 3. Ten of the thirteen anchors
+were seen rendering and guided in a browser; the remaining four - presence,
+board, matrix, attachments - need a record sheet open or a board with cards,
+which a stubbed API cannot produce, so a test asserts the component carries
+the attribute and that every anchor has a step to explain it.
+
 A page guide is composed by **looking at the page**, not from a per-route list
 that would go stale the first time a screen gained a table. The screen's intro
 comes from the registry; the rest is whatever of the shared kit is actually on

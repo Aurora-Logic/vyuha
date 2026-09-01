@@ -49,7 +49,7 @@ export function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <Card className={wide === true ? 'lg:col-span-2' : undefined}>
+    <Card data-guide="screen.chart" className={wide === true ? 'lg:col-span-2' : undefined}>
       <CardHeader>
         <CardTitle className="flex items-center gap-1.5 [&_svg]:size-4">
           {icon === undefined ? null : (

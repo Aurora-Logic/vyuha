@@ -77,7 +77,7 @@ export function KanbanBoard<T>({
   const [over, setOver] = useState<string | null>(null);
 
   return (
-    <ScrollArea className="w-full">
+    <ScrollArea data-guide="screen.board" className="w-full">
       <div className="flex min-w-max gap-3 pb-3" role="list" aria-label={ariaLabel}>
         {lanes.map((lane) => (
           <section

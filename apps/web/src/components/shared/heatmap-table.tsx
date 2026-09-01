@@ -17,7 +17,7 @@ export function HeatmapTable({ grid, rowLabel, format, columnLabel, onRow }: { g
   const show = format ?? ((value: number) => value.toLocaleString('en-IN', { maximumFractionDigits: 3 }));
   const head = columnLabel ?? ((month: string) => `${month.slice(5)}/${month.slice(2, 4)}`);
   return (
-    <div className="overflow-x-auto">
+    <div data-guide="screen.matrix" className="overflow-x-auto">
       <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
