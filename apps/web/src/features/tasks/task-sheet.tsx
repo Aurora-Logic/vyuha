@@ -23,11 +23,13 @@ import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { PartyPicker } from '@/features/masters/party-picker';
 import { TaskAttachments } from './task-attachments';
 import { TaskItemsField } from './task-items-field';
+import { PILL, PRIORITY_HUES, columnHue } from './task-pills';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { kindOf } from '@/lib/go-to-records';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
+import { cn } from '@/lib/utils';
 import { PARTY_LEDGER_GROUPS, PERMISSIONS, REALTIME_RESOURCES, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskPriority } from '@vyuha/shared';
 
 import { DeleteTaskDialog } from './delete-task-dialog';
@@ -259,12 +261,21 @@ function TaskSheetBody({
                 }}
               >
                 <SelectTrigger id="task-priority" aria-label="Priority" className="w-full">
-                  <SelectValue>{(value: TaskPriority) => TASK_PRIORITY_LABELS[value]}</SelectValue>
+                  {/* Coloured in the menu and in the trigger, not only on the
+                      card (owner, 1 Sep 2026). Picking a priority from a plain
+                      list and then seeing it come back red is the product
+                      telling you something after the fact that it could have
+                      told you during. */}
+                  <SelectValue>
+                    {(value: TaskPriority) => (
+                      <span className={cn(PILL, PRIORITY_HUES[value])}>{TASK_PRIORITY_LABELS[value]}</span>
+                    )}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {TASK_PRIORITIES.map((p) => (
                     <SelectItem key={p} value={p}>
-                      {TASK_PRIORITY_LABELS[p]}
+                      <span className={cn(PILL, PRIORITY_HUES[p])}>{TASK_PRIORITY_LABELS[p]}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -282,14 +293,24 @@ function TaskSheetBody({
                 }}
               >
                 <SelectTrigger id="task-column" aria-label="Status" className="w-full">
+                  {/* The lane's own colour, by its board position, so the
+                      status you pick here is the colour it lands in there. */}
                   <SelectValue>
-                    {(value: string) => columnList.find((c) => c.id === value)?.name ?? 'Choose'}
+                    {(value: string) => {
+                      const index = columnList.findIndex((c) => c.id === value);
+                      const column = columnList[index];
+                      return column === undefined ? (
+                        'Choose'
+                      ) : (
+                        <span className={cn(PILL, columnHue(index, column.isDone))}>{column.name}</span>
+                      );
+                    }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {columnList.map((c) => (
+                  {columnList.map((c, index) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.name}
+                      <span className={cn(PILL, columnHue(index, c.isDone))}>{c.name}</span>
                       {c.isDone ? <span className="text-muted-foreground ml-1 text-xs">closes</span> : null}
                     </SelectItem>
                   ))}

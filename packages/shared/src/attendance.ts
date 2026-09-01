@@ -14,6 +14,7 @@ import {
   type PunchFlagReviewAction,
 } from './enums.js';
 import type { ErrorCode } from './errors.js';
+import { calendarDateSchema } from './holidays.js';
 import { cursorQuerySchema, pageQuerySchema } from './pagination.js';
 import type { NamedRef } from './people.js';
 import { PERMISSIONS, type PermissionKey } from './permissions.js';
@@ -554,3 +555,64 @@ export function parseAttendanceFlags(input: string | undefined): AttendanceFlag[
 
 
 
+
+/**
+ * REQ-E-02, backfill: run the nightly absent sweep over dates that have
+ * already passed.
+ *
+ * The sweep itself has run every night since Phase 2; what did not exist was
+ * a way to run it over history, so days from before it shipped -- or from any
+ * night the worker was down -- are blank rather than ABSENT.
+ *
+ * The range is capped because this enqueues one job per date and somebody
+ * typing 2020 by accident should get an error rather than eighteen hundred
+ * jobs. A longer history is two runs, which is a small price for not being
+ * able to do that by mistyping.
+ */
+export const MAX_ABSENT_BACKFILL_DAYS = 400;
+
+export const markAbsentBackfillSchema = z
+  .object({
+    from: calendarDateSchema,
+    to: calendarDateSchema,
+  })
+  .refine((value) => value.from <= value.to, {
+    message: 'The start of the range must not be after its end.',
+    path: ['from'],
+  })
+  .refine(
+    (value) =>
+      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 <
+      MAX_ABSENT_BACKFILL_DAYS,
+    { message: `A backfill covers at most ${String(MAX_ABSENT_BACKFILL_DAYS)} days at a time.`, path: ['to'] },
+  );
+
+export type MarkAbsentBackfill = z.infer<typeof markAbsentBackfillSchema>;
+
+/**
+ * Every date in the range, inclusive, as `YYYY-MM-DD`.
+ *
+ * Shared rather than inlined in the controller so it can be tested without a
+ * queue behind it: an earlier attempt exercised the expansion through the real
+ * endpoint, which enqueued real sweeps, which the test suite's own workers
+ * then ran against every organisation in the database. The expansion is the
+ * only thing here worth asserting, and it is arithmetic.
+ *
+ * UTC throughout: these are calendar dates, not instants, and stepping them in
+ * local time puts a day either side of a DST change an hour out.
+ */
+export function backfillDates(from: string, to: string): string[] {
+  const dates: string[] = [];
+  const end = Date.parse(`${to}T00:00:00Z`);
+  for (let at = Date.parse(`${from}T00:00:00Z`); at <= end; at += 86_400_000) {
+    dates.push(new Date(at).toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+export interface MarkAbsentBackfillResult {
+  /** How many dates were queued; the sweep decides what each one writes. */
+  readonly dates: number;
+  readonly from: string;
+  readonly to: string;
+}

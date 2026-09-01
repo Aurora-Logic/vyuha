@@ -1,14 +1,26 @@
-import { BuildingsIcon, CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon, PackageIcon, PaperclipIcon, TruckIcon } from '@phosphor-icons/react';
+import { ArrowSquareOutIcon, BuildingsIcon, CheckCircleIcon, CheckIcon, CircleDashedIcon, FlagIcon, KanbanIcon, LinkSimpleIcon, PackageIcon, PaperclipIcon, TrashIcon, TruckIcon } from '@phosphor-icons/react';
 
 import { RecordPresence } from '@/components/shared/presence-avatars';
 import { useTaskCardFields } from './card-fields';
 import { PersonChip } from '@/components/shared/person';
 import { KanbanBoard } from '@/components/shared/kanban-board';
+import {
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
-import { REALTIME_RESOURCES, TASK_PRIORITY_LABELS } from '@vyuha/shared';
+import {
+  REALTIME_RESOURCES,
+  TASK_PRIORITIES,
+  TASK_PRIORITY_LABELS,
+  type TaskPriority,
+} from '@vyuha/shared';
 
 import { DueDate } from './due-date';
-import { PILL, PRIORITY_HUES } from './task-pills';
+import { PILL, PRIORITY_HUES, columnHue } from './task-pills';
 import type { BoardResponse, Task } from './types';
 
 /**
@@ -18,35 +30,33 @@ import type { BoardResponse, Task } from './types';
  * position, in the header chip; the done column is always green.
  */
 
-const COLUMN_HUES = [
-  'bg-tint-1/15 text-tint-1',
-  'bg-tint-2/15 text-tint-2',
-  'bg-tint-3/15 text-tint-3',
-  'bg-tint-4/15 text-tint-4',
-  'bg-tint-5/15 text-tint-5',
-  'bg-tint-6/15 text-tint-6',
-] as const;
-const DONE_HUE = 'bg-success/15 text-success';
 
 export function TaskBoard({
   board,
   onOpen,
   onMove,
+  onSetPriority,
+  onDelete,
   moving,
 }: {
   board: BoardResponse;
   onOpen: (task: Task) => void;
   onMove: (task: Task, columnId: string) => void;
+  /** Right-click actions; omitted for a reader who may not change anything. */
+  onSetPriority?: (task: Task, priority: TaskPriority) => void;
+  onDelete?: (task: Task) => void;
   moving: boolean;
 }) {
   const { shown } = useTaskCardFields();
+  const columns = board.lanes.map((lane) => lane.column);
+  const canAct = onSetPriority !== undefined && onDelete !== undefined;
   return (
     <KanbanBoard
       ariaLabel="Task board"
       lanes={board.lanes.map(({ column, tasks, total }, index) => ({
         id: column.id,
         label: column.name,
-        accent: column.isDone ? DONE_HUE : (COLUMN_HUES[index % COLUMN_HUES.length] ?? COLUMN_HUES[0]),
+        accent: columnHue(index, column.isDone),
         title: (
           <>
             {column.isDone ? <CheckCircleIcon className="shrink-0" /> : <CircleDashedIcon className="shrink-0" />}
@@ -135,11 +145,131 @@ export function TaskBoard({
           </span>
         </>
       )}
+      {...(canAct
+        ? {
+            renderMenu: (task: Task) => (
+              <TaskCardMenu
+                task={task}
+                columns={columns}
+                onOpen={onOpen}
+                onMove={onMove}
+                onSetPriority={onSetPriority}
+                onDelete={onDelete}
+              />
+            ),
+          }
+        : {})}
       onOpen={onOpen}
       onMove={(task, laneId) => {
         onMove(task, laneId);
       }}
       moving={moving}
     />
+  );
+}
+
+/**
+ * The right-click menu on a card (owner, 1 Sep 2026).
+ *
+ * What belongs on it is what somebody wants to do *without* opening the task:
+ * move it, re-prioritise it, close it, or throw it away. Anything that needs
+ * typing belongs in the sheet, so "Open" is the first item rather than a
+ * fallback at the bottom.
+ *
+ * Every item here is also reachable without a right click -- drag moves a
+ * card, the sheet sets priority, the sheet deletes -- because a context menu
+ * is a shortcut and a shortcut must never be the only route (CLAUDE.md 3.6).
+ */
+function TaskCardMenu({
+  task,
+  columns,
+  onOpen,
+  onMove,
+  onSetPriority,
+  onDelete,
+}: {
+  readonly task: Task;
+  readonly columns: readonly BoardResponse['lanes'][number]['column'][];
+  readonly onOpen: (task: Task) => void;
+  readonly onMove: (task: Task, columnId: string) => void;
+  readonly onSetPriority: (task: Task, priority: TaskPriority) => void;
+  readonly onDelete: (task: Task) => void;
+}) {
+  const done = columns.find((column) => column.isDone);
+
+  return (
+    <>
+      <ContextMenuItem
+        onClick={() => {
+          onOpen(task);
+        }}
+      >
+        <ArrowSquareOutIcon />
+        Open
+      </ContextMenuItem>
+
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <FlagIcon />
+          Priority
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          {TASK_PRIORITIES.map((priority) => (
+            <ContextMenuItem
+              key={priority}
+              onClick={() => {
+                onSetPriority(task, priority);
+              }}
+            >
+              <span className={cn(PILL, PRIORITY_HUES[priority])}>{TASK_PRIORITY_LABELS[priority]}</span>
+              {task.priority === priority ? <CheckIcon className="ml-auto" /> : null}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <KanbanIcon />
+          Move to
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          {columns.map((column, index) => (
+            <ContextMenuItem
+              key={column.id}
+              disabled={column.id === task.columnId}
+              onClick={() => {
+                onMove(task, column.id);
+              }}
+            >
+              <span className={cn(PILL, columnHue(index, column.isDone))}>{column.name}</span>
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+
+      {done === undefined || task.columnId === done.id ? null : (
+        <ContextMenuItem
+          onClick={() => {
+            onMove(task, done.id);
+          }}
+        >
+          <CheckIcon />
+          Mark done
+        </ContextMenuItem>
+      )}
+
+      <ContextMenuSeparator />
+
+      <ContextMenuItem
+        variant="destructive"
+        onClick={() => {
+          onDelete(task);
+        }}
+      >
+        <TrashIcon />
+        Delete
+      </ContextMenuItem>
+    </>
   );
 }

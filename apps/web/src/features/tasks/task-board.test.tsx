@@ -1,5 +1,6 @@
-import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@/test-support/render-shell';
 
@@ -105,5 +106,88 @@ describe('the task card', () => {
       expect(screen.getByText(label).className).toContain(hue);
       unmount();
     }
+  });
+});
+
+describe('the right-click menu', () => {
+  const columns = [
+    { id: 'c-1', name: 'To do', sortOrder: 0, isDone: false },
+    { id: 'c-2', name: 'Done', sortOrder: 1, isDone: true },
+  ];
+
+  function boardWith(one: Task): BoardResponse {
+    return {
+      lanes: [
+        { column: columns[0], tasks: [one], total: 1 },
+        { column: columns[1], tasks: [], total: 0 },
+      ],
+    };
+  }
+
+  it('is not offered at all to somebody who may not change anything', () => {
+    // No handlers means no menu, rather than a menu whose every item fails.
+    renderWithProviders(
+      <TaskBoard board={boardWith(task())} onOpen={() => {}} onMove={() => {}} moving={false} />,
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Open Quote the busbar job/ }));
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('offers open, priority, move and delete on a right click', async () => {
+    renderWithProviders(
+      <TaskBoard
+        board={boardWith(task())}
+        onOpen={() => {}}
+        onMove={() => {}}
+        onSetPriority={() => {}}
+        onDelete={() => {}}
+        moving={false}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Open Quote the busbar job/ }));
+
+    const menu = await screen.findByRole('menu');
+    for (const label of ['Open', 'Priority', 'Move to', 'Mark done', 'Delete']) {
+      expect(within(menu).getByText(label)).toBeTruthy();
+    }
+  });
+
+  it('sets the priority it was asked for', async () => {
+    const onSetPriority = vi.fn();
+    renderWithProviders(
+      <TaskBoard
+        board={boardWith(task({ priority: 'LOW' }))}
+        onOpen={() => {}}
+        onMove={() => {}}
+        onSetPriority={onSetPriority}
+        onDelete={() => {}}
+        moving={false}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Open Quote the busbar job/ }));
+    await userEvent.click(await screen.findByText('Priority'));
+    await userEvent.click(await screen.findByText('High'));
+
+    expect(onSetPriority).toHaveBeenCalledWith(expect.objectContaining({ id: 't-1' }), 'HIGH');
+  });
+
+  it('routes delete through the caller rather than deleting on the spot', async () => {
+    // The caller opens the same confirm dialog the sheet uses: a right click
+    // is a shortcut to an action, never past the confirmation for a
+    // destructive one.
+    const onDelete = vi.fn();
+    renderWithProviders(
+      <TaskBoard
+        board={boardWith(task())}
+        onOpen={() => {}}
+        onMove={() => {}}
+        onSetPriority={() => {}}
+        onDelete={onDelete}
+        moving={false}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Open Quote the busbar job/ }));
+    await userEvent.click(await screen.findByText('Delete'));
+    expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 't-1' }));
   });
 });

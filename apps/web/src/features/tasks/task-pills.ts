@@ -21,3 +21,27 @@ export const PRIORITY_HUES = {
   MEDIUM: 'bg-warning/10 text-warning',
   LOW: 'bg-info/10 text-info',
 } as const;
+
+/**
+ * A board column's colour, by its position, with done always green.
+ *
+ * Lives here rather than in the board because the sheet's status dropdown
+ * shows the same colours: picking "In progress" from a menu where it is amber
+ * and then seeing it land in a blue lane would be two answers to one
+ * question. The board is the source of the order, so the index is the board's.
+ */
+const COLUMN_HUES = [
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
+] as const;
+
+export const DONE_HUE = 'bg-success/15 text-success';
+
+export function columnHue(index: number, isDone: boolean): string {
+  if (isDone) return DONE_HUE;
+  return COLUMN_HUES[index % COLUMN_HUES.length] ?? COLUMN_HUES[0];
+}

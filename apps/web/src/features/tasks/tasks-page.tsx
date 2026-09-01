@@ -42,7 +42,8 @@ import { TaskCalendar } from './task-calendar';
 import { TaskGallery } from './task-gallery';
 import { TaskTimeline } from './task-timeline';
 import { emptyTaskDraft, taskToDraft, type Task, type TaskDraft } from './types';
-import { useMoveTask, useTask, useTaskBoard, useTasks, type TaskFilters } from './use-tasks';
+import { DeleteTaskDialog } from './delete-task-dialog';
+import { useMoveTask, useSaveTask, useTask, useTaskBoard, useTasks, type TaskFilters } from './use-tasks';
 
 /**
  * My tasks (REQ-V-07), the CRM landing screen: assigned to me, open, by due
@@ -243,6 +244,9 @@ export function TasksPage() {
   const board = useTaskBoard(filters, { enabled: canView && view === 'board' });
   const open = useTask(canView ? openId : null);
   const move = useMoveTask();
+  const save = useSaveTask();
+  const canManage = usePermission(PERMISSIONS.CRM_TASK_MANAGE);
+  const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
 
   function startNew() {
     setParam('new', '1');
@@ -608,6 +612,29 @@ export function TasksPage() {
           <TaskBoard
             board={board.data}
             moving={move.isPending}
+            {...(canManage
+              ? {
+                  onSetPriority: (task: Task, priority: TaskPriority) => {
+                    save.mutate(
+                      { ...taskToDraft(task), priority },
+                      {
+                        onSuccess: () => {
+                          toast.add({ type: 'success', title: `${task.title} is now ${TASK_PRIORITY_LABELS[priority].toLowerCase()} priority` });
+                        },
+                        onError: (error) => {
+                          toast.add({ type: 'error', title: 'Could not change the priority', description: error.message });
+                        },
+                      },
+                    );
+                  },
+                  // Through the same confirm dialog the sheet uses. A right
+                  // click is a shortcut to the action, never a shortcut past
+                  // the confirmation for a destructive one.
+                  onDelete: (task: Task) => {
+                    setDeleting({ id: task.id, title: task.title });
+                  },
+                }
+              : {})}
             onOpen={(task) => {
               void navigate(`/tasks/${task.id}${window.location.search}`);
             }}
@@ -642,6 +669,13 @@ export function TasksPage() {
           }}
         />
       ) : null}
+
+      <DeleteTaskDialog
+        target={deleting}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setDeleting(null);
+        }}
+      />
 
       <TaskSheet
         draft={sheetDraft}
