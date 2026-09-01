@@ -29,7 +29,7 @@ import { type StockItem } from '@/features/masters/use-stock-items';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS } from '@vyuha/shared';
 
 import { DispatchDialog } from './dispatch-dialog';
 import { FulfilmentBadge } from './fulfilment-badge';
@@ -237,6 +237,9 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         customer: (
           <div className="flex flex-col gap-1">
             <PartyPicker
+              // Sundry Debtors: a sales document is raised on a customer. Unfiltered this
+              // offered every supplier too.
+              parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
               id="order-party"
               label="Tally party"
               placeholder="Choose the party"

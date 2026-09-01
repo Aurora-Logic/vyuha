@@ -30,7 +30,7 @@ import { type StockItem } from '@/features/masters/use-stock-items';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
+import { ESTIMATE_TRANSITIONS, PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { ItemHistoryAffordance } from './item-history-popover';
 import { emptyEstimateDraft, estimateToDraft, newLine, previewLine, previewTotals, type Estimate, type EstimateDraft, type LineDraft } from './types';
@@ -214,6 +214,9 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           <div className="flex flex-col gap-1">
             <div className="grid gap-1 sm:grid-cols-2">
               <PartyPicker
+                // Sundry Debtors: a sales document is raised on a customer. Unfiltered this
+                // offered every supplier too.
+                parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
                 id="estimate-party"
                 label="Tally party"
                 placeholder="Tally party"

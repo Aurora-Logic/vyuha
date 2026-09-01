@@ -26,7 +26,7 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEAL_PRIORITIES, PERMISSIONS, REALTIME_RESOURCES, type DealPriority } from '@vyuha/shared';
+import { DEAL_PRIORITIES, PARTY_LEDGER_GROUPS, PERMISSIONS, REALTIME_RESOURCES, type DealPriority } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
 import { DealAttachments } from './deal-attachments';
@@ -176,6 +176,9 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                 {canSeeParties ? (
                   <div className="mt-2 flex flex-col gap-2">
                     <PartyPicker
+                      // Sundry Debtors: a deal converts to a customer. Unfiltered this
+                      // offered every supplier too.
+                      parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
                       label="Tally party"
                       placeholder="Choose the party Tally created"
                       icon={<BooksIcon className="text-muted-foreground" />}

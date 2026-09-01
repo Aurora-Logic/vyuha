@@ -27,7 +27,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
+import { ESTIMATE_TRANSITIONS, PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { DocumentLinesEditor } from './document-lines-editor';
 import type { Estimate, EstimateDraft } from './types';
@@ -159,6 +159,9 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
               <Field>
                 <FieldLabel htmlFor="estimate-party">Tally party</FieldLabel>
                 <PartyPicker
+                  // Sundry Debtors: a sales document is raised on a customer. Unfiltered this
+                  // offered every supplier too.
+                  parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
                   id="estimate-party"
                   label="Tally party"
                   placeholder="Not a party yet"

@@ -31,7 +31,7 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, REQUIREMENT_STATES, type RequirementState } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS, REQUIREMENT_STATES, type RequirementState } from '@vyuha/shared';
 
 import { ItemPurchasingSheet } from './item-purchasing-sheet';
 import { OptionalDateField } from './optional-date-field';
@@ -638,6 +638,10 @@ function RaisePurchaseOrderBody({ requirements, onRaised, onClose }: { requireme
           <Field>
             <FieldLabel htmlFor="raise-po-vendor">Vendor</FieldLabel>
             <PartyPicker
+              // A vendor is a party under Sundry Creditors (13 §1). Left
+              // unfiltered this offered every customer too, so "Choose the
+              // party" listed the people you sell to.
+              parentGroup={PARTY_LEDGER_GROUPS.SUPPLIER}
               id="raise-po-vendor"
               label="Vendor"
               placeholder="Choose the party"

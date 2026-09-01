@@ -12,7 +12,7 @@ import {
   TableIcon,
   TrashIcon,
 } from '@phosphor-icons/react';
-import { WIDGET_PALETTES, type CustomWidget, type InsightArea, type WidgetKind, type WidgetPalette, type WidgetSize } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, WIDGET_PALETTES, type CustomWidget, type InsightArea, type WidgetKind, type WidgetPalette, type WidgetSize } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
@@ -359,6 +359,9 @@ export function BuilderPanel({
           <Field>
             <FieldLabel>Filter: customer</FieldLabel>
             <PartyPicker
+              // Sundry Debtors: the filter says customer. Unfiltered this
+              // offered every supplier too.
+              parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
               partyId={widget.pivot.scope?.party ?? null}
               {...(widget.pivot.scope?.partyName === undefined ? {} : { partyName: widget.pivot.scope.partyName })}
               label="Filter by customer"
