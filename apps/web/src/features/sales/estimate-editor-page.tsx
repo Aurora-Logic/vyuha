@@ -17,6 +17,7 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { CompanyPicker } from '@/features/crm/company-picker';
+import { useTask } from '@/features/tasks/use-tasks';
 import { useCompany } from '@/features/crm/use-crm';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
@@ -60,6 +61,12 @@ export function EstimateEditorPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const record = useEstimate(canView && !isNew ? (params.id ?? null) : null);
+  // REQ-V-15: raised from a task, the estimate arrives carrying that task's
+  // customer and the items somebody already listed on it. Read here rather
+  // than passed through the URL: the ids alone would still need the names,
+  // and a task is one request.
+  const fromTaskId = isNew ? searchParams.get('task') : null;
+  const fromTask = useTask(fromTaskId);
   const settings = useDesignDraft();
 
   if (!canView || (isNew && !canCreate)) {
@@ -86,7 +93,9 @@ export function EstimateEditorPage() {
       />
     );
   }
-  if ((!isNew && record.data === undefined) || settings === null) {
+  // The draft is built once, so a task still in flight must not mount an
+  // empty editor that never fills.
+  if ((!isNew && record.data === undefined) || settings === null || (fromTaskId !== null && fromTask.data === undefined)) {
     return (
       <div role="status" aria-busy="true" aria-label="Loading the estimate" className="flex flex-col gap-4">
         <Skeleton className="h-9 w-64" />
@@ -99,6 +108,13 @@ export function EstimateEditorPage() {
         ...(searchParams.get('deal') ? { dealId: searchParams.get('deal') } : {}),
         ...(searchParams.get('company') ? { companyId: searchParams.get('company') } : {}),
         ...(searchParams.get('party') ? { partyId: searchParams.get('party') } : {}),
+        ...(fromTask.data?.partyId ? { partyId: fromTask.data.partyId } : {}),
+        // The task's items become the lines, named. Quantity, rate and tax
+        // stay for the salesperson: a task says what was asked for, never
+        // what it is being sold for.
+        ...(fromTask.data && fromTask.data.items.length > 0
+          ? { lines: fromTask.data.items.map((item) => newLine({ stockItemId: item.itemId, description: item.itemName })) }
+          : {}),
         // An estimate is an offer for a while: thirty days unless the salesperson says otherwise.
         validUntil: toDateParam(addDays(new Date(), 30)),
         terms: settings.draft.designs.ESTIMATE.defaultTerms,

@@ -26,7 +26,24 @@ const COLUMN_HUES = [
   'bg-tint-6/15 text-tint-6',
 ] as const;
 const DONE_HUE = 'bg-success/15 text-success';
-const PRIORITY_CHIP = 'bg-destructive/10 text-destructive rounded-none px-1 py-px text-[0.6875rem] font-medium';
+
+/**
+ * A property pill, Notion's shape: a soft wash of one hue with its own darker
+ * text, never a saturated block (owner, 1 Sep 2026 -- "take all the colours
+ * from notion").
+ *
+ * The hues are this theme's own tokens rather than Notion's hex, so they
+ * follow the palette into dark mode and stay the red, amber and blue that
+ * already mean urgent, watch and informational everywhere else in the product.
+ */
+const PILL = 'rounded-none px-1.5 py-px text-[0.6875rem] font-medium';
+
+/** High is red, medium amber, low blue -- Notion's own ordering of urgency. */
+const PRIORITY_HUES = {
+  HIGH: 'bg-destructive/10 text-destructive',
+  MEDIUM: 'bg-warning/10 text-warning',
+  LOW: 'bg-info/10 text-info',
+} as const;
 export function TaskBoard({
   board,
   onOpen,
@@ -61,16 +78,31 @@ export function TaskBoard({
       itemLabel={(task) => task.title}
       renderItem={(task) => (
         <>
-          <span className={cn('font-medium', task.isClosed && 'text-muted-foreground line-through')}>{task.title}</span>
+          {/* The title owns its row, with presence at the end of it. Notion
+              puts the name alone at the top of a card and every property
+              under it; presence is not a property, it is somebody else being
+              in this task right now, so it rides with the title. */}
+          <span className="flex min-w-0 items-start gap-2">
+            <span className={cn('min-w-0 flex-1 font-medium', task.isClosed && 'text-muted-foreground line-through')}>
+              {task.title}
+            </span>
+            <RecordPresence resource={REALTIME_RESOURCES.TASK} recordId={task.id} />
+          </span>
           {/* REQ-V-13: every detail the task carries, and any of them can be
               hidden. Which ones matter depends on the desk -- operations
               wants the supplier and the items, a manager wants the assignee
               and the date -- so no default is right for both and the reader
               chooses. Presence is never hidden: it is not a detail about the
               task, it is somebody else being in it right now. */}
-          <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
-            {shown.priority && task.priority === 'HIGH' ? (
-              <span className={PRIORITY_CHIP}>{TASK_PRIORITY_LABELS.HIGH}</span>
+          {/* One property per line, which is the whole of why a Notion card
+              reads at a glance: the eye runs down a column of labels instead
+              of hunting along a wrapped ribbon of them. */}
+          <span className="text-muted-foreground flex flex-col items-start gap-1 text-xs font-normal">
+            {/* Every level, not just high. A card that marks the urgent ones
+                and says nothing about the rest cannot tell "low" from "nobody
+                set one", which is the question a board is read to answer. */}
+            {shown.priority ? (
+              <span className={cn(PILL, PRIORITY_HUES[task.priority])}>{TASK_PRIORITY_LABELS[task.priority]}</span>
             ) : null}
             {shown.due ? <DueDate value={task.dueDate} closed={task.isClosed} /> : null}
             {shown.assignee && task.assigneeName !== null ? <PersonChip name={task.assigneeName} tiny /> : null}
@@ -92,13 +124,22 @@ export function TaskBoard({
                 <span className="truncate">{task.vendorName}</span>
               </span>
             ) : null}
-            {/* Items collapse to a count past the first: five names would
-                push the assignee off a 360px card. The full list is in the
-                title attribute for a pointer, and on the sheet for everyone. */}
+            {/* Every item by name (owner, 1 Sep 2026: "I want names of all the
+                items"). It read "3 items" before, which is the one thing
+                nobody needs the card to tell them -- they are looking at the
+                card to find out WHICH items. They wrap as their own pills so
+                a long list grows the card downwards rather than pushing
+                anything off it. */}
             {shown.items && task.items.length > 0 ? (
-              <span className="flex items-center gap-1" title={task.items.map((item) => item.itemName).join(', ')}>
-                <PackageIcon className="shrink-0" />
-                {task.items.length === 1 ? task.items[0]?.itemName : `${String(task.items.length)} items`}
+              <span className="flex min-w-0 items-start gap-1">
+                <PackageIcon className="mt-0.5 shrink-0" />
+                <span className="flex flex-wrap gap-1">
+                  {task.items.map((item) => (
+                    <span key={item.itemId} className={cn(PILL, 'bg-muted text-foreground/80')}>
+                      {item.itemName}
+                    </span>
+                  ))}
+                </span>
               </span>
             ) : null}
             {shown.attachments && task.attachmentCount > 0 ? (
@@ -107,9 +148,6 @@ export function TaskBoard({
                 {task.attachmentCount}
               </span>
             ) : null}
-            {/* REQ-U-10: who has this card open right now, so two people do
-                not start the same task without knowing. */}
-            <RecordPresence resource={REALTIME_RESOURCES.TASK} recordId={task.id} className="ml-auto" />
           </span>
         </>
       )}

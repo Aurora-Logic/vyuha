@@ -108,6 +108,9 @@ function TaskSheetBody({
   const [deleting, setDeleting] = useState(false);
   const save = useSaveTask();
   const canManage = usePermission(PERMISSIONS.CRM_TASK_MANAGE);
+  // Offering a button that lands on "you cannot raise estimates" is worse
+  // than not offering it: the editor refuses without this key.
+  const canRaiseEstimate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   // The masters key gates both pickers: a task may name a party and an item,
   // but only for someone entitled to read the ledger and the catalogue in the
   // first place. The field is shown disabled rather than hidden, so a saved
@@ -475,6 +478,21 @@ function TaskSheetBody({
             Delete
           </Button>
         )}
+        {/* REQ-V-15 (owner, 1 Sep 2026): the task carries a customer and the
+            items somebody asked for, which is most of an estimate already.
+            Only offered once it has been saved and has a customer -- an
+            estimate addressed to nobody is not a shortcut. Unsaved edits are
+            deliberately not carried: what converts is what the task says. */}
+        {!isNew && draft.partyId !== null && canRaiseEstimate ? (
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link to={`/sales/estimates/new?task=${initial.id ?? ''}`} />}
+          >
+            <ArrowSquareOutIcon data-icon="inline-start" />
+            Convert to estimate
+          </Button>
+        ) : null}
         {!isNew && doneColumn !== null && currentColumn?.isDone !== true ? (
           <Button variant="outline" disabled={save.isPending} onClick={markDone}>
             <CheckIcon data-icon="inline-start" />

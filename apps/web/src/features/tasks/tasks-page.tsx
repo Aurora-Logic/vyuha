@@ -297,7 +297,19 @@ export function TasksPage() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <SearchField id="task-search" label="Search tasks" value={draft} onValueChange={setDraft} placeholder="Title or notes" />
+          {/* Bounded. It had no width of its own, so in a flex row it took every
+              pixel the filters left and the toolbar read as one long bar with
+              some controls after it (owner, 1 Sep 2026). Notion gives search a
+              small fixed slot beside its filters; on a phone it still takes the
+              full row, where there is nothing to share it with. */}
+          <SearchField
+            id="task-search"
+            label="Search tasks"
+            className="w-full sm:w-56"
+            value={draft}
+            onValueChange={setDraft}
+            placeholder="Title or notes"
+          />
 
           <ToggleGroup
             variant="outline"
