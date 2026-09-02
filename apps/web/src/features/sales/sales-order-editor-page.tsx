@@ -38,6 +38,7 @@ import { ItemHistoryAffordance } from './item-history-popover';
 import { PickPackDialog } from './pick-pack-dialog';
 import { creditBlockOf } from './credit-block';
 import { FulfilmentSections, SyncStateBadge } from './sales-order-sheet';
+import { useTask } from '@/features/tasks/use-tasks';
 import { emptyEstimateDraft, estimateToDraft, lineBalances, newLine, previewLine, type Estimate, type EstimateDraft, type LineDraft } from './types';
 import { useDispatches } from './use-dispatches';
 import { usePackRecords, useShortCloseOrder } from './use-fulfilment';
@@ -66,6 +67,10 @@ export function SalesOrderEditorPage() {
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const record = useSalesOrder(canView && !isNew ? (params.id ?? null) : null);
   const settings = useDesignDraft();
+  // REQ-V-17: raised from a task, the order arrives carrying that task's
+  // customer and the lines somebody already agreed on it.
+  const fromTaskId = isNew ? searchParams.get('task') : null;
+  const fromTask = useTask(fromTaskId);
 
   if (!canView || (isNew && !canCreate)) {
     return (
@@ -91,7 +96,9 @@ export function SalesOrderEditorPage() {
       />
     );
   }
-  if ((!isNew && record.data === undefined) || settings === null) {
+  // Built once, so a task still in flight must not mount an empty document
+  // that never fills.
+  if ((!isNew && record.data === undefined) || settings === null || (fromTaskId !== null && fromTask.data === undefined)) {
     return (
       <div role="status" aria-busy="true" aria-label="Loading the sales order" className="flex flex-col gap-4">
         <Skeleton className="h-9 w-64" />
@@ -103,6 +110,24 @@ export function SalesOrderEditorPage() {
     ? emptyEstimateDraft(toDateParam(new Date()), {
         ...(searchParams.get('deal') ? { dealId: searchParams.get('deal') } : {}),
         ...(searchParams.get('party') ? { partyId: searchParams.get('party') } : {}),
+        ...(fromTask.data?.partyId ? { partyId: fromTask.data.partyId } : {}),
+        // REQ-V-17: the order placed on the task, become the document. The
+        // quantity, rate and discount come across as agreed -- carrying only
+        // the item names would make the salesperson key the order twice and
+        // be the likeliest place for the two to disagree.
+        ...(fromTask.data && fromTask.data.items.length > 0
+          ? {
+              lines: fromTask.data.items.map((item) =>
+                newLine({
+                  stockItemId: item.itemId,
+                  description: item.itemName,
+                  quantity: item.quantity,
+                  ...(item.rate === null ? {} : { rate: item.rate }),
+                  discountPct: item.discountPct,
+                }),
+              ),
+            }
+          : {}),
         terms: settings.draft.designs.SALES_ORDER.defaultTerms,
       })
     : estimateToDraft(record.data as Estimate);

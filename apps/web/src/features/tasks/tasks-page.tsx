@@ -161,7 +161,7 @@ function visibleColumns(shown: Record<TaskCardField, boolean>): RecordColumn<Tas
 /** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet, a preset subject). */
 function viewQuery(params: URLSearchParams): string {
   const kept = new URLSearchParams();
-  for (const key of ['q', 'all', 'due', 'priority', 'assignee', 'closed', 'view']) {
+  for (const key of ['q', 'mine', 'due', 'priority', 'assignee', 'closed', 'view']) {
     const value = params.get(key);
     if (value !== null && value !== '') kept.set(key, value);
   }
@@ -188,10 +188,14 @@ export function TasksPage() {
   const q = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   // "Mine" is the landing default (REQ-V-07); `?all=1` widens to everyone the caller may see.
-  const mine = searchParams.get('all') !== '1';
+  // Everyone's tasks, open and closed, unless the reader narrows it (owner,
+  // 2 Sep 2026: "keep default as all tasks not mine task, all task including
+  // close and open"). The board is read to see what the floor is doing, not
+  // to see one desk; `?mine=1` is how a person narrows to their own.
+  const mine = searchParams.get('mine') === '1';
   const dueParam = searchParams.get('due');
   const due: TaskDueFilter = isDueFilter(dueParam) ? dueParam : 'open';
-  const includeClosed = searchParams.get('closed') === '1';
+  const includeClosed = searchParams.get('closed') !== '0';
   const priorityParam = searchParams.get('priority');
   const priority = TASK_PRIORITIES.find((value) => value === priorityParam);
   const assigneeParam = searchParams.get('assignee') ?? '';
@@ -301,7 +305,7 @@ export function TasksPage() {
     view === 'board'
       ? board.isSuccess && board.data.lanes.every((l) => l.tasks.length === 0)
       : list.isSuccess && rows.length === 0;
-  const filtered = Boolean(q) || due !== 'open' || !mine || includeClosed || priority !== undefined || assigneeParam !== '';
+  const filtered = Boolean(q) || due !== 'open' || mine || !includeClosed || priority !== undefined || assigneeParam !== '';
 
   /**
    * What is actually filtered, as chips and as the count on the Filter button.
@@ -312,8 +316,8 @@ export function TasksPage() {
    */
   const activeFilters: FilterChip[] = [
     ...(mine
-      ? []
-      : [{ key: 'all', label: 'Whose', value: 'Everyone', onClear: () => { setParam('all', null); } }]),
+      ? [{ key: 'mine', label: 'Whose', value: 'Mine', onClear: () => { setParam('mine', null); } }]
+      : []),
     ...(due === 'open'
       ? []
       : [{ key: 'due', label: 'Due', value: DUE_LABELS[due], onClear: () => { setParam('due', null); } }]),
@@ -329,8 +333,8 @@ export function TasksPage() {
           onClear: () => { setParam('assignee', null); },
         }]),
     ...(includeClosed
-      ? [{ key: 'closed', label: 'Closed', value: 'Shown', onClear: () => { setParam('closed', null); } }]
-      : []),
+      ? []
+      : [{ key: 'closed', label: 'Closed', value: 'Hidden', onClear: () => { setParam('closed', null); } }]),
   ];
 
   const clearFilters = () => {
@@ -340,7 +344,7 @@ export function TasksPage() {
   return (
     <>
       <PageHeader
-        description={mine ? 'Assigned to you, open, by due date. Every change is audited.' : 'Everyone you can see, by due date. Every change is audited.'}
+        description={mine ? 'Assigned to you, by due date. Every change is audited.' : 'Everyone you can see, open and closed, by due date. Every change is audited.'}
         action={
           <Button size="sm" onClick={startNew}>
             <PlusIcon data-icon="inline-start" />
@@ -378,7 +382,7 @@ export function TasksPage() {
                 value={[mine ? 'mine' : 'all']}
                 onValueChange={(value) => {
                   const next = value[0];
-                  if (next === 'mine' || next === 'all') setParam('all', next === 'all' ? '1' : null);
+                  if (next === 'mine' || next === 'all') setParam('mine', next === 'mine' ? '1' : null);
                 }}
               >
                 <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
@@ -458,7 +462,9 @@ export function TasksPage() {
                   id="tasks-closed"
                   checked={includeClosed}
                   onCheckedChange={(next: boolean) => {
-                    setParam('closed', next ? '1' : null);
+                    // Closed are shown by default now, so the param records
+                    // only the narrowing: absent means shown.
+                    setParam('closed', next ? null : '0');
                   }}
                 />
                 Show closed

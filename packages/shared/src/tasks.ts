@@ -56,13 +56,79 @@ export interface TaskBoardColumnView {
 }
 
 /**
- * One stock item on a task. No quantity and no rate: a task is a piece of
- * work, not a document -- the moment it carries amounts it is a sales order
- * wearing the wrong name, and sales owns that model.
+ * One stock item on a task, with what is being asked for.
+ *
+ * It used to be a name alone, on the reasoning that a task carrying amounts is
+ * a sales order wearing the wrong name. REQ-V-17 (owner, 2 Sep 2026) asks for
+ * the opposite and gives the reason: an order is placed standing in front of
+ * the customer, and a sales order is a document you sit down to write. So a
+ * task holds what was agreed -- quantity, rate, discount -- and converting it
+ * writes the document.
+ *
+ * It stays a *draft*: nothing here reserves stock, numbers a document or
+ * reaches Tally. Sales still owns that, which is what conversion is for.
+ *
+ * Every amount is exact decimal text, never a float, and the validators are
+ * the ones `sales.ts` uses on a real line -- so a line that passes here cannot
+ * be refused by the document it becomes.
  */
 export interface TaskItemView {
   readonly itemId: string;
   readonly itemName: string;
+  readonly quantity: string;
+  /** Null until somebody prices it: an enquiry is a real state. */
+  readonly rate: string | null;
+  readonly discountPct: string;
+  /** quantity x rate, less the discount. Null when there is no rate yet. */
+  readonly amount: string | null;
+}
+
+const taskQuantityText = z
+  .string()
+  .trim()
+  .regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity with up to three decimals');
+const taskMoneyText = z
+  .string()
+  .trim()
+  .regex(/^\d{1,14}(\.\d{1,2})?$/u, 'a number with up to two decimals');
+const taskPercentText = z
+  .string()
+  .trim()
+  .regex(/^(100(\.0{1,2})?|\d{1,2}(\.\d{1,2})?)$/u, 'a percentage from 0 to 100');
+
+export const taskItemInputSchema = z.object({
+  itemId: z.uuid(),
+  quantity: taskQuantityText.default('1'),
+  rate: taskMoneyText.nullish(),
+  discountPct: taskPercentText.default('0'),
+});
+export type TaskItemInput = z.infer<typeof taskItemInputSchema>;
+
+/**
+ * One line's amount, as exact decimal text.
+ *
+ * Rounded to two decimals at the line, which is where a document rounds, so
+ * the total a person reads on the task is the total the sales order will show.
+ * Integer paise throughout: `0.1 + 0.2` is not `0.3`, and this is money.
+ */
+export function taskLineAmount(quantity: string, rate: string | null, discountPct: string): string | null {
+  if (rate === null || rate === undefined) return null;
+  const qtyMilli = Math.round(Number(quantity) * 1000);
+  const ratePaise = Math.round(Number(rate) * 100);
+  const discBasis = Math.round(Number(discountPct) * 100);
+  if (!Number.isFinite(qtyMilli) || !Number.isFinite(ratePaise) || !Number.isFinite(discBasis)) return null;
+  const grossMilliPaise = qtyMilli * ratePaise;
+  const netMilliPaise = grossMilliPaise - Math.round((grossMilliPaise * discBasis) / 10_000);
+  const paise = Math.round(netMilliPaise / 1000);
+  return (paise / 100).toFixed(2);
+}
+
+/** What the task's order comes to, or null when nothing on it is priced. */
+export function taskOrderTotal(items: readonly TaskItemView[]): string | null {
+  const priced = items.filter((item) => item.amount !== null);
+  if (priced.length === 0) return null;
+  const paise = priced.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0);
+  return (paise / 100).toFixed(2);
 }
 
 export interface TaskView {
@@ -172,8 +238,8 @@ export const createTaskSchema = z
     partyId: z.uuid().nullish(),
     /** REQ-V-09: a Tally party under Sundry Creditors. */
     vendorId: z.uuid().nullish(),
-    /** REQ-V-10: stock item ids. Order is kept; a repeat is a slip, not a quantity. */
-    itemIds: z.array(z.uuid()).max(TASK_ITEM_CAP).optional(),
+    /** REQ-V-10, REQ-V-17: the items and what is being asked for. Order is kept; a repeat is a slip, not a quantity. */
+    items: z.array(taskItemInputSchema).max(TASK_ITEM_CAP).optional(),
     dueDate: z.iso.date().nullish(),
     priority: taskPrioritySchema.default('MEDIUM'),
     /** Defaults to the first column. */
@@ -195,7 +261,7 @@ export const updateTaskSchema = z
     partyId: z.uuid().nullish(),
     vendorId: z.uuid().nullish(),
     /** The whole list, or absent to leave it alone. An empty array clears it. */
-    itemIds: z.array(z.uuid()).max(TASK_ITEM_CAP).optional(),
+    items: z.array(taskItemInputSchema).max(TASK_ITEM_CAP).optional(),
     dueDate: z.iso.date().nullish(),
     priority: taskPrioritySchema.optional(),
     /** REQ-V-06: a drag is this field changing, and nothing else. */

@@ -195,9 +195,14 @@ export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
         partyId: draft.partyId,
         vendorId: draft.vendorId,
         // Always sent, so clearing the last item reaches the server: an
-        // absent `itemIds` means "leave them alone", which would silently
+        // absent `items` means "leave them alone", which would silently
         // keep an item the reader had just removed.
-        itemIds: draft.items.map((item) => item.itemId),
+        items: draft.items.map((item) => ({
+          itemId: item.itemId,
+          quantity: item.quantity,
+          ...(item.rate === null ? {} : { rate: item.rate }),
+          discountPct: item.discountPct,
+        })),
       };
       const body: CreateTaskInput | UpdateTaskInput =
         draft.id === undefined

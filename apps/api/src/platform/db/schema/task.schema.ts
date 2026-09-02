@@ -1,4 +1,4 @@
-import { boolean, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../columns.js';
 import { files } from './file.schema.js';
@@ -109,13 +109,28 @@ export const taskItems = pgTable(
       .notNull()
       .references(() => stockItems.id, { onDelete: 'restrict' }),
     itemName: text('item_name').notNull(),
+    /**
+     * REQ-V-17 (owner, 2 Sep 2026): a task can now hold an order somebody is
+     * placing on the phone -- "select party, select item, qty and disc, total".
+     * It used to hold names alone, and the note here said "a task carries no
+     * quantities"; the owner asked for them, so it does.
+     *
+     * The precision matches `sales_document_lines` exactly, because these
+     * become those on conversion and a line that changed value in the crossing
+     * would be the worst possible bug in this path.
+     */
+    quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull().default('1'),
+    /** Null until somebody prices it: an enquiry is a real state. */
+    rate: numeric('rate', { precision: 16, scale: 2 }),
+    discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
     sortOrder: integer('sort_order').notNull().default(0),
     ...standardColumns(),
   },
   (t) => [
     index('task_items_task_idx').on(t.orgId, t.taskId).where(ALIVE),
-    // One item once per task: adding the same coupler twice is a slip, not a
-    // quantity -- a task carries no quantities.
+    // One item once per task. It carries a quantity now, so adding the same
+    // coupler twice is still a slip rather than two of them: the second entry
+    // is an edit to the first one's quantity.
     uniqueIndex('task_items_unique_idx').on(t.taskId, t.itemId).where(ALIVE),
   ],
 );

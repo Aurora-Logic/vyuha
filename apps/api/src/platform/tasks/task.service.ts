@@ -22,6 +22,7 @@ import {
   PARTY_LEDGER_GROUPS,
   type TaskAnalyticsQuery,
   type TaskAnalyticsView,
+  type TaskItemInput,
   type TaskAttachmentView,
   type TaskFlowWeek,
 } from '@vyuha/shared';
@@ -159,7 +160,7 @@ export class TaskService {
     // exist fails without leaving half of itself behind.
     const party = await this.resolveParty(principal, input.partyId, 'party');
     const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
-    const items = await this.resolveItems(principal, input.itemIds);
+    const items = await this.resolveItems(principal, input.items);
 
     const created = await repository.insert({
       title: input.title,
@@ -237,7 +238,7 @@ export class TaskService {
     }
 
     // Resolved before the write for the same reason as on create.
-    const items = await this.resolveItems(principal, input.itemIds);
+    const items = await this.resolveItems(principal, input.items);
 
     const updated = await repository.update(id, patch);
     if (updated === null) throw AppError.notFound('Task', id);
@@ -684,12 +685,19 @@ export class TaskService {
    * refused -- picking the same coupler twice is a slip, and a task carries
    * no quantities for a second row to mean anything.
    */
+  /**
+   * REQ-V-17: the items with what is being asked for.
+   *
+   * A repeat is still a slip rather than two of them -- the last one given
+   * wins, so re-adding an item is how a person corrects its quantity.
+   */
   private async resolveItems(
     principal: Principal,
-    itemIds: readonly string[] | undefined,
-  ): Promise<{ id: string; name: string }[] | null> {
-    if (itemIds === undefined) return null;
-    const unique = [...new Set(itemIds)];
+    items: readonly TaskItemInput[] | undefined,
+  ): Promise<{ id: string; name: string; quantity: string; rate: string | null; discountPct: string }[] | null> {
+    if (items === undefined) return null;
+    const byItemId = new Map(items.map((item) => [item.itemId, item]));
+    const unique = [...byItemId.keys()];
     if (unique.length === 0) return [];
     const rows = await this.db
       .select({ id: stockItems.id, name: stockItems.name })
@@ -701,7 +709,16 @@ export class TaskService {
       throw AppError.validation('One of the items was not found.', { itemIds: missing });
     }
     // The caller's order, not the database's: the list reads as it was built.
-    return unique.map((id) => ({ id, name: byId.get(id) ?? '' }));
+    return unique.map((id) => {
+      const given = byItemId.get(id);
+      return {
+        id,
+        name: byId.get(id) ?? '',
+        quantity: given?.quantity ?? '1',
+        rate: given?.rate ?? null,
+        discountPct: given?.discountPct ?? '0',
+      };
+    });
   }
 
   /** The actor as the assignee will read it: their employee name, or their email when they have no record. */
@@ -760,7 +777,12 @@ function taskAuditView(task: TaskView): Record<string, unknown> {
     vendorId: task.vendorId,
     // The ids, not the snapshotted names: the trail records what was linked,
     // and a name that changed in Tally later did not change this task.
-    itemIds: task.items.map((item) => item.itemId),
+    items: task.items.map((item) => ({
+      itemId: item.itemId,
+      quantity: item.quantity,
+      rate: item.rate,
+      discountPct: item.discountPct,
+    })),
     dueDate: task.dueDate,
     priority: task.priority,
     columnId: task.columnId,

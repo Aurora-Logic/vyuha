@@ -82,8 +82,8 @@ describe('TaskGallery', () => {
             title: 'Quote the busbar job',
             partyName: 'S P Enterprises',
             items: [
-              { itemId: 'i-1', itemName: 'MCCB 100A 3P' },
-              { itemId: 'i-2', itemName: 'Contactor 25A' },
+              { itemId: 'i-1', itemName: 'MCCB 100A 3P', quantity: '1', rate: null, discountPct: '0', amount: null },
+              { itemId: 'i-2', itemName: 'Contactor 25A', quantity: '1', rate: null, discountPct: '0', amount: null },
             ],
           }),
         ]}

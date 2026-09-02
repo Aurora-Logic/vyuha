@@ -1,6 +1,7 @@
 import {
   DEFAULT_BOARD_COLUMNS,
   TASK_BOARD_LANE_CAP,
+  taskLineAmount,
   type SortTerm,
   type TaskBoardColumnView,
   type TaskFilter,
@@ -88,13 +89,29 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
     const byTask = new Map<string, TaskItemView[]>();
     if (taskIds.length === 0) return byTask;
     const rows = await this.db
-      .select({ taskId: taskItems.taskId, itemId: taskItems.itemId, itemName: taskItems.itemName })
+      .select({
+        taskId: taskItems.taskId,
+        itemId: taskItems.itemId,
+        itemName: taskItems.itemName,
+        quantity: taskItems.quantity,
+        rate: taskItems.rate,
+        discountPct: taskItems.discountPct,
+      })
       .from(taskItems)
       .where(and(eq(taskItems.orgId, this.ctx.orgId), isNull(taskItems.deletedAt), inArray(taskItems.taskId, [...taskIds])))
       .orderBy(taskItems.sortOrder, taskItems.itemName);
     for (const row of rows) {
       const list = byTask.get(row.taskId) ?? [];
-      list.push({ itemId: row.itemId, itemName: row.itemName });
+      list.push({
+        itemId: row.itemId,
+        itemName: row.itemName,
+        quantity: row.quantity,
+        rate: row.rate,
+        discountPct: row.discountPct,
+        // Computed where it is read rather than stored: a stored total is a
+        // second source of truth that goes stale the moment a rate is edited.
+        amount: taskLineAmount(row.quantity, row.rate, row.discountPct),
+      });
       byTask.set(row.taskId, list);
     }
     return byTask;
@@ -125,7 +142,10 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
   }
 
   /** Replace a task's items wholesale. Absent means "leave them alone"; empty means "clear them". */
-  async setItems(taskId: string, chosen: readonly { id: string; name: string }[]): Promise<void> {
+  async setItems(
+    taskId: string,
+    chosen: readonly { id: string; name: string; quantity: string; rate: string | null; discountPct: string }[],
+  ): Promise<void> {
     // Deleted outright rather than soft-deleted: a task item is a link, not a
     // record with a history anybody reads, and the unique index is partial on
     // `deleted_at IS NULL` -- a soft delete would leave a row that blocks the
@@ -138,6 +158,9 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
         taskId,
         itemId: item.id,
         itemName: item.name,
+        quantity: item.quantity,
+        rate: item.rate,
+        discountPct: item.discountPct,
         sortOrder: index,
         createdBy: this.ctx.actorUserId,
         updatedBy: this.ctx.actorUserId,

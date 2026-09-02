@@ -504,15 +504,29 @@ function TaskSheetBody({
             Only offered once it has been saved and has a customer -- an
             estimate addressed to nobody is not a shortcut. Unsaved edits are
             deliberately not carried: what converts is what the task says. */}
+        {/* REQ-V-17: the order placed here becomes the document. Two, because
+            they are two different promises -- an estimate is an offer, a sales
+            order is an order taken -- and the person placing it knows which
+            one they just agreed to. */}
         {!isNew && draft.partyId !== null && canRaiseEstimate ? (
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<Link to={`/sales/estimates/new?task=${initial.id ?? ''}`} />}
-          >
-            <ArrowSquareOutIcon data-icon="inline-start" />
-            Convert to estimate
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<Link to={`/sales/orders/new?task=${initial.id ?? ''}`} />}
+            >
+              <ArrowSquareOutIcon data-icon="inline-start" />
+              Convert to sales order
+            </Button>
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<Link to={`/sales/estimates/new?task=${initial.id ?? ''}`} />}
+            >
+              <ArrowSquareOutIcon data-icon="inline-start" />
+              Convert to estimate
+            </Button>
+          </>
         ) : null}
         {!isNew && doneColumn !== null && currentColumn?.isDone !== true ? (
           <Button variant="outline" disabled={save.isPending} onClick={markDone}>

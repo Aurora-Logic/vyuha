@@ -29,7 +29,20 @@ export const taskSchema = z.object({
   partyName: z.string().nullable().default(null),
   vendorId: z.string().nullable().default(null),
   vendorName: z.string().nullable().default(null),
-  items: z.array(z.object({ itemId: z.string(), itemName: z.string() })).default([]),
+  items: z
+    .array(
+      z.object({
+        itemId: z.string(),
+        itemName: z.string(),
+        // Defaulted so a client built before REQ-V-17 still reads a task, and
+        // so zod does not strip what it has not declared.
+        quantity: z.string().default('1'),
+        rate: z.string().nullable().default(null),
+        discountPct: z.string().default('0'),
+        amount: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
   // REQ-V-12. Defaulted like the rest: a client built before the server
   // shipped it must still read a task. Missing it entirely is what made the
   // Files cell render blank instead of a count -- zod drops what it does not
@@ -60,6 +73,16 @@ export type BoardResponse = z.infer<typeof boardResponseSchema>;
 export const boardColumnsSchema = z.array(boardColumnSchema);
 
 /** The sheet's working copy. */
+/** One line of the order a task is carrying (REQ-V-17). */
+export interface TaskItemLine {
+  itemId: string;
+  itemName: string;
+  quantity: string;
+  rate: string | null;
+  discountPct: string;
+  amount: string | null;
+}
+
 export interface TaskDraft {
   id?: string;
   title: string;
@@ -76,7 +99,7 @@ export interface TaskDraft {
   partyName: string | null;
   vendorId: string | null;
   vendorName: string | null;
-  items: { itemId: string; itemName: string }[];
+  items: TaskItemLine[];
 }
 
 export function emptyTaskDraft(overrides: Partial<TaskDraft> = {}): TaskDraft {
