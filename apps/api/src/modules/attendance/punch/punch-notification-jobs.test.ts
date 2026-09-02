@@ -238,6 +238,22 @@ describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
     // A Monday, safely in the past; the worker carries the 09:00-18:00 default
     // shift, so REQ-C-04 resolves one for the date and nothing else touched it.
     const date = '2026-02-02';
+
+    // The sweep skips an org that has never recorded a punch -- a demo or
+    // dormant workspace should not have its whole roster marked absent nightly.
+    // So the fixture has to look like a real, running org: the manager punches
+    // in (no photo, the ADMIN_ENTRY path allows that), the worker under test
+    // does not, and it is the worker who must come out ABSENT.
+    await harness.db.insert(punches).values({
+      orgId: ORG_ID,
+      employeeId: managerEmployeeId,
+      attendanceDate: date,
+      punchType: 'IN',
+      serverTime: new Date(`${date}T09:00:00+05:30`),
+      source: 'ADMIN_ENTRY',
+      idempotencyKey: `absent-guard-${RUN}`,
+    });
+
     await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
 
     const rows = await harness.db
@@ -252,6 +268,27 @@ describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
       );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe('ABSENT');
+  }, 60_000);
+
+  it('skips a date on which nobody in the org punched -- a dormant day is not a roster of absences', async () => {
+    // No punch exists for this org on this date (the fixture only ever punches
+    // on 02-02 and 02-17), so the whole org is dormant for it. Without the guard
+    // the sweep would mark all 21 employees absent; with it, the worker gets no
+    // row at all. This is the demo/dormant-org flood the guard exists to stop.
+    const date = '2026-03-16';
+    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
+
+    const rows = await harness.db
+      .select({ id: attendanceDays.id })
+      .from(attendanceDays)
+      .where(
+        and(
+          eq(attendanceDays.orgId, ORG_ID),
+          eq(attendanceDays.employeeId, workerEmployeeId),
+          eq(attendanceDays.date, date),
+        ),
+      );
+    expect(rows).toHaveLength(0);
   }, 60_000);
 });
 

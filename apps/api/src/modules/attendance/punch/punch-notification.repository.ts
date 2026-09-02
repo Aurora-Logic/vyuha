@@ -2,7 +2,7 @@ import { and, asc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import { employees, organizations, users } from '../../../platform/db/schema/index.js';
-import { attendanceDays } from '../schema/index.js';
+import { attendanceDays, punches } from '../schema/index.js';
 
 /**
  * The two reads the punch notification sweeps need, and nothing else.
@@ -134,6 +134,27 @@ export class PunchNotificationRepository {
    * status); this only finds who to ask about. A non-rostered account resolves
    * to no shift and the engine skips it, so it costs one compute and no row.
    */
+  /**
+   * Whether anyone in this org punched on the date -- the signal it was actually
+   * running attendance that day. A real working day has punches: the absentees
+   * are the few who did not, and they are what the sweep exists to record. A day
+   * with no punch at all is a dormant or demo one (a workspace with historical
+   * punches but nobody punching now still looks like this), and marking its whole
+   * roster absent is noise a genuine absence would then hide in -- so the sweep
+   * skips that date rather than manufacturing an absence for every employee.
+   *
+   * ponytail: a real, unplanned all-hands shutdown reads as a dormant day too and
+   * is skipped; that day is set by a manual override/regularization, not the sweep.
+   */
+  async hasAnyPunchOn(date: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ one: sql`1` })
+      .from(punches)
+      .where(and(eq(punches.orgId, this.orgId), eq(punches.attendanceDate, date)))
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async absentCandidates(date: string): Promise<string[]> {
     const rows = await this.db
       .select({ id: employees.id })

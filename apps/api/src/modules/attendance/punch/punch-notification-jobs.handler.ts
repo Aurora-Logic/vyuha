@@ -333,6 +333,10 @@ export class MarkAbsentSweepHandler implements JobHandler<'mark-absent'>, OnModu
       const date = payload.date ?? addDays(localDateIn(now, org.timezone), -1);
 
       const repository = new PunchNotificationRepository(this.db, org.id);
+      // A date on which nobody in the org punched is a dormant or demo day, not
+      // 21 simultaneous real absences. Marking the whole roster absent then is
+      // noise a genuine absence would hide in, so skip the date entirely.
+      if (!(await repository.hasAnyPunchOn(date))) continue;
       const candidates = await repository.absentCandidates(date);
       if (candidates.length === 0) continue;
 
