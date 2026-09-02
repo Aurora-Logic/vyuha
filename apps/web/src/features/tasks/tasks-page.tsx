@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckSquareIcon, GearIcon, CalendarBlankIcon, ChartBarHorizontalIcon, KanbanIcon, SquaresFourIcon, TableIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
+import { CheckSquareIcon, GearIcon, ReceiptIcon, CalendarBlankIcon, ChartBarHorizontalIcon, KanbanIcon, SquaresFourIcon, TableIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ListSkeleton } from '@/components/shared/list-skeleton';
@@ -43,6 +43,7 @@ import { TaskGallery } from './task-gallery';
 import { TaskTimeline } from './task-timeline';
 import { emptyTaskDraft, taskToDraft, type Task, type TaskDraft } from './types';
 import { DeleteTaskDialog } from './delete-task-dialog';
+import { PlaceOrderDialog } from './place-order-dialog';
 import { useMoveTask, useSaveTask, useTask, useTaskBoard, useTasks, type TaskFilters } from './use-tasks';
 
 /**
@@ -251,6 +252,7 @@ export function TasksPage() {
   const save = useSaveTask();
   const canManage = usePermission(PERMISSIONS.CRM_TASK_MANAGE);
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   function startNew() {
     setParam('new', '1');
@@ -346,11 +348,22 @@ export function TasksPage() {
       <PageHeader
         description={mine ? 'Assigned to you, by due date. Every change is audited.' : 'Everyone you can see, open and closed, by due date. Every change is audited.'}
         action={
-          <Button size="sm" onClick={startNew}>
-            <PlusIcon data-icon="inline-start" />
-            New task
-            <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
-          </Button>
+          <span className="flex items-center gap-2">
+            {/* REQ-V-17. First and solid, because taking an order is the thing
+                somebody opens this screen in a hurry to do; a task is the
+                slower, more considered one. */}
+            {canManage ? (
+              <Button size="sm" onClick={() => { setPlacingOrder(true); }}>
+                <ReceiptIcon data-icon="inline-start" />
+                Place order
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={startNew}>
+              <PlusIcon data-icon="inline-start" />
+              New task
+              <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+            </Button>
+          </span>
         }
       />
 
@@ -675,6 +688,16 @@ export function TasksPage() {
           }}
         />
       ) : null}
+
+      <PlaceOrderDialog
+        open={placingOrder}
+        onOpenChange={setPlacingOrder}
+        onPlaced={(taskId) => {
+          // Straight into the order that was just placed, which is where the
+          // convert-to-sales-order button lives.
+          void navigate(`/tasks/${taskId}`);
+        }}
+      />
 
       <DeleteTaskDialog
         target={deleting}

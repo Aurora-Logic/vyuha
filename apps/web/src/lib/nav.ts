@@ -567,7 +567,7 @@ export const MODULES: ModuleDef[] = [
         items: [
           {
             to: '/tasks',
-            label: 'My tasks',
+            label: 'Tasks',
             shortLabel: 'Tasks',
             icon: CheckSquareIcon,
             permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
