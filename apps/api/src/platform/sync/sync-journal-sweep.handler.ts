@@ -34,6 +34,6 @@ export class SyncJournalSweepHandler
     _context: JobContext,
   ): Promise<JobResult> {
     const outcome = await this.scheduler.sweepJournalBodies();
-    return { cleared: outcome.cleared };
+    return { cleared: outcome.cleared, pruned: outcome.pruned };
   }
 }

@@ -43,6 +43,27 @@ const MAX_PULL_ATTEMPTS = 5;
 export const JOURNAL_BODY_RETENTION_DAYS = 30;
 
 /**
+ * How long a delivered event's id stays in `sync_inbox`.
+ *
+ * The row *is* the idempotency key — a repeat of an event whose row is gone
+ * would be processed a second time — so this has to comfortably outlive the
+ * Agent's own retry window, which the OpsTally reference caps at twelve
+ * attempts over ten hours. Ninety days is three orders of magnitude past
+ * that, and keeps the inbox readable as a recent history of the exchange
+ * rather than as everything that has ever arrived.
+ */
+export const INBOX_RETENTION_DAYS = 90;
+
+/**
+ * Rows removed per statement when pruning the inbox.
+ *
+ * The first sweep after this shipped may face a whole backlog. One statement
+ * would hold locks across all of it; batching keeps each transaction short
+ * enough that an agent posting an event never waits behind the sweep.
+ */
+const INBOX_PRUNE_BATCH = 5_000;
+
+/**
  * Makes pull work exist (REQ-R-07): on the 15-minute sweep, and on demand.
  *
  * The interesting property is what this deliberately does not do — it never
@@ -148,8 +169,15 @@ export class SyncSchedulerService {
    * write this service ever makes to the journal. The predicate skips rows
    * already swept, so the nightly cost is proportional to one day's
    * exchanges, not to history.
+   *
+   * The inbox is pruned on the same pass. It had no retention at all: one
+   * row per delivered event, kept forever, on the one table whose row count
+   * is driven by how busy the customer's Tally is rather than by how much
+   * data they hold. Rows still carrying a `payload` are left alone whatever
+   * their age — those are the deferred vouchers `replayDeferred` has yet to
+   * drain, and dropping one would lose the voucher, not merely its receipt.
    */
-  async sweepJournalBodies(): Promise<{ cleared: number }> {
+  async sweepJournalBodies(): Promise<{ cleared: number; pruned: number }> {
     const cleared = await this.db.execute<{ id: string }>(sql`
       UPDATE sync_journal
          SET request_body = NULL, response_body = NULL
@@ -158,10 +186,40 @@ export class SyncSchedulerService {
        RETURNING id
     `);
 
-    if (cleared.rows.length > 0) {
-      this.logger.log({ msg: 'Journal bodies swept (D-20)', cleared: cleared.rows.length });
+    /*
+     * `rowCount`, not `RETURNING id`. The first sweep on an installation that
+     * has never pruned deletes every delivered row past retention, and
+     * returning them materialised a UUID per row into this worker's heap
+     * purely so `.length` could be read.
+     *
+     * Batched, so that first sweep is a series of short transactions rather
+     * than one long one holding locks over the whole backlog; the loop stops
+     * as soon as a batch comes back short.
+     */
+    let prunedInboxRows = 0;
+    for (;;) {
+      const batch = await this.db.execute(sql`
+        DELETE FROM sync_inbox
+         WHERE id IN (
+           SELECT id FROM sync_inbox
+            WHERE received_at < now() - make_interval(days => ${INBOX_RETENTION_DAYS})
+              AND payload IS NULL
+            LIMIT ${INBOX_PRUNE_BATCH}
+         )
+      `);
+      const removed = batch.rowCount ?? 0;
+      prunedInboxRows += removed;
+      if (removed < INBOX_PRUNE_BATCH) break;
     }
-    return { cleared: cleared.rows.length };
+
+    if (cleared.rows.length > 0 || prunedInboxRows > 0) {
+      this.logger.log({
+        msg: 'Journal bodies swept (D-20)',
+        cleared: cleared.rows.length,
+        prunedInboxRows,
+      });
+    }
+    return { cleared: cleared.rows.length, pruned: prunedInboxRows };
   }
 
   /**

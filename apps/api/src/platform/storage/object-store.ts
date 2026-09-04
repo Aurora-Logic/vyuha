@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -14,6 +13,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { env } from '../common/env.js';
 import { describeError } from '../common/errors.js';
+import { signFileUrl } from './file-url-signature.js';
 
 /**
  * The object storage layer (NFR-09).
@@ -167,13 +167,11 @@ export class ObjectStore implements OnApplicationShutdown {
       );
     }
 
-    const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-    const signature = createHmac('sha256', env.JWT_ACCESS_SECRET)
-      .update(`${bucket}:${key}:${String(expires)}`)
-      .digest('hex');
+    const expires = String(Math.floor(Date.now() / 1000) + ttlSeconds);
+    const signature = signFileUrl(bucket, key, expires);
 
     const encodedPath = key.split('/').map(encodeURIComponent).join('/');
-    return `${env.API_BASE_URL}/api/v1/files/raw/${bucket}/${encodedPath}?expires=${String(expires)}&signature=${signature}`;
+    return `${env.API_BASE_URL}/api/v1/files/raw/${bucket}/${encodedPath}?expires=${expires}&signature=${signature}`;
   }
 
   onApplicationShutdown(): void {

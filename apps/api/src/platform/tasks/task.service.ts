@@ -232,7 +232,10 @@ export class TaskService {
     if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId) {
-      patch.assigneeId = await this.resolveAssignee(principal, input.assigneeId, { allowNull: true });
+      patch.assigneeId = await this.resolveAssignee(principal, input.assigneeId, {
+        allowNull: true,
+        currentAssigneeId: existing.assigneeId,
+      });
     }
     if (input.subjectType !== undefined || input.subjectId !== undefined) {
       const subject = await this.resolveSubject(principal, input.subjectType, input.subjectId);
@@ -409,8 +412,27 @@ export class TaskService {
     if (!existing.isDone && !(await repository.anyOpenColumn(id))) {
       throw AppError.conflict('At least one column must be open, or a new task has nowhere to start.');
     }
-    const deleted = await repository.softDelete(id);
-    if (!deleted) throw AppError.notFound('Board column', id);
+    /*
+     * The count above is for the message; the emptiness is asserted by the
+     * write itself. Read and then written as two statements, a task dragged
+     * into this column between them was left pointing at a column the board
+     * no longer lists -- invisible on every lane, and reachable only from
+     * the register.
+     *
+     * One statement closes the gap the two left. It does not close it
+     * absolutely: a move committing after this statement's snapshot is a
+     * phantom no predicate can see, and only a foreign key or a trigger
+     * would refuse that. It is worth the constraint if a column is ever
+     * deleted while the board is busy.
+     */
+    // The open-column invariant travels into the statement with it; the
+    // read above stays for the message it gives.
+    const deleted = await repository.softDeleteIfEmpty(id, !existing.isDone);
+    if (!deleted) {
+      throw AppError.conflict(
+        `${existing.name} took on a task while it was being deleted. Move it and try again.`,
+      );
+    }
     this.auditContext.record({
       action: 'task.column.deleted',
       entityType: 'task_board_column',
@@ -433,19 +455,44 @@ export class TaskService {
    * Who the task is for. Absent means the creator; naming somebody needs
    * `crm.task.manage` — or `crm.task.view.all`, whose P7-1 grant is "sees and
    * may reassign every task" — and they must be a current employee of the org.
+   * Clearing an assignee who is somebody else needs the same key: it is a
+   * reassignment, and the fact that it names nobody does not make it less
+   * of one.
    */
   private async resolveAssignee(
     principal: Principal,
     requested: string | null | undefined,
-    options: { allowNull?: boolean } = {},
+    options: { allowNull?: boolean; currentAssigneeId?: string | null } = {},
   ): Promise<string | null> {
+    const existingAssigneeId = options.currentAssigneeId ?? null;
+    const mayAssignOthers =
+      hasPermission(principal, PERMISSIONS.CRM_TASK_MANAGE) ||
+      hasPermission(principal, PERMISSIONS.CRM_TASK_VIEW_ALL);
+
     if (requested === undefined) return principal.employeeId;
-    if (requested === null) return options.allowNull === true ? null : principal.employeeId;
-    if (requested === principal.employeeId) return requested;
-    if (
-      !hasPermission(principal, PERMISSIONS.CRM_TASK_MANAGE) &&
-      !hasPermission(principal, PERMISSIONS.CRM_TASK_VIEW_ALL)
-    ) {
+    if (requested === null) {
+      if (options.allowNull !== true) return principal.employeeId;
+      // Taking the assignee off is the same decision as putting one on, and
+      // needs the same key. It was the one path through here that asked for
+      // nothing: an assignee holding only `crm.task.view.self` could clear
+      // the field, which drops the task off the board of whoever was
+      // carrying it and out of their reminders.
+      if (!mayAssignOthers && existingAssigneeId !== null && existingAssigneeId !== principal.employeeId) {
+        throw AppError.forbidden('Taking a task off somebody else needs crm.task.manage.');
+      }
+      return null;
+    }
+    if (requested === principal.employeeId) {
+      // Taking a task *for* yourself is the same decision as taking it *off*
+      // somebody, and has the same effect on them: it leaves their board and
+      // their reminders. The null branch above was guarded and this one was
+      // not, so the identical hole stayed open one branch across.
+      if (!mayAssignOthers && existingAssigneeId !== null && existingAssigneeId !== principal.employeeId) {
+        throw AppError.forbidden('Taking a task off somebody else needs crm.task.manage.');
+      }
+      return requested;
+    }
+    if (!mayAssignOthers) {
       throw AppError.forbidden('Assigning a task to somebody else needs crm.task.manage.');
     }
     const rows = await this.db
@@ -585,24 +632,51 @@ export class TaskService {
     }));
   }
 
+  /**
+   * One attachment, by id, proved against the task's own scope.
+   *
+   * `find` first for the same reason `addAttachment` does it: an attachment
+   * id is not a way into a task a role does not reach. Both callers used to
+   * load every attachment on the task and search the array in memory, which
+   * answered the same question by reading rows nobody wanted.
+   */
+  private async findAttachment(
+    principal: Principal,
+    taskId: string,
+    attachmentId: string,
+  ): Promise<{ id: string; fileId: string; filename: string }> {
+    const task = await this.find(principal, taskId);
+    const rows = await this.db.execute<{ id: string; fileId: string; filename: string }>(sql`
+      SELECT a.id, a.file_id AS "fileId", a.filename
+        FROM task_attachments a
+       WHERE a.org_id = ${principal.orgId}
+         AND a.task_id = ${task.id}
+         AND a.id = ${attachmentId}
+         AND a.deleted_at IS NULL
+       LIMIT 1
+    `);
+    const found = rows.rows[0];
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    return found;
+  }
+
   async attachmentUrl(
     principal: Principal,
     taskId: string,
     attachmentId: string,
   ): Promise<{ url: string; expiresInSeconds: number }> {
-    const found = (await this.listAttachments(principal, taskId)).find((a) => a.id === attachmentId);
-    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    const found = await this.findAttachment(principal, taskId, attachmentId);
     return this.files.signedUrlFor(principal, found.fileId);
   }
 
   async removeAttachment(principal: Principal, taskId: string, attachmentId: string): Promise<void> {
-    const found = (await this.listAttachments(principal, taskId)).find((a) => a.id === attachmentId);
-    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    const found = await this.findAttachment(principal, taskId, attachmentId);
     // Soft, like every other record here: the file itself stays, because the
     // trail names it and a purge is the recycle bin's job, not a delete key's.
     await this.db.execute(sql`
       UPDATE task_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
-      WHERE org_id = ${principal.orgId} AND id = ${attachmentId}
+      WHERE org_id = ${principal.orgId} AND task_id = ${taskId} AND id = ${attachmentId}
+        AND deleted_at IS NULL
     `);
     this.auditContext.record({
       action: 'task.attachment_removed',

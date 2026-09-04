@@ -242,12 +242,27 @@ export class PurchaseOrderService implements OnModuleInit {
    * inbox, routed to every holder of purchase.document.approve, and the PO
    * moves only when that request is decided — the same ledger leave uses,
    * so a purchase is never approved in two places.
+   *
+   * **The requester's own key does not answer for the threshold** (owner,
+   * 31 Aug 2026). This used to skip the whole request when the confirmer
+   * held `purchase.document.approve`, which let one person raise and confirm
+   * an unlimited PO alone: the rule `approve()` states — the requester may
+   * not approve their own — never ran, because no request existed for it to
+   * run against. It is the same rule D-39 routes by, and it now holds at
+   * both doors. A sole approver's PO waits rather than passing itself, which
+   * is the honest answer: the organisation has nobody else to sign it.
    */
   async confirm(principal: Principal, id: string): Promise<PurchaseOrderView> {
     const existing = await this.find(principal, id);
     if (existing.status !== 'DRAFT') throw AppError.conflict(`${existing.number} is already ${existing.status.toLowerCase()}.`);
-    if (existing.approvalRequired && !hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) {
+    if (existing.approvalRequired) {
       const approvers = await this.approvers(principal.orgId, principal.userId);
+      if (approvers.length === 0) {
+        throw AppError.conflict(
+          `${existing.number} needs approval and there is no other holder of purchase.document.approve to route it to. ` +
+            'Grant the key to a second person, or raise the approval threshold.',
+        );
+      }
       const ctx = orgContextOf(principal);
       await this.db.transaction(async (tx) => {
         const approval = await this.approvals.raise(
@@ -262,12 +277,28 @@ export class PurchaseOrderService implements OnModuleInit {
           },
           tx,
         );
-        await tx.execute(sql`UPDATE purchase_orders SET status = 'PENDING_APPROVAL', approval_request_id = ${approval.id}, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+        // The status is claimed by the write, exactly as `releaseWithin` and
+        // the cancel path claim theirs. It was read before the transaction
+        // opened, so two confirms racing — the button pressed twice — both
+        // passed the check above and both ran this block, raising two
+        // requests for one PO; the second's id landed in the column and the
+        // first sat in the inbox, decidable, pointing at a PO that no longer
+        // named it. Throwing here rolls the orphan back with it.
+        const claimed = await tx.execute<{ id: string }>(sql`
+          UPDATE purchase_orders
+             SET status = 'PENDING_APPROVAL', approval_request_id = ${approval.id},
+                 updated_at = now(), updated_by = ${principal.userId}
+           WHERE org_id = ${principal.orgId} AND id = ${id} AND deleted_at IS NULL AND status = 'DRAFT'
+          RETURNING id
+        `);
+        if (claimed.rows.length === 0) {
+          throw AppError.conflict(`${existing.number} is no longer a draft.`);
+        }
       });
       this.auditContext.record({ action: 'purchase.order.submitted_for_approval', entityType: 'purchase_order', entityId: id, before: null, after: { grandTotal: existing.grandTotal } });
       return this.find(principal, id);
     }
-    return this.release(principal, id, existing.number, existing.approvalRequired ? 'purchase.order.approved' : 'purchase.order.confirmed');
+    return this.release(principal, id, existing.number, 'purchase.order.confirmed');
   }
 
   /**

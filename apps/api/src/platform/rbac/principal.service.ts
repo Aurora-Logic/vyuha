@@ -74,14 +74,25 @@ export class PrincipalService {
       throw new AppError(ERROR_CODES.TOKEN_INVALID, 'Token does not match this account.');
     }
 
-    if (user.status === 'SUSPENDED') {
-      throw new AppError(ERROR_CODES.ACCOUNT_INACTIVE, 'This account is suspended.');
-    }
-    if (user.status === 'INVITED') {
-      throw new AppError(
-        ERROR_CODES.ACCOUNT_INACTIVE,
-        'This account has not accepted its invitation yet.',
-      );
+    /*
+     * An allow-list, not a list of the statuses that are refused. The two
+     * named reasons still answer separately, because the web client shows a
+     * different screen for each -- but the *shape* is "only ACTIVE gets in",
+     * so a fourth member added to `USER_STATUSES` is refused until somebody
+     * decides what it means. Written the other way round, adding a status
+     * granted it full access and no test would have failed.
+     */
+    if (user.status !== 'ACTIVE') {
+      if (user.status === 'SUSPENDED') {
+        throw new AppError(ERROR_CODES.ACCOUNT_INACTIVE, 'This account is suspended.');
+      }
+      if (user.status === 'INVITED') {
+        throw new AppError(
+          ERROR_CODES.ACCOUNT_INACTIVE,
+          'This account has not accepted its invitation yet.',
+        );
+      }
+      throw new AppError(ERROR_CODES.ACCOUNT_INACTIVE, 'This account cannot sign in.');
     }
 
     /**

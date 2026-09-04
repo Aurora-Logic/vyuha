@@ -429,6 +429,53 @@ export class BoardColumnRepository extends ScopedRepository<typeof taskBoardColu
     return rows.length > 0;
   }
 
+  /**
+   * Soft-delete a column only while nothing lives in it and, for an open
+   * column, only while another open one survives.
+   *
+   * Both invariants are part of the write rather than checks before it. The
+   * emptiness already was: a task moved in after the service counted cannot
+   * be orphaned in a column the board has stopped listing.
+   *
+   * "Another open column survives" is here for the same reason, and was not.
+   * Two administrators deleting the last two open columns at once both read
+   * before either wrote, both saw a sibling, and both deleted — leaving a
+   * board with no open column, where `firstOpen()` returns null and every new
+   * task fails with "The board column was not found": the exact state the
+   * service's guard message says must never happen.
+   *
+   * `false` means the column took on a task, was the last open one, or was
+   * already gone.
+   */
+  async softDeleteIfEmpty(id: string, mustLeaveAnOpenColumn: boolean): Promise<boolean> {
+    const rows = await this.db.execute<{ id: string }>(sql`
+      UPDATE task_board_columns
+         SET deleted_at = now(), updated_at = now(), updated_by = ${this.ctx.actorUserId}
+       WHERE org_id = ${this.ctx.orgId}
+         AND id = ${id}
+         AND deleted_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM tasks
+            WHERE tasks.org_id = ${this.ctx.orgId}
+              AND tasks.column_id = ${id}
+              AND tasks.deleted_at IS NULL
+         )
+         ${
+           mustLeaveAnOpenColumn
+             ? sql`AND EXISTS (
+           SELECT 1 FROM task_board_columns other
+            WHERE other.org_id = ${this.ctx.orgId}
+              AND other.id <> ${id}
+              AND other.is_done = false
+              AND other.deleted_at IS NULL
+         )`
+             : sql``
+         }
+      RETURNING id
+    `);
+    return rows.rows.length > 0;
+  }
+
   /** Whether an id names a column of this org — a scoped `IN` for the service's guards. */
   async existAll(ids: readonly string[]): Promise<boolean> {
     if (ids.length === 0) return true;

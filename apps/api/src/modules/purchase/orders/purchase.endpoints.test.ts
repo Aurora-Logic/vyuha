@@ -389,6 +389,7 @@ describe('approval by value through the inbox (13 REQ-X-16)', () => {
     expect(self.status).toBe(403);
   });
 
+
   it('approving in the inbox confirms the PO and runs the push settlement; the two never disagree', async () => {
     const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
     const request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
@@ -861,4 +862,81 @@ describe('an order that stops being a promise of goods (audits 3, 4, 8, 12)', ()
     expect(gross - discount + tax).toBeCloseTo(total, 2);
   });
 
+});
+
+/**
+ * The two behaviours `confirm()` gained, which nothing covered.
+ *
+ * `approvers()` filters the requester out and takes the first holder left, so
+ * an approver's own PO is now routed rather than released, and an
+ * organisation whose only approver is the person raising it is refused
+ * outright rather than self-approving. Every case above confirms as the buyer,
+ * so neither path was ever reached.
+ *
+ * Last in the file and with its own threshold and its own approver, because
+ * it raises POs and leaves requests in the inbox, and the describes above find
+ * "the PENDING request" by searching for it.
+ */
+describe('who may confirm a PO that needs approval', () => {
+  let secondApproverToken = '';
+
+  beforeAll(async () => {
+    await harness.put('/purchase/settings', {
+      token: adminToken,
+      body: { approvalThreshold: '10000', invoiceWaitingHours: 24 },
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await harness.put('/purchase/settings', {
+      token: adminToken,
+      body: { approvalThreshold: null, invoiceWaitingHours: 24 },
+    });
+  });
+
+  it('refuses when the only approver is the person raising it, and says both ways out', async () => {
+    // The admin is the sole holder of purchase.document.approve in this
+    // fixture. Releasing their own over-threshold PO would be self-approval
+    // with extra steps, so it refuses -- and the message has to name both
+    // remedies, because the person reading it is stuck until one is applied.
+    const own = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '3900' }] },
+    });
+    expect(own.status).toBe(201);
+    expect(own.body.approvalRequired).toBe(true);
+
+    const refused = await harness.post<ErrorBody>(`/purchase/orders/${own.body.id}/confirm`, { token: adminToken });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+    expect(refused.body.error.message).toContain('purchase.document.approve');
+    expect(refused.body.error.message).toContain('threshold');
+
+    // And it stayed a draft, rather than being half-submitted.
+    const after = await harness.get<PurchaseOrderView>(`/purchase/orders/${own.body.id}`, { token: adminToken });
+    expect(after.body.status).toBe('DRAFT');
+  });
+
+  it('routes an approver’s own PO to the inbox once somebody else can decide it', async () => {
+    const approverRole = await harness.createRole('Second approver', [
+      PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+      PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+    ]);
+    const second = await harness.createUser({ email: scopedEmail('purchase-approver-2'), roleIds: [approverRole] });
+    secondApproverToken = (await harness.login(second.email, second.password)).token;
+    expect(secondApproverToken).not.toBe('');
+
+    const own = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4100' }] },
+    });
+    expect(own.status).toBe(201);
+
+    // Approving your own spend is what a threshold exists to prevent, so it
+    // waits for the other holder rather than releasing.
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${own.body.id}/confirm`, {
+      token: adminToken,
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(confirmed.body.status).toBe('PENDING_APPROVAL');
+  });
 });
