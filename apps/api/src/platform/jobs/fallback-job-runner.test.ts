@@ -202,3 +202,50 @@ describe('FallbackJobRunner.activate', () => {
     }
   });
 });
+
+/**
+ * H-07. Two API processes each run the scheduler; a due schedule must fire
+ * once. As read-then-insert-then-advance it fired once per process -- but
+ * only when the other process fell into the sub-millisecond gap between the
+ * read and the insert, which two ticks fired together never did in this
+ * harness. So the gap is forced: the first tick runs inside a transaction
+ * that is held open, the second must wait on the row and then find it no
+ * longer due. With the three statements back in, the second's read sees the
+ * old row and two jobs land.
+ */
+describe('FallbackJobRunner.schedulerTick under two instances', () => {
+  it('fires a due schedule exactly once when the second tick arrives while the first still holds it', async () => {
+    const first = SCHEDULED_JOBS[0];
+    expect(first).toBeDefined();
+    const jobName = first?.jobName ?? '';
+    await db.execute(sql`DELETE FROM fallback_job_schedules`);
+    await db.execute(sql`
+      INSERT INTO fallback_job_schedules (scheduler_id, next_run_at) VALUES (${first?.schedulerId ?? ''}, now() - interval '1 hour')
+    `);
+    const before = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM fallback_jobs WHERE job_name = ${jobName}`);
+
+    const clientA = await pool.connect();
+    const clientB = await pool.connect();
+    try {
+      await clientA.query('BEGIN');
+      await clientB.query('BEGIN');
+      const a = newFallback().fallback;
+      const b = newFallback().fallback;
+      await a.schedulerTick(drizzle(clientA));
+      // B blocks on A's row until A commits, then re-reads it.
+      const second = b.schedulerTick(drizzle(clientB));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await clientA.query('COMMIT');
+      await second;
+      await clientB.query('COMMIT');
+    } finally {
+      clientA.release();
+      clientB.release();
+    }
+
+    const after = await db.execute<{ id: string }>(sql`SELECT id FROM fallback_jobs WHERE job_name = ${jobName} ORDER BY created_at DESC`);
+    const added = after.rows.length - (before.rows[0]?.n ?? 0);
+    insertedJobIds.push(...after.rows.slice(0, Math.max(0, added)).map((r) => r.id));
+    expect(added).toBe(1);
+  });
+});

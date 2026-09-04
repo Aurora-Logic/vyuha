@@ -185,24 +185,26 @@ export class FallbackJobRunner implements OnApplicationShutdown {
    * than waiting `SCHEDULER_TICK_MS` for the timer to fire — the same reason
    * `JobRunner.startWorkers()` is public.
    */
-  async schedulerTick(): Promise<void> {
+  /** `executor` lets a test run the claim inside an explicit transaction; production passes nothing. */
+  async schedulerTick(executor: Pick<Database, 'execute'> = this.db): Promise<void> {
     const now = await this.dbNow();
 
     for (const scheduled of SCHEDULED_JOBS) {
-      const rows = await this.db.execute<{ next_run_at: Date | string }>(sql`
-        SELECT next_run_at FROM fallback_job_schedules WHERE scheduler_id = ${scheduled.schedulerId} AND next_run_at <= now()
-      `);
-      if (rows.rows.length === 0) continue;
-
-      // Same literal payload `installSchedules()` uses for every scheduled
-      // job today, regardless of what that job's own TS payload declares.
-      await this.db.execute(sql`
-        INSERT INTO fallback_jobs (job_name, payload) VALUES (${scheduled.jobName}, ${JSON.stringify({ requestedAt: now.toISOString() })}::jsonb)
-      `);
-
       const nextRunAt = CronExpressionParser.parse(scheduled.pattern, { currentDate: now }).next().toDate();
-      await this.db.execute(sql`
-        UPDATE fallback_job_schedules SET next_run_at = ${nextRunAt}, last_run_at = now() WHERE scheduler_id = ${scheduled.schedulerId}
+      // One statement: advancing the schedule is the claim, and the job is
+      // inserted only for the instance whose UPDATE moved it. As three
+      // statements -- read, insert, advance -- two API processes that both
+      // read "due" both inserted, and a sweep ran twice (H-07). Same literal
+      // payload installSchedules() uses for every scheduled job today.
+      await executor.execute(sql`
+        WITH due AS (
+          UPDATE fallback_job_schedules
+             SET next_run_at = ${nextRunAt}, last_run_at = now()
+           WHERE scheduler_id = ${scheduled.schedulerId} AND next_run_at <= now()
+           RETURNING scheduler_id
+        )
+        INSERT INTO fallback_jobs (job_name, payload)
+        SELECT ${scheduled.jobName}, ${JSON.stringify({ requestedAt: now.toISOString() })}::jsonb FROM due
       `);
     }
   }
@@ -247,14 +249,27 @@ export class FallbackJobRunner implements OnApplicationShutdown {
       return;
     }
 
+    // A job that legitimately outlives STALE_CLAIM_MS used to be handed back
+    // to the queue while still running, and ran twice. Renew the claim while
+    // the handler runs; a process that dies stops renewing, which is what the
+    // stale sweep is for (H-07).
+    const renew = setInterval(() => {
+      void this.db
+        .execute(sql`UPDATE fallback_jobs SET claimed_at = now() WHERE id = ${row.id} AND claimed_by = ${this.instanceId} AND state = 'CLAIMED'`)
+        .catch((error: unknown) => {
+          this.logger.warn({ msg: 'Could not renew a fallback job claim', jobId: row.id, reason: describeError(error) });
+        });
+    }, Math.floor(STALE_CLAIM_MS / 3));
     try {
       const result = await handler.run(row.payload as JobPayloads[JobName], {
         jobId: row.id,
         attempt: row.attempts,
       });
+      clearInterval(renew);
       await this.db.execute(sql`UPDATE fallback_jobs SET state = 'DONE', updated_at = now() WHERE id = ${row.id}`);
       this.logger.log({ msg: 'Fallback job completed', jobName: row.job_name, jobId: row.id, ...result });
     } catch (error: unknown) {
+      clearInterval(renew);
       const reason = describeError(error);
       const attempts = DEFAULT_JOB_OPTIONS.attempts ?? 5;
       const baseDelay = typeof DEFAULT_JOB_OPTIONS.backoff === 'object' ? (DEFAULT_JOB_OPTIONS.backoff.delay ?? 2000) : 2000;
