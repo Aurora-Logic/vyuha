@@ -151,6 +151,12 @@ function lastKnownMe(): Me | null {
  * unavailable, and forgetting the person over those turned every outage
  * into a logout (H-14).
  */
+/** Who this app currently believes is signed in, for state that must be tied to a person: the offline punch queue (C-01). */
+export function currentIdentity(): { userId: string; employeeId: string | null } | null {
+  const me = lastKnownMe();
+  return me === null ? null : { userId: me.user.id, employeeId: me.user.employeeId };
+}
+
 export function shouldForgetSession(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }

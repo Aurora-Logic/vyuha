@@ -501,6 +501,7 @@ export function PunchPage() {
       waiting={outbox.waiting}
       refused={outbox.refused}
       unreadable={outbox.unreadable}
+      locked={outbox.locked}
       draining={outbox.draining}
       lastResult={outbox.lastResult}
       lastAttemptAt={outbox.lastAttemptAt}

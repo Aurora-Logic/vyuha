@@ -106,6 +106,7 @@ interface QueuedPunch {
   readonly type: 'IN' | 'OUT';
   readonly clientTime: Date;
   readonly photoIndex: number;
+  readonly ownerUserId?: string;
 }
 
 async function drain(
@@ -123,6 +124,7 @@ async function drain(
       punches: queue.map((entry) => ({
         idempotencyKey: entry.key,
         photoIndex: entry.photoIndex,
+        ...(entry.ownerUserId === undefined ? {} : { ownerUserId: entry.ownerUserId }),
         type: entry.type,
         clientTime: entry.clientTime.toISOString(),
         consentAccepted: true,
@@ -376,4 +378,26 @@ describe('a shift drained from the offline queue (REQ-D-10)', () => {
     expect(expectedWorked, JSON.stringify(day.body)).toBe(EXPECTED_WORKED_MINUTES);
     expect(day.body.status, JSON.stringify(day.body)).toBe('PRESENT');
   }, 120_000);
+});
+
+/**
+ * C-01. The queue on a shared browser is origin-wide, and a row used to carry
+ * no owner, so whoever signed in next drained everybody's punches under their
+ * own name. The client now stamps and filters by owner; this is the server's
+ * half, for a client that does not.
+ */
+describe('a punch queued by another account (C-01)', () => {
+  it('is refused rather than recorded under the account that drained it', async () => {
+    const key = `ofd-stranger-${runId}`;
+    const result = await drain(
+      shiftToken,
+      [{ key, type: 'IN', clientTime: new Date(Date.now() - IN_AGE_MS), photoIndex: 0, ownerUserId: uuidv7() }],
+      photoBytes,
+    );
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(result.body.rejected).toBe(1);
+    expect(result.body.results[0]?.error?.code).toBe('PUNCH_OWNER_MISMATCH');
+    const rows = await harness.db.select({ id: punches.id }).from(punches).where(eq(punches.idempotencyKey, key));
+    expect(rows).toHaveLength(0);
+  });
 });

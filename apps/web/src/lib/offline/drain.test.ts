@@ -25,6 +25,7 @@ function entry(overrides: Partial<QueuedPunch> = {}): QueuedPunch {
     halfDayPart: null,
     reason: null,
     consentAccepted: true,
+    owner: { userId: 'user-a', employeeId: 'emp-a' },
     attempts: 0,
     lastAttemptAt: null,
     refusal: null,
@@ -179,6 +180,14 @@ describe('buildSyncBody', () => {
     expect(photos).toHaveLength(2);
     expect((photos[0] as File).size).toBe(3);
     expect((photos[1] as File).size).toBe(4);
+  });
+
+  it('names the account that queued each punch, and nothing for a row that has none (C-01)', () => {
+    const mine = entry({ idempotencyKey: 'key-0000-0001' });
+    const legacy = entry({ idempotencyKey: 'key-0000-0002', owner: null });
+    const punches = payloadOf(buildSyncBody([mine, legacy])).punches;
+    expect(punches[0]?.ownerUserId).toBe('user-a');
+    expect(punches[1]).not.toHaveProperty('ownerUserId');
   });
 
   it('sends the stored idempotency key, never a fresh one', () => {

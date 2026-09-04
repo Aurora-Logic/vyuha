@@ -226,6 +226,16 @@ export class PunchService {
     for (const item of items) {
       const photo = photos[item.photoIndex] ?? null;
       try {
+        // Recorded against the signed-in principal whatever the row says.
+        // The row's own owner is here so a punch queued by somebody else on
+        // a shared browser is refused, rather than filed under this person's
+        // name with the other person's photograph (C-01).
+        if (item.ownerUserId !== undefined && item.ownerUserId !== principal.userId) {
+          throw new AppError(
+            ERROR_CODES.PUNCH_OWNER_MISMATCH,
+            'That queued punch was recorded by a different account and cannot be sent from this one.',
+          );
+        }
         const receipt = await this.record(principal, {
           facts: item,
           source: 'OFFLINE_SYNC',

@@ -89,6 +89,7 @@ export function QueuePanel({
   waiting,
   refused,
   unreadable,
+  locked,
   draining,
   lastResult,
   lastAttemptAt,
@@ -99,6 +100,7 @@ export function QueuePanel({
   waiting: readonly QueuedPunch[];
   refused: readonly QueuedPunch[];
   unreadable: number;
+  locked: number;
   draining: boolean;
   lastResult: DrainResult | null;
   lastAttemptAt: string | null;
@@ -106,7 +108,7 @@ export function QueuePanel({
   onRetry: () => void;
   onDismiss: (idempotencyKey: string) => void;
 }) {
-  if (waiting.length === 0 && refused.length === 0 && unreadable === 0) return null;
+  if (waiting.length === 0 && refused.length === 0 && unreadable === 0 && locked === 0) return null;
 
   // Prefer this session's own result; fall back to what the entries themselves
   // remember, which is what survives a reload.
@@ -246,6 +248,21 @@ export function QueuePanel({
         </ItemGroup>
       ) : null}
 
+      {locked > 0 ? (
+        <Alert>
+          <WarningIcon />
+          <AlertTitle>
+            {locked === 1
+              ? '1 queued punch belongs to another account'
+              : `${String(locked)} queued punches belong to another account`}
+          </AlertTitle>
+          <AlertDescription>
+            They were recorded on this device by somebody else, or before this app began recording
+            who queued a punch. They will be sent only when that person signs in here. Nothing has
+            been deleted.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {unreadable > 0 ? (
         <Alert variant="destructive">
           <WarningIcon />

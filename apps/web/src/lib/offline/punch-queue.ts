@@ -75,7 +75,19 @@ export const queuedPunchSchema = z.object({
   lastAttemptAt: z.string().nullable(),
   /** Set when the server looked at this entry and said no. Never retried after. */
   refusal: refusalSchema.nullable(),
+  /**
+   * The account that queued it. Rows written before this field existed carry
+   * null, and a null owner is nobody's: never drained, counted as locked,
+   * because attributing it to whoever signs in next is the defect this field
+   * closes (C-01).
+   */
+  owner: z.object({ userId: z.string(), employeeId: z.string().nullable() }).nullable().default(null),
 });
+
+export interface QueueOwner {
+  readonly userId: string;
+  readonly employeeId: string | null;
+}
 
 export type QueuedPunch = z.infer<typeof queuedPunchSchema>;
 
@@ -89,6 +101,7 @@ export interface NewQueuedPunch {
   reason: string | null;
   /** REQ-M-03: see `queuedPunchSchema`. */
   consentAccepted: boolean;
+  owner: QueueOwner;
 }
 
 let database: Promise<IDBDatabase> | null = null;
@@ -149,19 +162,33 @@ export interface QueueContents {
    * may still be somebody's punch; counted, because a silent one is worse.
    */
   readonly unreadable: number;
+  /** Rows queued by another account, or by none: kept, never drained here. */
+  readonly locked: number;
 }
 
-export async function readQueue(): Promise<QueueContents> {
-  const rows = await withStore('readonly', idbGetAll);
+/**
+ * Only the rows the signed-in person queued are theirs to send. A row of
+ * another account stays on the device for that person to send when they
+ * sign in; a row of no account (written before owners were recorded) stays
+ * too. Both are counted so the screen can say so. The signed-out case locks
+ * everything (C-01).
+ */
+export function partitionQueue(rows: readonly unknown[], owner: QueueOwner | null): QueueContents {
 
   const waiting: QueuedPunch[] = [];
   const refused: QueuedPunch[] = [];
   let unreadable = 0;
 
+  let locked = 0;
+
   for (const row of rows) {
     const parsed = queuedPunchSchema.safeParse(row);
     if (!parsed.success) {
       unreadable += 1;
+      continue;
+    }
+    if (owner === null || parsed.data.owner === null || parsed.data.owner.userId !== owner.userId) {
+      locked += 1;
       continue;
     }
     (parsed.data.refusal === null ? waiting : refused).push(parsed.data);
@@ -174,7 +201,12 @@ export async function readQueue(): Promise<QueueContents> {
     waiting: waiting.sort(byQueuedAt),
     refused: refused.sort(byQueuedAt),
     unreadable,
+    locked,
   };
+}
+
+export async function readQueue(owner: QueueOwner | null): Promise<QueueContents> {
+  return partitionQueue(await withStore('readonly', idbGetAll), owner);
 }
 
 export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> {
@@ -191,6 +223,7 @@ export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> 
     halfDayPart: draft.halfDay,
     reason: draft.reason,
     consentAccepted: draft.consentAccepted,
+    owner: draft.owner,
     attempts: 0,
     lastAttemptAt: null,
     refusal: null,

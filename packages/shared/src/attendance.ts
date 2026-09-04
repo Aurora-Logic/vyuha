@@ -206,6 +206,13 @@ export const punchSyncItemSchema = z
      * employee's punch.
      */
     photoIndex: z.number().int().min(0),
+    /**
+     * The account that queued the punch, stamped when it was queued. The
+     * server records against the signed-in principal regardless; this lets
+     * it refuse a row queued by somebody else on a shared browser rather than
+     * file their photograph under this person's name (C-01).
+     */
+    ownerUserId: z.uuid().optional(),
   })
   .superRefine(checkPunchFacts);
 

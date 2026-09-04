@@ -1,5 +1,7 @@
 import { ApiError } from '@/lib/api/client';
 
+import { currentIdentity } from '../session/use-session';
+
 import { nextBatch, postPunchSync, reconcile } from './drain';
 import {
   enqueuePunch,
@@ -41,6 +43,8 @@ export interface OutboxSnapshot {
   readonly waiting: readonly QueuedPunch[];
   readonly refused: readonly QueuedPunch[];
   readonly unreadable: number;
+  /** Queued by another account, or by none; kept for them, never sent as this person. */
+  readonly locked: number;
   readonly draining: boolean;
   /** This session's last drain. Null before one has been attempted. */
   readonly lastResult: DrainResult | null;
@@ -56,6 +60,7 @@ const EMPTY: OutboxSnapshot = {
   waiting: [],
   refused: [],
   unreadable: 0,
+  locked: 0,
   draining: false,
   lastResult: null,
   lastAttemptAt: null,
@@ -94,12 +99,13 @@ function latestAttempt(entries: readonly QueuedPunch[]): string | null {
 export async function refreshOutbox(
   overrides: Partial<Pick<OutboxSnapshot, 'draining' | 'lastResult'>> = {},
 ): Promise<OutboxSnapshot> {
-  const contents = await readQueue();
+  const contents = await readQueue(currentIdentity());
   const next: OutboxSnapshot = {
     loaded: true,
     waiting: contents.waiting,
     refused: contents.refused,
     unreadable: contents.unreadable,
+    locked: contents.locked,
     draining: overrides.draining ?? snapshot.draining,
     lastResult: overrides.lastResult ?? snapshot.lastResult,
     lastAttemptAt: latestAttempt([...contents.waiting, ...contents.refused]),
@@ -108,8 +114,12 @@ export async function refreshOutbox(
   return next;
 }
 
-export async function queuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> {
-  const entry = await enqueuePunch(draft);
+export async function queuePunch(draft: Omit<NewQueuedPunch, 'owner'>): Promise<QueuedPunch> {
+  // Stamped here, from the identity the app is showing, so the row can only
+  // ever be sent by the person who recorded it (C-01).
+  const owner = currentIdentity();
+  if (owner === null) throw new Error('A punch cannot be queued with nobody signed in.');
+  const entry = await enqueuePunch({ ...draft, owner });
   await refreshOutbox();
   return entry;
 }
@@ -161,7 +171,7 @@ async function runDrain(): Promise<DrainResult | null> {
   // a spin against a punch endpoint is worse than a queue that drains on the
   // next trigger.
   for (let round = 0; round < 10; round += 1) {
-    const contents = await readQueue();
+    const contents = await readQueue(currentIdentity());
     if (contents.waiting.length === 0) break;
 
     const batch = nextBatch(contents.waiting);

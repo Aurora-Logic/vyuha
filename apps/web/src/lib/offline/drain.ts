@@ -135,6 +135,8 @@ export function buildSyncBody(batch: readonly QueuedPunch[]): FormData {
     // record the acceptance with the synced punch.
     consentAccepted: entry.consentAccepted,
     idempotencyKey: entry.idempotencyKey,
+    // The server refuses a row that was not this person's (C-01).
+    ...(entry.owner === null ? {} : { ownerUserId: entry.owner.userId }),
     photoIndex: index,
   }));
 
