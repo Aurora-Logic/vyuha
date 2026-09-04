@@ -13,9 +13,21 @@ import { z } from 'zod';
  * survives being given over the phone.
  */
 
-const configSchema = z.object({
+/** Plain http reaches only the machine itself; the token goes over the wire otherwise (H-11). */
+function httpsOrLoopback(url: string): boolean {
+  const { protocol, hostname } = new URL(url);
+  return protocol === 'https:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
+export const configSchema = z.object({
   /** The Vyuha API origin, e.g. https://vyuha.example.com — outbound only. */
-  serverUrl: z.string().url(),
+  serverUrl: z.string().url().refine(httpsOrLoopback, 'serverUrl must be https:// -- http:// is allowed only for localhost'),
+  /**
+   * The fixture file this build reads in place of Tally (10 §8, D-05). No
+   * default: a binary that quietly read demo data when this was missing was
+   * a deployed agent simulating Tally (C-02).
+   */
+  fixture: z.string().min(1).optional(),
   /** The per-connection credential, pasted from the once-only dialog. */
   agentToken: z.string().startsWith('vyagt_'),
   /** Tally's XML port on this machine. The default is Tally's default. */
