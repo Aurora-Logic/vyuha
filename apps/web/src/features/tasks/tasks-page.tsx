@@ -537,41 +537,45 @@ export function TasksPage() {
                 Columns
               </Button>
             ) : null}
-            {/* Five layouts, the way Notion's Layout picker offers them. Still
-                hidden on a phone: five icon buttons plus the rest is most of a
-                360px row, and the board and timeline are not what anyone
-                reaches for on one. */}
-            {isMobile ? null : (
-              <ToggleGroup
-                variant="outline"
-                aria-label="View"
-                value={[view]}
-                onValueChange={(value) => {
-                  const next = value[0] ?? null;
-                  if (isTaskViewMode(next)) {
-                    setParam('view', next);
-                    // REQ-V-05: the choice sticks for this person on this device.
-                    setDefaultView(next);
-                  }
-                }}
-              >
-                <ToggleGroupItem value="list" aria-label="Table view">
-                  <TableIcon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="board" aria-label="Board view">
-                  <KanbanIcon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="calendar" aria-label="Calendar view">
-                  <CalendarBlankIcon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="gallery" aria-label="Gallery view">
-                  <SquaresFourIcon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="timeline" aria-label="Timeline view">
-                  <ChartBarHorizontalIcon />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
+            {/* The five-layout picker, the way Notion's offers them. On a phone
+                only the two that earn a 360px row are shown -- List and Board
+                (owner, 4 Sep 2026: "add kanban view") -- so the pipeline is
+                reachable on a phone, while the calendar, gallery and timeline,
+                which need a wide screen to say anything, stay on the desktop
+                where they already lived. The list view itself is unchanged. */}
+            <ToggleGroup
+              variant="outline"
+              aria-label="View"
+              value={[view]}
+              onValueChange={(value) => {
+                const next = value[0] ?? null;
+                if (isTaskViewMode(next)) {
+                  setParam('view', next);
+                  // REQ-V-05: the choice sticks for this person on this device.
+                  setDefaultView(next);
+                }
+              }}
+            >
+              <ToggleGroupItem value="list" aria-label="Table view">
+                <TableIcon />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="board" aria-label="Board view">
+                <KanbanIcon />
+              </ToggleGroupItem>
+              {isMobile ? null : (
+                <>
+                  <ToggleGroupItem value="calendar" aria-label="Calendar view">
+                    <CalendarBlankIcon />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="gallery" aria-label="Gallery view">
+                    <SquaresFourIcon />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="timeline" aria-label="Timeline view">
+                    <ChartBarHorizontalIcon />
+                  </ToggleGroupItem>
+                </>
+              )}
+            </ToggleGroup>
           </div>
         </div>
 
