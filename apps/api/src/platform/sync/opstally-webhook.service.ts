@@ -46,6 +46,9 @@ import { SyncWriterService, type WriterScope } from './sync-writer.service.js';
  * 3. **Dedupe.** Retries reuse the event id, so the id is the idempotency
  *    key: `sync_inbox` holds one row per id, inserted inside the same
  *    transaction as the writes, and a repeat is a 200 that does nothing.
+ *    The signed `created_at` bounds how long the id must be remembered:
+ *    an event past the acceptance window is refused before it binds or
+ *    projects anything (see `WEBHOOK_MAX_EVENT_AGE_DAYS`).
  * 4. **Project.** Ledgers under the party groups become parties — with the
  *    balances, address, contact and credit terms OpsTally reports for them —
  *    stock items become stock items, through the same writer the pull path
@@ -65,6 +68,23 @@ import { SyncWriterService, type WriterScope } from './sync-writer.service.js';
  * Agent retry the same bytes twelve times over ten hours, and a person can
  * act on the exception long before that.
  */
+
+/**
+ * How old a delivery may claim to be and still be accepted.
+ *
+ * `created_at` sits inside the signed body, so a captured delivery replayed
+ * later cannot refresh it. That bounds what a replay can ever do: inside
+ * this window the `sync_inbox` row answers "already accepted", and past it
+ * the event is refused at the door — before bindings, before the heartbeat,
+ * before any writer. Without the bound, the inbox prune re-opened replay for
+ * anything older than its retention; with it, a pruned row guards nothing
+ * that this refusal has not already covered, which is why the window must
+ * stay far inside `INBOX_RETENTION_DAYS` (a test holds the two apart).
+ *
+ * Seven days wrongs no legitimate delivery: the reference caps the Agent's
+ * own retries at twelve attempts over ten hours.
+ */
+export const WEBHOOK_MAX_EVENT_AGE_DAYS = 7;
 
 /** OpsTally's ledger groups that are parties in Vyuha's sense (08 §3). */
 const PARTY_GROUP_PREFIXES = ['sundry debtors', 'sundry creditors'];
@@ -336,6 +356,30 @@ export class OpsTallyWebhookService {
     }
     const event = validated.data;
 
+    /*
+     * The replay bound, before anything the event could influence. A date
+     * that does not parse is let through: it can only arrive inside a
+     * validly signed body — from the real Agent — and refusing a working
+     * integration over a date format would break the exchange for a bound
+     * the format had already defeated.
+     */
+    const createdAtMs = Date.parse(event.created_at);
+    if (
+      Number.isFinite(createdAtMs) &&
+      Date.now() - createdAtMs > WEBHOOK_MAX_EVENT_AGE_DAYS * 86_400_000
+    ) {
+      return this.acknowledgeRejected(scope, connection, {
+        eventId: event.id,
+        eventType: event.event,
+        reason: `created ${event.created_at}, outside the ${String(WEBHOOK_MAX_EVENT_AGE_DAYS)}-day acceptance window`,
+        requestHash,
+        bodyText,
+        exceptionText:
+          `OpsTally delivered an event created ${event.created_at}, outside the ` +
+          `${String(WEBHOOK_MAX_EVENT_AGE_DAYS)}-day acceptance window — a replayed capture, or a machine whose clock is badly wrong.`,
+      });
+    }
+
     // Bindings are refused outside the transaction: a refusal writes the
     // condition, never the event.
     await this.enforceBindings(connection, event);
@@ -606,6 +650,8 @@ export class OpsTallyWebhookService {
       reason: string;
       requestHash: string;
       bodyText: string;
+      /** For the person reading the exception; defaults to the validation wording. */
+      exceptionText?: string;
     },
   ): Promise<OpsTallyAck> {
     const result = `rejected: ${rejection.reason}`;
@@ -632,7 +678,7 @@ export class OpsTallyWebhookService {
       await tx.execute(sql`
         INSERT INTO sync_exceptions (org_id, connection_id, kind, entity_type, tally_error)
         VALUES (${scope.orgId}, ${scope.connectionId}, 'REJECTION', ${rejection.eventType},
-                ${`OpsTally delivery could not be understood. ${rejection.reason}`})
+                ${rejection.exceptionText ?? `OpsTally delivery could not be understood. ${rejection.reason}`})
       `);
       this.logger.warn({
         msg: 'OpsTally delivery rejected',

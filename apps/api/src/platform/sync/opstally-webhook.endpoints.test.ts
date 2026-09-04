@@ -10,7 +10,8 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
-import { OpsTallyWebhookService } from './opstally-webhook.service.js';
+import { OpsTallyWebhookService, WEBHOOK_MAX_EVENT_AGE_DAYS } from './opstally-webhook.service.js';
+import { INBOX_RETENTION_DAYS } from './sync-scheduler.service.js';
 
 /**
  * The OpsTally webhook door, over real HTTP, signed the way the Agent signs
@@ -61,7 +62,9 @@ function envelope(id: string, event: string, payload: unknown, overrides: Record
   return {
     id,
     event,
-    created_at: '2026-08-17T09:12:03.441Z',
+    // Fresh, not a constant: deliveries past the acceptance window are
+    // refused as replays, and a pinned date would start failing on its own.
+    created_at: new Date().toISOString(),
     company: COMPANY,
     install_id: INSTALL,
     payload,
@@ -724,5 +727,81 @@ describe('what Vyuha cannot understand', () => {
   it('a request with no JSON body at all is 400, not 401', async () => {
     const response = await fetch(webhookUrl, { method: 'POST', headers: { 'x-tally-signature': 'aa' } });
     expect(response.status).toBe(400);
+  });
+});
+
+describe('the acceptance window (the replay bound)', () => {
+  const staleCreatedAt = new Date(
+    Date.now() - (WEBHOOK_MAX_EVENT_AGE_DAYS + 1) * 86_400_000,
+  ).toISOString();
+
+  it('refuses a validly signed event past the window: acknowledged, recorded, never projected', async () => {
+    const response = await deliver(
+      envelope(
+        'evt_stale_1',
+        'stock.updated',
+        { ...CABLE, guid: 'st-guid-stale', masterId: '1099', name: 'Stale Replay Item' },
+        { created_at: staleCreatedAt },
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toContain('acceptance window');
+
+    const row = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM stock_items WHERE org_id = ${ORG_ID} AND name = 'Stale Replay Item'
+    `);
+    expect(row.rows.length).toBe(0);
+
+    const exceptions = await harness.get<{ data: SyncExceptionView[] }>('/integrations/exceptions', {
+      token: adminToken,
+    });
+    const stale = exceptions.body.data.filter(
+      (e) => e.connectionId === connectionId && e.tallyError?.includes('acceptance window'),
+    );
+    expect(stale.length).toBe(1);
+    expect(stale[0]?.tallyError).toContain('replayed capture');
+  });
+
+  it('replaying the refused event answers duplicate, without a second exception', async () => {
+    const retry = await deliver(
+      envelope(
+        'evt_stale_1',
+        'stock.updated',
+        { ...CABLE, guid: 'st-guid-stale', masterId: '1099', name: 'Stale Replay Item' },
+        { created_at: staleCreatedAt },
+      ),
+    );
+    expect(retry.status).toBe(200);
+    expect(retry.body.duplicate).toBe(true);
+
+    const exceptions = await harness.get<{ data: SyncExceptionView[] }>('/integrations/exceptions', {
+      token: adminToken,
+    });
+    const stale = exceptions.body.data.filter(
+      (e) => e.connectionId === connectionId && e.tallyError?.includes('acceptance window'),
+    );
+    expect(stale.length).toBe(1);
+  });
+
+  it('an unparseable created_at is not refused for its date', async () => {
+    // It can only arrive inside a validly signed body — from the real Agent —
+    // and a working integration must not break over a date format.
+    const response = await deliver(
+      envelope(
+        'evt_stale_2',
+        'stock.updated',
+        { ...CABLE, guid: 'st-guid-dateless', masterId: '1100', alterId: 900, name: 'Dateless Item' },
+        { created_at: 'well past teatime' },
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toBe('ok: 1 stock item');
+  });
+
+  it('sits far inside the inbox retention, so pruning a row never re-opens what the window refuses', () => {
+    // Inside the window a replay is answered by the sync_inbox row; past it,
+    // by the refusal above. Let the window grow past the retention and there
+    // is a stretch where neither answers — this is the line that fails first.
+    expect(WEBHOOK_MAX_EVENT_AGE_DAYS).toBeLessThan(INBOX_RETENTION_DAYS);
   });
 });
