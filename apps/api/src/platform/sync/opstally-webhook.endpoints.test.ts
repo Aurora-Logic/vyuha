@@ -805,3 +805,54 @@ describe('the acceptance window (the replay bound)', () => {
     expect(WEBHOOK_MAX_EVENT_AGE_DAYS).toBeLessThan(INBOX_RETENTION_DAYS);
   });
 });
+
+/**
+ * H-10. The writer remembers name -> id per connection for the life of the
+ * process, and it used to remember misses too: a voucher naming a party
+ * that had not arrived yet pinned that name to null, and every later
+ * voucher for the party carried no party_id until the API restarted.
+ * Last in the file because it relies on the writer being the same instance
+ * across these three deliveries -- which is exactly the condition in
+ * production.
+ */
+describe('a party that arrives after its first voucher (H-10)', () => {
+  const voucher = (n: number) => ({
+    guid: `vch-guid-zed-${String(n)}`,
+    masterId: `90${String(n)}`,
+    alterId: 900 + n,
+    date: '20260901',
+    voucherType: 'Sales',
+    voucherNumber: `S-Z${String(n)}`,
+    party: 'Zed Traders',
+    narration: '',
+    isCancelled: false,
+    amount: 1000,
+    ledgerEntries: [],
+    inventoryEntries: [],
+  });
+  const partyIdOf = async (voucherNumber: string) => {
+    const rows = await harness.db.execute<{ party_id: string | null }>(
+      sql`SELECT party_id FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = ${voucherNumber}`,
+    );
+    return rows.rows[0]?.party_id;
+  };
+
+  it('resolves the party on the next voucher once the ledger has landed', async () => {
+    const first = await deliver(envelope('evt_zed_v1', 'voucher.created', voucher(1)));
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body.result, JSON.stringify(first.body)).toContain('ok');
+    expect(await partyIdOf('S-Z1')).toBeNull();
+
+    const ledger = await deliver(
+      envelope('evt_zed_led', 'ledger.created', { guid: 'led-guid-zed', masterId: '79', alterId: 310, name: 'Zed Traders', parent: 'Sundry Debtors' }),
+    );
+    expect(ledger.status, JSON.stringify(ledger.body)).toBe(200);
+    const zed = await harness.db.execute<{ id: string }>(sql`SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = 'Zed Traders'`);
+    const zedId = zed.rows[0]?.id;
+    expect(zedId).toBeDefined();
+
+    const second = await deliver(envelope('evt_zed_v2', 'voucher.created', voucher(2)));
+    expect(second.status, JSON.stringify(second.body)).toBe(200);
+    expect(await partyIdOf('S-Z2')).toBe(zedId);
+  });
+});

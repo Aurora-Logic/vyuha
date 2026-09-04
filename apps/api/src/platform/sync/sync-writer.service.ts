@@ -591,6 +591,7 @@ export class SyncWriterService {
          WHERE id = ${mapping.internalId}
       `);
       await this.touchMapping(tx, agent, 'party', row.guid, row.alterId);
+      this.partyCache.delete(`${agent.connectionId}:${row.name}`);
       return;
     }
 
@@ -611,6 +612,7 @@ export class SyncWriterService {
     const partyId = inserted.rows[0]?.id;
     if (partyId === undefined) throw new Error('Party insert returned no row.');
     await this.insertMapping(tx, agent, 'party', row.guid, row.alterId, partyId);
+    this.partyCache.delete(`${agent.connectionId}:${row.name}`);
   }
 
   /** REQ-R-02, the same shape as parties: GUID-anchored, Tally wins. */
@@ -651,6 +653,7 @@ export class SyncWriterService {
          WHERE id = ${mapping.internalId}
       `);
       await this.touchMapping(tx, agent, 'stock_item', row.guid, row.alterId);
+      this.stockItemCache.delete(`${agent.connectionId}:${row.name}`);
       return;
     }
 
@@ -667,6 +670,7 @@ export class SyncWriterService {
     const itemId = inserted.rows[0]?.id;
     if (itemId === undefined) throw new Error('Stock item insert returned no row.');
     await this.insertMapping(tx, agent, 'stock_item', row.guid, row.alterId, itemId);
+    this.stockItemCache.delete(`${agent.connectionId}:${row.name}`);
   }
 
   /**
@@ -822,8 +826,16 @@ export class SyncWriterService {
     `);
   }
 
-  private readonly partyCache = new Map<string, string | null>();
-  private readonly stockItemCache = new Map<string, string | null>();
+  /**
+   * Name -> id, per connection, for the life of the process. Hits only: a
+   * miss used to be cached too, so a voucher naming a party that had not
+   * arrived yet pinned that name to null until restart, and every later
+   * voucher for the party carried no party_id. An upsert drops its name from
+   * the cache rather than writing the new id, because it runs inside a
+   * transaction that may still roll back (H-10).
+   */
+  private readonly partyCache = new Map<string, string>();
+  private readonly stockItemCache = new Map<string, string>();
 
   private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
@@ -836,7 +848,7 @@ export class SyncWriterService {
        LIMIT 1
     `);
     const id = rows.rows[0]?.id ?? null;
-    this.partyCache.set(cacheKey, id);
+    if (id !== null) this.partyCache.set(cacheKey, id);
     return id;
   }
 
@@ -851,7 +863,7 @@ export class SyncWriterService {
        LIMIT 1
     `);
     const id = rows.rows[0]?.id ?? null;
-    this.stockItemCache.set(cacheKey, id);
+    if (id !== null) this.stockItemCache.set(cacheKey, id);
     return id;
   }
 
