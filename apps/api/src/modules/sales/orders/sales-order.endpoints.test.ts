@@ -1,4 +1,5 @@
 import {
+  PERMISSIONS,
   SYSTEM_ROLES,
   type AgentClaimResponse,
   type ApprovalRequestSummary,
@@ -23,6 +24,7 @@ import { PushOutcomeRegistry } from '../../../platform/sync/push-outcome.registr
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 import { SyncWriterService } from '../../../platform/sync/sync-writer.service.js';
 import { FulfilmentService } from '../fulfilment/fulfilment.service.js';
+import { SalesOrderService } from './sales-order.service.js';
 
 /**
  * Sales orders and the push path (REQ-W-03, W-06, W-07; 09 §3.3). The agent
@@ -214,6 +216,35 @@ describe('the push, as the agent reports it (REQ-W-06, 09 §3.3)', () => {
     expect(refs.rows).toEqual([{ external_guid: 'tally-guid-so-1', idempotency_key: `vyuha:${orderId}`, sync_state: 'pushed' }]);
   });
 
+  it('refuses an alteration past the discount threshold before writing anything (COM-1)', async () => {
+    // The floor and the threshold were checked after the write, on the view
+    // of rows already committed -- and the threshold not at all. So an
+    // alteration a caller could not have confirmed went into the order Tally
+    // holds, and a refused one had already changed it.
+    const before = await harness.get<SalesDocumentView>(`/sales/orders/${orderId}`, { token: managerToken });
+    expect(before.body.syncState).toBe('PUSHED');
+    await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: 10 } });
+    const alterOnly = await harness.createRole('Alter only', [PERMISSIONS.SALES_DOCUMENT_VIEW_ALL, PERMISSIONS.SALES_DOCUMENT_ALTER]);
+    const altering = await harness.createUser({ email: scopedEmail('so-alter-only'), roleIds: [alterOnly] });
+    const alterToken = (await harness.login(altering.email, altering.password)).token;
+    try {
+      const refused = await harness.post<ErrorBody>(`/sales/orders/${orderId}/alter`, {
+        token: alterToken,
+        body: { lines: [{ stockItemId: cableId, quantity: '3', rate: '4000', discountPct: '25' }] },
+      });
+      expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+      expect(refused.body.error.message).toContain('10%');
+
+      // Nothing was written: same lines, same total, and no push was queued.
+      const after = await harness.get<SalesDocumentView>(`/sales/orders/${orderId}`, { token: managerToken });
+      expect(after.body.grandTotal).toBe(before.body.grandTotal);
+      expect(after.body.lines.map((l) => [l.quantity, l.rate, l.discountPct])).toEqual(before.body.lines.map((l) => [l.quantity, l.rate, l.discountPct]));
+      expect(after.body.syncState).toBe('PUSHED');
+    } finally {
+      await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: null } });
+    }
+  });
+
   it('a pushed order refuses a draft edit; Alter needs the key, re-pushes against the GUID, and never a second voucher', async () => {
     const asSales = await harness.post<ErrorBody>(`/sales/orders/${orderId}/alter`, { token: salesToken, body: { notes: 'more' } });
     expect(asSales.status).toBe(403);
@@ -293,6 +324,7 @@ describe('the push, as the agent reports it (REQ-W-06, 09 §3.3)', () => {
     expect(refused.status).toBe(409);
     expect(refused.body.error.message).toContain('cancelled in Tally');
   });
+
 });
 
 
@@ -1312,5 +1344,48 @@ describe('an order cancelled in Tally (audit 1)', () => {
       SELECT closed_reason FROM procurement_requirements WHERE sales_order_id = ${orderId9}
     `);
     expect(closed.rows[0]?.closed_reason).toContain('cancelled in Tally');
+  });
+});
+
+/**
+ * Last in the file on purpose: it leaves a SALES_DISCOUNT request PENDING
+ * against an order that is CONFIRMED -- that is the raced state it exists
+ * to prove -- and the inbox cases above find "the PENDING request" by
+ * searching for it.
+ */
+describe('cancelling under a stale read (COM-2)', () => {
+  it('refuses to cancel an order confirmed under the read, and leaves its request alone (COM-2)', async () => {
+    // The raced state built directly: an order the author last read as
+    // PENDING_APPROVAL whose row the approver has since moved to CONFIRMED.
+    // Only the read is stubbed; guard, UPDATE, SQL and database are real.
+    await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: 10 } });
+    try {
+      const created = await harness.post<SalesDocumentView>('/sales/orders', {
+        token: salesToken,
+        body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000', discountPct: '25' }] },
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      const pending = await harness.post<SalesDocumentView>(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+      expect(pending.status, JSON.stringify(pending.body)).toBe(200);
+      expect(pending.body.status).toBe('PENDING_APPROVAL');
+
+      await harness.db.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED' WHERE id = ${created.body.id}`);
+      const service = harness.resolve(SalesOrderService);
+      const stale = vi.spyOn(service, 'find').mockResolvedValueOnce(pending.body);
+      try {
+        const refused = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/cancel`, { token: salesToken });
+        expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+      } finally {
+        stale.mockRestore();
+      }
+      const row = await harness.db.execute<{ status: string }>(sql`SELECT status FROM sales_documents WHERE id = ${created.body.id}`);
+      expect(row.rows[0]?.status).toBe('CONFIRMED');
+      const request = await harness.db.execute<{ status: string }>(
+        sql`SELECT status FROM approval_requests WHERE subject_id = ${created.body.id} ORDER BY created_at DESC LIMIT 1`,
+      );
+      expect(request.rows[0]?.status).toBe('PENDING');
+    } finally {
+      await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: null } });
+    }
   });
 });

@@ -23,6 +23,7 @@ import {
 import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
+import { resolveRate } from '../../../platform/pricing/pricing-resolver.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
 import { ApprovalService } from '../../../platform/approvals/approval.service.js';
@@ -71,7 +72,10 @@ function netRate(line: Pick<SalesLineView, 'rate' | 'discountPct'>): number {
   return Number(line.rate) * (1 - Number(line.discountPct) / 100);
 }
 
-function isBelowFloor(line: SalesLineView): boolean {
+/** What the floor check reads: a view line has it all, and so does a line resolved before the write. */
+type FloorLine = Pick<SalesLineView, 'lineNo' | 'description' | 'rate' | 'discountPct' | 'freeOfCharge' | 'resolvedRate' | 'rateOverrideReason'>;
+
+function isBelowFloor(line: FloorLine): boolean {
   // 15 REQ-AK-09: a free replacement line is below every floor by
   // construction, and the decision that made it free was recorded on the
   // return. Asking for a discount reason as well would be asking twice.
@@ -79,7 +83,7 @@ function isBelowFloor(line: SalesLineView): boolean {
   return line.resolvedRate !== null && netRate(line) < Number(line.resolvedRate) - 0.005;
 }
 
-function belowFloorRefusal(line: SalesLineView): AppError {
+function belowFloorRefusal(line: FloorLine): AppError {
   return AppError.validation(
     `Line ${String(line.lineNo)} (${line.description}) works out at ${netRate(line).toFixed(2)} against a floor of ${line.resolvedRate ?? ''}; a reason is needed to go below the price list.`,
     { fields: [{ path: `lines.${String(line.lineNo - 1)}.rateOverrideReason`, message: 'required below the resolved rate' }] },
@@ -365,7 +369,53 @@ export class SalesOrderService implements OnModuleInit {
    * confirmed at the list rate and altered to a tenth of it, and the altered
    * voucher would go to Tally with no reason and no approver.
    */
-  private assertAboveFloor(lines: readonly SalesLineView[]): void {
+  /**
+   * COM-1. The floor and the discount threshold, checked before the write.
+   *
+   * They were checked after it, on the view built from the rows just
+   * committed, so an alteration that failed had already changed the order
+   * Tally holds, and the 400 the caller read described a document that no
+   * longer said what it said. The floor is resolved here exactly as the
+   * repository resolves it when it writes, so the two cannot disagree.
+   *
+   * The threshold was never checked on alter at all. confirm() routes a
+   * steep discount to the inbox; an altered order is already in Tally with
+   * nobody left to ask, so past the threshold it is refused unless the
+   * caller holds sales.discount.approve. Loosen this into routing if an
+   * altered order should re-enter the inbox -- that is a product decision,
+   * and refusing is the one that cannot leak a discount.
+   */
+  private async assertAlterationWithinPolicy(principal: Principal, existing: SalesDocumentView, input: UpdateSalesOrderInput): Promise<void> {
+    if (input.lines === undefined) return;
+    const partyId = input.partyId ?? existing.partyId;
+    const date = input.date ?? existing.date;
+    const wasFree = new Set(existing.lines.filter((l) => l.freeOfCharge).map((l) => `${l.stockItemId ?? ''}|${l.description}`));
+    const checked: FloorLine[] = await Promise.all(
+      input.lines.map(async (line, index) => {
+        const resolution = line.stockItemId ? await resolveRate(this.db, principal.orgId, { partyId, stockItemId: line.stockItemId, quantity: line.quantity, date }) : null;
+        return {
+          lineNo: index + 1,
+          description: line.description,
+          rate: line.rate ?? resolution?.rate ?? '0',
+          discountPct: line.discountPct,
+          freeOfCharge: wasFree.has(`${line.stockItemId ?? ''}|${line.description}`),
+          resolvedRate: resolution?.rate ?? null,
+          rateOverrideReason: line.rateOverrideReason ?? null,
+        };
+      }),
+    );
+    this.assertAboveFloor(checked);
+    const settings = await this.readSettings(principal.orgId);
+    const steepest = Math.max(0, ...checked.map((l) => Number(l.discountPct)));
+    if (settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
+      throw AppError.conflict(
+        `${String(steepest)}% off is past the ${String(settings.discountApprovalPct)}% that needs approval, and ${existing.number} is already in Tally with nobody left to ask. ` +
+          'A holder of sales.discount.approve can make this alteration.',
+      );
+    }
+  }
+
+  private assertAboveFloor(lines: readonly FloorLine[]): void {
     const unexplained = lines.filter((l) => isBelowFloor(l)).find((l) => l.rateOverrideReason === null || l.rateOverrideReason.trim() === '');
     if (unexplained !== undefined) throw belowFloorRefusal(unexplained);
   }
@@ -461,8 +511,8 @@ export class SalesOrderService implements OnModuleInit {
         );
       }
     }
+    await this.assertAlterationWithinPolicy(principal, existing, input);
     const edited = await this.applyEdit(principal, existing, input, 'sales.order.altered');
-    this.assertAboveFloor(edited.lines);
     // An alter that queues nothing is an alter that did not happen; saying 200
     // to it left the edit applied here and never sent to Tally.
     if (!(await this.enqueuePush(principal, edited))) {
@@ -478,13 +528,19 @@ export class SalesOrderService implements OnModuleInit {
     if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') {
       throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}; a confirmed order is cancelled in Tally, and the change arrives on the next pull.`);
     }
+    const repository = this.repository(principal);
+    // Claimed before the request is withdrawn, and claimed against the
+    // status just read: an author pressing Cancel as the approver approved
+    // passed the check above and then cancelled a CONFIRMED order (COM-2).
+    // Claim first so a refusal leaves the request untouched and the order
+    // still decidable, rather than pending with nothing left to approve it.
+    const claimed = await repository.setStatus(id, 'CANCELLED', ['DRAFT', 'PENDING_APPROVAL']);
+    if (!claimed) throw AppError.conflict(`${existing.number} is no longer cancellable.`);
     if (existing.status === 'PENDING_APPROVAL') {
       // The inbox request goes with it, or an approver decides an order that no longer exists.
       await this.approvals.cancelForSubject(orgContextOf(principal), SALES_ORDER_SUBJECT_TYPE, id, `${existing.number} cancelled by its author.`);
       await this.db.execute(sql`UPDATE sales_documents SET approval_request_id = NULL WHERE id = ${id}`);
     }
-    const repository = this.repository(principal);
-    await repository.setStatus(id, 'CANCELLED');
     const order = await repository.view(SQL_TRUE, id);
     if (order === null) throw AppError.notFound('Sales order', id);
     this.auditContext.record({ action: 'sales.order.cancelled', entityType: 'sales_document', entityId: id, before: auditView(existing), after: auditView(order) });

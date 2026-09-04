@@ -12,7 +12,7 @@ import {
   type ShipTo,
   type SortTerm,
 } from '@vyuha/shared';
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import { type ResolvedLine } from '../../../platform/documents/document-support.js';
@@ -345,11 +345,22 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     return row === undefined ? null : { id: row.id, docType: row.docType };
   }
 
-  async setStatus(id: string, status: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED'): Promise<boolean> {
+  /**
+   * `from` is the status claim: the write moves the document only if it is
+   * still in one of those statuses, and answers false otherwise. A caller
+   * that read the status and then wrote without it was two statements
+   * apart from the approver, and a cancel racing an approval cancelled an
+   * order that had just been confirmed (COM-2).
+   */
+  async setStatus(
+    id: string,
+    status: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED',
+    from?: readonly (EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED')[],
+  ): Promise<boolean> {
     const rows = await this.db
       .update(salesDocuments)
       .set({ status, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
-      .where(this.scoped(eq(salesDocuments.id, id)))
+      .where(this.scoped(and(eq(salesDocuments.id, id), from === undefined ? undefined : inArray(salesDocuments.status, [...from]))))
       .returning({ id: salesDocuments.id });
     return rows.length > 0;
   }
