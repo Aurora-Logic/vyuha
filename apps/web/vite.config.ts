@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
+import { splitPrecache } from "./src/lib/offline/precache-split"
+
 /**
  * What is running, stamped into the bundle.
  *
@@ -57,22 +59,6 @@ const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
  * font subsets - is optional: missing one costs a fallback typeface, and
  * failing the whole install over it would cost offline punching.
  */
-function buildPrecache(bundle: Record<string, { type: string }>): {
-  critical: string[]
-  optional: string[]
-} {
-  const critical: string[] = []
-  const optional: string[] = []
-
-  for (const fileName of Object.keys(bundle).sort()) {
-    if (fileName === "index.html" || fileName === "sw.js") continue
-    const url = `/${fileName}`
-    if (fileName.endsWith(".js") || fileName.endsWith(".css")) critical.push(url)
-    else optional.push(url)
-  }
-
-  return { critical, optional }
-}
 
 function serviceWorker(): Plugin {
   const read = (): string => readFileSync(SW_SOURCE, "utf8")
@@ -127,7 +113,7 @@ function serviceWorker(): Plugin {
       this.emitFile({
         type: "asset",
         fileName: "sw.js",
-        source: render(version, buildPrecache(bundle)),
+        source: render(version, splitPrecache(bundle)),
       })
     },
   }
