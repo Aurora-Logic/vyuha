@@ -1,3 +1,7 @@
+import { cn } from '@/lib/utils';
+
+import { isOrderTask, isOverdue, type Task } from './types';
+
 /**
  * The property pill, Notion's shape: a soft wash of one hue with its own
  * darker text, never a saturated block (owner, 1 Sep 2026 -- "take all the
@@ -16,14 +20,31 @@
 export const PILL = 'rounded-none px-1.5 py-px text-[0.6875rem] font-medium';
 
 /**
- * An order-carrying task, washed a translucent informational blue so a placed
- * order is spotted at a glance on any surface -- the board card, the gallery
- * card, the list row. --info is the blue this product already means "note this"
- * with, and at low alpha it reads as a wash that follows the palette into dark
- * mode rather than a raw colour. Dial the alpha to taste: /10 quieter, /25
- * bolder.
+ * The wash and border a task card wears, by its state (owner, 4 Sep 2026):
+ *
+ *  - done    -> a calm green fill. It is finished; nothing to chase, no motion.
+ *  - overdue -> a red border that pulses. The one card that has earned motion,
+ *               because "late" is the thing to act on.
+ *  - order   -> a blue fill, and a blue border that pulses while it is open.
+ *
+ * Precedence is urgency: an overdue order keeps its blue fill but takes the red
+ * pulse. --info / --destructive / --success are the blue, red and green the
+ * product already means note / warn / done with, so they follow the palette
+ * into dark mode; the pulses collapse to a steady coloured border under reduced
+ * motion (index.css). One class string, so board, list and gallery agree.
  */
-export const ORDER_SURFACE = 'bg-info/15';
+export function taskSurface(task: Task): string | undefined {
+  if (task.isClosed) return 'bg-success/10';
+  const order = isOrderTask(task);
+  return (
+    cn(
+      order && 'bg-info/15',
+      isOverdue(task)
+        ? 'border-destructive animate-overdue-pulse'
+        : order && 'border-info animate-order-pulse',
+    ) || undefined
+  );
+}
 
 /** High is red, medium amber, low blue -- Notion's own ordering of urgency. */
 export const PRIORITY_HUES = {

@@ -42,8 +42,8 @@ import { isTaskViewMode, useTaskViewStore, type TaskViewMode } from './task-view
 import { TaskCalendar } from './task-calendar';
 import { TaskGallery } from './task-gallery';
 import { TaskTimeline } from './task-timeline';
-import { ORDER_SURFACE } from './task-pills';
-import { emptyTaskDraft, isOrderTask, taskToDraft, type Task, type TaskDraft } from './types';
+import { taskSurface } from './task-pills';
+import { emptyTaskDraft, taskToDraft, type Task, type TaskDraft } from './types';
 import { DeleteTaskDialog } from './delete-task-dialog';
 import { PlaceOrderDialog } from './place-order-dialog';
 import { useMoveTask, useSaveTask, useTask, useTaskBoard, useTasks, type TaskFilters } from './use-tasks';
@@ -669,9 +669,9 @@ export function TasksPage() {
               rowKey={(row) => row.id}
               sort={activeSort}
               onSortChange={onSortChange}
-              // REQ-V-17: an order-carrying task wears the same blue in the list
-              // as it does on the board.
-              rowClassName={(row) => (isOrderTask(row) ? ORDER_SURFACE : undefined)}
+              // Same state colours as the board and gallery: order blue, done
+              // green, overdue a red pulse (task-pills).
+              rowClassName={taskSurface}
               mobilePrimary={(row) => row.title}
               mobileStatus={(row) => <Badge variant="outline">{row.columnName}</Badge>}
               mobileSupporting={(row) => (

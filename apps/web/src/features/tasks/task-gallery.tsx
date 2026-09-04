@@ -8,8 +8,8 @@ import { cn } from '@/lib/utils';
 import { TASK_PRIORITY_LABELS } from '@vyuha/shared';
 
 import { DueDate } from './due-date';
-import { ORDER_SURFACE, PILL, PRIORITY_HUES } from './task-pills';
-import { isOrderTask, type Task } from './types';
+import { PILL, PRIORITY_HUES, taskSurface } from './task-pills';
+import type { Task } from './types';
 
 /**
  * REQ-V-16: the tasks as a wall of cards rather than a list of rows.
@@ -42,7 +42,7 @@ export function TaskGallery({
       {tasks.map((task) => (
         // One card, one level. The card is the target, so it is the button --
         // a card containing a button that fills it would be a box in a box.
-        <Card key={task.id} size="sm" className={cn('min-w-0 p-0', isOrderTask(task) && ORDER_SURFACE)}>
+        <Card key={task.id} size="sm" className={cn('min-w-0 p-0', taskSurface(task))}>
           <Button
             variant="ghost"
             className="h-auto w-full flex-col items-stretch justify-start gap-2 rounded-none p-3 text-left font-normal whitespace-normal"

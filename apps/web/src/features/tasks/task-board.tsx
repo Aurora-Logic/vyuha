@@ -20,8 +20,8 @@ import {
 } from '@vyuha/shared';
 
 import { DueDate } from './due-date';
-import { ORDER_SURFACE, PILL, PRIORITY_HUES, columnHue } from './task-pills';
-import { isOrderTask, type BoardResponse, type Task } from './types';
+import { PILL, PRIORITY_HUES, columnHue, taskSurface } from './task-pills';
+import type { BoardResponse, Task } from './types';
 
 /**
  * REQ-V-03: the same query as the list, in lanes; a drag moves a task
@@ -57,9 +57,10 @@ export function TaskBoard({
     <KanbanBoard
       ariaLabel="Task board"
       stacked={stacked}
-      // REQ-V-17: a task carrying an order is washed blue so it is picked out
-      // among the plain work on the board.
-      itemClassName={(task) => (isOrderTask(task) ? ORDER_SURFACE : undefined)}
+      // A card's wash and border by its state: an order is blue, a done task
+      // green, an overdue one pulses red. One rule, shared with the list and
+      // gallery (task-pills).
+      itemClassName={taskSurface}
       lanes={board.lanes.map(({ column, tasks, total }, index) => ({
         id: column.id,
         label: column.name,

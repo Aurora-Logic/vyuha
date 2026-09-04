@@ -1,3 +1,4 @@
+import { isBefore, parseISO, startOfDay } from 'date-fns';
 import { z } from 'zod';
 
 import { TASK_PRIORITIES, type TaskPriority } from '@vyuha/shared';
@@ -72,6 +73,16 @@ export type Task = z.infer<typeof taskSchema>;
  */
 export function isOrderTask(task: Pick<Task, 'items'>): boolean {
   return task.items.length > 0;
+}
+
+/**
+ * A task is overdue when it is still open and its due date is before today --
+ * the same comparison DueDate makes, kept here so the border pulse and the date
+ * label can never disagree about what "late" is.
+ */
+export function isOverdue(task: Pick<Task, 'isClosed' | 'dueDate'>): boolean {
+  if (task.isClosed || task.dueDate === null) return false;
+  return isBefore(parseISO(task.dueDate), startOfDay(new Date()));
 }
 
 export const tasksResponseSchema = z.object({
