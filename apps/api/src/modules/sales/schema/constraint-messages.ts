@@ -10,3 +10,4 @@ describeConstraint('sales_document_lines_picked_le_ordered', 'A line cannot pick
 describeConstraint('sales_document_lines_packed_le_picked', 'A line packs only what has been picked. Pick it first, then pack.');
 describeConstraint('sales_document_lines_invoiced_le_packed', 'A line invoices only what has been packed. Pack it first.');
 describeConstraint('sales_document_lines_dispatched_le_invoiced', 'A line dispatches only what has been invoiced. Link the invoice first.');
+describeConstraint('sales_documents_one_replacement_per_return_uq', 'That return already has a replacement order.');

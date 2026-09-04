@@ -447,3 +447,62 @@ describe('Area AK: sales returns', () => {
     expect(refused.body.error.message).toContain('credit note');
   });
 });
+
+/**
+ * H-08 (audit, 4 Sep 2026). Two things that used to be decided by a read
+ * two callers could both pass. The receipts are fired together, not in
+ * sequence: the point is what happens when neither has committed when the
+ * other checks. Its own order, so the balances above stay as hand-worked.
+ */
+describe('two receipts at once (H-08)', () => {
+  let lineId = '';
+  let raceOrderId = '';
+
+  beforeAll(async () => {
+    const created = await harness.post<OrderView>('/sales/orders', { token: adminToken, body: { partyId, lines: [{ stockItemId: itemId, quantity: '10', rate: '4000' }] } });
+    raceOrderId = created.body.id;
+    lineId = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${raceOrderId}/confirm`, { token: adminToken });
+    await harness.post(`/sales/orders/${raceOrderId}/picks`, { token: adminToken, body: { lines: [{ lineId, quantity: '10' }] } });
+    await harness.post(`/sales/orders/${raceOrderId}/packs`, { token: adminToken, body: { lines: [{ lineId, quantity: '10' }] } });
+    await harness.db.execute(sql`UPDATE sales_document_lines SET invoiced_qty = 10, dispatched_qty = 10 WHERE id = ${lineId}`);
+  });
+
+  it('lets exactly one of three simultaneous receipts through when together they exceed what was sent', async () => {
+    const receipt = () =>
+      multipart<SalesReturnView | ErrorBody>('/sales/returns', adminToken, {
+        customerName: 'Asha Traders',
+        partyId,
+        sourceDocumentId: raceOrderId,
+        lines: [{ lineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '6', reason: 'Wrong item', condition: 'sealed', disposition: 'restock' }],
+      });
+    const results = await Promise.all([receipt(), receipt(), receipt()]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 400, 400]);
+
+    const returned = await harness.db.execute<{ total: string }>(sql`
+      SELECT COALESCE(sum(rl.quantity), 0)::text AS total FROM sales_return_lines rl
+        JOIN sales_returns r ON r.id = rl.return_id AND r.state <> 'cancelled' AND r.deleted_at IS NULL
+       WHERE rl.source_line_id = ${lineId} AND rl.deleted_at IS NULL
+    `);
+    expect(Number(returned.rows[0]?.total)).toBe(6);
+  });
+
+  it('raises exactly one replacement order for three simultaneous decisions', async () => {
+    const taken = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      sourceDocumentId: raceOrderId,
+      lines: [{ lineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '2', reason: 'Warranty', condition: 'damaged', disposition: 'scrap' }],
+    });
+    expect(taken.status, JSON.stringify(taken.body)).toBe(201);
+
+    const decide = () => harness.post<SalesReturnView | ErrorBody>(`/sales/returns/${taken.body.id}/replacement`, { token: adminToken, body: { charge: 'free' } });
+    const results = await Promise.all([decide(), decide(), decide()]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409]);
+
+    const orders = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM sales_documents WHERE return_id = ${taken.body.id} AND deleted_at IS NULL
+    `);
+    expect(orders.rows[0]?.n).toBe(1);
+  });
+});
