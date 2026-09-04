@@ -124,9 +124,24 @@ export class NotificationDispatcher {
       // The same id a duplicate has always returned -- BullMQ answered with
       // the existing job's id rather than enqueuing a second, and callers
       // that keep the id must go on getting it. Only the enqueue is skipped.
-      const jobId = `notify-${assertUsableAsJobId(event.idempotencyKey)}`;
-      if (!(await this.claimIdempotencyKey(event.orgId, event.idempotencyKey))) return jobId;
+      const key = event.idempotencyKey;
+      const jobId = `notify-${assertUsableAsJobId(key)}`;
+      if (!(await this.claimIdempotencyKey(event.orgId, key))) return jobId;
+      try {
+        return await this.enqueueNotification(event, { jobId });
+      } catch (error) {
+        // The claim guards the enqueue. If the enqueue never happened -- a
+        // Redis blip, a timeout -- the claim must not stand, or every retry
+        // of this event finds the key spent and skips a notice nobody sent.
+        // The row was permanent and the loss was silent (H-05).
+        await this.releaseIdempotencyKey(event.orgId, key, error);
+        throw error;
+      }
     }
+    return this.enqueueNotification(event, {});
+  }
+
+  private enqueueNotification(event: NotificationEvent, options: { jobId?: string }): Promise<string> {
     return this.jobs.enqueue(
       'send-notification',
       {
@@ -135,10 +150,27 @@ export class NotificationDispatcher {
         audience: event.audience,
         payload: { ...(event.payload ?? {}) },
       },
-      event.idempotencyKey === undefined
-        ? {}
-        : { jobId: `notify-${assertUsableAsJobId(event.idempotencyKey)}` },
+      options,
     );
+  }
+
+  /**
+   * Undoes a claim whose enqueue failed. Best effort: if this fails too the
+   * database is the thing that is down, the claim probably never landed
+   * either, and the caller is about to see the original error regardless.
+   */
+  private async releaseIdempotencyKey(orgId: string, key: string, cause: unknown): Promise<void> {
+    try {
+      await this.db.execute(sql`DELETE FROM notification_idempotency WHERE org_id = ${orgId} AND key = ${key}`);
+    } catch (error) {
+      this.logger.error({
+        msg: 'Notification claim could not be released after a failed enqueue; the event will be skipped on retry',
+        orgId,
+        key,
+        enqueueError: describeError(cause),
+        releaseError: describeError(error),
+      });
+    }
   }
 
   /**

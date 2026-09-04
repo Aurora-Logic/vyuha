@@ -1,7 +1,7 @@
 import { PERMISSIONS, SYSTEM_ROLES, uuidv7 } from '@vyuha/shared';
 import type { Job } from 'bullmq';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { RecordingMailer } from '../../test-support/recording-mailer.js';
@@ -528,6 +528,38 @@ describe('an event that must not be sent twice (audit 20)', () => {
     );
     expect(claims.rows[0]?.n).toBe(1);
   }, 60_000);
+
+  it('does not spend the key when the enqueue fails (H-05)', async () => {
+    // The claim was written before the enqueue and never undone, so a Redis
+    // blip during the enqueue left a claimed key and no job: every retry
+    // returned early, and the notice was never sent by anybody.
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const runner = harness.resolve(JobRunner);
+    const queue = runner.queueFor(QUEUES.NOTIFICATION);
+    const key = `audit-20-blip-${uuidv7()}`;
+    const event = {
+      orgId: ORG_ID,
+      type: NOTIFICATION_EVENTS.PUNCH_FLAGGED,
+      audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_VIEW_ALL },
+      payload: { punchId: uuidv7(), employeeName: 'Devi Rao', date: '2026-08-21', flags: 'outside_window' },
+      idempotencyKey: key,
+    } as const;
+
+    const blip = vi.spyOn(runner, 'enqueue').mockRejectedValueOnce(new Error('Redis blipped'));
+    try {
+      await expect(dispatcher.emit(event)).rejects.toThrow('Redis blipped');
+    } finally {
+      blip.mockRestore();
+    }
+    const claims = await harness.db.execute<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM notification_idempotency WHERE org_id = ${ORG_ID} AND key = ${key}`,
+    );
+    expect(claims.rows[0]?.n, 'a failed enqueue left its claim behind').toBe(0);
+
+    // The retry is the point: it must actually queue the notice.
+    const retried = await dispatcher.emit(event);
+    expect(await queue.getJob(retried)).toBeDefined();
+  });
 
   it('lets a different key through', async () => {
     const dispatcher = harness.resolve(NotificationDispatcher);
