@@ -421,3 +421,55 @@ describe('what a search puts first', () => {
     expect((await ranked('cs electric'))[0]).toBe('C&S Electric');
   });
 });
+
+/**
+ * Owner, 1 Sep 2026, on the pickers: a mistyped name should still find its
+ * row. `masterSearch` matched substrings, so a transposed letter matched
+ * nothing at all -- and the person who mistyped had no way to tell whether the
+ * party was missing or their finger had slipped.
+ */
+describe('a mistyped name still finds the party', () => {
+  const find = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}&pageSize=100`,
+      { token: adminToken },
+    );
+    expect(res.status).toBe(200);
+    return res.body.data.map((p) => p.name);
+  };
+
+  it('finds a party through a dropped letter', async () => {
+    // The owner's example was "acem" for "Acme"; this fixture's equivalent.
+    // Measured: word_similarity('zenth', 'Zenith Cables') is 0.500.
+    expect(await find('zenth')).toContain('Zenith Cables');
+  });
+
+  it('finds one through a transposed letter in a later word', async () => {
+    // 'cabels' against 'Zenith Cables' scores 0.429 -- the typo is in the
+    // second word, which is why this compares words and not whole strings.
+    expect(await find('cabels')).toContain('Zenith Cables');
+  });
+
+  it('finds one through a doubled letter', async () => {
+    expect(await find('ashaa')).toContain('Asha Traders');
+  });
+
+  it('does not fuzzily match a term that is simply not there', async () => {
+    // The number that matters: nonsense scores zero, so the forgiveness costs
+    // no precision.
+    expect(await find('zzqqxx')).toEqual([]);
+  });
+
+  it('leaves short terms strict, so three letters do not match the whole book', async () => {
+    // Below four characters a typo is indistinguishable from a different word.
+    const all = await find('zzz');
+    expect(all).toEqual([]);
+  });
+
+  it('still ranks the exact match above the forgiven one', async () => {
+    // Forgiveness must not cost the ordering: somebody who typed it correctly
+    // gets what they typed, first.
+    const names = await find('asha');
+    expect(names[0]).toMatch(/^ASHA|^Asha/u);
+  });
+});

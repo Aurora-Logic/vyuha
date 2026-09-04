@@ -617,6 +617,13 @@
       "when": 1788328176218,
       "tag": "0087_task_item_order_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1788328176219,
+      "tag": "0088_trigram_master_search",
+      "breakpoints": true
     }
   ]
 }

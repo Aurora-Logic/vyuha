@@ -62,6 +62,20 @@ export function masterOrderBy(
 /** Everything that is not a letter or a digit, which is what separators are. */
 const SEPARATORS = /[^a-z0-9]/gu;
 
+/**
+ * How close a mistyped word has to be before it counts as the same word.
+ *
+ * Measured against this catalogue rather than picked from a blog: "acem"
+ * scores 0.400 against "Acme Trading Co", "ashaa" 0.667 against "Asha
+ * Traders", "bharrat" 0.667 against "Bharat Cables" -- and "zzz" scores 0.000
+ * against all of them, which is the number that matters. 0.35 sits under
+ * every real typo above and well over the noise.
+ */
+const FUZZY_THRESHOLD = 0.35;
+
+/** Below this a typo is indistinguishable from a different word. */
+const FUZZY_MIN_LENGTH = 4;
+
 export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
   const escape = (value: string): string => value.replace(/([\\%_])/gu, '\\$1');
 
@@ -81,7 +95,19 @@ export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
           : [
               sql`regexp_replace(lower(${column}), '[^a-z0-9]', '', 'g') LIKE ${`%${escape(stripped)}%`}`,
             ];
-      return [sql`${column} ILIKE ${plain}`, ...loose];
+      // A mistyped word still finds its row (owner: "acem" should find
+      // "Acme"). `word_similarity` compares the term against the closest word
+      // in the value rather than the whole string, which is what makes it work
+      // on "Acme Trading Co" -- plain `similarity` against the full name
+      // scores 0.19 there and would never fire.
+      //
+      // Only from four characters up. Below that a typo is indistinguishable
+      // from a different word, and "ac" would fuzzily match most of the book.
+      const fuzzy =
+        word.length < FUZZY_MIN_LENGTH
+          ? []
+          : [sql`word_similarity(${word.toLowerCase()}, lower(${column})) >= ${FUZZY_THRESHOLD}`];
+      return [sql`${column} ILIKE ${plain}`, ...loose, ...fuzzy];
     });
 
     return sql`(${sql.join(branches, sql` OR `)})`;
