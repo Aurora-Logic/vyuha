@@ -1,20 +1,79 @@
-name: Deploy
+name: CI
 
 on:
+  pull_request:
   push:
     branches:
       - main
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Action versions are tags, not commit SHAs: this machine had no route to
+# GitHub when the pin was due, and an unverified SHA breaks the deploy where
+# a tag merely trusts it. Pin each `uses:` to its commit from a networked
+# machine (H-03).
 jobs:
-  deploy:
-    name: Build & Deploy to Server
+  checks:
+    name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install (frozen)
+        run: pnpm install --frozen-lockfile
+
+      # The same stack the developer runs, on the same ports .env.example
+      # names, rather than a second description of it in this file.
+      - name: Start Postgres, Redis and MinIO
+        run: docker compose -f docker/docker-compose.yml up -d --wait
+
+      # Where the API's test setup reads it: its own directory, before the
+      # workspace-root dotenv has run.
+      - name: Environment
+        run: |
+          cp .env.example apps/api/.env
+          # The schema refuses the example's placeholder secrets on purpose.
+          sed -i -E "s|^JWT_ACCESS_SECRET=.*|JWT_ACCESS_SECRET=$(openssl rand -base64 48)|" apps/api/.env
+          sed -i -E "s|^JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$(openssl rand -base64 48)|" apps/api/.env
+
+      - name: Build shared
+        run: pnpm --filter @vyuha/shared build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Migrate the test database
+        run: pnpm --filter @vyuha/api db:migrate
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        env:
+          VITE_API_BASE_URL: https://ci.invalid
+          NODE_ENV: production
+        run: pnpm build
+
+  deploy:
+    name: Deploy to server
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1
@@ -24,6 +83,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
+            set -euo pipefail
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
@@ -35,23 +95,23 @@ jobs:
             fi
 
             echo "## 1. Navigating to project directory"
-            cd "${{ secrets.SSH_DIR }}" || exit 1
+            cd "${{ secrets.SSH_DIR }}"
 
             echo "## 2. Pulling latest changes"
-            git pull origin main || exit 1
+            git pull --ff-only origin main
 
-            echo "## 3. Installing dependencies"
-            pnpm install || exit 1
+            echo "## 3. Installing dependencies (frozen to the lockfile)"
+            pnpm install --frozen-lockfile
 
-            echo "## 4. Running database migrations"
-            cd apps/api || exit 1
-            pnpm db:migrate || exit 1
-            cd "${{ secrets.SSH_DIR }}" || exit 1
+            # Build before migrating: a build that fails must leave the old
+            # code on the old schema, not the old code on a new one (H-04).
+            echo "## 4. Building applications"
+            VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" NODE_ENV=production pnpm build
 
-            echo "## 5. Building applications"
-            VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" NODE_ENV=production pnpm build || exit 1
+            echo "## 5. Running database migrations"
+            (cd apps/api && pnpm db:migrate)
 
             echo "## 6. Restarting service"
-            sudo systemctl restart "${{ secrets.SERVICE_NAME }}" || exit 1
+            sudo systemctl restart "${{ secrets.SERVICE_NAME }}"
 
             echo "Deployed Successfully!"

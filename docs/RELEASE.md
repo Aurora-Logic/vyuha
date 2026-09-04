@@ -96,19 +96,26 @@ docker compose -f docker/docker-compose.prod.yml up -d
 Then verify with the health check that the commit is the old one.
 
 **If a migration ran**, do not put the old code on the new schema and hope.
-Every migration in this repo is written reversible (CLAUDE.md section 4), so
-the order is: back up first, run the down migration, then the code.
+Migrations in this repo are forward-only (`apps/api/drizzle/README.md`,
+`platform/db/migrate.ts`); there is no down migration to run, and this
+document used to say there was. The two real paths are:
+
+1. **Roll forward.** Fix the code against the new schema and deploy that. For
+   a migration that only added -- a column, an index, a table -- this is
+   nearly always right, because the old code ignores what it does not know.
+2. **Restore.** For a migration that changed or removed something the old
+   code needs: `docker/backup.sh` should already have run before the release;
+   restore it with `docker/restore.sh`, then put the old tag back, and accept
+   the data written between the backup and now.
 
 ```
 docker/backup.sh                                          # before anything
-# apply the reverse of the migration the release added
+docker/restore.sh <the pre-release backup>                # only if rolling forward is not possible
 docker compose -f docker/docker-compose.prod.yml up -d    # with the old tag
 ```
 
-**If the schema is beyond a down migration** — the case a reversible migration
-exists to prevent — restore the nightly backup with `docker/restore.sh` and
-accept the data lost between the backup and now. That is the last resort, and
-the reason the backup runs nightly.
+Deploys now build before they migrate, so a build that fails leaves the old
+code on the old schema and none of this is needed.
 
 ## Roll forward instead, where you can
 
