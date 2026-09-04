@@ -18,6 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, findModuleForPath, moduleVisibleFor, type NavItem } from '@/lib/nav';
 import { BOTTOM_NAV_SLOTS, useNavPreferencesStore } from '@/lib/nav-preferences-store';
 import { usePermissions } from '@/lib/session/permissions';
@@ -206,23 +207,48 @@ export function MobileBottomNav() {
                   a gradient promising something that is not there.
                 */}
                 <div className="relative">
-                  <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-                    {visibleModules.map((m) => (
-                      <Button
-                        key={m.id}
-                        variant={m.id === module.id ? 'default' : 'ghost'}
-                        size="sm"
-                        className="shrink-0"
-                        aria-current={m.id === module.id ? 'true' : undefined}
-                        onClick={() => {
-                          setMoreOpen(false);
-                          if (m.id !== module.id) void navigate(m.home);
-                        }}
-                      >
-                        <m.icon data-icon="inline-start" />
-                        {m.label}
-                      </Button>
-                    ))}
+                  <div className="no-scrollbar -mx-4 overflow-x-auto px-4">
+                    {/* Tabs rather than a row of buttons: the switcher is a
+                        set of peers with exactly one current, which is what a
+                        tablist says to assistive technology without this file
+                        having to fake it with aria-current on buttons — and
+                        the travelling indicator makes "you moved" legible.
+                        w-max so the scroll container measures the whole strip
+                        rather than clipping it at its own width.
+
+                        activateOnFocus off: these tabs navigate. Arrow keys
+                        browse the strip; only Enter (or a tap) commits, so a
+                        keyboard user is not yanked to another module's home
+                        on every arrow press. */}
+                    <Tabs
+                      value={module.id}
+                      className="w-max"
+                      onValueChange={(value) => {
+                        const next = visibleModules.find((m) => m.id === value);
+                        if (!next) return;
+                        setMoreOpen(false);
+                        void navigate(next.home);
+                      }}
+                    >
+                      <TabsList activateOnFocus={false}>
+                        {visibleModules.map((m) => (
+                          <TabsTrigger
+                            key={m.id}
+                            value={m.id}
+                            className="px-2.5"
+                            // Re-selecting the module you are already in fires
+                            // no change event, but the tap still means "take
+                            // me there": close the sheet, as it always did.
+                            onClick={() => {
+                              if (m.id === module.id) setMoreOpen(false);
+                            }}
+                          >
+                            <m.icon data-icon="inline-start" />
+                            {m.label}
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+                    </Tabs>
                   </div>
                   {visibleModules.length > 4 ? (
                     <span
