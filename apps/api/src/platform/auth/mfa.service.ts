@@ -28,7 +28,7 @@ import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { mfaChallenges, mfaRecoveryCodes, mfaTrustedDevices, settings, users } from '../db/schema/index.js';
-import type { Principal } from '../rbac/principal.js';
+import { holdsEveryPermissionOf, type Principal } from '../rbac/principal.js';
 import { PrincipalService } from '../rbac/principal.service.js';
 import {
   generateOpaqueToken,
@@ -275,6 +275,14 @@ export class MfaService {
       .limit(1);
     const target = rows[0];
     if (target === undefined) throw new AppError(ERROR_CODES.NOT_FOUND, 'No such account in this organisation.');
+    // Clearing the second factor is the first half of taking an account; the
+    // reset link is the second. Refused unless the caller already holds
+    // everything the target does, or employee.manage reaches the Admin who
+    // granted it (SEC-1).
+    const grants = await this.principals.loadGrants(target.id, principal.orgId);
+    if (!holdsEveryPermissionOf(principal, grants.permissions)) {
+      throw AppError.forbidden('That account holds permissions you do not, so you cannot reset it. Ask somebody who holds them.');
+    }
     await this.clearFor(target.id, 'reset by administrator');
     this.auditContext.record({
       action: 'auth.mfa_reset',

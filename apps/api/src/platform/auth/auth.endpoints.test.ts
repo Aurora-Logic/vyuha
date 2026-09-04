@@ -1196,3 +1196,67 @@ describe('audit trail is written without call sites asking (REQ-M-01)', () => {
     }
   });
 });
+
+/**
+ * SEC-1 (audit, 4 Sep 2026). `employee.manage` gates both resets, and neither
+ * asked who the target was: an HR account could clear the Admin's second
+ * factor, mint the Admin's reset link, and be the Admin. Now an account may
+ * only be reset by somebody who already holds every permission it holds, so
+ * a reset is never a way up. HR is the caller here because it is the real
+ * role this bites -- it holds employee.manage and every employee key, and
+ * nothing of Admin's.
+ */
+describe('a reset is never a way up (SEC-1)', () => {
+  let hrToken = '';
+  let hrUserId = '';
+  let ownerEmployeeId = '';
+  let ownerUserId = '';
+
+  beforeAll(async () => {
+    const hrRoleId = await harness.createSystemRole(SYSTEM_ROLES.HR);
+    const hr = await harness.createUser({ email: scopedEmail('sec1-hr'), roleIds: [hrRoleId] });
+    hrUserId = hr.id;
+    hrToken = (await harness.login(hr.email, hr.password)).token;
+    expect(hrToken).not.toBe('');
+
+    // An Admin with an employee record, so the employee-keyed reset can name them.
+    ownerEmployeeId = await harness.createEmployee({ code: 'AE-SEC1', firstName: 'Owner' });
+    const owner = await harness.createUser({
+      email: scopedEmail('sec1-owner'),
+      roleIds: [adminRoleId],
+      employeeId: ownerEmployeeId,
+    });
+    ownerUserId = owner.id;
+  });
+
+  it('HR still resets an ordinary employee, whose keys HR already holds', async () => {
+    const link = await harness.post<PasswordResetLinkBody>('/auth/password-resets/for-employee', {
+      token: hrToken,
+      body: { employeeId: linkedEmployeeRecordId },
+    });
+    expect(link.status, JSON.stringify(link.body)).toBe(201);
+  });
+
+  it('HR cannot mint a reset link for an Admin, and no token is minted on the way', async () => {
+    const refused = await harness.post<ErrorBody>('/auth/password-resets/for-employee', {
+      token: hrToken,
+      body: { employeeId: ownerEmployeeId },
+    });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(refused.body.error.message).toContain('permissions you do not');
+
+    const rows = await harness.db
+      .select({ tokenHash: passwordResets.tokenHash })
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, ownerUserId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('HR cannot clear an Admin’s second factor; Admin can still clear HR’s', async () => {
+    const refused = await harness.post<ErrorBody>(`/auth/mfa/reset/${ownerUserId}`, { token: hrToken });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+
+    const allowed = await harness.post(`/auth/mfa/reset/${hrUserId}`, { token: adminToken });
+    expect(allowed.status).toBe(204);
+  });
+});

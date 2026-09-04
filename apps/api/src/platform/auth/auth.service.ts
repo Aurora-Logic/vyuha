@@ -26,7 +26,7 @@ import {
   users,
 } from '../db/schema/index.js';
 import { Mailer, type OutboundMail } from '../mail/mailer.js';
-import type { Principal } from '../rbac/principal.js';
+import { holdsEveryPermissionOf, type Principal } from '../rbac/principal.js';
 import { PrincipalService } from '../rbac/principal.service.js';
 import type {
   CreateInvitationDto,
@@ -998,6 +998,13 @@ export class AuthService {
           ? 'That account has not accepted its invitation yet. Send a new invitation link instead.'
           : 'That account is suspended. Reactivate it before resetting its password.',
       );
+    }
+    // Same rule as the second-factor reset, for the same reason: a reset
+    // link for an account that outranks the caller is that account, handed
+    // over (SEC-1).
+    const grants = await this.principals.loadGrants(user.id, principal.orgId);
+    if (!holdsEveryPermissionOf(principal, grants.permissions)) {
+      throw AppError.forbidden('That account holds permissions you do not, so you cannot reset its password. Ask somebody who holds them.');
     }
 
     const token = generateOpaqueToken();
