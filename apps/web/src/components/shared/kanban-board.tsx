@@ -80,6 +80,7 @@ export function KanbanBoard<T>({
   readOnly = false,
   ariaLabel,
   overflowHint = 'see the list',
+  stacked = false,
 }: KanbanBoardProps<T>) {
   const [dragging, setDragging] = useState<T | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -148,7 +149,7 @@ export function KanbanBoard<T>({
   if (stacked) {
     return (
       <Accordion
-        openMultiple
+        multiple
         defaultValue={lanes.map((lane) => lane.id)}
         data-guide="screen.board"
         aria-label={ariaLabel}
