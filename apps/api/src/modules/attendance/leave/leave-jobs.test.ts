@@ -169,6 +169,16 @@ afterAll(async () => {
 });
 
 describe('accrual (REQ-G-05)', () => {
+  /*
+   * 30s on this test and the first carry-forward, not vitest's default 5:
+   * both jobs sweep every organisation, and the shared dev database now
+   * holds a hundred-plus of them with three-quarters of a million ledger
+   * rows, so the first heavy run crosses 5s on data volume alone. At 5s the
+   * pair fails in a way that reads as an accrual bug — the exact
+   * misdirection `exclusive-run.ts` documents sending three sessions
+   * chasing. The later runs in each describe reuse warmed state and stay
+   * fast; the assertions are untouched.
+   */
   it('posts one month of a monthly entitlement, pro-rated for a joiner', async () => {
     const result = await accrue.run(
       { requestedAt: new Date().toISOString(), month: ACCRUAL_MONTH },
@@ -189,7 +199,7 @@ describe('accrual (REQ-G-05)', () => {
     // Left before the period opened, so nothing at all -- not a zero row.
     expect(await balanceRow(leaverId, monthlyTypeId, LEAVE_YEAR)).toBeNull();
     expect(await countLedger(leaverId, monthlyTypeId)).toBe(0);
-  });
+  }, 30_000);
 
   it('posts nothing the second time, because the ledger cannot take one back', async () => {
     const before = await countLedger(veteranId, monthlyTypeId);
@@ -292,7 +302,8 @@ describe('carry forward (REQ-G-01)', () => {
     if (closingYear === null || openingYear === null) return;
     expect(isLeaveBalanceConsistent(closingYear)).toBe(true);
     expect(isLeaveBalanceConsistent(openingYear)).toBe(true);
-  });
+    // 30s for the same data-volume reason as the first accrual run above.
+  }, 30_000);
 
   it('carries nothing a second time', async () => {
     const before = await countLedger(veteranId, cappedTypeId);
