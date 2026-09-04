@@ -144,6 +144,17 @@ function lastKnownMe(): Me | null {
  * on screen; the next request that reaches the server reconciles truthfully.
  * A real 401 still signs out, and also deletes the snapshot.
  */
+/**
+ * Whether a failed /auth/me means the session is gone. Only an ApiError with
+ * the server's own "not signed in" status does; a 5xx, a 429, a dropped
+ * connection or a body that would not parse are the service being
+ * unavailable, and forgetting the person over those turned every outage
+ * into a logout (H-14).
+ */
+export function shouldForgetSession(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 export function useMe() {
   return useQuery<Me | null>({
     queryKey: SESSION_QUERY_KEY,
@@ -167,7 +178,7 @@ export function useMe() {
         rememberMe(me);
         return me;
       } catch (error) {
-        if (error instanceof ApiError && error.code === 'NETWORK_ERROR') return lastKnownMe();
+        if (!shouldForgetSession(error)) return lastKnownMe();
         forgetMe();
         return null;
       }

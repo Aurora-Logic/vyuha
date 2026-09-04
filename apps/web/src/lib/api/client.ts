@@ -125,6 +125,18 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
  */
 export type RefreshOutcome = 'refreshed' | 'unauthenticated' | 'network-error';
 
+/**
+ * What a non-2xx answer to /auth/refresh means. Only the server saying "you
+ * are not signed in" -- 401, or 403 for a suspended account -- is
+ * 'unauthenticated'. A 500, a 502 from the proxy, a 429 from the limiter
+ * are no answer about the session at all, and are reported as such, so the
+ * gate keeps the last known identity instead of rendering sign-in during
+ * an outage (H-14).
+ */
+export function refreshOutcomeForFailure(status: number): Exclude<RefreshOutcome, 'refreshed'> {
+  return status === 401 || status === 403 ? 'unauthenticated' : 'network-error';
+}
+
 async function performRefresh(): Promise<RefreshOutcome> {
   let response: Response;
   try {
@@ -135,8 +147,9 @@ async function performRefresh(): Promise<RefreshOutcome> {
     return 'network-error';
   }
   if (!response.ok) {
-    setAccessToken(null);
-    return 'unauthenticated';
+    const outcome = refreshOutcomeForFailure(response.status);
+    if (outcome === 'unauthenticated') setAccessToken(null);
+    return outcome;
   }
   const body = (await response.json()) as { accessToken?: unknown };
   if (typeof body.accessToken !== 'string') return 'unauthenticated';
