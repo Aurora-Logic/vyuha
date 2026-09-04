@@ -25,13 +25,15 @@ export const PILL = 'rounded-none px-1.5 py-px text-[0.6875rem] font-medium';
  *  - done    -> a calm green fill. It is finished; nothing to chase, no motion.
  *  - overdue -> a red border that pulses. The one card that has earned motion,
  *               because "late" is the thing to act on.
- *  - order   -> a blue fill, and a blue border that pulses while it is open.
+ *  - order   -> a blue fill and a steady blue border. No motion (owner, 4 Sep
+ *               2026: only overdue blinks); the fill alone marks it.
  *
  * Precedence is urgency: an overdue order keeps its blue fill but takes the red
  * pulse. --info / --destructive / --success are the blue, red and green the
  * product already means note / warn / done with, so they follow the palette
- * into dark mode; the pulses collapse to a steady coloured border under reduced
- * motion (index.css). One class string, so board, list and gallery agree.
+ * into dark mode; the overdue pulse collapses to a steady red border under
+ * reduced motion (index.css). One class string, so board, list and gallery
+ * agree.
  */
 export function taskSurface(task: Task): string | undefined {
   if (task.isClosed) return 'bg-success/10';
@@ -41,7 +43,7 @@ export function taskSurface(task: Task): string | undefined {
       order && 'bg-info/15',
       isOverdue(task)
         ? 'border-destructive animate-overdue-pulse'
-        : order && 'border-info animate-order-pulse',
+        : order && 'border-info',
     ) || undefined
   );
 }

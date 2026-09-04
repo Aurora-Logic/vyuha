@@ -202,17 +202,12 @@
         transform: rotate(360deg);
       }
     }
-    /* An order card and an overdue card pulse their border rather than blink it
-       (owner, 4 Sep 2026: "make the border blink"): a slow breathe, not a
-       strobe, so a board full of them stays calm and well under the WCAG flash
-       threshold. Paint only -- border-color, never layout. The reduced-motion
-       reset above collapses both to a steady coloured border, which still reads
-       the state. */
-    --animate-order-pulse: order-pulse 1.8s ease-in-out infinite;
-    @keyframes order-pulse {
-      0%, 100% { border-color: var(--color-info); }
-      50% { border-color: color-mix(in oklab, var(--color-info) 25%, transparent); }
-    }
+    /* An overdue card pulses its border rather than blinks it (owner, 4 Sep
+       2026): a slow breathe, not a strobe, so a board full of them stays calm
+       and well under the WCAG flash threshold. Paint only -- border-color,
+       never layout. The reduced-motion reset above collapses it to a steady red
+       border, which still reads the state. Only overdue pulses; an order is
+       marked by its steady blue fill and border. */
     --animate-overdue-pulse: overdue-pulse 1.4s ease-in-out infinite;
     @keyframes overdue-pulse {
       0%, 100% { border-color: var(--color-destructive); }

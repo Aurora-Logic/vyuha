@@ -25,10 +25,11 @@ describe('taskSurface', () => {
     expect(s).not.toContain('pulse');
   });
 
-  it('an open order is blue with a blue pulsing border', () => {
+  it('an open order is blue with a steady blue border, no pulse', () => {
     const s = taskSurface(task({ items: ITEMS })) ?? '';
     expect(s).toContain('bg-info/15');
-    expect(s).toContain('animate-order-pulse');
+    expect(s).toContain('border-info');
+    expect(s).not.toContain('pulse');
   });
 
   it('an overdue task pulses red', () => {
