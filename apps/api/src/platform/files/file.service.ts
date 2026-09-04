@@ -241,22 +241,43 @@ export class FileService {
       digest.toString('base64'),
     );
 
-    const inserted = await this.db
-      .insert(files)
-      .values({
-        id: fileId,
-        orgId: input.orgId,
-        storageKey,
-        mime: sanitized.mime,
-        bytes: sanitized.bytes.length,
-        checksum: digest.toString('hex'),
-        purpose: input.purpose,
-        uploadedBy: input.uploadedBy,
-        expiresAt: input.expiresAt ?? null,
-        createdBy: input.uploadedBy,
-        updatedBy: input.uploadedBy,
-      })
-      .returning({ id: files.id });
+    let inserted: { id: string }[];
+    try {
+      inserted = await this.db
+        .insert(files)
+        .values({
+          id: fileId,
+          orgId: input.orgId,
+          storageKey,
+          mime: sanitized.mime,
+          bytes: sanitized.bytes.length,
+          checksum: digest.toString('hex'),
+          purpose: input.purpose,
+          uploadedBy: input.uploadedBy,
+          expiresAt: input.expiresAt ?? null,
+          createdBy: input.uploadedBy,
+          updatedBy: input.uploadedBy,
+        })
+        .returning({ id: files.id });
+    } catch (error) {
+      // The object is already in the bucket with no row naming it, and
+      // nothing that sweeps files can find an object no row names. Take it
+      // back out now, while this is the one place that knows the key (H-09).
+      // Best effort: if the delete fails too, the key goes in the log so a
+      // person can.
+      try {
+        await this.objects.delete(bucket, storageKey);
+      } catch (cleanupError) {
+        this.logger.error({
+          msg: 'Object left behind after its file row failed to insert',
+          bucket,
+          storageKey,
+          insertError: describeError(error),
+          cleanupError: describeError(cleanupError),
+        });
+      }
+      throw error;
+    }
 
     if (inserted[0] === undefined) {
       // The object is written but unreferenced. Better to fail loudly and let

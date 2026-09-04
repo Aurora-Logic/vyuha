@@ -3,13 +3,14 @@ import { createHash } from 'node:crypto';
 import { PERMISSIONS, uuidv7 } from '@vyuha/shared';
 import { eq, inArray, sql } from 'drizzle-orm';
 import sharp from 'sharp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { principalFixture } from '../../test-support/principal-fixture.js';
 import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
 import { files } from '../db/schema/index.js';
+import { ObjectStore } from '../storage/object-store.js';
 import { FileService } from './file.service.js';
 
 /**
@@ -177,6 +178,27 @@ describe('storing an image', () => {
     // that would catch a service that hashed the input and stored the output.
     expect(createHash('sha256').update(fetched).digest('hex')).toBe(row?.checksum);
     expect(fetched.length).toBe(row?.bytes);
+  });
+
+  it('takes the object back out of the bucket when its row cannot be written (H-09)', async () => {
+    // The bytes were put first and the row second, with nothing between
+    // them: a row that failed left an object no row named, which no sweep
+    // could ever find. An organisation that does not exist makes the row
+    // fail for real, on its foreign key, after the put has happened.
+    const objects = harness.resolve(ObjectStore);
+    const put = vi.spyOn(objects, 'put');
+    const removed = vi.spyOn(objects, 'delete');
+    try {
+      await expect(
+        service.storeImage({ orgId: uuidv7(), uploadedBy: uploaderId, purpose: 'PUNCH_PHOTO', bytes: await photoWithExif() }),
+      ).rejects.toThrow();
+      expect(put).toHaveBeenCalledTimes(1);
+      const [bucket, key] = put.mock.calls[0] ?? [];
+      expect(removed).toHaveBeenCalledWith(bucket, key);
+    } finally {
+      put.mockRestore();
+      removed.mockRestore();
+    }
   });
 
   it('never stores the bytes the client supplied, and strips EXIF doing it', async () => {
