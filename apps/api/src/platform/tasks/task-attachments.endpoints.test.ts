@@ -201,7 +201,7 @@ describe('the cover the gallery leads with', () => {
     const read = await harness.get<TaskView>(`/tasks/${task.id}`, { token: selfToken });
     expect(read.body.attachmentCount).toBe(3);
     // The photograph taken first is the one that says what the task is about.
-    expect(read.body.coverAttachmentId).toBe(first.body.id);
-    expect(read.body.coverAttachmentId).not.toBe(second.body.id);
+    expect(read.body.coverAttachmentId).toBe(first.body?.['id']);
+    expect(read.body.coverAttachmentId).not.toBe(second.body?.['id']);
   });
 });

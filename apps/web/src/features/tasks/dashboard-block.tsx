@@ -99,7 +99,10 @@ export function BlockFigures({
     <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
       {figures.map((figure) => (
         <div key={figure.label} className="flex min-w-0 flex-col gap-0.5">
-          <dt className="text-muted-foreground text-xs">{figure.label}</dt>
+          {/* The same micro-label the KPI tiles wear. Two components doing
+              "label over value" in two type styles is the design system
+              disagreeing with itself on one screen. */}
+          <dt className="text-muted-foreground text-[0.6875rem] tracking-wide uppercase">{figure.label}</dt>
           <dd
             className={cn(
               'text-xl leading-none font-semibold tabular-nums',
