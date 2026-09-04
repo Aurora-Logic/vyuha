@@ -48,6 +48,8 @@ export const taskSchema = z.object({
   // Files cell render blank instead of a count -- zod drops what it does not
   // declare, so the card asked for a field that had already been stripped.
   attachmentCount: z.number().default(0),
+  /** The image the gallery leads with, when the task carries one. */
+  coverAttachmentId: z.string().nullable().default(null),
   dueDate: z.string().nullable(),
   priority: z.enum(TASK_PRIORITIES),
   columnId: z.string(),

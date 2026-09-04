@@ -162,3 +162,46 @@ describe('an attachment is not a way into a task', () => {
     expect(crossed.status).toBe(404);
   });
 });
+
+/**
+ * REQ-V-16: the gallery leads a card with the task's photograph.
+ *
+ * The list carries the cover's id rather than the attachments themselves, so a
+ * card asks for exactly the one link it draws instead of fetching every
+ * attachment of every task to find a picture.
+ */
+describe('the cover the gallery leads with', () => {
+  it('is null while the task carries nothing', async () => {
+    const task = await makeTask(selfToken, 'Nothing attached yet');
+    const read = await harness.get<TaskView>(`/tasks/${task.id}`, { token: selfToken });
+    expect(read.status).toBe(200);
+    expect(read.body.coverAttachmentId).toBeNull();
+    expect(read.body.attachmentCount).toBe(0);
+  });
+
+  it('stays null for a task carrying only documents', async () => {
+    // A PDF is not a cover. A card with no picture is a card; a broken image
+    // would be worse than none.
+    const task = await makeTask(selfToken, 'Only paperwork');
+    expect((await upload(task.id, selfToken, PDF, 'challan.pdf', 'application/pdf')).status).toBe(201);
+    const read = await harness.get<TaskView>(`/tasks/${task.id}`, { token: selfToken });
+    expect(read.body.attachmentCount).toBe(1);
+    expect(read.body.coverAttachmentId).toBeNull();
+  });
+
+  it('names the image, and the earliest one when there are several', async () => {
+    const task = await makeTask(selfToken, 'A site visit with photographs');
+    // A document first, so the cover cannot simply be "the first attachment".
+    expect((await upload(task.id, selfToken, PDF, 'quote.pdf', 'application/pdf')).status).toBe(201);
+    const first = await upload(task.id, selfToken, PNG, 'crate.png', 'image/png');
+    expect(first.status).toBe(201);
+    const second = await upload(task.id, selfToken, PNG, 'panel.png', 'image/png');
+    expect(second.status).toBe(201);
+
+    const read = await harness.get<TaskView>(`/tasks/${task.id}`, { token: selfToken });
+    expect(read.body.attachmentCount).toBe(3);
+    // The photograph taken first is the one that says what the task is about.
+    expect(read.body.coverAttachmentId).toBe(first.body.id);
+    expect(read.body.coverAttachmentId).not.toBe(second.body.id);
+  });
+});

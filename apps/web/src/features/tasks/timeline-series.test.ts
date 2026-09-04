@@ -21,6 +21,7 @@ function task(overrides: Partial<Task> = {}): Task {
     vendorName: null,
     items: [],
     attachmentCount: 0,
+    coverAttachmentId: null,
     dueDate: '2026-09-10',
     priority: 'MEDIUM',
     columnId: 'c-1',

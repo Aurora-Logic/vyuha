@@ -159,6 +159,12 @@ export interface TaskView {
    * names when somebody actually opens the task.
    */
   readonly attachmentCount: number;
+  /**
+   * The earliest image on the task, for the gallery to lead with. Null when
+   * nothing is attached or nothing attached is a picture -- a gallery card
+   * with no cover is a card, not a broken image.
+   */
+  readonly coverAttachmentId: string | null;
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
   readonly ownerId: string | null;

@@ -226,6 +226,12 @@ function ItemAnalyticsBody({ a, unit, compareLabel, ready, onParty }: { a: ItemA
         </section>
       ) : null}
 
+      {/* Every card on this page sits under a named section, which is the
+          whole of Supabase's page grammar: the heading says what the group of
+          cards is about, so a reader scans headings first and cards second.
+          These three were the one block that did not. */}
+      <SectionHeading title="Movement" note="How it has been ordered and dispatched, and by whom." />
+
       <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {trendReadable(trend) ? (
           <TrendChart title="Ordered and dispatched, by month" note={compareLabel === null ? undefined : `Dashed: ${compareLabel.toLowerCase()}.`} points={trend} labels={{ a: 'Ordered', b: 'Dispatched' }} compareLabel={compareLabel} format={q} ready={ready} />

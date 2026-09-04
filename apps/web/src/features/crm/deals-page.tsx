@@ -449,15 +449,21 @@ export function DealsPage() {
             itemLabel={(deal) => deal.name}
             renderItem={(deal) => (
               <>
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className={cn('truncate font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
+                {/* The task card's shape, applied here: the title owns its
+                    row with presence at the end of it, and every property sits
+                    on its own line under it. A wrapped ribbon of properties
+                    makes the reader hunt along a line; a column is read at a
+                    glance, which is the whole of why a Notion card works. */}
+                <span className="flex min-w-0 items-start gap-2">
+                  <span className={cn('min-w-0 flex-1 font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
                   {deal.hasInvoice ? (
                     <Badge variant="secondary" className="shrink-0">Invoiced</Badge>
                   ) : deal.hasOrder ? (
                     <Badge variant="outline" className="shrink-0">Ordered</Badge>
                   ) : null}
+                  <RecordPresence resource={REALTIME_RESOURCES.CRM_DEAL} recordId={deal.id} />
                 </span>
-                <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
+                <span className="text-muted-foreground flex flex-col items-start gap-1 text-xs font-normal">
                   {deal.companyName === null ? null : (
                     <span className="flex min-w-0 items-center gap-1">
                       <BuildingsIcon className="shrink-0" />
@@ -474,9 +480,6 @@ export function DealsPage() {
                     </span>
                   )}
                   {deal.ownerName === null ? null : <PersonChip name={deal.ownerName} tiny />}
-                  {/* Beside the owner, because the question they answer is the
-                      same one: who is this deal's, and who is in it now. */}
-                  <RecordPresence resource={REALTIME_RESOURCES.CRM_DEAL} recordId={deal.id} className="ml-auto" />
                 </span>
               </>
             )}

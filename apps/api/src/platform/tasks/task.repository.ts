@@ -12,7 +12,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'd
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
-import { employees, taskAttachments, taskBoardColumns, taskItems, tasks } from '../db/schema/index.js';
+import { employees, files, taskAttachments, taskBoardColumns, taskItems, tasks } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
 import { masterSearch } from '../org/master-query.js';
 
@@ -123,12 +123,29 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
    * The same batching as `itemsFor`, for the same reason: the board draws a
    * hundred cards and a count per card would be a hundred round trips.
    */
-  private async attachmentCounts(taskIds: readonly string[]): Promise<Map<string, number>> {
-    const counts = new Map<string, number>();
+  /**
+   * How many files a task carries, and which one the gallery leads with.
+   *
+   * Both in one query. The cover is the earliest image on the task -- the
+   * photograph somebody took first, which on a site visit is the one that
+   * says what the task is about. `mime` lives on `files`, so this joins;
+   * `ARRAY_AGG ... FILTER` picks the cover without a second round trip and
+   * without fetching every attachment of every task on the board.
+   */
+  private async attachmentCounts(
+    taskIds: readonly string[],
+  ): Promise<Map<string, { count: number; coverId: string | null }>> {
+    const counts = new Map<string, { count: number; coverId: string | null }>();
     if (taskIds.length === 0) return counts;
     const rows = await this.db
-      .select({ taskId: taskAttachments.taskId, count: sql<number>`count(*)::int` })
+      .select({
+        taskId: taskAttachments.taskId,
+        count: sql<number>`count(*)::int`,
+        coverId: sql<string | null>`(array_agg(${taskAttachments.id} ORDER BY ${taskAttachments.createdAt})
+          FILTER (WHERE ${files.mime} LIKE 'image/%'))[1]`,
+      })
       .from(taskAttachments)
+      .innerJoin(files, eq(files.id, taskAttachments.fileId))
       .where(
         and(
           eq(taskAttachments.orgId, this.ctx.orgId),
@@ -137,7 +154,7 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
         ),
       )
       .groupBy(taskAttachments.taskId);
-    for (const row of rows) counts.set(row.taskId, row.count);
+    for (const row of rows) counts.set(row.taskId, { count: row.count, coverId: row.coverId });
     return counts;
   }
 
@@ -448,7 +465,7 @@ const EMPTY_ITEMS: readonly TaskItemView[] = [];
 function toTaskView(
   row: TaskRow,
   items: ReadonlyMap<string, TaskItemView[]>,
-  attachments: ReadonlyMap<string, number>,
+  attachments: ReadonlyMap<string, { count: number; coverId: string | null }>,
 ): TaskView {
   return {
     id: row.id,
@@ -466,7 +483,8 @@ function toTaskView(
     vendorId: row.vendorId,
     vendorName: row.vendorName,
     items: items.get(row.id) ?? EMPTY_ITEMS,
-    attachmentCount: attachments.get(row.id) ?? 0,
+    attachmentCount: attachments.get(row.id)?.count ?? 0,
+    coverAttachmentId: attachments.get(row.id)?.coverId ?? null,
     dueDate: row.dueDate,
     priority: row.priority,
     columnId: row.columnId,

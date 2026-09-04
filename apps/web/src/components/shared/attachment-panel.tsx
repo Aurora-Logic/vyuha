@@ -5,9 +5,7 @@ import {
   PaperclipIcon,
   TrashIcon,
 } from '@phosphor-icons/react';
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Button } from '@/components/ui/button';
@@ -15,8 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
-import { apiRequest } from '@/lib/api/client';
-import { parseOrThrow } from '@/lib/api/parse';
+import { attachmentUrlOnce, useAttachmentUrl } from '@/components/shared/use-attachment-url';
 import { formatDate } from '@/lib/format';
 
 /**
@@ -48,14 +45,6 @@ export interface AttachmentRow {
   readonly uploadedByName?: string | null;
 }
 
-const signedUrlSchema = z.object({ url: z.url(), expiresInSeconds: z.number() });
-
-/**
- * Under the five-minute URL TTL, so a cached link is never a dead one — the
- * same bound `punch-photo.ts` keeps, for the same reason.
- */
-const SIGNED_URL_STALE_MS = 4 * 60_000;
-
 function isImage(mime: string): boolean {
   return mime.startsWith('image/');
 }
@@ -64,20 +53,6 @@ function sizeOf(bytes: number): string {
   return bytes >= 1024 * 1024
     ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
     : `${Math.max(1, Math.round(bytes / 1024)).toString()} KB`;
-}
-
-function useAttachmentUrl(basePath: string, attachmentId: string, enabled: boolean): UseQueryResult<string, Error> {
-  return useQuery({
-    enabled,
-    queryKey: ['attachment-url', basePath, attachmentId],
-    queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>(`${basePath}/${attachmentId}/url`, { signal });
-      return parseOrThrow(signedUrlSchema, body, 'attachment link').url;
-    },
-    staleTime: SIGNED_URL_STALE_MS,
-    gcTime: SIGNED_URL_STALE_MS,
-    retry: false,
-  });
 }
 
 function AttachmentIcon({ mime }: { readonly mime: string }) {
@@ -225,8 +200,7 @@ export function AttachmentPanel({
 
   async function openInTab(attachment: AttachmentRow) {
     try {
-      const body = await apiRequest<unknown>(`${basePath}/${attachment.id}/url`);
-      window.open(parseOrThrow(signedUrlSchema, body, 'attachment link').url, '_blank', 'noopener');
+      window.open(await attachmentUrlOnce(basePath, attachment.id), '_blank', 'noopener');
     } catch (error) {
       toast.add({
         type: 'error',
