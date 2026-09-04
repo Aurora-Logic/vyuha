@@ -134,14 +134,16 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
    */
   private async attachmentCounts(
     taskIds: readonly string[],
-  ): Promise<Map<string, { count: number; coverId: string | null }>> {
-    const counts = new Map<string, { count: number; coverId: string | null }>();
+  ): Promise<Map<string, { count: number; coverId: string | null; coverFileId: string | null }>> {
+    const counts = new Map<string, { count: number; coverId: string | null; coverFileId: string | null }>();
     if (taskIds.length === 0) return counts;
     const rows = await this.db
       .select({
         taskId: taskAttachments.taskId,
         count: sql<number>`count(*)::int`,
         coverId: sql<string | null>`(array_agg(${taskAttachments.id} ORDER BY ${taskAttachments.createdAt})
+          FILTER (WHERE ${files.mime} LIKE 'image/%'))[1]`,
+        coverFileId: sql<string | null>`(array_agg(${taskAttachments.fileId} ORDER BY ${taskAttachments.createdAt})
           FILTER (WHERE ${files.mime} LIKE 'image/%'))[1]`,
       })
       .from(taskAttachments)
@@ -154,7 +156,7 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
         ),
       )
       .groupBy(taskAttachments.taskId);
-    for (const row of rows) counts.set(row.taskId, { count: row.count, coverId: row.coverId });
+    for (const row of rows) counts.set(row.taskId, { count: row.count, coverId: row.coverId, coverFileId: row.coverFileId });
     return counts;
   }
 
@@ -465,7 +467,7 @@ const EMPTY_ITEMS: readonly TaskItemView[] = [];
 function toTaskView(
   row: TaskRow,
   items: ReadonlyMap<string, TaskItemView[]>,
-  attachments: ReadonlyMap<string, { count: number; coverId: string | null }>,
+  attachments: ReadonlyMap<string, { count: number; coverId: string | null; coverFileId: string | null }>,
 ): TaskView {
   return {
     id: row.id,
@@ -485,6 +487,9 @@ function toTaskView(
     items: items.get(row.id) ?? EMPTY_ITEMS,
     attachmentCount: attachments.get(row.id)?.count ?? 0,
     coverAttachmentId: attachments.get(row.id)?.coverId ?? null,
+    coverFileId: attachments.get(row.id)?.coverFileId ?? null,
+    // Signed by the service for the list; a board read leaves it null.
+    coverUrl: null,
     dueDate: row.dueDate,
     priority: row.priority,
     columnId: row.columnId,

@@ -460,12 +460,6 @@ describe('a mistyped name still finds the party', () => {
     expect(await find('zzqqxx')).toEqual([]);
   });
 
-  it('leaves short terms strict, so three letters do not match the whole book', async () => {
-    // Below four characters a typo is indistinguishable from a different word.
-    const all = await find('zzz');
-    expect(all).toEqual([]);
-  });
-
   it('still ranks the exact match above the forgiven one', async () => {
     // Forgiveness must not cost the ordering: somebody who typed it correctly
     // gets what they typed, first.

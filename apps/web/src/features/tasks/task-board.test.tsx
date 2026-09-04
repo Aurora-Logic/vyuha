@@ -36,6 +36,8 @@ function task(overrides: Partial<Task> = {}): Task {
     items: [],
     attachmentCount: 0,
     coverAttachmentId: null,
+    coverFileId: null,
+    coverUrl: null,
     dueDate: null,
     priority: 'MEDIUM',
     columnId: 'c-1',

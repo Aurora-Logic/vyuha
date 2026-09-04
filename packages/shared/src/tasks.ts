@@ -105,30 +105,65 @@ export const taskItemInputSchema = z.object({
 export type TaskItemInput = z.infer<typeof taskItemInputSchema>;
 
 /**
+ * A decimal string as an exact integer, scaled by `decimals` places.
+ *
+ * Parsed from the text rather than through `Number`: the whole point of
+ * carrying money as text is that it never becomes a float, and
+ * `Number('0.07') * 100` is 7.000000000000001.
+ */
+function scaled(text: string, decimals: number): bigint | null {
+  const trimmed = text.trim();
+  if (!/^\d+(\.\d+)?$/u.test(trimmed)) return null;
+  const [whole = '0', fraction = ''] = trimmed.split('.');
+  const padded = (fraction + '0'.repeat(decimals)).slice(0, decimals);
+  return BigInt(whole + padded);
+}
+
+/** Half-up division for non-negative integers, which is how money rounds. */
+function roundedDiv(value: bigint, by: bigint): bigint {
+  return (value + by / 2n) / by;
+}
+
+/**
  * One line's amount, as exact decimal text.
  *
  * Rounded to two decimals at the line, which is where a document rounds, so
  * the total a person reads on the task is the total the sales order will show.
- * Integer paise throughout: `0.1 + 0.2` is not `0.3`, and this is money.
+ *
+ * `bigint` throughout, not `number`. The quantity field allows twelve integer
+ * digits and the rate fourteen, and their scaled product passes
+ * `Number.MAX_SAFE_INTEGER` long before either limit -- 100000 at 1000000 is
+ * already 1e16 against a safe ceiling of 9.007e15. `Number.isFinite` stays
+ * true through that, so a float would have returned a wrong rupee figure with
+ * nothing to catch it, and the same wrong figure would have crossed into a
+ * sales order line.
  */
 export function taskLineAmount(quantity: string, rate: string | null, discountPct: string): string | null {
   if (rate === null || rate === undefined) return null;
-  const qtyMilli = Math.round(Number(quantity) * 1000);
-  const ratePaise = Math.round(Number(rate) * 100);
-  const discBasis = Math.round(Number(discountPct) * 100);
-  if (!Number.isFinite(qtyMilli) || !Number.isFinite(ratePaise) || !Number.isFinite(discBasis)) return null;
-  const grossMilliPaise = qtyMilli * ratePaise;
-  const netMilliPaise = grossMilliPaise - Math.round((grossMilliPaise * discBasis) / 10_000);
-  const paise = Math.round(netMilliPaise / 1000);
-  return (paise / 100).toFixed(2);
+  const qtyMilli = scaled(quantity, 3);
+  const ratePaise = scaled(rate, 2);
+  const discBasis = scaled(discountPct, 2);
+  if (qtyMilli === null || ratePaise === null || discBasis === null) return null;
+
+  // Units of 1e-5 rupees: quantity (3dp) x rate (2dp).
+  const gross = qtyMilli * ratePaise;
+  const net = gross - roundedDiv(gross * discBasis, 10_000n);
+  return rupees(roundedDiv(net, 1000n));
+}
+
+/** Paise as "1234.56", without going through a float to print it. */
+function rupees(paise: bigint): string {
+  const whole = paise / 100n;
+  const fraction = paise % 100n;
+  return `${whole.toString()}.${fraction.toString().padStart(2, '0')}`;
 }
 
 /** What the task's order comes to, or null when nothing on it is priced. */
 export function taskOrderTotal(items: readonly TaskItemView[]): string | null {
   const priced = items.filter((item) => item.amount !== null);
   if (priced.length === 0) return null;
-  const paise = priced.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0);
-  return (paise / 100).toFixed(2);
+  const paise = priced.reduce((sum, item) => sum + (scaled(item.amount ?? '0', 2) ?? 0n), 0n);
+  return rupees(paise);
 }
 
 export interface TaskView {
@@ -165,6 +200,15 @@ export interface TaskView {
    * with no cover is a card, not a broken image.
    */
   readonly coverAttachmentId: string | null;
+  /** The cover's file, so the list can sign a link without a second lookup. */
+  readonly coverFileId: string | null;
+  /**
+   * A short-lived link to the cover, minted with the list.
+   *
+   * Null on a board or a calendar read, which do not draw covers, and on a
+   * cover whose object has gone -- a card without a picture is a card.
+   */
+  readonly coverUrl: string | null;
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
   readonly ownerId: string | null;

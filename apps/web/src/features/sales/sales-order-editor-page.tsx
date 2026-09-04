@@ -96,9 +96,11 @@ export function SalesOrderEditorPage() {
       />
     );
   }
-  // Built once, so a task still in flight must not mount an empty document
-  // that never fills.
-  if ((!isNew && record.data === undefined) || settings === null || (fromTaskId !== null && fromTask.data === undefined)) {
+  // `isPending`, not `data === undefined`: a task id the caller cannot see
+  // or that no longer exists never resolves, and waiting on `data` pinned the
+  // page on an aria-busy skeleton with no message and no way forward. A task
+  // that fails to load simply prefills nothing.
+  if ((!isNew && record.data === undefined) || settings === null || (fromTaskId !== null && fromTask.isPending)) {
     return (
       <div role="status" aria-busy="true" aria-label="Loading the sales order" className="flex flex-col gap-4">
         <Skeleton className="h-9 w-64" />

@@ -6,8 +6,10 @@ import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ItemPicker } from '@/features/masters/item-picker';
 import { formatMoney } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { TASK_ITEM_CAP, taskLineAmount, taskOrderTotal } from '@vyuha/shared';
 
+import { incompleteOrderLines } from './order-lines';
 import type { TaskItemLine } from './types';
 
 /**
@@ -33,7 +35,17 @@ export interface TaskItemRef {
   readonly itemName: string;
 }
 
-/** Only what a decimal field should accept, so the server never sees the rest. */
+/**
+ * What the field accepts *while being typed*: a half-finished number like
+ * "12." or an emptied box is a normal state mid-edit, so these are looser
+ * than the server's.
+ *
+ * They are not the validation. `taskLineAmount` returns null for anything the
+ * server would refuse, and `orderLinesReady` below is what the caller asks
+ * before submitting -- an earlier version relied on these alone and let an
+ * emptied Qty box reach the API, which answered 400 with a generic toast
+ * after the person had filled in the party, the items and the notes.
+ */
 const QUANTITY = /^\d{0,12}(\.\d{0,3})?$/u;
 const MONEY = /^\d{0,14}(\.\d{0,2})?$/u;
 const PERCENT = /^(100(\.0{0,2})?|\d{0,2}(\.\d{0,2})?)$/u;
@@ -52,6 +64,8 @@ export function TaskItemsField({
   const [pickerKey, setPickerKey] = useState(0);
   const full = value.length >= TASK_ITEM_CAP;
   const total = taskOrderTotal(value);
+  // Said on the line it belongs to, rather than as a 400 after submitting.
+  const incomplete = incompleteOrderLines(value);
 
   const patch = (itemId: string, change: Partial<TaskItemLine>) => {
     onValueChange(
@@ -137,8 +151,17 @@ export function TaskItemsField({
             </Field>
           </div>
 
-          <span className="text-muted-foreground text-right text-xs tabular-nums">
-            {line.amount === null ? 'No rate yet' : formatMoney(line.amount)}
+          <span
+            className={cn(
+              'text-right text-xs tabular-nums',
+              incomplete.includes(line.itemId) ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
+            {incomplete.includes(line.itemId)
+              ? 'Quantity, rate and discount must be numbers.'
+              : line.amount === null
+                ? 'No rate yet'
+                : formatMoney(line.amount)}
           </span>
           {index === value.length - 1 ? null : <span className="sr-only">End of line</span>}
         </div>

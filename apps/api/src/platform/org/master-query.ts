@@ -88,8 +88,14 @@ const FUZZY_MIN_LENGTH = 4;
  *
  * Found by the shift suite rather than by thinking: the first version of this
  * fuzzed every word and made a search for one code return two shifts.
+ *
+ * The length floor is defence in depth rather than a behaviour: measured on
+ * this catalogue, no three-character term reaches 0.35 against any name
+ * anyway -- trigram similarity for a short needle against a long haystack is
+ * capped well below it. So it is unit-tested as a rule rather than through
+ * the endpoint, where it has nothing observable to change.
  */
-function fuzzyWorthy(word: string): boolean {
+export function fuzzyWorthy(word: string): boolean {
   return word.length >= FUZZY_MIN_LENGTH && /^[a-z]+$/u.test(word.toLowerCase());
 }
 

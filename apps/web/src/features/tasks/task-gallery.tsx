@@ -3,9 +3,7 @@ import { BuildingsIcon, PackageIcon, PaperclipIcon, TruckIcon } from '@phosphor-
 import { PersonChip } from '@/components/shared/person';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useAttachmentUrl } from '@/components/shared/use-attachment-url';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { TASK_PRIORITY_LABELS } from '@vyuha/shared';
 
@@ -19,9 +17,10 @@ import type { Task } from './types';
  * Notion's Gallery leads each card with its cover image, and so does this one
  * now. It could not before: the list carried an attachment *count* and not the
  * attachments, so a cover would have meant fetching every attachment of every
- * task to find one picture. The list now names the earliest image on each
- * task, picked in the same query that counts them, so a card asks for exactly
- * the one link it draws.
+ * task to find one picture. The list now picks the earliest image on each task
+ * in the same query that counts them, and signs its link there too -- a first
+ * version had each card fetch its own, which made a fifty-card wall open fifty
+ * requests that each re-read the task before signing anything.
  *
  * A card with no picture is a card, not a broken image: most tasks carry no
  * photograph and the wall must not become a grid of grey rectangles.
@@ -52,8 +51,16 @@ export function TaskGallery({
             }}
           >
             <CardContent className="flex min-w-0 flex-col gap-2 p-0">
-              {task.coverAttachmentId === null ? null : (
-                <TaskCover taskId={task.id} attachmentId={task.coverAttachmentId} title={task.title} />
+              {task.coverUrl === null ? null : (
+                // Fixed height and object-cover, so a portrait photograph of a
+                // damaged crate and a landscape one of a panel make the same
+                // card rather than a ragged wall.
+                <img
+                  src={task.coverUrl}
+                  alt={`Attached to ${task.title}`}
+                  className="bg-muted h-28 w-full border object-cover"
+                  loading="lazy"
+                />
               )}
               <span className={cn('text-sm font-medium', task.isClosed && 'text-muted-foreground line-through')}>
                 {task.title}
@@ -114,36 +121,5 @@ export function TaskGallery({
         </Card>
       ))}
     </div>
-  );
-}
-
-/**
- * The card's cover.
- *
- * Fixed height and `object-cover`, so a portrait photograph of a damaged crate
- * and a landscape one of a panel produce the same card rather than a ragged
- * wall. It renders nothing at all while the link is being minted and nothing
- * if it fails: a cover is decoration on a card that already says everything it
- * needs to in words, and a broken-image glyph would be worse than no picture.
- */
-function TaskCover({
-  taskId,
-  attachmentId,
-  title,
-}: {
-  readonly taskId: string;
-  readonly attachmentId: string;
-  readonly title: string;
-}) {
-  const url = useAttachmentUrl(`/tasks/${taskId}/attachments`, attachmentId, true);
-  if (url.isPending) return <Skeleton className="h-28 w-full" aria-label="Loading the photograph" />;
-  if (url.isError) return null;
-  return (
-    <img
-      src={url.data}
-      alt={`Attached to ${title}`}
-      className="bg-muted h-28 w-full border object-cover"
-      loading="lazy"
-    />
   );
 }

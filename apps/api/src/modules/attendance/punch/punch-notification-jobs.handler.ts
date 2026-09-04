@@ -345,7 +345,8 @@ export class MarkAbsentSweepHandler implements JobHandler<'mark-absent'>, OnModu
       for (const employeeId of candidates) {
         scanned += 1;
         try {
-          // ponytail: writes rest-day rows too (reusing the engine); filter to ABSENT here if that ever costs.
+          // Writes rest-day rows too, because it reuses the engine rather than
+          // second-guessing it. Filter to ABSENT here if that ever costs anything.
           const outcome = await engine.computeDay(employeeId, date, { now });
           if (outcome.outcome === 'written') {
             written += 1;

@@ -78,3 +78,36 @@ describe('taskOrderTotal', () => {
     expect(taskOrderTotal([])).toBeNull();
   });
 });
+
+describe('the sizes the fields actually allow', () => {
+  it('is exact at a magnitude that overflows a float', () => {
+    // The reviewer's case: 1e8 x 1e8 = 1e16, past Number.MAX_SAFE_INTEGER
+    // (9.007e15). `Number.isFinite` stays true through that, so a float
+    // returned a wrong rupee figure with nothing to catch it.
+    expect(taskLineAmount('100000', '1000000.00', '0')).toBe('100000000000.00');
+  });
+
+  it('is exact at the largest values the schema permits', () => {
+    // 12 integer digits of quantity, 14 of rate.
+    expect(taskLineAmount('999999999999', '99999999999999.99', '0')).toBe(
+      '99999999999899990000000000.01',
+    );
+  });
+
+  it('rounds a discount half-up rather than drifting', () => {
+    // 1 x 0.05 at 50% is 0.025, which rounds to 0.03, not 0.02.
+    expect(taskLineAmount('1', '0.05', '50')).toBe('0.03');
+  });
+
+  it('refuses a value that is not a number rather than inventing one', () => {
+    expect(taskLineAmount('', '100.00', '0')).toBeNull();
+    expect(taskLineAmount('.', '100.00', '0')).toBeNull();
+    expect(taskLineAmount('1', 'abc', '0')).toBeNull();
+    expect(taskLineAmount('-1', '100.00', '0')).toBeNull();
+  });
+
+  it('totals a long list of large lines without drifting', () => {
+    const big = Array.from({ length: 200 }, () => line({ amount: '99999999.99' }));
+    expect(taskOrderTotal(big)).toBe('19999999998.00');
+  });
+});

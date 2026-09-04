@@ -128,13 +128,6 @@ export class PunchNotificationRepository {
   }
 
   /**
-   * Active employees with no attendance day for the date -- nobody wrote one,
-   * which means no punch, no leave, no override touched it. The engine decides
-   * what that day is (ABSENT for an expected working day, or the rest-day
-   * status); this only finds who to ask about. A non-rostered account resolves
-   * to no shift and the engine skips it, so it costs one compute and no row.
-   */
-  /**
    * Whether anyone in this org punched on the date -- the signal it was actually
    * running attendance that day. A real working day has punches: the absentees
    * are the few who did not, and they are what the sweep exists to record. A day
@@ -143,8 +136,9 @@ export class PunchNotificationRepository {
    * roster absent is noise a genuine absence would then hide in -- so the sweep
    * skips that date rather than manufacturing an absence for every employee.
    *
-   * ponytail: a real, unplanned all-hands shutdown reads as a dormant day too and
-   * is skipped; that day is set by a manual override/regularization, not the sweep.
+   * Accepted limit: a real, unplanned all-hands shutdown reads as a dormant day
+   * too and is skipped. That day is set by a manual override or a
+   * regularization, not by the sweep.
    */
   async hasAnyPunchOn(date: string): Promise<boolean> {
     const rows = await this.db
@@ -155,6 +149,13 @@ export class PunchNotificationRepository {
     return rows.length > 0;
   }
 
+  /**
+   * Active employees with no attendance day for the date -- nobody wrote one,
+   * which means no punch, no leave, no override touched it. The engine decides
+   * what that day is (ABSENT for an expected working day, or the rest-day
+   * status); this only finds who to ask about. A non-rostered account resolves
+   * to no shift and the engine skips it, so it costs one compute and no row.
+   */
   async absentCandidates(date: string): Promise<string[]> {
     const rows = await this.db
       .select({ id: employees.id })

@@ -10,6 +10,7 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { PARTY_LEDGER_GROUPS } from '@vyuha/shared';
 
+import { incompleteOrderLines } from './order-lines';
 import { TaskItemsField } from './task-items-field';
 import { emptyTaskDraft, type TaskItemLine } from './types';
 import { useSaveTask } from './use-tasks';
@@ -50,7 +51,8 @@ export function PlaceOrderDialog({
   const [notes, setNotes] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
-  const ready = partyId !== null && items.length > 0;
+  const incomplete = incompleteOrderLines(items);
+  const ready = partyId !== null && items.length > 0 && incomplete.length === 0;
 
   function reset() {
     setPartyId(null);
@@ -58,6 +60,14 @@ export function PlaceOrderDialog({
     setItems([]);
     setNotes('');
     setSubmitted(false);
+  }
+
+  // Closing must clear the form whichever way it is closed. Cancel used to
+  // call the raw prop and skip this, so Cancel left the party, the items and
+  // the red validation messages behind while Escape cleared them.
+  function close() {
+    reset();
+    onOpenChange(false);
   }
 
   function place() {
@@ -97,8 +107,8 @@ export function PlaceOrderDialog({
     <ResponsiveDialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) reset();
-        onOpenChange(next);
+        if (next) onOpenChange(true);
+        else close();
       }}
       title="Place an order"
       description="The customer, what they asked for, and anything worth remembering."
@@ -130,6 +140,11 @@ export function PlaceOrderDialog({
           {submitted && items.length === 0 ? (
             <span className="text-destructive text-xs">Add at least one item.</span>
           ) : null}
+          {submitted && incomplete.length > 0 ? (
+            <span className="text-destructive text-xs">
+              Finish the highlighted line before placing the order.
+            </span>
+          ) : null}
         </Field>
 
         <Field>
@@ -147,12 +162,7 @@ export function PlaceOrderDialog({
       </div>
 
       <ResponsiveDialogActions>
-        <Button
-          variant="outline"
-          onClick={() => {
-            onOpenChange(false);
-          }}
-        >
+        <Button variant="outline" onClick={close}>
           Cancel
         </Button>
         <Button disabled={save.isPending} onClick={place}>

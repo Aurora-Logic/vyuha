@@ -50,6 +50,9 @@ export const taskSchema = z.object({
   attachmentCount: z.number().default(0),
   /** The image the gallery leads with, when the task carries one. */
   coverAttachmentId: z.string().nullable().default(null),
+  coverFileId: z.string().nullable().default(null),
+  /** Signed with the list, so a gallery card needs no request of its own. */
+  coverUrl: z.string().nullable().default(null),
   dueDate: z.string().nullable(),
   priority: z.enum(TASK_PRIORITIES),
   columnId: z.string(),
@@ -74,7 +77,6 @@ export type BoardResponse = z.infer<typeof boardResponseSchema>;
 
 export const boardColumnsSchema = z.array(boardColumnSchema);
 
-/** The sheet's working copy. */
 /** One line of the order a task is carrying (REQ-V-17). */
 export interface TaskItemLine {
   itemId: string;
@@ -85,6 +87,7 @@ export interface TaskItemLine {
   amount: string | null;
 }
 
+/** The sheet's working copy. */
 export interface TaskDraft {
   id?: string;
   title: string;

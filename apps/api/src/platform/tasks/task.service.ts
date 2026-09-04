@@ -114,7 +114,34 @@ export class TaskService {
       selfEmployeeId: principal.employeeId,
       today: await this.today(principal.orgId),
     });
-    return paginated(rows, query, total);
+    return paginated(await this.withCoverUrls(principal, rows), query, total);
+  }
+
+  /**
+   * The gallery's covers, signed here rather than one request per card.
+   *
+   * The card used to hold only the attachment id and fetch its own link, so a
+   * fifty-card wall opened fifty HTTP requests, each re-authenticating and
+   * re-reading the task before it signed anything. Signing them in the list
+   * costs one file read and one HMAC each on a connection that is already
+   * open, and no round trips at all.
+   *
+   * A link that cannot be minted -- a purged object, a file past its
+   * retention -- leaves the card without a cover rather than failing the list
+   * that every board and calendar also reads.
+   */
+  private async withCoverUrls(principal: Principal, rows: readonly TaskView[]): Promise<TaskView[]> {
+    return Promise.all(
+      rows.map(async (row) => {
+        if (row.coverAttachmentId === null || row.coverFileId === null) return row;
+        try {
+          const { url } = await this.files.signedUrlFor(principal, row.coverFileId);
+          return { ...row, coverUrl: url };
+        } catch {
+          return row;
+        }
+      }),
+    );
   }
 
   async board(principal: Principal, query: TaskBoardQuery): Promise<TaskBoardView> {

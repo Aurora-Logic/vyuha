@@ -160,12 +160,38 @@ function visibleColumns(shown: Record<TaskCardField, boolean>): RecordColumn<Tas
 }
 
 /** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet, a preset subject). */
+/**
+ * A saved view written before the defaults flipped, read as it was meant.
+ *
+ * Until 2 Sep 2026 the page defaulted to the reader's own open tasks: absent
+ * `all` meant "mine" and absent `closed` meant "open only". The defaults are
+ * now the opposite, so a view stored under the old rules would silently show
+ * everyone's tasks including closed ones under the same name.
+ *
+ * A stored query carrying neither of the new keys is an old one, and is read
+ * under the old rules. `legacy=0` is written into every view saved from now
+ * on, so a genuinely new "everyone, open and closed" view is not mistaken for
+ * an old one.
+ */
+function withLegacyDefaults(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (next.has('legacy') || next.has('mine') || next.has('closed')) return next;
+  // The old shape: `all=1` meant everyone, its absence meant mine.
+  if (next.get('all') !== '1') next.set('mine', '1');
+  next.set('closed', '0');
+  next.delete('all');
+  return next;
+}
+
 function viewQuery(params: URLSearchParams): string {
   const kept = new URLSearchParams();
-  for (const key of ['q', 'mine', 'due', 'priority', 'assignee', 'closed', 'view']) {
+  for (const key of ['q', 'mine', 'due', 'priority', 'assignee', 'closed', 'view', 'legacy']) {
     const value = params.get(key);
     if (value !== null && value !== '') kept.set(key, value);
   }
+  // Stamped on every view saved from now on, so `withLegacyDefaults` can tell
+  // a new "everyone, open and closed" view from one stored before the flip.
+  kept.set('legacy', '0');
   return kept.toString();
 }
 
@@ -494,7 +520,9 @@ export function TasksPage() {
               storageKey="vyuha.views.tasks"
               current={viewQuery(searchParams)}
               onApply={(next) => {
-                void navigate(`/tasks${next ? `?${next}` : ''}`, { replace: true });
+                const read = withLegacyDefaults(new URLSearchParams(next));
+                const query = read.toString();
+                void navigate(`/tasks${query ? `?${query}` : ''}`, { replace: true });
               }}
             />
             {canConfigure ? (
