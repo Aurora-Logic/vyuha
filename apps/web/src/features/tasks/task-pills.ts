@@ -15,6 +15,14 @@
 
 export const PILL = 'rounded-none px-1.5 py-px text-[0.6875rem] font-medium';
 
+/**
+ * An order-carrying task, washed the theme's blue so a placed order is spotted
+ * at a glance on any surface -- the board card, the gallery card, the list row.
+ * The same blue token the informational badge wears, so it reads as "order"
+ * consistently and follows the palette into dark mode rather than a raw class.
+ */
+export const ORDER_SURFACE = 'bg-surface-blue';
+
 /** High is red, medium amber, low blue -- Notion's own ordering of urgency. */
 export const PRIORITY_HUES = {
   HIGH: 'bg-destructive/10 text-destructive',

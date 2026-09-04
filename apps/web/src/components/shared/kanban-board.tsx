@@ -65,6 +65,11 @@ interface KanbanBoardProps<T> {
    * desktop board is the horizontal one it has always been.
    */
   stacked?: boolean;
+  /**
+   * A per-card class, merged over the card's own background -- for marking one
+   * kind of item (an order tinted blue) so it is spotted among the rest.
+   */
+  itemClassName?: (item: T) => string | undefined;
 }
 
 export function KanbanBoard<T>({
@@ -81,6 +86,7 @@ export function KanbanBoard<T>({
   ariaLabel,
   overflowHint = 'see the list',
   stacked = false,
+  itemClassName,
 }: KanbanBoardProps<T>) {
   const [dragging, setDragging] = useState<T | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -107,7 +113,7 @@ export function KanbanBoard<T>({
               setDragging(null);
               setOver(null);
             }}
-            className={cn('bg-background border-border/60 rounded-md border shadow-xs transition-shadow hover:shadow-sm', dragging !== null && itemKey(dragging) === itemKey(item) && 'opacity-50')}
+            className={cn('bg-background border-border/60 rounded-md border shadow-xs transition-shadow hover:shadow-sm', itemClassName?.(item), dragging !== null && itemKey(dragging) === itemKey(item) && 'opacity-50')}
           >
             <Button
               type="button"

@@ -64,6 +64,16 @@ export const taskSchema = z.object({
 });
 export type Task = z.infer<typeof taskSchema>;
 
+/**
+ * A task is an order when it carries item lines (REQ-V-17: the order a task
+ * carries). Placing an order writes exactly that -- a party and its items -- so
+ * the presence of items is what marks a card as an order on every surface, and
+ * this is the one place that rule is written.
+ */
+export function isOrderTask(task: Pick<Task, 'items'>): boolean {
+  return task.items.length > 0;
+}
+
 export const tasksResponseSchema = z.object({
   data: z.array(taskSchema),
   meta: z.object({ page: z.number(), pageSize: z.number(), total: z.number() }),

@@ -62,4 +62,21 @@ describe('KanbanBoard', () => {
     renderWithProviders(board(false));
     expect(screen.getByText('Call Acme')).toBeTruthy();
   });
+
+  it('washes a matching card with its itemClassName (the order tint)', () => {
+    renderWithProviders(
+      <KanbanBoard
+        ariaLabel="Test board"
+        lanes={lanes}
+        itemKey={(item) => item.id}
+        itemLaneId={(item) => item.laneId}
+        itemLabel={(item) => item.name}
+        renderItem={(item) => <span>{item.name}</span>}
+        onOpen={vi.fn()}
+        itemClassName={(item) => (item.id === 't1' ? 'bg-surface-blue' : undefined)}
+      />,
+    );
+    // The tint lands on the card wrapper that encloses the label.
+    expect(screen.getByText('Call Acme').closest('.bg-surface-blue')).toBeTruthy();
+  });
 });
