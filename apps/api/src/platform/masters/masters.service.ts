@@ -68,7 +68,7 @@ export class MastersService {
         .select()
         .from(parties)
         .where(where)
-        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays }, parties.name, parties.id))
+        .orderBy(...masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays, openingBalance: parties.openingBalance, closingBalance: parties.closingBalance }, parties.name, parties.id))
         .limit(limit)
         .offset(offset),
       this.db.select({ value: sql<number>`count(*)::int` }).from(parties).where(where),
@@ -460,6 +460,7 @@ function toView(row: typeof parties.$inferSelect): PartyView {
     creditLimit: row.creditLimit,
     creditDays: row.creditDays,
     openingBalance: row.openingBalance,
+    closingBalance: row.closingBalance,
     absentInTally: row.absentInTally,
     lastPulledAt: row.lastPulledAt.toISOString(),
     manager: null,
