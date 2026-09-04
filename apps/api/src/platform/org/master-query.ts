@@ -76,6 +76,23 @@ const FUZZY_THRESHOLD = 0.35;
 /** Below this a typo is indistinguishable from a different word. */
 const FUZZY_MIN_LENGTH = 4;
 
+/**
+ * Whether a word should be forgiven a typo at all.
+ *
+ * Letters only, and four of them. Anything carrying a digit or a separator is
+ * an identifier -- a shift code, a part number, a GSTIN -- and those are the
+ * one place forgiveness is actively wrong: `SR-NGT-4821` and `SR-DAY-4821`
+ * differ by three characters out of eleven and are different shifts, so a
+ * picker offering both is worse than one offering neither. Somebody typing a
+ * code is copying it; somebody typing a name is remembering it.
+ *
+ * Found by the shift suite rather than by thinking: the first version of this
+ * fuzzed every word and made a search for one code return two shifts.
+ */
+function fuzzyWorthy(word: string): boolean {
+  return word.length >= FUZZY_MIN_LENGTH && /^[a-z]+$/u.test(word.toLowerCase());
+}
+
 export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
   const escape = (value: string): string => value.replace(/([\\%_])/gu, '\\$1');
 
@@ -103,10 +120,9 @@ export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
       //
       // Only from four characters up. Below that a typo is indistinguishable
       // from a different word, and "ac" would fuzzily match most of the book.
-      const fuzzy =
-        word.length < FUZZY_MIN_LENGTH
-          ? []
-          : [sql`word_similarity(${word.toLowerCase()}, lower(${column})) >= ${FUZZY_THRESHOLD}`];
+      const fuzzy = fuzzyWorthy(word)
+        ? [sql`word_similarity(${word.toLowerCase()}, lower(${column})) >= ${FUZZY_THRESHOLD}`]
+        : [];
       return [sql`${column} ILIKE ${plain}`, ...loose, ...fuzzy];
     });
 

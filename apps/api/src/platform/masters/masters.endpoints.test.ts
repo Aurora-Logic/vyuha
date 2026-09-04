@@ -473,3 +473,32 @@ describe('a mistyped name still finds the party', () => {
     expect(names[0]).toMatch(/^ASHA|^Asha/u);
   });
 });
+
+/**
+ * The other half of forgiveness: where it must not apply.
+ *
+ * A shift code, a part number, a GSTIN -- somebody typing one is copying it,
+ * not remembering it, and two codes three characters apart are two different
+ * things. The shift suite found this: the first version fuzzed every word and
+ * made a search for one code return two shifts.
+ */
+describe('an identifier is matched exactly', () => {
+  const find = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}&pageSize=100`,
+      { token: adminToken },
+    );
+    return res.body.data.map((p) => p.name);
+  };
+
+  it('does not forgive a typo inside a GSTIN', async () => {
+    // One digit out of a real GSTIN is a different taxpayer, not a near miss.
+    expect(await find('27AAAPL1234C1ZV')).toEqual(['Asha Traders']);
+    expect(await find('27AAAPL1234C1ZX')).toEqual([]);
+  });
+
+  it('still finds a name beside a code in the same query', async () => {
+    // "asha" is forgiven, the GSTIN is not, and both must hold at once.
+    expect(await find('asha 27AAAPL1234C1ZV')).toEqual(['Asha Traders']);
+  });
+});
