@@ -954,3 +954,116 @@ describe('custom reports on a schedule (S-3)', () => {
     expect(foreign.status).toBe(404);
   });
 });
+
+/**
+ * CFO-1 and CFO-2 (audit, 4 Sep 2026). Every money aggregate in these
+ * services is cast ::text for the wire, and five of them were then ordered
+ * by that column's ordinal -- so "9000.00" sorted above "60000.00", the
+ * top-ten overdue list led with the smallest debt, and concentration's top-5
+ * share was computed over whichever parties sort high as strings. The
+ * payables total behind DPO was the sum of the 25 rows on screen, not the
+ * book. Every value here is chosen so that text order and money order
+ * disagree; six parties for concentration because top5 over five is 100%
+ * either way.
+ */
+describe('money sorts as money, and the book is not the list (CFO-1, CFO-2)', () => {
+  let connectionId = '';
+  const debtorIds: string[] = [];
+
+  beforeAll(async () => {
+    await harness.db.execute(sql`DELETE FROM fact_sales_daily WHERE org_id = ${ORG_ID}`);
+    const connection = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM integration_connections WHERE org_id = ${ORG_ID} AND deleted_at IS NULL LIMIT 1
+    `);
+    connectionId = connection.rows[0]?.id ?? '';
+
+    // Six debtors: 60,000 is the largest by money and the last as a string.
+    const debtors: [string, number][] = [['Ekta Electricals', 60000], ['Falak Motors', 9500], ['Gauri Traders', 9200], ['Hansa Cables', 9000], ['Ishan Power', 8000], ['Jaya Switchgear', 7000]];
+    for (const [name, net] of debtors) {
+      const row = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO parties (org_id, connection_id, name, parent_group) VALUES (${ORG_ID}, ${connectionId}, ${name}, 'Sundry Debtors') RETURNING id
+      `);
+      const id = row.rows[0]?.id ?? '';
+      debtorIds.push(id);
+      await harness.db.execute(sql`
+        INSERT INTO fact_sales_daily (org_id, date, party_id, party_name, brand, voucher_type, net)
+        VALUES (${ORG_ID}, ${TODAY}, ${id}, ${name}, ${'Brand ' + name.split(' ')[0]}, 'Sales', ${net})
+      `);
+    }
+    // Three of them owe overdue money today, on a snapshot date the August cases never read.
+    await harness.db.execute(sql`
+      INSERT INTO fact_receivable_snapshot (org_id, snapshot_date, party_id, bill_ref, bill_date, due_date, amount, outstanding, days_overdue, bucket, source) VALUES
+        (${ORG_ID}, ${TODAY}, ${debtorIds[3]}, 'H-1', '2026-07-01', '2026-07-31', 9000,  9000,  35, '31-60', 'test'),
+        (${ORG_ID}, ${TODAY}, ${debtorIds[0]}, 'E-1', '2026-07-01', '2026-07-31', 60000, 60000, 35, '31-60', 'test'),
+        (${ORG_ID}, ${TODAY}, ${debtorIds[2]}, 'G-1', '2026-07-01', '2026-07-31', 30000, 30000, 35, '31-60', 'test')
+    `);
+
+    // Creditors: three with purchases this month, and 26 more at 1,000 so the
+    // book has more rows than the screen shows.
+    const creditors: [string, number][] = [['Hema Supplies', 9000], ['Indus Metals', 60000], ['Jyoti Wires', 30000]];
+    for (const [name, amount] of creditors) {
+      const row = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO parties (org_id, connection_id, name, parent_group, opening_balance) VALUES (${ORG_ID}, ${connectionId}, ${name}, 'Sundry Creditors', ${amount}) RETURNING id
+      `);
+      await harness.db.execute(sql`
+        INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+        VALUES (${ORG_ID}, ${connectionId}, 1, '2026-09-20', 'Purchase', ${'P-' + name.slice(0, 1)}, ${name}, ${row.rows[0]?.id ?? ''}, '', false, ${amount}, now())
+      `);
+    }
+    for (let i = 1; i <= 26; i += 1) {
+      await harness.db.execute(sql`
+        INSERT INTO parties (org_id, connection_id, name, parent_group, opening_balance) VALUES (${ORG_ID}, ${connectionId}, ${'Small Vendor ' + String(i)}, 'Sundry Creditors', 1000)
+      `);
+    }
+  });
+
+  it('lists the largest overdue debt first', async () => {
+    const res = await harness.get<CreditOverview>(`/cfo/receivables?from=${TODAY}&to=${TODAY}`, { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.topOverdue.map((r) => r.party)).toEqual(['Ekta Electricals', 'Gauri Traders', 'Hansa Cables']);
+  });
+
+  it('ranks brands by their rupees', async () => {
+    const res = await harness.get<{ brands: { brand: string }[] }>(`/cfo/brands?from=${TODAY}&to=${TODAY}`, { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.brands[0]?.brand).toBe('Brand Ekta');
+    expect(res.body.brands.at(-1)?.brand).toBe('Brand Jaya');
+  });
+
+  it('computes the top-5 share over the five largest customers', async () => {
+    // 60,000 + 9,500 + 9,200 + 9,000 + 8,000 of 102,700. As text, 60,000
+    // sorts last and the share is 41.6.
+    const res = await harness.get<{ top5Pct: number }>('/cfo/concentration', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.top5Pct).toBe(93.2);
+  });
+
+  it('ranks vendors and payables by money, and totals the whole book', async () => {
+    // A day no other case seeds, so the vendor ranking is exactly these three.
+    const res = await harness.get<{
+      byVendor: { vendor: string }[];
+      payables: { total: string; rows: { vendor: string; payable: string }[] };
+    }>('/cfo/purchases?from=2026-09-20&to=2026-09-20', { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.body.byVendor.map((r) => r.vendor)).toEqual(['Indus Metals', 'Jyoti Wires', 'Hema Supplies']);
+
+    // The payable book is every creditor in the organisation, other cases'
+    // included, so the checks are relative: mine in money order among the
+    // rows (opening plus purchase: 120,000 / 60,000 / 18,000), and a total
+    // that is the whole book rather than the 25 rows on screen.
+    const mine = res.body.payables.rows.map((r) => r.vendor).filter((v) => ['Indus Metals', 'Jyoti Wires', 'Hema Supplies'].includes(v));
+    expect(mine).toEqual(['Indus Metals', 'Jyoti Wires', 'Hema Supplies']);
+    expect(res.body.payables.rows).toHaveLength(25);
+    const shown = res.body.payables.rows.reduce((sum, r) => sum + Number(r.payable), 0);
+    expect(Number(res.body.payables.total)).toBeGreaterThan(shown);
+    const book = await harness.db.execute<{ total: string }>(sql`
+      SELECT sum(coalesce(p.opening_balance, 0) + coalesce(v.net, 0))::numeric(16,2)::text AS total
+      FROM parties p LEFT JOIN (
+        SELECT party_id, sum(CASE WHEN voucher_type = 'Purchase' THEN amount ELSE -amount END) AS net
+        FROM vouchers WHERE org_id = ${ORG_ID} AND is_cancelled = false AND voucher_type IN ('Purchase', 'Payment', 'Debit Note') GROUP BY party_id
+      ) v ON v.party_id = p.id
+      WHERE p.org_id = ${ORG_ID} AND lower(p.parent_group) LIKE 'sundry creditors%'
+    `);
+    expect(res.body.payables.total).toBe(book.rows[0]?.total);
+  });
+});

@@ -173,7 +173,8 @@ export class CreditControlService {
               WHERE f.org_id = ${principal.orgId} AND f.snapshot_date = ${asOf}
               GROUP BY 1, 2
               HAVING sum(CASE WHEN f.bucket <> 'current' THEN f.outstanding ELSE 0 END) > 0
-              ORDER BY 4 DESC LIMIT 10
+              -- The overdue sum itself, not column 4's ::text of it (CFO-1).
+              ORDER BY sum(CASE WHEN f.bucket <> 'current' THEN f.outstanding ELSE 0 END) DESC LIMIT 10
             `)
           ).rows.map((row) => ({
             ...row,

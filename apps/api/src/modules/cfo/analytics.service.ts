@@ -194,7 +194,7 @@ export class AnalyticsService {
       const rows = await this.db.execute<{ net: string }>(sql`
         SELECT sum(net)::numeric(16,2)::text AS net FROM fact_sales_daily
         WHERE org_id = ${principal.orgId} AND party_id IS NOT NULL AND date BETWEEN ${from} AND ${to}
-        GROUP BY party_id ORDER BY 1 DESC
+        GROUP BY party_id ORDER BY sum(net) DESC
       `);
       const values = rows.rows.map((r) => Number(r.net)).filter((n) => n > 0);
       const total = values.reduce((a, b) => a + b, 0);
