@@ -1,5 +1,3 @@
-import { cn } from '@/lib/utils';
-
 import { isOrderTask, isOverdue, type Task } from './types';
 
 /**
@@ -23,29 +21,24 @@ export const PILL = 'rounded-none px-1.5 py-px text-[0.6875rem] font-medium';
  * The wash and border a task card wears, by its state (owner, 4 Sep 2026):
  *
  *  - done    -> a calm green fill. It is finished; nothing to chase, no motion.
- *  - overdue -> a red border that pulses. The one card that has earned motion,
- *               because "late" is the thing to act on.
- *  - order   -> a blue fill and a steady blue border. No motion (owner, 4 Sep
- *               2026: only overdue blinks); the fill alone marks it.
+ *  - order   -> a blue fill and a steady blue border. It never pulses, even
+ *               when overdue (owner, 4 Sep 2026: orders do not blink); its
+ *               lateness shows in the red "Overdue" due-date line, not here.
+ *  - overdue -> a red border that pulses. A late card that is not an order; the
+ *               one thing on the board that moves.
  *
- * Precedence is urgency: an overdue order keeps its blue fill but takes the red
- * pulse. --info / --destructive / --success are the blue, red and green the
- * product already means note / warn / done with, so they follow the palette
- * into dark mode; the overdue pulse collapses to a steady red border under
- * reduced motion (index.css). One class string, so board, list and gallery
- * agree.
+ * Precedence: an order's steady blue wins over the overdue pulse, so only a
+ * non-order late card blinks. --info / --destructive / --success are the blue,
+ * red and green the product already means note / warn / done with, so they
+ * follow the palette into dark mode; the pulse collapses to a steady red border
+ * under reduced motion (index.css). One class string, so board, list and
+ * gallery agree.
  */
 export function taskSurface(task: Task): string | undefined {
   if (task.isClosed) return 'bg-success/10';
-  const order = isOrderTask(task);
-  return (
-    cn(
-      order && 'bg-info/15',
-      isOverdue(task)
-        ? 'border-destructive animate-overdue-pulse'
-        : order && 'border-info',
-    ) || undefined
-  );
+  if (isOrderTask(task)) return 'bg-info/15 border-info';
+  if (isOverdue(task)) return 'border-destructive animate-overdue-pulse';
+  return undefined;
 }
 
 /** High is red, medium amber, low blue -- Notion's own ordering of urgency. */

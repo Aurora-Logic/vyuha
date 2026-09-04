@@ -38,11 +38,11 @@ describe('taskSurface', () => {
     expect(s).toContain('animate-overdue-pulse');
   });
 
-  it('an overdue order keeps its blue fill but takes the red pulse', () => {
+  it('an overdue order stays steady blue — an order never pulses', () => {
     const s = taskSurface(task({ items: ITEMS, dueDate: PAST })) ?? '';
     expect(s).toContain('bg-info/15');
-    expect(s).toContain('animate-overdue-pulse');
-    expect(s).not.toContain('order-pulse');
+    expect(s).toContain('border-info');
+    expect(s).not.toContain('pulse');
   });
 
   it('a plain open task wears nothing', () => {
