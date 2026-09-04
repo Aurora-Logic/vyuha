@@ -5,7 +5,6 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -22,8 +21,8 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { ItemPicker } from '@/features/masters/item-picker';
 import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, PRICE_BASES, PRICE_BASIS_LABELS, PRICE_LIST_STATE_LABELS, type PriceBasis, type PriceListDetail, type PriceListDiffLine } from '@vyuha/shared';
@@ -110,11 +109,6 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
   const navigate = useNavigate();
   const editable = canManage && (detail === null || detail.state === 'draft');
   // A picker that offers a page is a picker that hides the rest of the masters.
-  const parties = useParties({ page: 1, pageSize: 200 }, { enabled: editable });
-  const items = useStockItems({ page: 1, pageSize: 200 }, { enabled: editable });
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, hint: p.parentGroup }));
-  const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.parentGroup }));
-  const pick = (options: readonly PickerOption[], idValue: string | null, fallback: string | null) => options.find((o) => o.id === idValue) ?? (idValue === null ? null : { id: idValue, label: fallback ?? idValue });
   const problem = draftProblem(draft);
   const busy = create.isPending || update.isPending || submit.isPending || version.isPending;
   const failure = create.error ?? update.error ?? submit.error ?? version.error;
@@ -285,7 +279,7 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
                     </SelectContent>
                   </Select>
                   {line.target === 'item' ? (
-                    <RecordPicker id={`line-item-${line.key}`} label={`Line ${String(index + 1)} item`} placeholder="Stock item" searchPlaceholder="Search stock items" emptyMessage="No item matches." icon={<CubeIcon className="text-muted-foreground" />} options={itemOptions} loading={items.isPending} disabled={!editable} value={pick(itemOptions, line.stockItemId, line.itemName)} onValueChange={(next) => { patchLine(line.key, { stockItemId: next?.id ?? null, itemName: next?.label ?? null }); }} />
+                    <ItemPicker id={`line-item-${line.key}`} label={`Line ${String(index + 1)} item`} placeholder="Stock item" icon={<CubeIcon className="text-muted-foreground" />} enabled={editable} disabled={!editable} value={line.stockItemId === null || line.itemName === null ? null : { id: line.stockItemId, label: line.itemName }} onValueChange={(next) => { patchLine(line.key, { stockItemId: next?.id ?? null, itemName: next?.name ?? null }); }} />
                   ) : (
                     <Input aria-label={`Line ${String(index + 1)} item group`} placeholder="Item group, as Tally names it (e.g. Cables)" disabled={!editable} value={line.itemGroup} onChange={(event) => { patchLine(line.key, { itemGroup: event.target.value }); }} />
                   )}
@@ -343,7 +337,7 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
                   </SelectContent>
                 </Select>
                 {a.kind === 'party' ? (
-                  <RecordPicker id={`assign-party-${a.key}`} label={`Assignment ${String(index + 1)} party`} placeholder="Tally party" searchPlaceholder="Search parties" emptyMessage="No party matches." icon={<BooksIcon className="text-muted-foreground" />} options={partyOptions} loading={parties.isPending} disabled={!editable} value={pick(partyOptions, a.partyId, a.partyName)} onValueChange={(next) => { patchAssignment(a.key, { partyId: next?.id ?? null, partyName: next?.label ?? null }); }} />
+                  <PartyPicker id={`assign-party-${a.key}`} label={`Assignment ${String(index + 1)} party`} placeholder="Tally party" icon={<BooksIcon className="text-muted-foreground" />} enabled={editable} disabled={!editable} partyId={a.partyId} {...(a.partyName === null ? {} : { partyName: a.partyName })} onValueChange={(next) => { patchAssignment(a.key, { partyId: next?.id ?? null, partyName: next?.name ?? null }); }} />
                 ) : a.kind === 'group' ? (
                   <Input aria-label={`Assignment ${String(index + 1)} party group`} placeholder="Party group, as Tally names it (e.g. Sundry Debtors)" disabled={!editable} value={a.partyGroup} onChange={(event) => { patchAssignment(a.key, { partyGroup: event.target.value }); }} />
                 ) : (

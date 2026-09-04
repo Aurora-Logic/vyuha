@@ -1,8 +1,8 @@
 import { useState } from 'react';
+import { PARTY_LEDGER_GROUPS } from '@vyuha/shared';
 import { BooksIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,8 +17,8 @@ import { toast } from '@/components/ui/toast';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { DateField } from '@/features/attendance/pickers';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { ResponsiveDialog, ResponsiveDialogActions } from '@/features/sales/responsive-dialog';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { formatDate, formatMoney } from '@/lib/format';
 
 import { useOpenBills, useTakePromise } from './use-collections';
@@ -63,11 +63,9 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
   const [bills, setBills] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [touched, setTouched] = useState(false);
-  const parties = useParties({ page: 1 }, { enabled: partyId === null });
   const openBills = useOpenBills(party);
   const take = useTakePromise();
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
   const outstanding = (openBills.data ?? []).reduce((sum, bill) => sum + Number(bill.outstanding), 0);
   const named = (openBills.data ?? []).filter((bill) => bills.includes(bill.billName));
   const namedTotal = named.reduce((sum, bill) => sum + Number(bill.outstanding), 0);
@@ -113,17 +111,14 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
         ) : null}
 
         {partyId === null ? (
-          <RecordPicker
+          <PartyPicker
             showLabel
             id="promise-party"
             label="Customer"
             placeholder="Tally party"
-            searchPlaceholder="Search parties"
-            emptyMessage="No party matches."
+            parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
             icon={<BooksIcon className="text-muted-foreground" />}
-            options={partyOptions}
-            loading={parties.isPending}
-            value={partyOptions.find((o) => o.id === party) ?? null}
+            partyId={party}
             onValueChange={(next) => {
               setParty(next?.id ?? null);
               setBills([]);

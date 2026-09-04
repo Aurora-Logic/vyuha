@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,12 @@ interface KanbanBoardProps<T> {
   itemLaneId: (item: T) => string;
   itemLabel: (item: T) => string;
   renderItem: (item: T) => ReactNode;
+  /**
+   * A right-click menu for a card. Given, the card becomes a context-menu
+   * trigger; omitted, it is the plain card it always was, so a board that
+   * has no per-card actions grows no menu that opens onto nothing.
+   */
+  renderMenu?: (item: T) => ReactNode;
   onOpen: (item: T) => void;
   /** Omitted on a read-only board, where a lane is a fact about the item, not a place to drop it. */
   onMove?: (item: T, laneId: string) => void;
@@ -58,6 +65,7 @@ export function KanbanBoard<T>({
   itemLaneId,
   itemLabel,
   renderItem,
+  renderMenu,
   onOpen,
   onMove,
   moving = false,
@@ -69,7 +77,7 @@ export function KanbanBoard<T>({
   const [over, setOver] = useState<string | null>(null);
 
   return (
-    <ScrollArea className="w-full">
+    <ScrollArea data-guide="screen.board" className="w-full">
       <div className="flex min-w-max gap-3 pb-3" role="list" aria-label={ariaLabel}>
         {lanes.map((lane) => (
           <section
@@ -105,9 +113,9 @@ export function KanbanBoard<T>({
               {lane.items.length === 0 ? (
                 <p className="text-muted-foreground px-1 py-3 text-center text-xs">Nothing here</p>
               ) : null}
-              {lane.items.map((item) => (
+              {lane.items.map((item) => {
+                const card = (
                 <div
-                  key={itemKey(item)}
                   draggable={!readOnly}
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = 'move';
@@ -132,7 +140,20 @@ export function KanbanBoard<T>({
                     {renderItem(item)}
                   </Button>
                 </div>
-              ))}
+                );
+                const menu = renderMenu?.(item);
+                return menu === undefined ? (
+                  <Fragment key={itemKey(item)}>{card}</Fragment>
+                ) : (
+                  // The trigger *is* the card, so right-clicking anywhere on it
+                  // opens the menu -- wrapping it in another element would put
+                  // a second box around every card.
+                  <ContextMenu key={itemKey(item)}>
+                    <ContextMenuTrigger render={card} />
+                    <ContextMenuContent className="w-52">{menu}</ContextMenuContent>
+                  </ContextMenu>
+                );
+              })}
               {lane.total > lane.items.length ? (
                 <p className="text-muted-foreground px-1 py-1 text-center text-xs">
                   and {lane.total - lane.items.length} more — {overflowHint}

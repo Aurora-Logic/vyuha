@@ -2,6 +2,7 @@ import {
   DEAL_BOARD_LANE_CAP,
   DEFAULT_PIPELINE,
   type DealFilter,
+  type DealPriority,
   type DealView,
   type PipelineStageView,
   type PipelineView,
@@ -62,6 +63,11 @@ export class DealRepository extends ScopedRepository<typeof crmDeals> {
         ownerName: ownerName(dealOwner),
         status: STATUS,
         closedAt: crmDeals.closedAt,
+        leadSource: crmDeals.leadSource,
+        priority: crmDeals.priority,
+        nextFollowUpDate: crmDeals.nextFollowUpDate,
+        competitor: crmDeals.competitor,
+        lossReason: crmDeals.lossReason,
         notes: crmDeals.notes,
         createdAt: crmDeals.createdAt,
         updatedAt: crmDeals.updatedAt,
@@ -395,13 +401,26 @@ interface DealRow {
   ownerName: string | null;
   status: 'open' | 'won' | 'lost';
   closedAt: Date | null;
+  leadSource: string | null;
+  priority: DealPriority | null;
+  nextFollowUpDate: string | null;
+  competitor: string | null;
+  lossReason: string | null;
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
+/**
+ * Paperwork is not the repository's to know: `sales_documents` belongs to
+ * another module and this one may not import it. The flags default to false
+ * here and `DealService` fills them from the registry the sales module
+ * registers into (REQ-U-12).
+ */
 function toDealView(row: DealRow): DealView {
   return {
+    hasOrder: false,
+    hasInvoice: false,
     id: row.id,
     name: row.name,
     companyId: row.companyId,
@@ -420,6 +439,11 @@ function toDealView(row: DealRow): DealView {
     ownerName: row.ownerName,
     status: row.status,
     closedAt: row.closedAt === null ? null : row.closedAt.toISOString(),
+    leadSource: row.leadSource,
+    priority: row.priority,
+    nextFollowUpDate: row.nextFollowUpDate,
+    competitor: row.competitor,
+    lossReason: row.lossReason,
     notes: row.notes,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

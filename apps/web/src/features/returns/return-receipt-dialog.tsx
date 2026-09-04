@@ -5,21 +5,21 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PhotoPicker } from '@/components/shared/photo-picker';
 import { type PreparedPhoto } from '@/components/shared/prepare-photo';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
-import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
-import { useParties } from '@/features/masters/use-parties';
-import { ResponsiveDialog, ResponsiveDialogActions } from '@/features/sales/responsive-dialog';
+import { PartyPicker } from '@/features/masters/party-picker';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { useSalesOrder, useSalesOrders } from '@/features/sales/use-estimates';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, RETURN_CONDITIONS, RETURN_CONDITION_LABELS, RETURN_DISPOSITIONS, RETURN_DISPOSITION_LABELS, type ReturnCondition, type ReturnDisposition, type ReturnLineInput } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS, RETURN_CONDITIONS, RETURN_CONDITION_LABELS, RETURN_DISPOSITIONS, RETURN_DISPOSITION_LABELS, type ReturnCondition, type ReturnDisposition, type ReturnLineInput } from '@vyuha/shared';
 
 import { useCreateReturn, useReturnReasons } from './use-returns';
 
@@ -76,8 +76,14 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
   const [photos, setPhotos] = useState<PreparedPhoto[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const parties = useParties({ page: 1, pageSize: 200 });
-  const orders = useSalesOrders({ page: 1, ...(partyId === null ? {} : { partyId }) }, { enabled: open && partyId !== null });
+  // The order list is this customer's, but a busy customer has more than a
+  // page of them, so it searches on the server rather than filtering 25 rows.
+  const [orderSearch, setOrderSearch] = useState('');
+  const debouncedOrder = useDebouncedValue(orderSearch, 200).trim();
+  const orders = useSalesOrders(
+    { page: 1, ...(partyId === null ? {} : { partyId }), ...(debouncedOrder ? { q: debouncedOrder } : {}) },
+    { enabled: open && partyId !== null },
+  );
   const order = useSalesOrder(orderId);
   const firstReason = reasons.data?.reasons[0] ?? '';
 
@@ -114,12 +120,6 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
     setError(null);
   }
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({
-    id: p.id,
-    label: p.name,
-    ...(p.gstin === null ? {} : { hint: p.gstin }),
-    ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}),
-  }));
   const orderOptions: PickerOption[] = (orders.data?.data ?? []).map((o) => ({ id: o.id, label: o.number, hint: o.date }));
   const pick = (options: readonly PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
@@ -199,20 +199,17 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
     >
       <div className="flex flex-col gap-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <RecordPicker
+          <PartyPicker
             id="return-party"
             label="Customer"
             showLabel
             placeholder="Choose a customer"
-            searchPlaceholder="Search parties"
-            emptyMessage="No party matches."
+            parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
             icon={<BooksIcon className="text-muted-foreground" />}
-            options={partyOptions}
-            loading={parties.isPending}
-            value={pick(partyOptions, partyId)}
+            partyId={partyId}
             onValueChange={(next) => {
               setPartyId(next?.id ?? null);
-              setCustomerName(next?.label ?? '');
+              setCustomerName(next?.name ?? '');
               setOrderId(null);
               setEdits({});
               setTyped([]);
@@ -228,6 +225,7 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
             emptyMessage="No dispatched order for this customer."
             options={orderOptions}
             loading={orders.isPending}
+            onSearchChange={setOrderSearch}
             disabled={partyId === null}
             clearable
             clearLabel="No order"

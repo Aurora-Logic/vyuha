@@ -6,6 +6,8 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { z } from 'zod';
+import { TASK_AGE_BUCKETS, TASK_PRIORITIES } from '@vyuha/shared';
 import type {
   CreateBoardColumnInput,
   CreateTaskInput,
@@ -16,6 +18,7 @@ import type {
 } from '@vyuha/shared';
 
 import { apiRequest } from '@/lib/api/client';
+import { postMultipart } from '@/lib/offline/multipart';
 import { parseOrThrow } from '@/lib/api/parse';
 
 import {
@@ -127,6 +130,56 @@ function useInvalidateTasks(): () => Promise<void> {
 
 const blank = (value: string): string | null => (value.trim() === '' ? null : value.trim());
 
+/** Parsed rather than trusted, like every other response this file reads. */
+const taskAnalyticsSchema = z.object({
+  totals: z.object({
+    open: z.number(),
+    overdue: z.number(),
+    dueToday: z.number(),
+    dueThisWeek: z.number(),
+    unassigned: z.number(),
+    closedInPeriod: z.number(),
+    avgDaysToClose: z.number().nullable(),
+  }),
+  columns: z.array(
+    z.object({
+      columnId: z.string(),
+      columnName: z.string(),
+      sortOrder: z.number(),
+      isDone: z.boolean(),
+      count: z.number(),
+    }),
+  ),
+  assignees: z.array(
+    z.object({
+      assigneeId: z.string().nullable(),
+      assigneeName: z.string().nullable(),
+      openCount: z.number(),
+      overdueCount: z.number(),
+    }),
+  ),
+  priorities: z.array(z.object({ priority: z.enum(TASK_PRIORITIES), openCount: z.number() })),
+  flow: z.array(z.object({ weekStart: z.string(), raised: z.number(), closed: z.number() })),
+  // Defaulted, so a client built before the server shipped these still reads
+  // a dashboard. Declared at all because zod strips what it does not declare
+  // -- the attachment count rendered as a blank cell for exactly that reason.
+  ageing: z
+    .array(z.object({ bucket: z.enum(TASK_AGE_BUCKETS), openCount: z.number(), overdueCount: z.number() }))
+    .default([]),
+  customers: z
+    .array(
+      z.object({
+        partyId: z.string(),
+        partyName: z.string(),
+        openCount: z.number(),
+        overdueCount: z.number(),
+      }),
+    )
+    .default([]),
+});
+
+export type TaskAnalytics = z.infer<typeof taskAnalyticsSchema>;
+
 export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
   const invalidate = useInvalidateTasks();
   return useMutation({
@@ -139,6 +192,17 @@ export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
         priority: draft.priority,
         subjectType: draft.subjectType,
         subjectId: draft.subjectId,
+        partyId: draft.partyId,
+        vendorId: draft.vendorId,
+        // Always sent, so clearing the last item reaches the server: an
+        // absent `items` means "leave them alone", which would silently
+        // keep an item the reader had just removed.
+        items: draft.items.map((item) => ({
+          itemId: item.itemId,
+          quantity: item.quantity,
+          ...(item.rate === null ? {} : { rate: item.rate }),
+          discountPct: item.discountPct,
+        })),
       };
       const body: CreateTaskInput | UpdateTaskInput =
         draft.id === undefined
@@ -215,4 +279,84 @@ export function useDeleteBoardColumn(): UseMutationResult<void, Error, string> {
     },
     onSuccess: invalidate,
   });
+}
+
+/**
+ * REQ-V-11: the dashboard's figures, aggregated server-side under the
+ * viewer's own task scope.
+ *
+ * Under the `['tasks']` prefix on purpose, so a live change to any task
+ * refreshes the dashboard through the same invalidation every other task
+ * screen uses — a dashboard that stayed stale while the board beside it
+ * moved would be the most confusing screen in the product.
+ */
+export function useTaskAnalytics(filters: { weeks?: number } = {}): UseQueryResult<TaskAnalytics, Error> {
+  const params = new URLSearchParams();
+  if (filters.weeks !== undefined) params.set('weeks', String(filters.weeks));
+  const key = params.toString();
+  return useQuery({
+    queryKey: ['tasks', 'analytics', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks/analytics${key === '' ? '' : `?${key}`}`, { signal });
+      return parseOrThrow(taskAnalyticsSchema, body, 'task analytics');
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** REQ-V-12: what is attached to a task, as the list reads it. */
+const taskAttachmentSchema = z.object({
+  id: z.string(),
+  fileId: z.string(),
+  filename: z.string(),
+  mime: z.string(),
+  bytes: z.number(),
+  uploadedAt: z.string(),
+  uploadedByName: z.string().nullable().default(null),
+});
+
+export type TaskAttachment = z.infer<typeof taskAttachmentSchema>;
+
+export function useTaskAttachments(
+  taskId: string | null,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<TaskAttachment[], Error> {
+  return useQuery({
+    enabled: (options.enabled ?? true) && taskId !== null,
+    queryKey: ['tasks', 'attachments', taskId],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks/${taskId ?? ''}/attachments`, { signal });
+      return parseOrThrow(z.array(taskAttachmentSchema), body, 'task attachments');
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * REQ-V-12. The file rides as multipart through `postMultipart`, the same
+ * helper the punch, dispatch and deal uploads use — the browser writes the
+ * boundary, and the shared helper carries the auth and refresh behaviour.
+ */
+export function useTaskAttachmentActions(taskId: string): {
+  upload: (file: File) => Promise<void>;
+  remove: (attachmentId: string) => Promise<void>;
+} {
+  const client = useQueryClient();
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: ['tasks', 'attachments', taskId] });
+  };
+  return {
+    upload: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      await postMultipart(`/tasks/${taskId}/attachments`, form, (body) =>
+        parseOrThrow(taskAttachmentSchema, body, 'task attachment'),
+      );
+      await refresh();
+    },
+    remove: async (attachmentId: string) => {
+      await apiRequest(`/tasks/${taskId}/attachments/${attachmentId}`, { method: 'DELETE' });
+      await refresh();
+    },
+  };
 }

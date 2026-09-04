@@ -44,14 +44,6 @@ function formatCalendarDate(value: string, dateFormat: string): string {
   return value;
 }
 
-/**
- * The shapes `formatSubjectCell` renders deliberately. It accepts `unknown`
- * rather than this union because the value arrives from a database driver,
- * which decides the runtime type -- so the formatter has to cope with a shape
- * nobody listed rather than fail the whole export over one cell.
- */
-export type SubjectCellValue = string | number | boolean | Date | null | undefined | object;
-
 export interface SubjectAccessMeta {
   readonly orgName: string;
   /** Who the file is about, as a person would name them. */

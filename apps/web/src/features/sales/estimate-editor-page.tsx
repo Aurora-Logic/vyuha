@@ -4,7 +4,6 @@ import { ArrowRightIcon, BooksIcon, BuildingsIcon, TrashIcon, WarningCircleIcon 
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
@@ -17,7 +16,9 @@ import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { useCompanyOptions } from '@/features/crm/use-crm';
+import { CompanyPicker } from '@/features/crm/company-picker';
+import { useTask } from '@/features/tasks/use-tasks';
+import { useCompany } from '@/features/crm/use-crm';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
 import { useDraftBackup } from '@/features/documents/use-draft-backup';
@@ -30,7 +31,7 @@ import { type StockItem } from '@/features/masters/use-stock-items';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
+import { ESTIMATE_TRANSITIONS, PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { ItemHistoryAffordance } from './item-history-popover';
 import { emptyEstimateDraft, estimateToDraft, newLine, previewLine, previewTotals, type Estimate, type EstimateDraft, type LineDraft } from './types';
@@ -60,6 +61,12 @@ export function EstimateEditorPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const record = useEstimate(canView && !isNew ? (params.id ?? null) : null);
+  // REQ-V-15: raised from a task, the estimate arrives carrying that task's
+  // customer and the items somebody already listed on it. Read here rather
+  // than passed through the URL: the ids alone would still need the names,
+  // and a task is one request.
+  const fromTaskId = isNew ? searchParams.get('task') : null;
+  const fromTask = useTask(fromTaskId);
   const settings = useDesignDraft();
 
   if (!canView || (isNew && !canCreate)) {
@@ -86,7 +93,9 @@ export function EstimateEditorPage() {
       />
     );
   }
-  if ((!isNew && record.data === undefined) || settings === null) {
+  // The draft is built once, so a task still in flight must not mount an
+  // empty editor that never fills.
+  if ((!isNew && record.data === undefined) || settings === null || (fromTaskId !== null && fromTask.data === undefined)) {
     return (
       <div role="status" aria-busy="true" aria-label="Loading the estimate" className="flex flex-col gap-4">
         <Skeleton className="h-9 w-64" />
@@ -99,6 +108,13 @@ export function EstimateEditorPage() {
         ...(searchParams.get('deal') ? { dealId: searchParams.get('deal') } : {}),
         ...(searchParams.get('company') ? { companyId: searchParams.get('company') } : {}),
         ...(searchParams.get('party') ? { partyId: searchParams.get('party') } : {}),
+        ...(fromTask.data?.partyId ? { partyId: fromTask.data.partyId } : {}),
+        // The task's items become the lines, named. Quantity, rate and tax
+        // stay for the salesperson: a task says what was asked for, never
+        // what it is being sold for.
+        ...(fromTask.data && fromTask.data.items.length > 0
+          ? { lines: fromTask.data.items.map((item) => newLine({ stockItemId: item.itemId, description: item.itemName })) }
+          : {}),
         // An estimate is an offer for a while: thirty days unless the salesperson says otherwise.
         validUntil: toDateParam(addDays(new Date(), 30)),
         terms: settings.draft.designs.ESTIMATE.defaultTerms,
@@ -134,18 +150,18 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
-  const companies = useCompanyOptions({ enabled: canSeeCompanies });
+  // By id: the preset name below was read out of a 200-company page, so a
+  // company past that got no preset at all.
+  const presetCompany = useCompany(canSeeCompanies ? draft.companyId : null);
 
   const isNew = record === null;
   const editable = canCreate && draft.status === 'DRAFT';
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
-  const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
-  const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
   // Resolved by id, not from a page-one list, so a party chosen past the first
   // page still fills the paper's buyer block and its "Addressed to" name.
   const party = useParty(draft.partyId).data ?? null;
-  const presetName = party?.name ?? pick(companyOptions, draft.companyId)?.label ?? null;
+  const presetName = party?.name ?? presetCompany.data?.name ?? null;
   const customerName = draft.customerName.trim() === '' && presetName !== null ? presetName : draft.customerName;
   const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
   const customerMissing = draft.partyId === null && draft.companyId === null && customerName.trim() === '';
@@ -214,6 +230,9 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           <div className="flex flex-col gap-1">
             <div className="grid gap-1 sm:grid-cols-2">
               <PartyPicker
+                // Sundry Debtors: a sales document is raised on a customer. Unfiltered this
+                // offered every supplier too.
+                parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
                 id="estimate-party"
                 label="Tally party"
                 placeholder="Tally party"
@@ -227,21 +246,18 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
                   setDraft((current) => ({ ...current, partyId: next?.id ?? null, companyId: next === null ? current.companyId : null, customerName: next?.name ?? current.customerName }));
                 }}
               />
-              <RecordPicker
+              <CompanyPicker
                 id="estimate-company"
                 label="CRM company"
                 placeholder="or a CRM company"
-                searchPlaceholder="Search companies"
-                emptyMessage="No company matches."
                 icon={<BuildingsIcon className="text-muted-foreground" />}
-                options={companyOptions}
-                loading={companies.isPending}
+                enabled={canSeeCompanies}
                 disabled={!canSeeCompanies || draft.partyId !== null}
                 clearable
                 clearLabel="No company"
-                value={pick(companyOptions, draft.companyId)}
+                companyId={draft.companyId}
                 onValueChange={(next) => {
-                  setDraft((current) => ({ ...current, companyId: next?.id ?? null, customerName: next?.label ?? current.customerName }));
+                  setDraft((current) => ({ ...current, companyId: next?.id ?? null, customerName: next?.name ?? current.customerName }));
                 }}
               />
             </div>

@@ -56,6 +56,24 @@ beforeAll(async () => {
   salesToken = (await harness.login(sales.email, sales.password)).token;
   buyerToken = (await harness.login(buyer.email, buyer.password)).token;
 
+  /*
+   * Start from a known approval threshold rather than whatever the last run
+   * left behind.
+   *
+   * `purchase.approvalThreshold` is a settings row, and `resetOrganisation`
+   * does not clear it -- the settings test below writes 10000 and it was
+   * still 10000 at the top of the next run. Every order in this file then
+   * crossed it, which mattered the moment confirm stopped letting the
+   * requester's own approve key answer for the threshold (owner, 31 Aug
+   * 2026): the first order sat in PENDING_APPROVAL and eight tests failed on
+   * a fixture that had never said what it wanted. Zero is "no approval
+   * needed", which is what a procurement-flow suite is actually about.
+   */
+  await harness.put('/purchase/settings', {
+    token: adminToken,
+    body: { approvalThreshold: null, invoiceWaitingHours: 24 },
+  });
+
   const connection = await harness.db.execute<{ id: string }>(sql`
     INSERT INTO integration_connections (org_id, system, name, company_guid) VALUES (${ORG_ID}, 'TALLY', 'Procurement Co', 'guid-procurement') RETURNING id
   `);
@@ -330,6 +348,19 @@ describe('the nightly reorder sweep (13 REQ-X-09)', () => {
 
 describe('approval by value through the inbox (13 REQ-X-16)', () => {
   let bigPoId = '';
+
+  /*
+   * Put the threshold back. It is organisation-wide, so leaving it at 10000
+   * hands every later describe an approval requirement it never asked for --
+   * which is what left the double-order test confirming into
+   * PENDING_APPROVAL instead of CONFIRMED.
+   */
+  afterAll(async () => {
+    await harness.put('/purchase/settings', {
+      token: adminToken,
+      body: { approvalThreshold: null, invoiceWaitingHours: 24 },
+    });
+  });
 
   it('the threshold is a setting an approver writes; a PO over it waits in the approvals inbox, and its author cannot approve it', async () => {
     const asBuyer = await harness.put<ErrorBody>('/purchase/settings', { token: buyerToken, body: { approvalThreshold: '10000', invoiceWaitingHours: 24 } });

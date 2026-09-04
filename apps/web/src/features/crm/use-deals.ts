@@ -14,7 +14,10 @@ import type {
   UpdatePipelineStageInput,
 } from '@vyuha/shared';
 
+import { z } from 'zod';
+
 import { apiRequest } from '@/lib/api/client';
+import { postMultipart } from '@/lib/offline/multipart';
 import { parseOrThrow } from '@/lib/api/parse';
 
 import {
@@ -62,6 +65,7 @@ function filterParams(filters: DealFilters): URLSearchParams {
   if (filters.sort) params.set('sort', filters.sort);
   return params;
 }
+
 
 export function usePipelines(options: { enabled?: boolean } = {}): UseQueryResult<Pipeline[], Error> {
   return useQuery({
@@ -146,6 +150,11 @@ export function useSaveDeal(): UseMutationResult<Deal, Error, DealDraft> {
         value: blank(draft.value.replace(/,/gu, '')),
         expectedCloseDate: draft.expectedCloseDate,
         ownerId: draft.ownerId,
+        leadSource: blank(draft.leadSource),
+        priority: draft.priority,
+        nextFollowUpDate: draft.nextFollowUpDate,
+        competitor: blank(draft.competitor),
+        lossReason: blank(draft.lossReason),
         notes: blank(draft.notes),
       };
       const body: CreateDealInput | UpdateDealInput =
@@ -242,3 +251,56 @@ export function useDeletePipelineStage(): UseMutationResult<void, Error, { pipel
     onSuccess: invalidate,
   });
 }
+
+// ------------------------------------------------------------- attachments
+
+const attachmentSchema = z.object({
+  id: z.string(),
+  fileId: z.string(),
+  filename: z.string(),
+  mime: z.string(),
+  bytes: z.number(),
+  uploadedAt: z.string(),
+});
+
+export type DealAttachment = z.infer<typeof attachmentSchema>;
+
+export function useDealAttachments(dealId: string | null, options: { enabled?: boolean } = {}): UseQueryResult<DealAttachment[], Error> {
+  return useQuery({
+    enabled: (options.enabled ?? true) && dealId !== null,
+    queryKey: ['crm', 'deal-attachments', dealId],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/crm/deals/${dealId ?? ''}/attachments`, { signal });
+      return parseOrThrow(z.array(attachmentSchema), body, 'attachments');
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * REQ-U-05. The file rides as multipart through `postMultipart`, the same
+ * helper the punch and dispatch uploads use -- the browser writes the
+ * boundary, and the shared helper carries the auth and refresh behaviour.
+ */
+export function useDealAttachmentActions(dealId: string): {
+  upload: (file: File) => Promise<void>;
+  remove: (attachmentId: string) => Promise<void>;
+} {
+  const client = useQueryClient();
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: ['crm', 'deal-attachments', dealId] });
+  };
+  return {
+    upload: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      await postMultipart(`/crm/deals/${dealId}/attachments`, form, (body) => parseOrThrow(attachmentSchema, body, 'attachment'));
+      await refresh();
+    },
+    remove: async (attachmentId: string) => {
+      await apiRequest(`/crm/deals/${dealId}/attachments/${attachmentId}`, { method: 'DELETE' });
+      await refresh();
+    },
+  };
+}
+

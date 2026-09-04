@@ -1,4 +1,6 @@
 import { useState } from 'react';
+
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { ScalesIcon, SealWarningIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { Form } from '@/components/shared/form';
@@ -123,10 +125,14 @@ function AdjustmentBody({ onClose }: { onClose: () => void }) {
   const [submitted, setSubmitted] = useState(false);
 
   const adjust = useAdjustBalance();
+  // Typed at the server: this read 200 people once and filtered them here, so
+  // on a larger register the rest could not have a balance corrected at all.
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const debouncedEmployee = useDebouncedValue(employeeSearch, 200).trim();
   const employeesQuery = useEmployees({
     page: 1,
-    pageSize: 200,
-    q: '',
+    pageSize: 25,
+    q: debouncedEmployee,
     status: 'ACTIVE',
     departmentId: null,
   });
@@ -246,8 +252,14 @@ function AdjustmentBody({ onClose }: { onClose: () => void }) {
               searchPlaceholder="Search by name or code"
               emptyMessage="No employee matches that."
               loading={employeesQuery.isPending}
-              options={employeeOptions}
+              options={
+                employee && !employeeOptions.some((row) => row.id === employee.id)
+                  ? [employee, ...employeeOptions]
+                  : employeeOptions
+              }
               value={employee}
+              search={employeeSearch}
+              onSearchChange={setEmployeeSearch}
               onValueChange={setEmployee}
             />
           </Field>

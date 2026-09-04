@@ -23,7 +23,7 @@ const SOURCES = import.meta.glob<string>(
 
 /**
  * Controls that are deliberately not button-height, each for a reason the
- * screen states in place: the 64px punch photo thumbnail, the calculator
+ * screen states in place: the 64px punch photo and attachment thumbnails, the calculator
  * keypad's 44px keys on every pointer, the profile page's multi-line fold
  * rows, the punch page's 56px hero action, the design rail's upload tile,
  * the 56px bottom bar whose More button matches its links, and the report
@@ -32,6 +32,7 @@ const SOURCES = import.meta.glob<string>(
  */
 const ALLOWED = new Set([
   '/src/features/attendance/day-punches.tsx',
+  '/src/components/shared/attachment-panel.tsx',
   '/src/features/calculator/calculator-panel.tsx',
   '/src/features/profile/profile-page.tsx',
   '/src/features/punch/punch-page.tsx',

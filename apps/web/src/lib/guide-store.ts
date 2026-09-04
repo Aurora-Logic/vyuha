@@ -136,28 +136,3 @@ export function shouldOfferUnprompted(state: {
 }): boolean {
   return state.completedAt === null && state.dismissedAt === null;
 }
-
-/**
- * Whether an abandoned run is still worth offering to continue.
- *
- * A resume is thrown away when the registry has moved on, because the recorded
- * step id may no longer exist and "continue" would silently start from the top
- * while claiming otherwise.
- */
-export function canResume(
-  state: {
-    lastStepId: string | null;
-    lastStepAt: string | null;
-    registryVersion: number | null;
-  },
-  currentRegistryVersion: number,
-  now: number = Date.now(),
-): boolean {
-  if (!state.lastStepId || !state.lastStepAt) return false;
-  if (state.registryVersion !== currentRegistryVersion) return false;
-
-  const age = now - new Date(state.lastStepAt).getTime();
-  if (Number.isNaN(age)) return false;
-
-  return age <= RESUME_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-}

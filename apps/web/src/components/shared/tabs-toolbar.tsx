@@ -28,7 +28,7 @@ export function TabsToolbar({ list, children }: { list: ReactNode; children: Rea
 
   return (
     <SlotContext.Provider value={slot}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div data-guide="screen.tabs" className="flex flex-wrap items-center justify-between gap-2">
         {list}
         {/* display:contents so the portalled controls are flex items of the
             row itself, and a wrapped action lines up with the strip rather

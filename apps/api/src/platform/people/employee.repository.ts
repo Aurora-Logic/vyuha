@@ -8,7 +8,7 @@ import {
   type NamedRef,
   type SortTerm,
 } from '@vyuha/shared';
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
@@ -19,6 +19,7 @@ import {
   locations,
 } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
+import { withRelevance } from '../org/master-query.js';
 import { employeeNameSql } from './employee-name.js';
 
 /**
@@ -105,6 +106,34 @@ export class EmployeeRepository extends ScopedRepository<typeof employees> {
     super(db, employees, ctx);
   }
 
+  /**
+   * The assignable directory: every living, ACTIVE colleague, by name.
+   *
+   * Deliberately not `list()` with a wide scope. That method answers the HR
+   * register -- department, location, joining date, manager -- and its `all`
+   * breadth is `employee.manage`. Naming somebody as the owner of a deal or
+   * the assignee of a task needs one thing the register happens to contain:
+   * who works here. So this returns id, display name and code, nothing else,
+   * and it is org-scoped like every other read.
+   *
+   * Everyone still employed, which includes ON_NOTICE: a person serving
+   * notice still owns their deals, and a picker that could not show the
+   * current owner would quietly clear them on the next save.
+   */
+  async assignable(limit: number): Promise<{ id: string; firstName: string; lastName: string | null; employeeCode: string }[]> {
+    return this.db
+      .select({
+        id: employees.id,
+        firstName: employees.firstName,
+        lastName: employees.lastName,
+        employeeCode: employees.employeeCode,
+      })
+      .from(employees)
+      .where(this.scoped(ne(employees.status, 'INACTIVE')))
+      .orderBy(employees.firstName, employees.lastName)
+      .limit(limit);
+  }
+
   async list(filters: EmployeeListFilters): Promise<{ rows: EmployeeListItem[]; total: number }> {
     const where = this.scoped(filters.scope, this.filterPredicate(filters));
 
@@ -114,7 +143,15 @@ export class EmployeeRepository extends ScopedRepository<typeof employees> {
     // pagination bug the user sees as a blank page three.
     const rows = await this.joinedSelect()
       .where(where)
-      .orderBy(...this.orderBy(filters.sort))
+      // A typed term ranks before the requested sort, so "men" puts Asha Menon
+      // above everyone who merely has those letters somewhere.
+      .orderBy(
+        ...withRelevance(
+          filters.q,
+          employeeNameSql(employees.firstName, employees.lastName),
+          this.orderBy(filters.sort),
+        ),
+      )
       .limit(filters.limit)
       .offset(filters.offset);
 

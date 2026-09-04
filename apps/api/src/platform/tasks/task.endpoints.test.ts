@@ -442,3 +442,63 @@ describe('the fixture leaves nothing behind that a re-run would trip over', () =
     expect(rows.rows[0]?.n).toBeGreaterThan(0);
   });
 });
+
+describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', () => {
+  it('saves and assigns the task even when the notification cannot be queued', async () => {
+    // What the owner saw: "Saving the task failed - background work could not
+    // be queued". The task was already written and audited; only the notice
+    // to the assignee failed, and the obvious retry made a second task.
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const failing = vi.spyOn(dispatcher, 'emit').mockRejectedValue(
+      new Error('Background work could not be queued just now. Try again shortly.'),
+    );
+    try {
+      const created = await harness.post<TaskView>('/tasks', {
+        token: adminToken,
+        body: { title: 'Ohmnova tech - Dispatch Via Courier', assigneeId: meeraId, priority: 'HIGH' },
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      expect(created.body.title).toBe('Ohmnova tech - Dispatch Via Courier');
+      expect(created.body.assigneeId).toBe(meeraId);
+      expect(failing, 'the notice was genuinely attempted').toHaveBeenCalled();
+
+      // And on a reassignment, which notifies the same way.
+      const moved = await harness.patch<TaskView>(`/tasks/${created.body.id}`, {
+        token: adminToken,
+        body: { assigneeId: raviId },
+      });
+      expect(moved.status).toBe(200);
+      expect(moved.body.assigneeId).toBe(raviId);
+    } finally {
+      failing.mockRestore();
+      // Put the capturing spy back for anything that runs after this file.
+      vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
+        emitted.push(event);
+        return Promise.resolve('spied');
+      });
+    }
+  });
+});
+
+describe('Operations can hand work to anybody (owner, 31 Aug 2026)', () => {
+  it('sees every colleague in the picker and assigns outside its own reporting line', async () => {
+    // The report was "Operations cannot assign everyone a task". The keys
+    // were never the blocker -- Operations holds crm.task.manage -- the
+    // picker was: it read the employee register, whose whole-org breadth is
+    // employee.manage, so an Operations user saw only themselves and their
+    // reporting line and could not name anyone else.
+    const directory = await harness.get<{ id: string }[]>('/employees/assignable', { token: opsToken });
+    expect(directory.status).toBe(200);
+    const ids = directory.body.map((row) => row.id);
+    expect(ids, 'a colleague on nobody in their line').toContain(outsiderId);
+    expect(ids).toContain(raviId);
+    expect(ids).toContain(meeraId);
+
+    const assigned = await harness.post<TaskView>('/tasks', {
+      token: opsToken,
+      body: { title: 'Dispatch via courier', assigneeId: outsiderId, priority: 'HIGH' },
+    });
+    expect(assigned.status, JSON.stringify(assigned.body)).toBe(201);
+    expect(assigned.body.assigneeId).toBe(outsiderId);
+  });
+});

@@ -39,3 +39,4 @@ export * from './returns.js';
 export * from './interest.js';
 export * from './metric-registry.js';
 export * from './portal.js';
+export * from './realtime.js';

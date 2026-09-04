@@ -30,7 +30,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DISPATCH_MODE_LABELS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS } from '@vyuha/shared';
+import { DISPATCH_MODE_LABELS, PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS } from '@vyuha/shared';
 
 import { DispatchDialog } from './dispatch-dialog';
 import { DocumentLinesEditor } from './document-lines-editor';
@@ -327,6 +327,9 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             <Field>
               <FieldLabel htmlFor="order-party">Tally party</FieldLabel>
               <PartyPicker
+                // Sundry Debtors: a sales document is raised on a customer. Unfiltered this
+                // offered every supplier too.
+                parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
                 id="order-party"
                 label="Tally party"
                 placeholder="Choose the party"

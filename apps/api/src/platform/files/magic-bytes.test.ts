@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isAcceptedUpload, sniffType } from './magic-bytes.js';
+import { isAcceptedUpload, sniffDocument, sniffType } from './magic-bytes.js';
 
 /**
  * Written as attacks, because that is what this function is for. Every case is
@@ -78,5 +78,43 @@ describe('magic byte sniffing', () => {
       Buffer.alloc(64),
     ]);
     expect(sniffType(buried)).toBeNull();
+  });
+});
+
+describe('CRM attachment sniffing (owner, 31 Aug 2026)', () => {
+  /** A minimal ZIP local file header naming its first entry. */
+  const zipNaming = (entry: string): Buffer => {
+    const name = Buffer.from(entry, 'latin1');
+    const header = Buffer.alloc(30 + name.length + 8);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(name.length, 26);
+    name.copy(header, 30);
+    return header;
+  };
+
+  it('accepts a real PDF', () => {
+    const pdf = Buffer.concat([Buffer.from('%PDF-1.7', 'latin1'), Buffer.alloc(64)]);
+    expect(sniffDocument(pdf, 'quote.pdf')?.mime).toBe('application/pdf');
+  });
+
+  it('accepts an Office file for what is inside it, not for its name', () => {
+    const docx = zipNaming('[Content_Types].xml');
+    expect(sniffDocument(docx, 'quote.docx')?.extension).toBe('docx');
+    expect(sniffDocument(docx, 'sheet.xlsx')?.mime).toContain('spreadsheetml.sheet');
+    // A plain zip wearing a .docx name is refused: the marker is missing.
+    expect(sniffDocument(zipNaming('payload.exe'), 'quote.docx')).toBeNull();
+    // A real Office file under a name this product does not accept.
+    expect(sniffDocument(docx, 'quote.zip')).toBeNull();
+  });
+
+  it('refuses an executable, a script and an empty buffer', () => {
+    expect(sniffDocument(Buffer.from('MZ' + 'A'.repeat(20), 'latin1'), 'a.pdf')).toBeNull();
+    expect(sniffDocument(Buffer.from('<script>alert(1)</script>xxxx', 'latin1'), 'a.pdf')).toBeNull();
+    expect(sniffDocument(Buffer.alloc(0), 'a.pdf')).toBeNull();
+  });
+
+  it('refuses a file that only claims to be a PDF further in', () => {
+    const disguised = Buffer.concat([Buffer.alloc(16, 0x41), Buffer.from('%PDF-1.7', 'latin1')]);
+    expect(sniffDocument(disguised, 'a.pdf')).toBeNull();
   });
 });

@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { PackageIcon, PrinterIcon, ScanIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
@@ -15,6 +14,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import type { PackRecord } from './types';
@@ -60,29 +60,10 @@ export function PackedPage() {
   // action button is a fulfilment route too).
   const canView = usePermission(PERMISSIONS.SALES_FULFIL);
   const canCreate = canView;
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const q = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const [draft, setDraft] = useState(q);
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
   const packs = usePackedList({ page, ...(q ? { q } : {}) });
   const rows = packs.data?.data ?? [];
   const meta = packs.data?.meta ?? null;

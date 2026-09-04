@@ -20,6 +20,8 @@ export interface InvoiceFilters {
   syncState?: DocumentSyncState;
   partyId?: string;
   sourceDocumentId?: string;
+  /** REQ-U-12: the deal it was ultimately raised for. */
+  dealId?: string;
   /** A term the server knows (ESTIMATE_SORT_FIELDS), e.g. "-date" or "grandTotal". */
   sort?: string;
 }
@@ -31,6 +33,7 @@ export function useInvoices(filters: InvoiceFilters, options: { enabled?: boolea
   if (filters.syncState) params.set('syncState', filters.syncState);
   if (filters.partyId) params.set('partyId', filters.partyId);
   if (filters.sourceDocumentId) params.set('sourceDocumentId', filters.sourceDocumentId);
+  if (filters.dealId) params.set('dealId', filters.dealId);
   if (filters.sort) params.set('sort', filters.sort);
   const key = params.toString();
   return useQuery({

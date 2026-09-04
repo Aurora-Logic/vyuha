@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
@@ -16,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { ESTIMATE_SORT_FIELDS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
@@ -66,31 +66,7 @@ export function InvoicesPage() {
   const orderParam = searchParams.get('order') ?? '';
   const partyParam = searchParams.get('party') ?? '';
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   const { sort, activeSort, onSortChange } = useUrlSort(ESTIMATE_SORT_FIELDS);
   const query = useInvoices(

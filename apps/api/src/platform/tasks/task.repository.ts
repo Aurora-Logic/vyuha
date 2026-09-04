@@ -1,16 +1,18 @@
 import {
   DEFAULT_BOARD_COLUMNS,
   TASK_BOARD_LANE_CAP,
+  taskLineAmount,
   type SortTerm,
   type TaskBoardColumnView,
   type TaskFilter,
   type TaskView,
+  type TaskItemView,
 } from '@vyuha/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
-import { employees, taskBoardColumns, tasks } from '../db/schema/index.js';
+import { employees, files, taskAttachments, taskBoardColumns, taskItems, tasks } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
 import { masterSearch } from '../org/master-query.js';
 
@@ -60,6 +62,10 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
       assigneeName: personName(assignee),
       ownerId: tasks.ownerId,
       ownerName: personName(owner),
+      partyId: tasks.partyId,
+      partyName: tasks.partyName,
+      vendorId: tasks.vendorId,
+      vendorName: tasks.vendorName,
       dueDate: tasks.dueDate,
       priority: tasks.priority,
       columnId: tasks.columnId,
@@ -69,6 +75,114 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
       createdAt: tasks.createdAt,
       updatedAt: tasks.updatedAt,
     };
+  }
+
+/**
+   * The items on a page of tasks, in one query.
+   *
+   * Fetched for the whole result set rather than per row: the board draws a
+   * hundred cards, and a read per card is a hundred round trips to render one
+   * screen. Sorted here so a card's items always read in the order they were
+   * added.
+   */
+  private async itemsFor(taskIds: readonly string[]): Promise<Map<string, TaskItemView[]>> {
+    const byTask = new Map<string, TaskItemView[]>();
+    if (taskIds.length === 0) return byTask;
+    const rows = await this.db
+      .select({
+        taskId: taskItems.taskId,
+        itemId: taskItems.itemId,
+        itemName: taskItems.itemName,
+        quantity: taskItems.quantity,
+        rate: taskItems.rate,
+        discountPct: taskItems.discountPct,
+      })
+      .from(taskItems)
+      .where(and(eq(taskItems.orgId, this.ctx.orgId), isNull(taskItems.deletedAt), inArray(taskItems.taskId, [...taskIds])))
+      .orderBy(taskItems.sortOrder, taskItems.itemName);
+    for (const row of rows) {
+      const list = byTask.get(row.taskId) ?? [];
+      list.push({
+        itemId: row.itemId,
+        itemName: row.itemName,
+        quantity: row.quantity,
+        rate: row.rate,
+        discountPct: row.discountPct,
+        // Computed where it is read rather than stored: a stored total is a
+        // second source of truth that goes stale the moment a rate is edited.
+        amount: taskLineAmount(row.quantity, row.rate, row.discountPct),
+      });
+      byTask.set(row.taskId, list);
+    }
+    return byTask;
+  }
+
+  /**
+   * How many files each task on a page carries, in one query.
+   *
+   * The same batching as `itemsFor`, for the same reason: the board draws a
+   * hundred cards and a count per card would be a hundred round trips.
+   */
+  /**
+   * How many files a task carries, and which one the gallery leads with.
+   *
+   * Both in one query. The cover is the earliest image on the task -- the
+   * photograph somebody took first, which on a site visit is the one that
+   * says what the task is about. `mime` lives on `files`, so this joins;
+   * `ARRAY_AGG ... FILTER` picks the cover without a second round trip and
+   * without fetching every attachment of every task on the board.
+   */
+  private async attachmentCounts(
+    taskIds: readonly string[],
+  ): Promise<Map<string, { count: number; coverId: string | null }>> {
+    const counts = new Map<string, { count: number; coverId: string | null }>();
+    if (taskIds.length === 0) return counts;
+    const rows = await this.db
+      .select({
+        taskId: taskAttachments.taskId,
+        count: sql<number>`count(*)::int`,
+        coverId: sql<string | null>`(array_agg(${taskAttachments.id} ORDER BY ${taskAttachments.createdAt})
+          FILTER (WHERE ${files.mime} LIKE 'image/%'))[1]`,
+      })
+      .from(taskAttachments)
+      .innerJoin(files, eq(files.id, taskAttachments.fileId))
+      .where(
+        and(
+          eq(taskAttachments.orgId, this.ctx.orgId),
+          isNull(taskAttachments.deletedAt),
+          inArray(taskAttachments.taskId, [...taskIds]),
+        ),
+      )
+      .groupBy(taskAttachments.taskId);
+    for (const row of rows) counts.set(row.taskId, { count: row.count, coverId: row.coverId });
+    return counts;
+  }
+
+  /** Replace a task's items wholesale. Absent means "leave them alone"; empty means "clear them". */
+  async setItems(
+    taskId: string,
+    chosen: readonly { id: string; name: string; quantity: string; rate: string | null; discountPct: string }[],
+  ): Promise<void> {
+    // Deleted outright rather than soft-deleted: a task item is a link, not a
+    // record with a history anybody reads, and the unique index is partial on
+    // `deleted_at IS NULL` -- a soft delete would leave a row that blocks the
+    // same item being added back.
+    await this.db.delete(taskItems).where(and(eq(taskItems.orgId, this.ctx.orgId), eq(taskItems.taskId, taskId)));
+    if (chosen.length === 0) return;
+    await this.db.insert(taskItems).values(
+      chosen.map((item, index) => ({
+        orgId: this.ctx.orgId,
+        taskId,
+        itemId: item.id,
+        itemName: item.name,
+        quantity: item.quantity,
+        rate: item.rate,
+        discountPct: item.discountPct,
+        sortOrder: index,
+        createdBy: this.ctx.actorUserId,
+        updatedBy: this.ctx.actorUserId,
+      })),
+    );
   }
 
   private query(where: SQL) {
@@ -97,6 +211,18 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
     if (filter.priority !== undefined) parts.push(eq(tasks.priority, filter.priority));
     if (filter.subjectType !== undefined) parts.push(eq(tasks.subjectType, filter.subjectType));
     if (filter.subjectId !== undefined) parts.push(eq(tasks.subjectId, filter.subjectId));
+    if (filter.partyId !== undefined) parts.push(eq(tasks.partyId, filter.partyId));
+    if (filter.vendorId !== undefined) parts.push(eq(tasks.vendorId, filter.vendorId));
+    if (filter.itemId !== undefined) {
+      // EXISTS rather than a join: a join would return one row per matching
+      // item and page a task twice if it ever named the same item twice.
+      parts.push(sql`EXISTS (
+        SELECT 1 FROM ${taskItems}
+        WHERE ${taskItems.taskId} = ${tasks.id}
+          AND ${taskItems.itemId} = ${filter.itemId}
+          AND ${taskItems.deletedAt} IS NULL
+      )`);
+    }
 
     const due = filter.due;
     // Closed tasks are out unless asked for, and every due slice is about
@@ -160,7 +286,9 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
       .limit(options.limit)
       .offset(options.offset);
     const total = await this.count(and(scope, predicate));
-    return { rows: rows.map(toTaskView), total };
+    const ids = rows.map((row) => row.id);
+    const [items, attachments] = await Promise.all([this.itemsFor(ids), this.attachmentCounts(ids)]);
+    return { rows: rows.map((row) => toTaskView(row, items, attachments)), total };
   }
 
   /**
@@ -184,7 +312,9 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
         rows.length < TASK_BOARD_LANE_CAP
           ? rows.length
           : await this.count(and(scope, predicate, eq(tasks.columnId, column.id)));
-      lanes.push({ columnId: column.id, tasks: rows.map(toTaskView), total });
+      const ids = rows.map((row) => row.id);
+      const [items, attachments] = await Promise.all([this.itemsFor(ids), this.attachmentCounts(ids)]);
+      lanes.push({ columnId: column.id, tasks: rows.map((row) => toTaskView(row, items, attachments)), total });
     }
     return lanes;
   }
@@ -192,7 +322,9 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
   async view(scope: SQL, id: string): Promise<TaskView | null> {
     const rows = await this.query(this.scoped(scope, eq(tasks.id, id))).limit(1);
     const row = rows[0];
-    return row === undefined ? null : toTaskView(row);
+    if (row === undefined) return null;
+    const [items, attachments] = await Promise.all([this.itemsFor([row.id]), this.attachmentCounts([row.id])]);
+    return toTaskView(row, items, attachments);
   }
 
   /** How many open tasks sit in a column — the guard on deleting one. */
@@ -313,6 +445,10 @@ interface TaskRow {
   assigneeName: string | null;
   ownerId: string | null;
   ownerName: string | null;
+  partyId: string | null;
+  partyName: string | null;
+  vendorId: string | null;
+  vendorName: string | null;
   dueDate: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   columnId: string;
@@ -323,7 +459,14 @@ interface TaskRow {
   updatedAt: Date;
 }
 
-function toTaskView(row: TaskRow): TaskView {
+/** Shared by every task with no items, so the common case allocates nothing. */
+const EMPTY_ITEMS: readonly TaskItemView[] = [];
+
+function toTaskView(
+  row: TaskRow,
+  items: ReadonlyMap<string, TaskItemView[]>,
+  attachments: ReadonlyMap<string, { count: number; coverId: string | null }>,
+): TaskView {
   return {
     id: row.id,
     title: row.title,
@@ -335,6 +478,13 @@ function toTaskView(row: TaskRow): TaskView {
     assigneeName: row.assigneeName,
     ownerId: row.ownerId,
     ownerName: row.ownerName,
+    partyId: row.partyId,
+    partyName: row.partyName,
+    vendorId: row.vendorId,
+    vendorName: row.vendorName,
+    items: items.get(row.id) ?? EMPTY_ITEMS,
+    attachmentCount: attachments.get(row.id)?.count ?? 0,
+    coverAttachmentId: attachments.get(row.id)?.coverId ?? null,
     dueDate: row.dueDate,
     priority: row.priority,
     columnId: row.columnId,

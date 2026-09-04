@@ -355,3 +355,150 @@ describe('finding a party the way somebody actually types', () => {
     expect(all.length).toBeGreaterThanOrEqual(0);
   });
 });
+
+/**
+ * Owner, 1 Sep 2026: "eg C&S electic I can just search by C & it shall show
+ * results". It did show results -- every party with a "c" anywhere in it, in
+ * alphabetical order, so the one being typed towards sat behind three that
+ * were not. A forgiving filter needs an opinionated order or it is just a
+ * longer list.
+ *
+ * Every name below is chosen so that alphabetical order and relevance order
+ * DISAGREE. An earlier draft of these tests used names where the two happened
+ * to coincide, and all four passed with the ranking switched off -- which is
+ * to say they tested nothing.
+ */
+describe('what a search puts first', () => {
+  beforeAll(async () => {
+    await harness.db.execute(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group)
+      VALUES
+        (${ORG_ID}, ${connectionId}, 'C&S Electric', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Bharat C&S Spares', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Zenith Cables', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Alpha Zenith Traders', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'Amazenco Supply', 'Sundry Debtors'),
+        (${ORG_ID}, ${connectionId}, 'AAA Zenith Cables Ltd', 'Sundry Debtors')
+    `);
+  });
+
+  const ranked = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}&pageSize=100`,
+      { token: adminToken },
+    );
+    expect(res.status).toBe(200);
+    // Deliberately unsorted: the order IS the assertion.
+    return res.body.data.map((p) => p.name);
+  };
+
+  it('ranks starts-with above word-start above buried, against the alphabet', async () => {
+    // Alphabetically this is exactly backwards: Alpha, Amazenco, Zenith.
+    const names = (await ranked('zen')).filter((name) => name.toLowerCase().includes('zen'));
+    expect(names).toEqual([
+      'Zenith Cables',
+      'AAA Zenith Cables Ltd',
+      'Alpha Zenith Traders',
+      'Amazenco Supply',
+    ]);
+  });
+
+  it("puts the owner's own example first, which the alphabet does not", async () => {
+    // "Bharat C&S Spares" sorts first alphabetically and matches just as well.
+    expect((await ranked('c&s'))[0]).toBe('C&S Electric');
+  });
+
+  it('prefers the name that is exactly the term over a longer one containing it', async () => {
+    // Both hold both words, so both match; "AAA Zenith Cables Ltd" sorts first
+    // alphabetically and would have been first before this change.
+    const names = await ranked('zenith cables');
+    expect(names).toEqual(['Zenith Cables', 'AAA Zenith Cables Ltd']);
+  });
+
+  it('still ranks when the separators were typed differently', async () => {
+    // "cselectric" reaches C&S Electric through the stripped branch, and it
+    // must still come before a party that merely contains those letters.
+    expect((await ranked('cs electric'))[0]).toBe('C&S Electric');
+  });
+});
+
+/**
+ * Owner, 1 Sep 2026, on the pickers: a mistyped name should still find its
+ * row. `masterSearch` matched substrings, so a transposed letter matched
+ * nothing at all -- and the person who mistyped had no way to tell whether the
+ * party was missing or their finger had slipped.
+ */
+describe('a mistyped name still finds the party', () => {
+  const find = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}&pageSize=100`,
+      { token: adminToken },
+    );
+    expect(res.status).toBe(200);
+    return res.body.data.map((p) => p.name);
+  };
+
+  it('finds a party through a dropped letter', async () => {
+    // The owner's example was "acem" for "Acme"; this fixture's equivalent.
+    // Measured: word_similarity('zenth', 'Zenith Cables') is 0.500.
+    expect(await find('zenth')).toContain('Zenith Cables');
+  });
+
+  it('finds one through a transposed letter in a later word', async () => {
+    // 'cabels' against 'Zenith Cables' scores 0.429 -- the typo is in the
+    // second word, which is why this compares words and not whole strings.
+    expect(await find('cabels')).toContain('Zenith Cables');
+  });
+
+  it('finds one through a doubled letter', async () => {
+    expect(await find('ashaa')).toContain('Asha Traders');
+  });
+
+  it('does not fuzzily match a term that is simply not there', async () => {
+    // The number that matters: nonsense scores zero, so the forgiveness costs
+    // no precision.
+    expect(await find('zzqqxx')).toEqual([]);
+  });
+
+  it('leaves short terms strict, so three letters do not match the whole book', async () => {
+    // Below four characters a typo is indistinguishable from a different word.
+    const all = await find('zzz');
+    expect(all).toEqual([]);
+  });
+
+  it('still ranks the exact match above the forgiven one', async () => {
+    // Forgiveness must not cost the ordering: somebody who typed it correctly
+    // gets what they typed, first.
+    const names = await find('asha');
+    expect(names[0]).toMatch(/^ASHA|^Asha/u);
+  });
+});
+
+/**
+ * The other half of forgiveness: where it must not apply.
+ *
+ * A shift code, a part number, a GSTIN -- somebody typing one is copying it,
+ * not remembering it, and two codes three characters apart are two different
+ * things. The shift suite found this: the first version fuzzed every word and
+ * made a search for one code return two shifts.
+ */
+describe('an identifier is matched exactly', () => {
+  const find = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}&pageSize=100`,
+      { token: adminToken },
+    );
+    return res.body.data.map((p) => p.name);
+  };
+
+  it('does not forgive a typo inside a GSTIN', async () => {
+    // One digit out of a real GSTIN is a different taxpayer, not a near miss.
+    expect(await find('27AAAPL1234C1ZV')).toEqual(['Asha Traders']);
+    expect(await find('27AAAPL1234C1ZX')).toEqual([]);
+  });
+
+  it('still finds a name beside a code in the same query', async () => {
+    // "asha" is forgiven, the GSTIN is not, and both must hold at once.
+    expect(await find('asha 27AAAPL1234C1ZV')).toEqual(['Asha Traders']);
+  });
+});

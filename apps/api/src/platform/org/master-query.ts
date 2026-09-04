@@ -62,6 +62,37 @@ export function masterOrderBy(
 /** Everything that is not a letter or a digit, which is what separators are. */
 const SEPARATORS = /[^a-z0-9]/gu;
 
+/**
+ * How close a mistyped word has to be before it counts as the same word.
+ *
+ * Measured against this catalogue rather than picked from a blog: "acem"
+ * scores 0.400 against "Acme Trading Co", "ashaa" 0.667 against "Asha
+ * Traders", "bharrat" 0.667 against "Bharat Cables" -- and "zzz" scores 0.000
+ * against all of them, which is the number that matters. 0.35 sits under
+ * every real typo above and well over the noise.
+ */
+const FUZZY_THRESHOLD = 0.35;
+
+/** Below this a typo is indistinguishable from a different word. */
+const FUZZY_MIN_LENGTH = 4;
+
+/**
+ * Whether a word should be forgiven a typo at all.
+ *
+ * Letters only, and four of them. Anything carrying a digit or a separator is
+ * an identifier -- a shift code, a part number, a GSTIN -- and those are the
+ * one place forgiveness is actively wrong: `SR-NGT-4821` and `SR-DAY-4821`
+ * differ by three characters out of eleven and are different shifts, so a
+ * picker offering both is worse than one offering neither. Somebody typing a
+ * code is copying it; somebody typing a name is remembering it.
+ *
+ * Found by the shift suite rather than by thinking: the first version of this
+ * fuzzed every word and made a search for one code return two shifts.
+ */
+function fuzzyWorthy(word: string): boolean {
+  return word.length >= FUZZY_MIN_LENGTH && /^[a-z]+$/u.test(word.toLowerCase());
+}
+
 export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
   const escape = (value: string): string => value.replace(/([\\%_])/gu, '\\$1');
 
@@ -81,7 +112,18 @@ export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
           : [
               sql`regexp_replace(lower(${column}), '[^a-z0-9]', '', 'g') LIKE ${`%${escape(stripped)}%`}`,
             ];
-      return [sql`${column} ILIKE ${plain}`, ...loose];
+      // A mistyped word still finds its row (owner: "acem" should find
+      // "Acme"). `word_similarity` compares the term against the closest word
+      // in the value rather than the whole string, which is what makes it work
+      // on "Acme Trading Co" -- plain `similarity` against the full name
+      // scores 0.19 there and would never fire.
+      //
+      // Only from four characters up. Below that a typo is indistinguishable
+      // from a different word, and "ac" would fuzzily match most of the book.
+      const fuzzy = fuzzyWorthy(word)
+        ? [sql`word_similarity(${word.toLowerCase()}, lower(${column})) >= ${FUZZY_THRESHOLD}`]
+        : [];
+      return [sql`${column} ILIKE ${plain}`, ...loose, ...fuzzy];
     });
 
     return sql`(${sql.join(branches, sql` OR `)})`;
@@ -90,4 +132,61 @@ export function masterSearch(term: string, columns: readonly PgColumn[]): SQL {
   // AND across words, OR across columns within a word: "asha nashik" finds a
   // party named Asha in an address in Nashik, which is the useful reading.
   return sql`(${sql.join(perWord, sql` AND `)})`;
+}
+
+/**
+ * Where the match landed, as a number to sort by.
+ *
+ * `masterSearch` is deliberately forgiving, and that is what made the list
+ * unreadable: typing "C" to find "C&S Electric" matched every party with a
+ * "c" anywhere in it -- Acme, Ambad MIDC, Bharat Cables -- and then ordered
+ * the lot alphabetically, so the row the person was typing towards sat fourth
+ * behind three they were not. A forgiving filter needs an opinionated order,
+ * or it is just a longer list.
+ *
+ * Five tiers, best first: the whole name, then the name starting with the
+ * term, then a word inside it starting with the term, then the term anywhere,
+ * then matched only once the separators were stripped out. The caller keeps
+ * its own sort after this, so equally-relevant rows stay alphabetical and
+ * paging stays deterministic.
+ *
+ * The term is used whole rather than per word: somebody typing "c&s el" means
+ * those characters in that order, and the AND-across-words rule in
+ * `masterSearch` has already decided what matches at all. This only decides
+ * what comes first.
+ */
+export function masterRelevance(term: string, column: PgColumn | SQL): SQL | undefined {
+  const trimmed = term.trim();
+  if (trimmed === '') return undefined;
+
+  const escape = (value: string): string => value.replace(/([\\%_])/gu, '\\$1');
+  const lower = trimmed.toLowerCase();
+  const plain = escape(lower);
+  const stripped = escape(lower.replace(SEPARATORS, ''));
+
+  return sql`CASE
+    WHEN lower(${column}) = ${lower} THEN 0
+    WHEN lower(${column}) LIKE ${`${plain}%`} THEN 1
+    WHEN lower(${column}) LIKE ${`% ${plain}%`} THEN 2
+    WHEN lower(${column}) LIKE ${`%${plain}%`} THEN 3
+    WHEN ${stripped} <> '' AND regexp_replace(lower(${column}), '[^a-z0-9]', '', 'g') LIKE ${`${stripped}%`} THEN 4
+    ELSE 5
+  END`;
+}
+
+/**
+ * The caller's ordering, with relevance in front of it when a term was typed.
+ *
+ * Kept as its own step rather than folded into `masterOrderBy` so that an
+ * unfiltered list is byte-for-byte the query it always was: no term, no CASE,
+ * nothing for the planner to think about on the screens that page through
+ * everything.
+ */
+export function withRelevance(
+  term: string | undefined,
+  column: PgColumn | SQL,
+  order: (SQL | PgColumn)[],
+): (SQL | PgColumn)[] {
+  const relevance = term === undefined ? undefined : masterRelevance(term, column);
+  return relevance === undefined ? order : [relevance, ...order];
 }

@@ -18,7 +18,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { stepOf, type PickPackStep } from './fulfilment-progress';
-import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
+import { ResponsiveDialog, ResponsiveDialogActions } from '@/components/shared/responsive-dialog';
 import { lineBalances, trimZeros, type Estimate, type PackRecord, type PickRecord, type SalesLine } from './types';
 import { usePackOrder, usePickOrder } from './use-fulfilment';
 

@@ -1,8 +1,8 @@
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import { employees, organizations, users } from '../../../platform/db/schema/index.js';
-import { attendanceDays } from '../schema/index.js';
+import { attendanceDays, punches } from '../schema/index.js';
 
 /**
  * The two reads the punch notification sweeps need, and nothing else.
@@ -125,5 +125,63 @@ export class PunchNotificationRepository {
           : `${row.firstName} ${row.lastName}`,
       managerEmployeeId: row.managerEmployeeId,
     }));
+  }
+
+  /**
+   * Active employees with no attendance day for the date -- nobody wrote one,
+   * which means no punch, no leave, no override touched it. The engine decides
+   * what that day is (ABSENT for an expected working day, or the rest-day
+   * status); this only finds who to ask about. A non-rostered account resolves
+   * to no shift and the engine skips it, so it costs one compute and no row.
+   */
+  /**
+   * Whether anyone in this org punched on the date -- the signal it was actually
+   * running attendance that day. A real working day has punches: the absentees
+   * are the few who did not, and they are what the sweep exists to record. A day
+   * with no punch at all is a dormant or demo one (a workspace with historical
+   * punches but nobody punching now still looks like this), and marking its whole
+   * roster absent is noise a genuine absence would then hide in -- so the sweep
+   * skips that date rather than manufacturing an absence for every employee.
+   *
+   * ponytail: a real, unplanned all-hands shutdown reads as a dormant day too and
+   * is skipped; that day is set by a manual override/regularization, not the sweep.
+   */
+  async hasAnyPunchOn(date: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ one: sql`1` })
+      .from(punches)
+      .where(and(eq(punches.orgId, this.orgId), eq(punches.attendanceDate, date)))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async absentCandidates(date: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(
+        and(
+          eq(employees.orgId, this.orgId),
+          // REQ-A-05: on their last day they still work; already gone, they do not.
+          eq(employees.status, 'ACTIVE'),
+          isNull(employees.deletedAt),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(attendanceDays)
+              .where(
+                and(
+                  eq(attendanceDays.orgId, this.orgId),
+                  eq(attendanceDays.employeeId, employees.id),
+                  eq(attendanceDays.date, date),
+                  isNull(attendanceDays.deletedAt),
+                ),
+              ),
+          ),
+        ),
+      )
+      .orderBy(asc(employees.id));
+
+    return rows.map((row) => row.id);
   }
 }

@@ -22,14 +22,14 @@ import { MatrixGrid } from '@/components/shared/matrix-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { formatCount, formatDate, formatMoney, formatMoneyShort } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import { ExportButton } from './export-button';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
+import { PeriodRangeField } from './period-field';
 import { useAbcXyz, useCohorts, useConcentration, usePivot, usePriceBands, type AbcXyzData, type PriceBandData } from './use-cfo';
 
 /**
@@ -53,7 +53,7 @@ type AbcCell = AbcXyzData['cells'][number];
 export function AnalyticsPage() {
   const canView = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const isMobile = useIsMobile();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const bands = usePriceBands(range, { enabled: canView });
   const seasonality = usePivot(range, { rows: 'category', columns: 'month', metric: 'net', top: 10 }, {}, { enabled: canView });
@@ -106,17 +106,7 @@ export function AnalyticsPage() {
           <Button variant="outline" size="icon-sm" aria-label="Refresh" disabled={bands.isFetching} onClick={() => { void bands.refetch(); void seasonality.refetch(); void abc.refetch(); void cohorts.refetch(); void concentration.refetch(); }}>
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams((current) => { const p = new URLSearchParams(current); p.set('from', from); p.set('to', to); return p; }, { replace: true });
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">{formatDate(range.from)} → {formatDate(range.to)}; grids read trailing twelve months</span>
           <span className="ml-auto"><ExportButton report="analytics" range={range} /></span>
         </div>

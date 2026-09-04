@@ -1,8 +1,10 @@
-import { boolean, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../columns.js';
+import { files } from './file.schema.js';
 import { organizations } from './organizations.schema.js';
 import { employees } from './people.schema.js';
+import { parties, stockItems } from './projections.schema.js';
 
 /**
  * Tasks (08 Area V, D-17): platform, not CRM. The subject is polymorphic —
@@ -52,6 +54,20 @@ export const tasks = pgTable(
     /** Employees, like every scoped record (08 §2.1: a salesperson is an employee). */
     assigneeId: uuid('assignee_id').references(() => employees.id, { onDelete: 'restrict' }),
     ownerId: uuid('owner_id').references(() => employees.id, { onDelete: 'restrict' }),
+    /**
+     * REQ-V-09: the customer and the supplier a task is about.
+     *
+     * Two columns rather than a second polymorphic subject, because a task
+     * genuinely has both at once -- "chase Sanghvi for the coupler Acme is
+     * waiting on" names a vendor and a party and they are not the same slot.
+     * The name is snapshotted beside the id for the same reason
+     * `subjectLabel` is: the register lists hundreds of rows and must not
+     * join the projection to print a word.
+     */
+    partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
+    partyName: text('party_name'),
+    vendorId: uuid('vendor_id').references(() => parties.id, { onDelete: 'set null' }),
+    vendorName: text('vendor_name'),
     dueDate: date('due_date', { mode: 'string' }),
     priority: taskPriorityEnum('priority').notNull().default('MEDIUM'),
     columnId: uuid('column_id')
@@ -68,4 +84,85 @@ export const tasks = pgTable(
     // The reminder sweep: open tasks by due date, across the organisation.
     index('tasks_org_due_open_idx').on(t.orgId, t.dueDate).where(ALIVE),
   ],
+);
+
+/**
+ * REQ-V-10: the stock items a task is about.
+ *
+ * Its own table rather than an array column: an item is a real record with a
+ * real id, and `restrict` on the reference is what stops a synced item
+ * disappearing under a task that names it. The name is snapshotted for the
+ * same reason the party's is -- the task list must not join the catalogue to
+ * render a row.
+ */
+export const taskItems = pgTable(
+  'task_items',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => stockItems.id, { onDelete: 'restrict' }),
+    itemName: text('item_name').notNull(),
+    /**
+     * REQ-V-17 (owner, 2 Sep 2026): a task can now hold an order somebody is
+     * placing on the phone -- "select party, select item, qty and disc, total".
+     * It used to hold names alone, and the note here said "a task carries no
+     * quantities"; the owner asked for them, so it does.
+     *
+     * The precision matches `sales_document_lines` exactly, because these
+     * become those on conversion and a line that changed value in the crossing
+     * would be the worst possible bug in this path.
+     */
+    quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull().default('1'),
+    /** Null until somebody prices it: an enquiry is a real state. */
+    rate: numeric('rate', { precision: 16, scale: 2 }),
+    discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...standardColumns(),
+  },
+  (t) => [
+    index('task_items_task_idx').on(t.orgId, t.taskId).where(ALIVE),
+    // One item once per task. It carries a quantity now, so adding the same
+    // coupler twice is still a slip rather than two of them: the second entry
+    // is an edit to the first one's quantity.
+    uniqueIndex('task_items_unique_idx').on(t.taskId, t.itemId).where(ALIVE),
+  ],
+);
+
+/**
+ * REQ-V-12: a document or a photograph on a task.
+ *
+ * The deal attachment's shape exactly (`crm_deal_attachments`), because the
+ * need is the same one: a drawing, a signed challan, a photograph of what
+ * arrived damaged. The file itself goes through the platform pipeline and
+ * this row is only the link, so a task never holds bytes.
+ *
+ * `restrict` on the file, `cascade` on the task: deleting the task takes its
+ * links with it, while a file that something still points at cannot vanish
+ * underneath it.
+ */
+export const taskAttachments = pgTable(
+  'task_attachments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'restrict' }),
+    /** As the browser gave it, shown in the list and used for the download. */
+    filename: text('filename').notNull(),
+    ...standardColumns(),
+  },
+  (t) => [index('task_attachments_task_idx').on(t.orgId, t.taskId).where(ALIVE)],
 );

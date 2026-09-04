@@ -481,8 +481,10 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
     );
   }
 
+  const dealIds: string[] = [];
   if (!(await already('crm_deals'))) {
   for (let n = 0; n < 14; n += 1) {
+    const dealId = randomUUID();
     const stageIndex = between(0, STAGES.length - 1);
     const stage = STAGES[stageIndex];
     const closed = stage?.[2] === true || stage?.[3] === true;
@@ -490,15 +492,29 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
       `INSERT INTO crm_deals (id, org_id, name, company_id, contact_id, pipeline_id, stage_id,
          value, expected_close_date, owner_id, closed_at, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [randomUUID(), orgId,
+      [dealId, orgId,
        `${pick(['Panel upgrade', 'Annual rate contract', 'MCC replacement', 'New line', 'DB retrofit'])} - ${pick(CUSTOMERS)}`,
        companyIds[n % companyIds.length] ?? null, contactIds[n % contactIds.length] ?? null,
        pipelineId, stageIds[stageIndex] ?? stageIds[0], money(45000, 1800000),
        daysAgo(-between(5, 90)), staffAt(n), closed ? new Date().toISOString() : null, owner],
     );
+    dealIds.push(dealId);
     bump('crm_deals');
   }
 
+  }
+
+  // Read back whatever is there, so a re-run against an already-seeded
+  // organisation still has deals to hang documents and tasks off.
+  if (dealIds.length === 0) {
+    dealIds.push(
+      ...(
+        await db.query<{ id: string }>(
+          `SELECT id FROM crm_deals WHERE org_id = $1 AND deleted_at IS NULL ORDER BY created_at`,
+          [orgId],
+        )
+      ).rows.map((row) => row.id),
+    );
   }
 
   // ------------------------------------------------------------------ tasks
@@ -540,18 +556,78 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
      * would never show.
      */
     const onContact = index % 3 === 0;
+    const taskId = randomUUID();
+
+    /*
+     * REQ-V-09: a customer on most, a supplier on the ones that are about
+     * getting something in, and neither on a few. All three shapes have to
+     * be on the board, because the register's Customer and Supplier columns
+     * are only worth anything if some rows are empty.
+     */
+    const customer = index % 2 === 0 ? pick([...CUSTOMERS]) : null;
+    const supplier = index % 3 === 1 ? pick([...VENDORS]) : null;
+
+    /*
+     * REQ-V-10 and REQ-V-12's notes: markdown, because the field is a
+     * markdown editor now and a demo of plain sentences would never show the
+     * preview doing anything.
+     */
+    const description =
+      index % 4 === 0
+        ? null
+        : [
+            `**${pick(['Site is waiting', 'Customer chased twice', 'Needs a decision today', 'Blocked on the vendor'])}.**`,
+            '',
+            `- ${pick(['Confirm the dispatch date', 'Send the revised drawing', 'Check the packing list', 'Get the GST number'])}`,
+            `- ${pick(['Call before 11am', 'Copy the site engineer', 'Attach the signed challan', 'Note the LR number'])}`,
+          ].join('\n');
+
+    /*
+     * Spread over the last eight weeks rather than all raised today, so the
+     * task dashboard's raised-against-closed chart has a shape instead of one
+     * column. A closed task is closed some days after it was raised, never
+     * before -- a negative time-to-close would be the first thing a reader
+     * noticed and the last thing they trusted.
+     */
+    const raisedDaysAgo = between(0, 55);
+    const closedDaysAgo = Math.max(0, raisedDaysAgo - between(1, 10));
+
     await db.query(
       `INSERT INTO tasks (id, org_id, title, description, subject_type, subject_id, subject_label,
-         assignee_id, owner_id, due_date, priority, column_id, closed_at, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-      [randomUUID(), orgId, title, null,
+         assignee_id, owner_id, party_id, party_name, vendor_id, vendor_name,
+         due_date, priority, column_id, closed_at, created_at, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+      [taskId, orgId, title, description,
        onContact ? 'crm_contact' : null, onContact ? (contactIds[index % contactIds.length] ?? null) : null,
        onContact ? (CONTACT_NAMES[index % CONTACT_NAMES.length] ?? null) : null,
-       staffAt(index), staffAt(index + 1), daysAgo(-between(-10, 21)),
+       staffAt(index), staffAt(index + 1),
+       customer === null ? null : (partyIds.get(customer) ?? null), customer,
+       supplier === null ? null : (partyIds.get(supplier) ?? null), supplier,
+       daysAgo(-between(-10, 21)),
        pick(['LOW', 'MEDIUM', 'HIGH'] as const), columnIds[columnIndex] ?? columnIds[0],
-       done ? new Date().toISOString() : null, owner],
+       done ? daysAgo(closedDaysAgo) : null, daysAgo(raisedDaysAgo), owner],
     );
     bump('tasks');
+
+    // REQ-V-10: one or two items on about half of them, and none on the
+    // rest -- an Items column where every row is full says as little as one
+    // where every row is empty.
+    if (index % 2 === 1) {
+      const chosen = new Set<string>();
+      for (let i = 0; i < between(1, 2); i += 1) chosen.add(pick(ITEMS)[0]);
+      let sortOrder = 0;
+      for (const itemName of chosen) {
+        const stockItemId = itemIds.get(itemName);
+        if (stockItemId === undefined) continue;
+        await db.query(
+          `INSERT INTO task_items (id, org_id, task_id, item_id, item_name, sort_order, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [randomUUID(), orgId, taskId, stockItemId, itemName, sortOrder, owner],
+        );
+        sortOrder += 1;
+        bump('task_items');
+      }
+    }
   }
 
   // ------------------------------------------------------- sales documents
@@ -567,6 +643,7 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
   const salesStates = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONFIRMED'] as const;
   let estimateNo = 100;
   let orderNo = 500;
+  let invoiceNo = 900;
 
   for (let n = 0; n < 18; n += 1) {
     const isOrder = n % 3 === 0;
@@ -588,14 +665,19 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
     await db.query(
       `INSERT INTO sales_documents (id, org_id, doc_type, number, status, date, valid_until,
          party_id, customer_name, owner_id, subtotal, discount_total, tax_total, grand_total,
-         place_of_supply, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,'Maharashtra',$14)`,
+         place_of_supply, deal_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,'Maharashtra',$15,$14)`,
       [docId, orgId, isOrder ? 'SALES_ORDER' : 'ESTIMATE',
        isOrder ? `SO/${String(orderNo)}` : `EST/${String(estimateNo)}`,
        isOrder ? pick(['DRAFT', 'CONFIRMED'] as const) : pick(salesStates),
        daysAgo(between(1, 120)), daysAgo(-between(5, 30)),
        partyIds.get(party) ?? null, party, staffAt(n),
-       subtotal.toFixed(2), taxTotal.toFixed(2), (subtotal + taxTotal).toFixed(2), owner],
+       subtotal.toFixed(2), taxTotal.toFixed(2), (subtotal + taxTotal).toFixed(2), owner,
+       // REQ-U-12: two thirds of the documents hang off a deal, so the
+       // register shows Ordered and Invoiced beside deals that earned them
+       // and plain beside those that did not. A demo where every deal was
+       // invoiced would prove nothing about a badge.
+       n % 3 === 2 ? null : (dealIds[n % Math.max(dealIds.length, 1)] ?? null)],
     );
     bump('sales_documents');
 
@@ -612,6 +694,44 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
          ((amount * line.tax) / 100).toFixed(2), owner],
       );
       bump('sales_document_lines');
+    }
+
+    /*
+     * REQ-U-12: a few of the confirmed orders are invoiced, so a deal can
+     * read "Invoiced" and the CRM dashboard has something behind its win
+     * figures. Raised straight against the order rather than walked through
+     * pick and pack: this is demo data, and the fulfilment states are the
+     * fulfilment screens' story, not the deal badge's.
+     */
+    if (isOrder && n % 6 === 0) {
+      invoiceNo += 1;
+      const invoiceId = randomUUID();
+      await db.query(
+        `INSERT INTO sales_documents (id, org_id, doc_type, number, status, date,
+           party_id, customer_name, owner_id, subtotal, discount_total, tax_total, grand_total,
+           place_of_supply, deal_id, source_document_id, created_by)
+         VALUES ($1,$2,'INVOICE',$3,'CONFIRMED',$4,$5,$6,$7,$8,0,$9,$10,'Maharashtra',$11,$12,$13)`,
+        [invoiceId, orgId, `INV/${String(invoiceNo)}`, daysAgo(between(1, 60)),
+         partyIds.get(party) ?? null, party, staffAt(n),
+         subtotal.toFixed(2), taxTotal.toFixed(2), (subtotal + taxTotal).toFixed(2),
+         dealIds[n % Math.max(dealIds.length, 1)] ?? null, docId, owner],
+      );
+      bump('sales_documents');
+
+      let invoiceLineNo = 0;
+      for (const line of lines) {
+        invoiceLineNo += 1;
+        const amount = line.qty * line.rate;
+        await db.query(
+          `INSERT INTO sales_document_lines (id, org_id, document_id, line_no, stock_item_id,
+             description, quantity, unit, rate, discount_pct, tax_pct, amount, tax_amount, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'Nos',$8,0,$9,$10,$11,$12)`,
+          [randomUUID(), orgId, invoiceId, invoiceLineNo, itemIds.get(line.item) ?? null, line.item,
+           line.qty, line.rate.toFixed(2), line.tax, amount.toFixed(2),
+           ((amount * line.tax) / 100).toFixed(2), owner],
+        );
+        bump('sales_document_lines');
+      }
     }
   }
 

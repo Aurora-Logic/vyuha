@@ -245,7 +245,3 @@ export function ShortcutLayer({ id, children }: { id: string; children: ReactNod
 export function useRegisteredShortcuts(): RegisteredShortcut[] {
   return useContext(StateContext).shortcuts;
 }
-
-export function useActiveLayerId(): string {
-  return useContext(StateContext).activeLayerId;
-}

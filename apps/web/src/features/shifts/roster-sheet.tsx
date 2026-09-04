@@ -31,6 +31,7 @@ import { toast } from '@/components/ui/toast';
 import { toDateParam } from '@/features/attendance/format';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 
 import { EmployeePicker } from './employee-picker';
@@ -89,7 +90,8 @@ function RosterSheetBody({
   defaultPeriod: DateRange;
   onClose: () => void;
 }) {
-  const candidates = useRosterCandidates();
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const candidates = useRosterCandidates(useDebouncedValue(candidateSearch, 200));
   const create = useCreateRosterAssignment();
 
   const [employee, setEmployee] = useState<RosterCandidate | null>(null);
@@ -171,6 +173,8 @@ function RosterSheetBody({
               value={employee}
               onValueChange={setEmployee}
               candidates={candidates.data ?? []}
+              search={candidateSearch}
+              onSearchChange={setCandidateSearch}
               loading={candidates.isPending}
             />
             {touched && missingEmployee ? (

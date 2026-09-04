@@ -273,9 +273,25 @@ export interface DealView {
   readonly ownerName: string | null;
   readonly status: 'open' | 'won' | 'lost';
   readonly closedAt: string | null;
+  readonly leadSource: string | null;
+  readonly priority: DealPriority | null;
+  readonly nextFollowUpDate: string | null;
+  readonly competitor: string | null;
+  readonly lossReason: string | null;
   readonly notes: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * REQ-U-12: what paperwork stands behind this deal.
+   *
+   * Derived from the documents themselves, never stored and never set by
+   * hand. A stage somebody drags a deal into drifts -- a deal sits in
+   * "Invoiced" with no invoice, or is invoiced and never moved -- and the
+   * one number a manager checks against the books is the one that must not
+   * be able to lie.
+   */
+  readonly hasOrder: boolean;
+  readonly hasInvoice: boolean;
 }
 
 export const dealFilterSchema = z.object({
@@ -298,6 +314,16 @@ export type DealListQuery = z.infer<typeof dealListQuerySchema>;
 export const dealBoardQuerySchema = dealFilterSchema;
 export type DealBoardQuery = z.infer<typeof dealBoardQuerySchema>;
 
+/** REQ-U-05: a file attached to a deal, as the sheet lists it. */
+export interface DealAttachmentView {
+  readonly id: string;
+  readonly fileId: string;
+  readonly filename: string;
+  readonly mime: string;
+  readonly bytes: number;
+  readonly uploadedAt: string;
+}
+
 export interface DealBoardLane {
   readonly stage: PipelineStageView;
   readonly deals: readonly DealView[];
@@ -312,6 +338,10 @@ export interface DealBoardView {
 }
 
 export const DEAL_BOARD_LANE_CAP = 100;
+
+/** Owner, 31 Aug 2026: how hard a deal is being chased. */
+export const DEAL_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
+export type DealPriority = (typeof DEAL_PRIORITIES)[number];
 
 /** Up to 14 integer digits and 2 decimals, optionally signed off — a deal value, not a ledger. */
 const moneyTextField = z
@@ -330,6 +360,11 @@ export const createDealSchema = z.object({
   value: moneyTextField.nullish(),
   expectedCloseDate: z.iso.date().nullish(),
   ownerId: z.uuid().nullish(),
+  leadSource: z.string().trim().max(120).nullish(),
+  priority: z.enum(DEAL_PRIORITIES).nullish(),
+  nextFollowUpDate: z.iso.date().nullish(),
+  competitor: z.string().trim().max(120).nullish(),
+  lossReason: z.string().trim().max(500).nullish(),
   notes: z.string().trim().max(4000).nullish(),
 });
 export type CreateDealInput = z.infer<typeof createDealSchema>;
@@ -343,6 +378,11 @@ export const updateDealSchema = z.object({
   value: moneyTextField.nullish(),
   expectedCloseDate: z.iso.date().nullish(),
   ownerId: z.uuid().nullish(),
+  leadSource: z.string().trim().max(120).nullish(),
+  priority: z.enum(DEAL_PRIORITIES).nullish(),
+  nextFollowUpDate: z.iso.date().nullish(),
+  competitor: z.string().trim().max(120).nullish(),
+  lossReason: z.string().trim().max(500).nullish(),
   notes: z.string().trim().max(4000).nullish(),
 });
 export type UpdateDealInput = z.infer<typeof updateDealSchema>;

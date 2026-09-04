@@ -2,7 +2,6 @@ import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { PermissionKey, UserStatus } from '@vyuha/shared';
 import type { Request } from 'express';
 
-import { AppError } from '../common/errors.js';
 import type { OrgContext } from '../db/scoped-repository.js';
 
 /**
@@ -84,10 +83,4 @@ export const CurrentUser = createParamDecorator(
 /** For services that receive a possibly-anonymous request. */
 export function principalOf(request: Request): Principal | null {
   return request.principal ?? null;
-}
-
-export function requirePrincipal(request: Request): Principal {
-  const principal = request.principal;
-  if (principal === undefined) throw AppError.forbidden('Authentication is required.');
-  return principal;
 }

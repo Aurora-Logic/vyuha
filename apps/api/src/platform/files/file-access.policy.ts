@@ -67,6 +67,17 @@ export const FILE_READ_RULES: Record<FilePurpose, FileReadRule> = {
   // REQ-AA-20: a box or an LR photograph, evidence about a shipment, readable
   // by whoever may read the sales documents it belongs to.
   DISPATCH_PHOTO: { kind: 'permission', anyOf: [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] },
+
+  // REQ-U-05: a quote or drawing on a deal, readable by whoever may read the
+  // deal it hangs off. The uploader rule reaches their own upload either way.
+  CRM_ATTACHMENT: { kind: 'permission', anyOf: [PERMISSIONS.CRM_DEAL_VIEW_SELF, PERMISSIONS.CRM_DEAL_VIEW_ALL] },
+
+  // REQ-V-12: a file on a task, readable by whoever may read the task it
+  // hangs off. The uploader rule reaches their own upload either way.
+  TASK_ATTACHMENT: {
+    kind: 'permission',
+    anyOf: [PERMISSIONS.CRM_TASK_VIEW_SELF, PERMISSIONS.CRM_TASK_VIEW_TEAM, PERMISSIONS.CRM_TASK_VIEW_ALL],
+  },
 };
 
 export interface ReadableFile {

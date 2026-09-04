@@ -19,6 +19,8 @@ interface SearchFieldProps {
   onValueChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  /** For a field that was just revealed: it is useless if the caret is elsewhere. */
+  autoFocus?: boolean;
 }
 
 /**
@@ -39,6 +41,7 @@ export function SearchField({
   onValueChange,
   placeholder,
   className,
+  autoFocus = false,
 }: SearchFieldProps) {
   return (
     // The 32px desktop density of PRD §6.3 is too small to hit on a phone, so
@@ -65,6 +68,7 @@ export function SearchField({
         // the hint returns the moment focus leaves. One place, so every search
         // across the app behaves the same.
         className="focus:placeholder:text-transparent"
+        autoFocus={autoFocus}
         placeholder={placeholder}
         value={value}
         autoComplete="off"

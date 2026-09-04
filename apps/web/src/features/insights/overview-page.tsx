@@ -16,15 +16,15 @@ import { ChartBarIcon } from '@phosphor-icons/react';
 import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
+import { PeriodRangeField } from './period-field';
 import { useAreaInsights, type AreaInsightsData, type Metric } from './api';
 import { AREA_LABELS } from './catalogue';
 import { MetricChart } from './metric-card';
 import { formatHeadline } from './units';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { useDataQuality } from './use-cfo';
 
 /**
@@ -126,7 +126,7 @@ function AreaSection({ area, data, pending }: { area: InsightArea; data: AreaIns
 }
 
 export function InsightsOverviewPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
 
   const canAttendance = usePermission(PERMISSIONS.ATTENDANCE_VIEW_ALL);
@@ -196,25 +196,7 @@ export function InsightsOverviewPage() {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const params = new URLSearchParams(current);
-                  params.set('from', from);
-                  params.set('to', to);
-                  return params;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)}
           </span>

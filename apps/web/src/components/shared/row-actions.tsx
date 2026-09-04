@@ -67,6 +67,10 @@ export function RowActions({ label, actions }: RowActionsProps) {
             variant="ghost"
             size="icon-sm"
             aria-label={label}
+            // One per row, so this matches many elements and the guide points
+            // at the first. That is the honest answer: they are the same
+            // control repeated, and the step is about what it does.
+            data-guide="screen.row-actions" 
             // The stacked row below 768px can be activated as a whole, and a
             // tap that opened both the row and this menu would be two surfaces
             // fighting over one gesture. Stopped here rather than on a wrapper,

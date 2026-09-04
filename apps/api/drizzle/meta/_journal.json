@@ -582,6 +582,48 @@
       "when": 1787929350209,
       "tag": "0081_party_voucher_detail_converge",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1788157545740,
+      "tag": "0083_crm_deal_detail",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1788158646945,
+      "tag": "0084_crm_deal_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1788167547970,
+      "tag": "0085_task_party_vendor_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1788173445319,
+      "tag": "0086_task_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1788328176218,
+      "tag": "0087_task_item_order_lines",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1788328176219,
+      "tag": "0088_trigram_master_search",
+      "breakpoints": true
     }
   ]
 }

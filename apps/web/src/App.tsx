@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
 import { AdminShell } from '@/features/administration/admin-shell';
+import { RealtimeProvider } from '@/lib/realtime/realtime-provider';
 import { SessionGate } from '@/app/session-gate';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
 import { ALL_NAV_ITEMS } from '@/lib/nav';
@@ -26,6 +27,7 @@ const BUILT_ROUTES = new Set([
   '/purchase/grns',
   '/tasks',
   '/crm/deals',
+  '/tasks/dashboard',
   '/crm/contacts',
   '/crm/companies',
   '/masters/parties',
@@ -136,6 +138,7 @@ const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ def
 const NotificationsPage = lazy(() => import('@/features/notifications').then((m) => ({ default: m.NotificationsPage })));
 const CompaniesPage = lazy(() => import('@/features/crm/companies-page').then((m) => ({ default: m.CompaniesPage })));
 const ContactsPage = lazy(() => import('@/features/crm/contacts-page').then((m) => ({ default: m.ContactsPage })));
+const TasksDashboardPage = lazy(() => import('@/features/tasks/tasks-dashboard-page').then((m) => ({ default: m.TasksDashboardPage })));
 const DealsPage = lazy(() => import('@/features/crm/deals-page').then((m) => ({ default: m.DealsPage })));
 const EstimatesPage = lazy(() => import('@/features/sales/estimates-page').then((m) => ({ default: m.EstimatesPage })));
 const EstimateEditorPage = lazy(() => import('@/features/sales/estimate-editor-page').then((m) => ({ default: m.EstimateEditorPage })));
@@ -191,6 +194,9 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <SessionGate>
+        {/* Inside the gate, so a stream is only opened for someone signed in;
+            above the router, so it survives every navigation (REQ-U-09). */}
+        <RealtimeProvider>
         <ShortcutProvider>
           <Suspense fallback={null}>
           <Routes>
@@ -266,6 +272,7 @@ export default function App() {
               <Route path="crm/companies/:id" element={<CompaniesPage />} />
               <Route path="tasks" element={<TasksPage />} />
               <Route path="tasks/:id" element={<TasksPage />} />
+              <Route path="tasks/dashboard" element={<TasksDashboardPage />} />
               <Route path="crm/deals" element={<DealsPage />} />
               <Route path="crm/deals/:id" element={<DealsPage />} />
               <Route path="sales/estimates" element={<EstimatesPage />} />
@@ -347,6 +354,7 @@ export default function App() {
           </Routes>
           </Suspense>
         </ShortcutProvider>
+        </RealtimeProvider>
         </SessionGate>
       </BrowserRouter>
     </QueryClientProvider>

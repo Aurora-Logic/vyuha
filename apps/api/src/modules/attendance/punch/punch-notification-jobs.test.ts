@@ -14,8 +14,9 @@ import { JobRegistry } from '../../../platform/jobs/job-handler.js';
 import { JobRunner } from '../../../platform/jobs/job-runner.service.js';
 import { SCHEDULED_JOBS, QUEUES } from '../../../platform/jobs/queue.registry.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
-import { punches, shifts } from '../schema/index.js';
+import { attendanceDays, punches, shifts } from '../schema/index.js';
 import {
+  MarkAbsentSweepHandler,
   MissingOutSweepHandler,
   PunchReminderHandler,
 } from './punch-notification-jobs.handler.js';
@@ -44,6 +45,7 @@ let harness: ApiHarness;
 let runner: JobRunner;
 let reminders: PunchReminderHandler;
 let sweep: MissingOutSweepHandler;
+let absentSweep: MarkAbsentSweepHandler;
 let engine: DayEngineService;
 
 let reminderEmployeeId: string;
@@ -109,6 +111,7 @@ beforeAll(async () => {
   runner = harness.resolve(JobRunner);
   reminders = harness.resolve(PunchReminderHandler);
   sweep = harness.resolve(MissingOutSweepHandler);
+  absentSweep = harness.resolve(MarkAbsentSweepHandler);
   engine = harness.resolve(DayEngineService);
   runner.startWorkers();
 
@@ -205,13 +208,88 @@ describe('the schedulers are registered (technical design §11)', () => {
     const registry = harness.resolve(JobRegistry);
     expect(registry.registeredJobNames()).toContain('send-punch-reminders');
     expect(registry.registeredJobNames()).toContain('sweep-missing-out');
+    expect(registry.registeredJobNames()).toContain('mark-absent');
     expect(registry.get('send-punch-reminders')).toBeInstanceOf(PunchReminderHandler);
     expect(registry.get('sweep-missing-out')).toBeInstanceOf(MissingOutSweepHandler);
+    expect(registry.get('mark-absent')).toBeInstanceOf(MarkAbsentSweepHandler);
 
     const scheduled = SCHEDULED_JOBS.map((job) => job.jobName);
     expect(scheduled).toContain('send-punch-reminders');
     expect(scheduled).toContain('sweep-missing-out');
+    expect(scheduled).toContain('mark-absent');
   });
+});
+
+describe('mark-absent sweep (a no-show becomes ABSENT)', () => {
+  /*
+   * A minute, not the default five seconds.
+   *
+   * The sweep is organisation-wide by design -- it walks every organisation
+   * and computes a day for every active employee in each. In production that
+   * is one organisation; against the shared test database it is every fixture
+   * organisation every suite has ever created, which is currently 113 of them
+   * and ten thousand employees, and takes about forty seconds.
+   *
+   * The budget is raised rather than the sweep narrowed: an org filter on the
+   * job would exist only to make this test fast, and a production code path
+   * that exists for a test is how a sweep quietly stops sweeping.
+   */
+  it('writes an ABSENT day for an employee who never punched', async () => {
+    // A Monday, safely in the past; the worker carries the 09:00-18:00 default
+    // shift, so REQ-C-04 resolves one for the date and nothing else touched it.
+    const date = '2026-02-02';
+
+    // The sweep skips an org that has never recorded a punch -- a demo or
+    // dormant workspace should not have its whole roster marked absent nightly.
+    // So the fixture has to look like a real, running org: the manager punches
+    // in (no photo, the ADMIN_ENTRY path allows that), the worker under test
+    // does not, and it is the worker who must come out ABSENT.
+    await harness.db.insert(punches).values({
+      orgId: ORG_ID,
+      employeeId: managerEmployeeId,
+      attendanceDate: date,
+      punchType: 'IN',
+      serverTime: new Date(`${date}T09:00:00+05:30`),
+      source: 'ADMIN_ENTRY',
+      idempotencyKey: `absent-guard-${RUN}`,
+    });
+
+    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
+
+    const rows = await harness.db
+      .select({ status: attendanceDays.status })
+      .from(attendanceDays)
+      .where(
+        and(
+          eq(attendanceDays.orgId, ORG_ID),
+          eq(attendanceDays.employeeId, workerEmployeeId),
+          eq(attendanceDays.date, date),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe('ABSENT');
+  }, 60_000);
+
+  it('skips a date on which nobody in the org punched -- a dormant day is not a roster of absences', async () => {
+    // No punch exists for this org on this date (the fixture only ever punches
+    // on 02-02 and 02-17), so the whole org is dormant for it. Without the guard
+    // the sweep would mark all 21 employees absent; with it, the worker gets no
+    // row at all. This is the demo/dormant-org flood the guard exists to stop.
+    const date = '2026-03-16';
+    await absentSweep.run({ date }, { jobId: 'test', attempt: 1 });
+
+    const rows = await harness.db
+      .select({ id: attendanceDays.id })
+      .from(attendanceDays)
+      .where(
+        and(
+          eq(attendanceDays.orgId, ORG_ID),
+          eq(attendanceDays.employeeId, workerEmployeeId),
+          eq(attendanceDays.date, date),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  }, 60_000);
 });
 
 describe('punch reminder (REQ-K-03, opt-in)', () => {

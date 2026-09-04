@@ -43,15 +43,6 @@ export interface ProjectedBalance {
   readonly closing: number;
 }
 
-export const ZERO_BALANCE: ProjectedBalance = {
-  opening: 0,
-  accrued: 0,
-  availed: 0,
-  adjusted: 0,
-  carriedForward: 0,
-  closing: 0,
-};
-
 /**
  * Rounds each bucket before the closing figure is derived from them.
  *

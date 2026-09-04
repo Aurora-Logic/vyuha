@@ -22,7 +22,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS } from '@vyuha/shared';
 
 import { formatQty, type ItemVendor } from './types';
 import { useItemAvailability, useItemVendors, usePurchaseHistory, usePutItemSettings, usePutItemVendors } from './use-purchase';
@@ -343,6 +343,10 @@ function VendorsSection({ stockItemId, canEdit }: { stockItemId: string; canEdit
             <li key={row.key} className="grid gap-2 p-3 md:grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_auto] md:items-center">
               {canEdit && canSeeMasters ? (
                 <PartyPicker
+                  // A vendor is a party under Sundry Creditors (13 §1). Left
+                  // unfiltered this offered every customer too, so "Choose the
+                  // party" listed the people you sell to.
+                  parentGroup={PARTY_LEDGER_GROUPS.SUPPLIER}
                   id={`vendor-${row.key}`}
                   label={`Vendor ${String(index + 1)}`}
                   placeholder="Choose the party"

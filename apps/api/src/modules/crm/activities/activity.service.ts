@@ -9,6 +9,8 @@ import {
   type ActivityView,
   type CrmActivitySubject,
   type LogActivityInput,
+  REALTIME_RESOURCES,
+  type RealtimeResource,
 } from '@vyuha/shared';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
@@ -17,6 +19,7 @@ import { decodeCursor, encodeCursor } from '../../../platform/audit/audit-log.se
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { hasPermission, type Principal } from '../../../platform/rbac/principal.js';
+import { RealtimeService } from '../../../platform/realtime/realtime.service.js';
 import { CrmService } from '../contacts/crm.service.js';
 import { DealService } from '../deals/deal.service.js';
 
@@ -62,6 +65,7 @@ export class ActivityService {
     private readonly auditContext: AuditContext,
     private readonly crm: CrmService,
     private readonly deals: DealService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async log(principal: Principal, input: LogActivityInput): Promise<ActivityView> {
@@ -78,6 +82,12 @@ export class ActivityService {
       before: null,
       after: { kind: input.kind, body: input.body, occurredAt: occurredAt.toISOString(), subject: subject.label },
     });
+    this.announce(
+      principal,
+      input.subjectType === 'deal' ? REALTIME_RESOURCES.CRM_DEAL : REALTIME_RESOURCES.CRM_CONTACT,
+      'updated',
+      input.subjectId,
+    );
     // The row is written when the request completes; what is returned is the
     // entry as it will read, with the id the trail has not assigned yet.
     return {
@@ -126,6 +136,21 @@ export class ActivityService {
         throw AppError.validation('Unknown subject type.', { subjectType: type });
     }
   }
+
+  /**
+   * Tell everyone else's open screens. Never awaited and never able to throw:
+   * the record is written and audited by the time this runs, and a live
+   * update that fails must not turn a saved record into a failed request.
+   */
+  private announce(
+    principal: Principal,
+    resource: RealtimeResource,
+    action: 'created' | 'updated' | 'deleted',
+    recordId: string | null,
+  ): void {
+    this.realtime.publish(principal.orgId, { resource, action, recordId, actorUserId: principal.userId });
+  }
+
 }
 
 function toActivityView(row: AuditLogRow): ActivityView {
@@ -175,4 +200,5 @@ function systemBody(row: AuditLogRow): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+
 }

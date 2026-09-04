@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  type DealAttachmentView,
   DATA_SCOPES,
   DEAL_SORT_FIELDS,
   DEFAULT_DEAL_SORT,
@@ -21,15 +22,21 @@ import {
   type UpdateDealInput,
   type UpdatePipelineInput,
   type UpdatePipelineStageInput,
+  REALTIME_RESOURCES,
+  type RealtimeResource,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
+import { FileService } from '../../../platform/files/file.service.js';
+import { isAcceptedUpload, sniffType } from '../../../platform/files/magic-bytes.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { employees } from '../../../platform/db/schema/index.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { DealDocumentRegistry } from '../../../platform/deals/deal-document.registry.js';
+import { RealtimeService } from '../../../platform/realtime/realtime.service.js';
 import { CrmService } from '../contacts/crm.service.js';
 import { crmDeals } from '../schema/index.js';
 import { DealRepository, PipelineRepository } from './deal.repository.js';
@@ -50,6 +57,7 @@ const DEAL_GRANTS: ScopeGrants = {
 
 const SQL_TRUE = sql`true`;
 
+
 @Injectable()
 export class DealService {
   constructor(
@@ -57,6 +65,9 @@ export class DealService {
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
     private readonly crm: CrmService,
+    private readonly files: FileService,
+    private readonly realtime: RealtimeService,
+    private readonly dealDocuments: DealDocumentRegistry,
   ) {}
 
   // -------------------------------------------------------------- pipelines
@@ -84,6 +95,7 @@ export class DealService {
       before: null,
       after: { name: view.name, isDefault: view.isDefault },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'created', view.id);
     return view;
   }
 
@@ -114,6 +126,7 @@ export class DealService {
       before: { name: existing.name, isDefault: existing.isDefault },
       after: { name: view.name, isDefault: view.isDefault },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', id);
     return view;
   }
 
@@ -132,6 +145,7 @@ export class DealService {
       before: null,
       after: { pipelineId, ...stage },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
     return stage;
   }
 
@@ -181,6 +195,7 @@ export class DealService {
       before: { ...existing },
       after: { ...updated },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
     return updated;
   }
 
@@ -203,6 +218,7 @@ export class DealService {
       before: { order: pipeline.stages.map((s) => s.id) },
       after: { order: after.stages.map((s) => s.id) },
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
     return after;
   }
 
@@ -228,6 +244,7 @@ export class DealService {
       before: { ...existing },
       after: null,
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_PIPELINE, 'updated', pipelineId);
   }
 
   // ------------------------------------------------------------------ deals
@@ -240,7 +257,7 @@ export class DealService {
       limit,
       offset,
     });
-    return paginated(rows, query, total);
+    return paginated(await this.withPaperwork(principal.orgId, rows), query, total);
   }
 
   async board(principal: Principal, query: DealBoardQuery): Promise<DealBoardView> {
@@ -249,11 +266,20 @@ export class DealService {
       query.pipelineId === undefined ? await repository.defaultPipeline() : await repository.findWithStages(query.pipelineId);
     if (pipeline === null) throw AppError.notFound('Pipeline', query.pipelineId);
     const lanes = await this.deals(principal).board(this.scope(principal), { ...query, pipelineId: pipeline.id }, pipeline.stages);
+    // One call for the whole board rather than one per lane: the summariser
+    // is batched precisely so a six-stage board is one query, not six.
+    const decorated = await this.withPaperwork(principal.orgId, lanes.flatMap((lane) => lane.deals));
+    const byId = new Map(decorated.map((deal) => [deal.id, deal]));
     return {
       pipeline,
       lanes: pipeline.stages.map((stage) => {
         const lane = lanes.find((l) => l.stageId === stage.id);
-        return { stage, deals: lane?.deals ?? [], total: lane?.total ?? 0, valueTotal: lane?.valueTotal ?? '0' };
+        return {
+          stage,
+          deals: (lane?.deals ?? []).map((deal) => byId.get(deal.id) ?? deal),
+          total: lane?.total ?? 0,
+          valueTotal: lane?.valueTotal ?? '0',
+        };
       }),
     };
   }
@@ -261,7 +287,8 @@ export class DealService {
   async findDeal(principal: Principal, id: string): Promise<DealView> {
     const deal = await this.deals(principal).view(this.scope(principal), id);
     if (deal === null) throw AppError.notFound('Deal', id);
-    return deal;
+    const [decorated] = await this.withPaperwork(principal.orgId, [deal]);
+    return decorated ?? deal;
   }
 
   async createDeal(principal: Principal, input: CreateDealInput): Promise<DealView> {
@@ -290,6 +317,11 @@ export class DealService {
       expectedCloseDate: input.expectedCloseDate ?? null,
       ownerId,
       closedAt: stage.isWon || stage.isLost ? new Date() : null,
+      leadSource: input.leadSource ?? null,
+      priority: input.priority ?? null,
+      nextFollowUpDate: input.nextFollowUpDate ?? null,
+      competitor: input.competitor ?? null,
+      lossReason: input.lossReason ?? null,
       notes: input.notes ?? null,
     });
     const deal = await repository.view(SQL_TRUE, created.id);
@@ -301,6 +333,7 @@ export class DealService {
       before: null,
       after: dealAuditView(deal),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'created', deal.id);
     return deal;
   }
 
@@ -312,6 +345,11 @@ export class DealService {
     if (input.name !== undefined) patch.name = input.name;
     if (input.value !== undefined) patch.value = input.value;
     if (input.expectedCloseDate !== undefined) patch.expectedCloseDate = input.expectedCloseDate;
+    if (input.leadSource !== undefined) patch.leadSource = input.leadSource;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.nextFollowUpDate !== undefined) patch.nextFollowUpDate = input.nextFollowUpDate;
+    if (input.competitor !== undefined) patch.competitor = input.competitor;
+    if (input.lossReason !== undefined) patch.lossReason = input.lossReason;
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.companyId !== undefined || input.contactId !== undefined) {
       const companyId = input.companyId === undefined ? existing.companyId : input.companyId;
@@ -357,6 +395,7 @@ export class DealService {
       before: dealAuditView(existing),
       after: dealAuditView(deal),
     });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'updated', id);
     return deal;
   }
 
@@ -370,6 +409,45 @@ export class DealService {
       entityId: id,
       before: dealAuditView(existing),
       after: null,
+    });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'deleted', id);
+  }
+
+
+  /**
+   * Tell everyone else's open screens. Never awaited and never able to throw:
+   * the record is already written and audited by the time this runs, and a
+   * live update that fails must not turn a saved deal into a failed request.
+   */
+  private announce(
+    principal: Principal,
+    resource: RealtimeResource,
+    action: 'created' | 'updated' | 'deleted',
+    recordId: string,
+  ): void {
+    this.realtime.publish(principal.orgId, {
+      resource,
+      action,
+      recordId,
+      actorUserId: principal.userId,
+    });
+  }
+
+
+  /**
+   * Fill in what paperwork each deal has (REQ-U-12).
+   *
+   * One batched call for the whole page, through the platform registry the
+   * sales module registers into -- CRM may not import sales, and a deal at a
+   * time would be fifty round trips to paint a board.
+   */
+  private async withPaperwork(orgId: string, deals: DealView[]): Promise<DealView[]> {
+    if (deals.length === 0) return deals;
+    const summary = await this.dealDocuments.summarise(orgId, deals.map((deal) => deal.id));
+    if (summary.size === 0) return deals;
+    return deals.map((deal) => {
+      const paperwork = summary.get(deal.id);
+      return paperwork === undefined ? deal : { ...deal, ...paperwork };
     });
   }
 
@@ -418,6 +496,83 @@ export class DealService {
   private pipelines(principal: Principal): PipelineRepository {
     return new PipelineRepository(this.db, orgContextOf(principal));
   }
+
+  // ------------------------------------------------------------ attachments
+
+  /**
+   * REQ-U-05 (owner, 31 Aug 2026): a quote, a drawing, a site photograph.
+   *
+   * `find` first, so the deal's own scope decides whether this person may
+   * touch it at all -- an attachment is not a back door into a deal they
+   * cannot see. Images travel the punch pipeline (re-encoded, EXIF gone);
+   * everything else is sniffed by content, never by the name it arrived
+   * under.
+   */
+  async addAttachment(principal: Principal, dealId: string, file: { bytes: Buffer; filename: string }): Promise<DealAttachmentView> {
+    const deal = await this.findDeal(principal, dealId);
+    const isImage = isAcceptedUpload(sniffType(file.bytes));
+    const stored = isImage
+      ? await this.files.storeImage({ orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, pathSegments: [deal.id] })
+      : await this.files.storeUpload({ orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, filename: file.filename, pathSegments: [deal.id] });
+
+    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
+      INSERT INTO crm_deal_attachments (org_id, deal_id, file_id, filename, created_by, updated_by)
+      VALUES (${principal.orgId}, ${deal.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+      RETURNING id, created_at AS "createdAt"
+    `);
+    const row = inserted.rows[0];
+    if (row === undefined) throw new Error('Attachment insert returned no row.');
+    this.auditContext.record({
+      action: 'crm.deal.attachment_added',
+      entityType: 'crm_deal',
+      entityId: deal.id,
+      after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
+    });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'updated', deal.id);
+    return { id: row.id, fileId: stored.id, filename: file.filename, mime: stored.mime, bytes: stored.bytes, uploadedAt: new Date(row.createdAt).toISOString() };
+  }
+
+  async listAttachments(principal: Principal, dealId: string): Promise<DealAttachmentView[]> {
+    const deal = await this.findDeal(principal, dealId);
+    const rows = await this.db.execute<{ id: string; fileId: string; filename: string; mime: string; bytes: string | number; uploadedAt: string | Date }>(sql`
+      SELECT a.id, a.file_id AS "fileId", a.filename, f.mime, f.bytes, a.created_at AS "uploadedAt"
+      FROM crm_deal_attachments a JOIN files f ON f.id = a.file_id
+      WHERE a.org_id = ${principal.orgId} AND a.deal_id = ${deal.id} AND a.deleted_at IS NULL
+      ORDER BY a.created_at DESC
+    `);
+    return rows.rows.map((row) => ({ ...row, bytes: Number(row.bytes), uploadedAt: new Date(row.uploadedAt).toISOString() }));
+  }
+
+  /** A short-lived link, minted through the files policy (CRM_ATTACHMENT). */
+  async attachmentUrl(principal: Principal, dealId: string, attachmentId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const attachments = await this.listAttachments(principal, dealId);
+    const found = attachments.find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    return this.files.signedUrlFor(principal, found.fileId);
+  }
+
+  /**
+   * Soft delete, like every other record here. The file row is left alone:
+   * `files` is what the retention job sweeps, and unpicking storage from
+   * under a row somebody may still be reading is not this method's business.
+   */
+  async removeAttachment(principal: Principal, dealId: string, attachmentId: string): Promise<void> {
+    const attachments = await this.listAttachments(principal, dealId);
+    const found = attachments.find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    await this.db.execute(sql`
+      UPDATE crm_deal_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
+      WHERE org_id = ${principal.orgId} AND id = ${attachmentId}
+    `);
+    this.auditContext.record({
+      action: 'crm.deal.attachment_removed',
+      entityType: 'crm_deal',
+      entityId: dealId,
+      before: { filename: found.filename },
+    });
+    this.announce(principal, REALTIME_RESOURCES.CRM_DEAL, 'updated', dealId);
+  }
+
 }
 
 function dealAuditView(deal: DealView): Record<string, unknown> {
@@ -434,4 +589,5 @@ function dealAuditView(deal: DealView): Record<string, unknown> {
     status: deal.status,
     notes: deal.notes,
   };
+
 }

@@ -154,9 +154,30 @@ export default defineConfig({
         // recharts and per-route icons stay in the lazy route chunks that
         // use them (a manual "charts" chunk was preloaded eagerly, defeating
         // the split, so it is left to automatic splitting).
+        //
+        // Everything the shell touches is named into a handful of chunks
+        // because Rollup's automatic split is per-*module* for anything two
+        // lazy routes share: 94 lazy routes all importing Spinner, Tooltip
+        // and useControlled produced 149 separate preloaded files. Boot is
+        // then bound by request count rather than bytes -- measured cold,
+        // 156 requests took 722ms at 20ms of latency and 3475ms at 120ms,
+        // for the same 1.19 MB. These rules trade nothing away: every one of
+        // those files was already fetched before first paint.
         manualChunks(id: string) {
-          if (!id.includes("node_modules")) return undefined
+          if (!id.includes("node_modules")) {
+            // Forward slashes are safe to match on: Vite normalises ids.
+            if (id.includes("/src/components/ui/") || id.includes("/src/components/shared/")) return "ui"
+            if (id.includes("/src/lib/") || id.includes("/src/hooks/")) return "app-lib"
+            return undefined
+          }
           if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id) || id.includes("@tanstack")) return "react-vendor"
+          // No vendor rule for the UI primitives. One was written here
+          // spelled `@base-ui-components`, which is not what the package is
+          // called, so it matched nothing; spelled correctly as `@base-ui/`
+          // it matches and changes nothing, because Rollup folds a chunk
+          // whose only importer is `ui` back into it. Measured both ways:
+          // 5 preloaded files and 1.58 MB either side. A rule that cannot
+          // move a byte is worse than no rule -- it reads like a decision.
           return undefined
         },
       },

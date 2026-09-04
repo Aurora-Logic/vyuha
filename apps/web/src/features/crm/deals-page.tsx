@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { RecordPresence } from '@/components/shared/presence-avatars';
 import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
 import { PageHeader } from '@/components/shared/page-header';
@@ -22,10 +23,11 @@ import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
-import { DEAL_STATUSES, PERMISSIONS, type DealStatusFilter } from '@vyuha/shared';
+import { DEAL_STATUSES, PERMISSIONS, REALTIME_RESOURCES, type DealStatusFilter } from '@vyuha/shared';
 
 import { DealSheet } from './deal-sheet';
 import { PipelineSheet } from './pipeline-sheet';
@@ -82,6 +84,13 @@ const COLUMNS: RecordColumn<Deal>[] = [
       <span className="flex items-center gap-2">
         <span className="font-medium">{row.name}</span>
         {row.status === 'won' ? <Badge>Won</Badge> : row.status === 'lost' ? <Badge variant="outline">Lost</Badge> : null}
+        {/* REQ-U-12: where the deal has got to in paperwork, which is not
+            the same question as which stage it sits in. */}
+        {row.hasInvoice ? <Badge variant="secondary">Invoiced</Badge> : row.hasOrder ? <Badge variant="outline">Ordered</Badge> : null}
+        {/* REQ-U-10 in the list as well as the board. The list is the view
+            this screen opens in, so presence that only appeared on the board
+            was presence most people would never see. */}
+        <RecordPresence resource={REALTIME_RESOURCES.CRM_DEAL} recordId={row.id} />
       </span>
     ),
   },
@@ -135,22 +144,7 @@ export function DealsPage() {
   const ownerParam = searchParams.get('owner') ?? '';
   const stageParam = searchParams.get('stage') ?? '';
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setParam('q', draft.trim() || null);
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setParam is stable in effect
-  }, [draft, q]);
+  const [draft, setDraft] = useSearchDraft();
 
   function setParam(name: string, value: string | null) {
     setSearchParams(
@@ -455,8 +449,21 @@ export function DealsPage() {
             itemLabel={(deal) => deal.name}
             renderItem={(deal) => (
               <>
-                <span className={cn('font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
-                <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
+                {/* The task card's shape, applied here: the title owns its
+                    row with presence at the end of it, and every property sits
+                    on its own line under it. A wrapped ribbon of properties
+                    makes the reader hunt along a line; a column is read at a
+                    glance, which is the whole of why a Notion card works. */}
+                <span className="flex min-w-0 items-start gap-2">
+                  <span className={cn('min-w-0 flex-1 font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
+                  {deal.hasInvoice ? (
+                    <Badge variant="secondary" className="shrink-0">Invoiced</Badge>
+                  ) : deal.hasOrder ? (
+                    <Badge variant="outline" className="shrink-0">Ordered</Badge>
+                  ) : null}
+                  <RecordPresence resource={REALTIME_RESOURCES.CRM_DEAL} recordId={deal.id} />
+                </span>
+                <span className="text-muted-foreground flex flex-col items-start gap-1 text-xs font-normal">
                   {deal.companyName === null ? null : (
                     <span className="flex min-w-0 items-center gap-1">
                       <BuildingsIcon className="shrink-0" />

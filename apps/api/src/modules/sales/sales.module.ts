@@ -4,6 +4,7 @@ import { CustomerNoticeService } from './dispatch/customer-notice.service.js';
 
 import { EstimateGoToSource } from './estimates/estimate-goto.source.js';
 import { EstimateController } from './estimates/estimate.controller.js';
+import { DealPaperworkSummariser } from './estimates/deal-paperwork.summariser.js';
 import { EstimateService } from './estimates/estimate.service.js';
 import { SalesOrderController } from './orders/sales-order.controller.js';
 import { SalesOrderService } from './orders/sales-order.service.js';
@@ -32,6 +33,6 @@ import './schema/constraint-messages.js';
 @Module({
   imports: [ApprovalModule, CollectionsModule],
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController, ReturnController],
-  providers: [CustomerNoticeService, EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource, ReturnService],
+  providers: [CustomerNoticeService, DealPaperworkSummariser, EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource, ReturnService],
 })
 export class SalesModule {}

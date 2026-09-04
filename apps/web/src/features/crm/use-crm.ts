@@ -118,23 +118,6 @@ export function useCompany(id: string | null): UseQueryResult<Company, Error> {
 }
 
 /**
- * The company picker's options: the first two hundred by name, which is
- * every company a prospect list of this size has. Under the `crm` root so a
- * company created from the contact form appears in the picker at once.
- */
-export function useCompanyOptions(options: { enabled?: boolean } = {}): UseQueryResult<Company[], Error> {
-  return useQuery({
-    enabled: options.enabled ?? true,
-    queryKey: ['crm', 'companies', 'options'],
-    queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>('/crm/companies?pageSize=200', { signal });
-      return parseOrThrow(companiesResponseSchema, body, 'company list').data;
-    },
-    staleTime: 5 * 60_000,
-  });
-}
-
-/**
  * REQ-U-08. Asked as the phone and email fields settle, and only once either
  * is long enough to be a real value — the server refuses shorter, and asking
  * would only paint an error where a warning belongs.

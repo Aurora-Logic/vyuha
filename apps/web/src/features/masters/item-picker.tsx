@@ -32,6 +32,8 @@ interface ItemPickerProps {
   /** The whole row on a fresh pick, null on clear. */
   onValueChange: (item: StockItem | null) => void;
   label: string;
+  /** Render the label above the control, as a field rather than a bare trigger. */
+  showLabel?: boolean;
   placeholder: string;
   searchPlaceholder?: string;
   emptyMessage?: string;
@@ -47,6 +49,7 @@ export function ItemPicker({
   value,
   onValueChange,
   label,
+  showLabel = false,
   placeholder,
   searchPlaceholder = 'Search stock items',
   emptyMessage,
@@ -75,6 +78,7 @@ export function ItemPicker({
       id={id}
       icon={icon}
       label={label}
+      showLabel={showLabel}
       placeholder={placeholder}
       searchPlaceholder={searchPlaceholder}
       emptyMessage={emptyMessage}

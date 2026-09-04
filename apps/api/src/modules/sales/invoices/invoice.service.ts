@@ -113,6 +113,9 @@ export class InvoiceService implements OnModuleInit {
       // total that counted only those, so a short list and a small number
       // agreed with each other and both were wrong.
       sourceDocumentId: query.sourceDocumentId,
+      // REQ-U-12: the deal it was ultimately raised for, so a deal can tell
+      // whether it has been invoiced.
+      dealId: query.dealId,
       sort: parseSortSafe(query.sort),
       limit,
       offset,

@@ -1,6 +1,7 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
   NOTIFICATION_EVENTS,
+  PARTY_LEDGER_GROUPS,
   PERMISSIONS,
   PUSH_KIND_VOUCHER_TYPE,
   pageSlice,
@@ -740,6 +741,19 @@ export class PurchaseOrderService implements OnModuleInit {
     const rows = await this.db.execute<{ name: string; parent_group: string }>(sql`SELECT name, parent_group FROM parties WHERE org_id = ${orgId} AND id = ${partyId}`);
     const row = rows.rows[0];
     if (row === undefined) throw AppError.validation('The vendor was not found among the parties.', { partyId });
+    /*
+     * A vendor is a party under Sundry Creditors (13 §1). The group was
+     * already selected here and only the name was read, so a customer id
+     * posted straight at this endpoint became the vendor on a purchase
+     * order -- and the pickers offered exactly that, because none of them
+     * filtered either. The pickers are a convenience; this is the check.
+     */
+    if (row.parent_group !== PARTY_LEDGER_GROUPS.SUPPLIER) {
+      throw AppError.validation('A vendor must be a party under Sundry Creditors.', {
+        partyId,
+        parentGroup: row.parent_group,
+      });
+    }
     return row.name;
   }
 

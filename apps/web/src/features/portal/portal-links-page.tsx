@@ -4,7 +4,6 @@ import { Link } from 'react-router';
 
 import { StatusBadge } from '@/components/shared/status-badge';
 import { PageHeader } from '@/components/shared/page-header';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { SearchField } from '@/components/shared/search-field';
@@ -18,10 +17,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, PORTAL_KEY_DAYS, PORTAL_KEY_STATE_LABELS, type PortalKeyView } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS, PORTAL_KEY_DAYS, PORTAL_KEY_STATE_LABELS, type PortalKeyView } from '@vyuha/shared';
 
 import { useIssuePortalKey, usePortalKeys, useRevokePortalKey } from './use-portal';
 
@@ -44,7 +43,6 @@ export function PortalLinksPage() {
   const canReadReceivables = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
   const canSee = canManage || canReadReceivables;
   const keys = usePortalKeys(null, { enabled: canSee });
-  const parties = useParties({ page: 1, pageSize: 200 }, { enabled: canManage });
   const issue = useIssuePortalKey();
   const revoke = useRevokePortalKey();
   const [partyId, setPartyId] = useState<string | null>(null);
@@ -74,8 +72,6 @@ export function PortalLinksPage() {
   }
 
   const rows = (keys.data ?? []).filter((key) => q.trim() === '' || key.partyName.toLowerCase().includes(q.trim().toLowerCase()));
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, hint: p.parentGroup }));
-  const chosen = partyOptions.find((o) => o.id === partyId) ?? null;
 
   const columns: RecordColumn<PortalKeyView>[] = [
     {
@@ -118,18 +114,16 @@ export function PortalLinksPage() {
 
       {canManage ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <RecordPicker
+          <PartyPicker
             id="portal-party"
             label="Customer"
             showLabel
             className="sm:w-72"
             placeholder="Choose a customer"
-            searchPlaceholder="Search parties"
-            emptyMessage="No party matches."
+            parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
+            enabled={canManage}
             icon={<BooksIcon className="text-muted-foreground" />}
-            options={partyOptions}
-            loading={parties.isPending}
-            value={chosen}
+            partyId={partyId}
             onValueChange={(next) => {
               setPartyId(next?.id ?? null);
             }}

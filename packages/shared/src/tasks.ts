@@ -55,6 +55,82 @@ export interface TaskBoardColumnView {
   readonly isDone: boolean;
 }
 
+/**
+ * One stock item on a task, with what is being asked for.
+ *
+ * It used to be a name alone, on the reasoning that a task carrying amounts is
+ * a sales order wearing the wrong name. REQ-V-17 (owner, 2 Sep 2026) asks for
+ * the opposite and gives the reason: an order is placed standing in front of
+ * the customer, and a sales order is a document you sit down to write. So a
+ * task holds what was agreed -- quantity, rate, discount -- and converting it
+ * writes the document.
+ *
+ * It stays a *draft*: nothing here reserves stock, numbers a document or
+ * reaches Tally. Sales still owns that, which is what conversion is for.
+ *
+ * Every amount is exact decimal text, never a float, and the validators are
+ * the ones `sales.ts` uses on a real line -- so a line that passes here cannot
+ * be refused by the document it becomes.
+ */
+export interface TaskItemView {
+  readonly itemId: string;
+  readonly itemName: string;
+  readonly quantity: string;
+  /** Null until somebody prices it: an enquiry is a real state. */
+  readonly rate: string | null;
+  readonly discountPct: string;
+  /** quantity x rate, less the discount. Null when there is no rate yet. */
+  readonly amount: string | null;
+}
+
+const taskQuantityText = z
+  .string()
+  .trim()
+  .regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity with up to three decimals');
+const taskMoneyText = z
+  .string()
+  .trim()
+  .regex(/^\d{1,14}(\.\d{1,2})?$/u, 'a number with up to two decimals');
+const taskPercentText = z
+  .string()
+  .trim()
+  .regex(/^(100(\.0{1,2})?|\d{1,2}(\.\d{1,2})?)$/u, 'a percentage from 0 to 100');
+
+export const taskItemInputSchema = z.object({
+  itemId: z.uuid(),
+  quantity: taskQuantityText.default('1'),
+  rate: taskMoneyText.nullish(),
+  discountPct: taskPercentText.default('0'),
+});
+export type TaskItemInput = z.infer<typeof taskItemInputSchema>;
+
+/**
+ * One line's amount, as exact decimal text.
+ *
+ * Rounded to two decimals at the line, which is where a document rounds, so
+ * the total a person reads on the task is the total the sales order will show.
+ * Integer paise throughout: `0.1 + 0.2` is not `0.3`, and this is money.
+ */
+export function taskLineAmount(quantity: string, rate: string | null, discountPct: string): string | null {
+  if (rate === null || rate === undefined) return null;
+  const qtyMilli = Math.round(Number(quantity) * 1000);
+  const ratePaise = Math.round(Number(rate) * 100);
+  const discBasis = Math.round(Number(discountPct) * 100);
+  if (!Number.isFinite(qtyMilli) || !Number.isFinite(ratePaise) || !Number.isFinite(discBasis)) return null;
+  const grossMilliPaise = qtyMilli * ratePaise;
+  const netMilliPaise = grossMilliPaise - Math.round((grossMilliPaise * discBasis) / 10_000);
+  const paise = Math.round(netMilliPaise / 1000);
+  return (paise / 100).toFixed(2);
+}
+
+/** What the task's order comes to, or null when nothing on it is priced. */
+export function taskOrderTotal(items: readonly TaskItemView[]): string | null {
+  const priced = items.filter((item) => item.amount !== null);
+  if (priced.length === 0) return null;
+  const paise = priced.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0);
+  return (paise / 100).toFixed(2);
+}
+
 export interface TaskView {
   readonly id: string;
   readonly title: string;
@@ -63,6 +139,32 @@ export interface TaskView {
   readonly subjectId: string | null;
   /** The subject's name at the time it was attached; the client routes by type + id. */
   readonly subjectLabel: string | null;
+  /**
+   * REQ-V-09: the customer and the supplier this task is about.
+   *
+   * Both, and separately: "chase Sanghvi for the coupler Acme is waiting on"
+   * names a vendor and a party at once, and they are not the same slot. The
+   * name is the snapshot taken when it was chosen, so a register of hundreds
+   * of rows never joins the projection to print a word.
+   */
+  readonly partyId: string | null;
+  readonly partyName: string | null;
+  readonly vendorId: string | null;
+  readonly vendorName: string | null;
+  /** REQ-V-10: the stock items this task is about, in the order they were added. */
+  readonly items: readonly TaskItemView[];
+  /**
+   * REQ-V-12: how many files are on it. A count, not the list: a register of
+   * a hundred rows wants a paperclip and a number, and the sheet fetches the
+   * names when somebody actually opens the task.
+   */
+  readonly attachmentCount: number;
+  /**
+   * The earliest image on the task, for the gallery to lead with. Null when
+   * nothing is attached or nothing attached is a picture -- a gallery card
+   * with no cover is a card, not a broken image.
+   */
+  readonly coverAttachmentId: string | null;
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
   readonly ownerId: string | null;
@@ -90,6 +192,10 @@ export const taskFilterSchema = z.object({
   due: z.enum(TASK_DUE_FILTERS).optional(),
   subjectType: subjectTypeField.optional(),
   subjectId: z.uuid().optional(),
+  /** Every task about one customer, or one supplier, or naming one item. */
+  partyId: z.uuid().optional(),
+  vendorId: z.uuid().optional(),
+  itemId: z.uuid().optional(),
   /** Closed tasks are hidden unless asked for; `due` other than `open` implies open. */
   includeClosed: z.coerce.boolean().optional(),
 });
@@ -117,6 +223,12 @@ export interface TaskBoardView {
 /** How many cards a lane carries before it says "and N more" (REQ-V-04's board is a rendering, not a report). */
 export const TASK_BOARD_LANE_CAP = 100;
 
+/**
+ * How many items one task may name. A task listing thirty items is a picking
+ * list, and this product has one of those already.
+ */
+export const TASK_ITEM_CAP = 20;
+
 const titleField = z.string().trim().min(1).max(200);
 const descriptionField = z.string().trim().max(4000);
 
@@ -128,6 +240,12 @@ export const createTaskSchema = z
     subjectId: z.uuid().nullish(),
     /** Defaults to the creator; a `manage` holder may assign anyone in the organisation. */
     assigneeId: z.uuid().nullish(),
+    /** REQ-V-09: a Tally party under Sundry Debtors. */
+    partyId: z.uuid().nullish(),
+    /** REQ-V-09: a Tally party under Sundry Creditors. */
+    vendorId: z.uuid().nullish(),
+    /** REQ-V-10, REQ-V-17: the items and what is being asked for. Order is kept; a repeat is a slip, not a quantity. */
+    items: z.array(taskItemInputSchema).max(TASK_ITEM_CAP).optional(),
     dueDate: z.iso.date().nullish(),
     priority: taskPrioritySchema.default('MEDIUM'),
     /** Defaults to the first column. */
@@ -146,6 +264,10 @@ export const updateTaskSchema = z
     subjectType: subjectTypeField.nullish(),
     subjectId: z.uuid().nullish(),
     assigneeId: z.uuid().nullish(),
+    partyId: z.uuid().nullish(),
+    vendorId: z.uuid().nullish(),
+    /** The whole list, or absent to leave it alone. An empty array clears it. */
+    items: z.array(taskItemInputSchema).max(TASK_ITEM_CAP).optional(),
     dueDate: z.iso.date().nullish(),
     priority: taskPrioritySchema.optional(),
     /** REQ-V-06: a drag is this field changing, and nothing else. */
@@ -183,3 +305,114 @@ export const DEFAULT_BOARD_COLUMNS: readonly { name: string; isDone: boolean }[]
   { name: 'In progress', isDone: false },
   { name: 'Done', isDone: true },
 ];
+
+/**
+ * REQ-V-11: the task dashboard.
+ *
+ * Aggregated on the server under the same scope the register applies -- a
+ * self-scoped viewer's totals must equal the totals of the tasks their own
+ * list would show, or the dashboard becomes a way to learn how much work
+ * exists that you are not allowed to see.
+ */
+export const taskAnalyticsQuerySchema = z.object({
+  /** How many weeks of raised-and-closed history to plot, including this one. */
+  weeks: z.coerce.number().int().min(4).max(26).default(8),
+});
+
+export type TaskAnalyticsQuery = z.infer<typeof taskAnalyticsQuerySchema>;
+
+export interface TaskColumnLoad {
+  readonly columnId: string;
+  readonly columnName: string;
+  readonly sortOrder: number;
+  readonly isDone: boolean;
+  readonly count: number;
+}
+
+export interface TaskAssigneeLoad {
+  readonly assigneeId: string | null;
+  readonly assigneeName: string | null;
+  readonly openCount: number;
+  readonly overdueCount: number;
+}
+
+export interface TaskFlowWeek {
+  /** The Monday of the week, `YYYY-MM-DD`, in the organisation's timezone. */
+  readonly weekStart: string;
+  readonly raised: number;
+  readonly closed: number;
+}
+
+/**
+ * How long the open work has been open (REQ-V-11).
+ *
+ * The backlog's age is the question a count of it cannot answer: seventeen
+ * open is fine if they arrived this week and a problem if nine have been
+ * sitting a month. The buckets are fixed rather than configurable because a
+ * comparison is only readable when everyone is reading the same buckets.
+ */
+export const TASK_AGE_BUCKETS = ['WEEK', 'FORTNIGHT', 'MONTH', 'OLDER'] as const;
+export type TaskAgeBucket = (typeof TASK_AGE_BUCKETS)[number];
+
+export const TASK_AGE_BUCKET_LABELS: Record<TaskAgeBucket, string> = {
+  WEEK: 'Under a week',
+  FORTNIGHT: '1 to 2 weeks',
+  MONTH: '2 to 4 weeks',
+  OLDER: 'Over a month',
+};
+
+export interface TaskAgeLoad {
+  readonly bucket: TaskAgeBucket;
+  readonly openCount: number;
+  /** Of those, past their due date. */
+  readonly overdueCount: number;
+}
+
+/** Open tasks per customer: which account is actually generating the work. */
+export interface TaskCustomerLoad {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly openCount: number;
+  readonly overdueCount: number;
+}
+
+export interface TaskAnalyticsView {
+  readonly totals: {
+    readonly open: number;
+    readonly overdue: number;
+    readonly dueToday: number;
+    readonly dueThisWeek: number;
+    readonly unassigned: number;
+    readonly closedInPeriod: number;
+    /** Mean days from raising to closing, for what closed in the period; null when nothing did. */
+    readonly avgDaysToClose: number | null;
+  };
+  readonly columns: readonly TaskColumnLoad[];
+  readonly assignees: readonly TaskAssigneeLoad[];
+  readonly priorities: readonly { readonly priority: TaskPriority; readonly openCount: number }[];
+  readonly flow: readonly TaskFlowWeek[];
+  readonly ageing: readonly TaskAgeLoad[];
+  readonly customers: readonly TaskCustomerLoad[];
+}
+
+/**
+ * Below this many closed tasks, a mean time-to-close is one slow task
+ * wearing a statistic's clothes.
+ */
+export const MIN_CLOSED_FOR_AVERAGE = 5;
+
+/**
+ * REQ-V-12: a document or photograph on a task — the deal attachment's shape,
+ * because the need is the same one. `bytes` is a number and not text: it is a
+ * file size shown as "2.1 MB", never money.
+ */
+export interface TaskAttachmentView {
+  readonly id: string;
+  readonly fileId: string;
+  readonly filename: string;
+  readonly mime: string;
+  readonly bytes: number;
+  readonly uploadedAt: string;
+  /** Who put it there, as a colleague reads it. */
+  readonly uploadedByName: string | null;
+}

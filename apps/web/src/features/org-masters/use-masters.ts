@@ -9,8 +9,7 @@ import {
 
 import { parseOrThrow } from '@/features/attendance/api';
 import { apiRequest } from '@/lib/api/client';
-import { employeeDisplayName, type Paginated } from '@vyuha/shared';
-import { z } from 'zod';
+import { type Paginated } from '@vyuha/shared';
 
 import {
   departmentListSchema,
@@ -105,50 +104,6 @@ export function useLocationList(
 }
 
 // ------------------------------------------------------------------ pickers
-
-export interface EmployeeOption {
-  id: string;
-  name: string;
-  employeeCode: string;
-}
-
-const employeeOptionsSchema = z.object({
-  data: z.array(
-    z.object({
-      id: z.string(),
-      firstName: z.string(),
-      lastName: z.string().nullable(),
-      employeeCode: z.string(),
-    }),
-  ),
-});
-
-/**
- * Active employees, for the "head of department" and "reports to" pickers.
- *
- * Only active people are offered. A department headed by somebody who left is
- * a data-entry accident rather than a state anyone wants, and REQ-A-05 keeps
- * the leaver's history without keeping them selectable.
- */
-export function useEmployeeOptions(
-  options: { enabled?: boolean } = {},
-): UseQueryResult<EmployeeOption[], Error> {
-  return useQuery({
-    enabled: options.enabled ?? true,
-    queryKey: ['employees', 'options'],
-    queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>('/employees?pageSize=200&status=ACTIVE', { signal });
-      const parsed = parseOrThrow(employeeOptionsSchema, body, 'employee list');
-      return parsed.data.map((row) => ({
-        id: row.id,
-        name: employeeDisplayName(row.firstName, row.lastName),
-        employeeCode: row.employeeCode,
-      }));
-    },
-    // People change a few times a month, and three forms open this list.
-    staleTime: 5 * 60_000,
-  });
-}
 
 // ------------------------------------------------------------------- writes
 

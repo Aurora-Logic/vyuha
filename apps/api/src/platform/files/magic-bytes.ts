@@ -151,3 +151,52 @@ export const ACCEPTED_UPLOAD_MIMES: ReadonlySet<string> = new Set(['image/jpeg',
 export function isAcceptedUpload(sniffed: SniffedType | null): boolean {
   return sniffed !== null && ACCEPTED_UPLOAD_MIMES.has(sniffed.mime);
 }
+
+/**
+ * What a CRM attachment may be (owner, 31 Aug 2026: documents and images).
+ *
+ * Images travel the punch pipeline, which re-encodes them. The document half
+ * is sniffed the same way everything else here is: a PDF by its `%PDF-`
+ * header, and an Office file by what it actually is -- a ZIP whose first
+ * entry is `[Content_Types].xml`, the marker every OOXML file carries. The
+ * extension is never the evidence; a `.docx` that is really a zip of
+ * something else fails this check, which is the point of doing it.
+ */
+export const OOXML_MIME = 'application/vnd.openxmlformats-officedocument';
+
+/** True when a ZIP is an OOXML container (docx, xlsx, pptx). */
+export function isOoxmlContainer(input: Buffer): boolean {
+  // Local file header: signature(4) version(2) flags(2) method(2) time(4)
+  // crc(4) sizes(8) then nameLength(2) at offset 26, the name from offset 30.
+  if (input.length < 38) return false;
+  const nameLength = input.readUInt16LE(26);
+  if (nameLength <= 0 || input.length < 30 + nameLength) return false;
+  return input.subarray(30, 30 + nameLength).toString('latin1') === '[Content_Types].xml';
+}
+
+export interface AcceptedDocument {
+  readonly mime: string;
+  readonly extension: string;
+  readonly label: string;
+}
+
+/**
+ * The non-image half of a CRM attachment, or null when the bytes are not
+ * something this product agreed to store.
+ */
+export function sniffDocument(input: Buffer, filename: string): AcceptedDocument | null {
+  const sniffed = sniffType(input);
+  if (sniffed === null) return null;
+  if (sniffed.mime === 'application/pdf') {
+    return { mime: sniffed.mime, extension: 'pdf', label: sniffed.label };
+  }
+  if (sniffed.mime === 'application/zip' && isOoxmlContainer(input)) {
+    // Which Office file it is comes from the name, but only after the bytes
+    // proved it is an Office file at all.
+    const extension = /\.(docx|xlsx|pptx)$/iu.exec(filename)?.[1]?.toLowerCase();
+    if (extension === undefined) return null;
+    const suffix = extension === 'docx' ? 'wordprocessingml.document' : extension === 'xlsx' ? 'spreadsheetml.sheet' : 'presentationml.presentation';
+    return { mime: `${OOXML_MIME}.${suffix}`, extension, label: `Office ${extension.toUpperCase()} document` };
+  }
+  return null;
+}

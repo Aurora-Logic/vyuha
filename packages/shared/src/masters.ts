@@ -232,3 +232,20 @@ export interface VoucherTypeFacet {
   readonly voucherType: string;
   readonly count: number;
 }
+
+/**
+ * The two Tally ledger groups this product treats as trading partners,
+ * verbatim (08 §3).
+ *
+ * Here rather than as a literal on each side, because both ends now check
+ * them: the server refuses a Sundry Debtor in a task's vendor field
+ * (REQ-V-09), and the picker that offers the choice must filter by exactly
+ * the same string or it offers choices that cannot be saved. They are
+ * Tally's words and are not ours to rename.
+ */
+export const PARTY_LEDGER_GROUPS = {
+  CUSTOMER: 'Sundry Debtors',
+  SUPPLIER: 'Sundry Creditors',
+} as const;
+
+export type PartyLedgerGroup = (typeof PARTY_LEDGER_GROUPS)[keyof typeof PARTY_LEDGER_GROUPS];

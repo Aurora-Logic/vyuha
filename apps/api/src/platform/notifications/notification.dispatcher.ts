@@ -141,6 +141,33 @@ export class NotificationDispatcher {
     );
   }
 
+  /**
+   * The same emit, for callers whose work is already committed.
+   *
+   * Found live, 31 Aug 2026: a task saved, its audit row was written, and
+   * then the notification enqueue timed out against a Redis blip -- so the
+   * screen said "Saving the task failed" about a task that exists, and the
+   * obvious retry made a second one. A notice is a courtesy; the record is
+   * the point. Once the record is committed, a failure to tell somebody is
+   * logged and swallowed, because the alternative is losing the work or
+   * lying about it.
+   *
+   * Not the behaviour of `emit` itself: a caller inside a job wants the
+   * throw, so its retry can carry the notice.
+   */
+  async emitAfterCommit(event: NotificationEvent): Promise<void> {
+    try {
+      await this.emit(event);
+    } catch (error) {
+      this.logger.warn({
+        msg: 'Notification could not be queued; the work it describes is committed',
+        eventType: event.type,
+        orgId: event.orgId,
+        error: describeError(error),
+      });
+    }
+  }
+
   /** True the first time this organisation claims this key, false after. */
   private async claimIdempotencyKey(orgId: string, key: string): Promise<boolean> {
     const claimed = await this.db.execute<{ key: string }>(sql`

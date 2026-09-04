@@ -35,15 +35,15 @@ import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import type { Metric } from './api';
 import { MetricChart } from './metric-card';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { ExportButton } from './export-button';
+import { PeriodRangeField } from './period-field';
 import { deltaText, useSalesAnalysis, useTiers, type BreakdownRowData, type SalesAnalysisData, type SalesScope } from './use-cfo';
 
 /**
@@ -180,20 +180,7 @@ export function SalesAnalysisPage() {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setParams((p) => {
-                p.set('from', from);
-                p.set('to', to);
-              });
-            }}
-          />
+          <PeriodRangeField range={range} />
           {/* P6: the class as a slicer, membership as of the window's end. */}
           <Select
             value={scope.class ?? '__all__'}

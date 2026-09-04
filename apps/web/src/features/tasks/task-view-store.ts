@@ -7,7 +7,14 @@ import { persist } from 'zustand/middleware';
  * bottom-bar store: it belongs to this person on this device and losing it
  * costs one click.
  */
-export type TaskViewMode = 'list' | 'board';
+export type TaskViewMode = 'list' | 'board' | 'calendar' | 'gallery' | 'timeline';
+
+/** Every mode, in the order the switcher offers them. */
+export const TASK_VIEW_MODES = ['list', 'board', 'calendar', 'gallery', 'timeline'] as const;
+
+export function isTaskViewMode(value: string | null): value is TaskViewMode {
+  return value !== null && (TASK_VIEW_MODES as readonly string[]).includes(value);
+}
 
 interface TaskViewState {
   defaultView: TaskViewMode;

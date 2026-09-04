@@ -263,6 +263,20 @@ export interface JobPayloads {
     /** `YYYY-MM-DD`. Omitted means yesterday, per organisation. */
     readonly date?: string;
   };
+  /**
+   * Mark absent: after the closeout, every employee who was expected to work
+   * yesterday and has no attendance day at all -- never punched in or out --
+   * gets their day computed, which the engine resolves to ABSENT (or the right
+   * rest-day status for a holiday, weekly off or approved leave). The closeout
+   * only recomputes days that already carry an IN, so without this a no-show
+   * has no row and never reads as absent anywhere.
+   *
+   * `date` is a backfill hook, as on the closeout; the scheduler never sets it,
+   * so the routine run sweeps the day just ended in each organisation's zone.
+   */
+  'mark-absent': {
+    readonly date?: string;
+  };
 }
 
 export type JobName = keyof JobPayloads;
@@ -291,6 +305,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'expire-comp-off': QUEUES.LEAVE,
   'send-punch-reminders': QUEUES.NOTIFICATION,
   'sweep-missing-out': QUEUES.ATTENDANCE,
+  'mark-absent': QUEUES.ATTENDANCE,
 };
 
 /**
@@ -446,4 +461,5 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // After the closeout: whoever still has no attendance day for yesterday never
   // punched, so the engine marks them ABSENT. 01:30 leaves the closeout its
   // fifteen minutes and stays ahead of the 02:00 escalation sweep.
+  { schedulerId: 'attendance:mark-absent', jobName: 'mark-absent', pattern: '30 1 * * *' },
 ];

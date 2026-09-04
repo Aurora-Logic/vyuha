@@ -26,15 +26,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { useMe } from '@/lib/session/use-session';
 
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { ExportButton } from './export-button';
+import { PeriodRangeField } from './period-field';
 import { deltaText, saveTarget, useLeague, useTargets, type LeagueRowData } from './use-cfo';
 
 /**
@@ -208,7 +208,7 @@ export function TeamPage() {
   const canTeam = usePermission(PERMISSIONS.CFO_TEAM_VIEW);
   const me = useMe().data;
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const league = useLeague(range, { enabled: canView });
   const [targetsOpen, setTargetsOpen] = useState(false);
@@ -256,25 +256,7 @@ export function TeamPage() {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const params = new URLSearchParams(current);
-                  params.set('from', from);
-                  params.set('to', to);
-                  return params;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)} vs the same days last year
           </span>

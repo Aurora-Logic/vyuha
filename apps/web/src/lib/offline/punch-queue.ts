@@ -217,10 +217,6 @@ export function queuedHours(entry: QueuedPunch, now: number = Date.now()): numbe
   return (now - Date.parse(entry.queuedAt)) / 3_600_000;
 }
 
-export function isPastSyncDeadline(entry: QueuedPunch, now: number = Date.now()): boolean {
-  return queuedHours(entry, now) >= MAX_AGE_HOURS;
-}
-
 /**
  * True while there is still time to fix it. Warning at 36 hours rather than at
  * 48 is the difference between "get online today" and "raise a regularization",

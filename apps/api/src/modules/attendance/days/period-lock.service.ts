@@ -123,7 +123,7 @@ export class PeriodLockService {
     // permission rather than by role (PRD §2), and it deliberately includes
     // whoever pressed the button: a second administrator watching the same
     // month must not learn about it later than the first.
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.PERIOD_LOCKED,
       audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_LOCK },
@@ -181,7 +181,7 @@ export class PeriodLockService {
     // likely to surprise somebody who has already exported it, and "unlocked"
     // with no explanation is the version of this notification that generates a
     // phone call rather than saving one.
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.PERIOD_UNLOCKED,
       audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_LOCK },

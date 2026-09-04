@@ -567,12 +567,23 @@ export const MODULES: ModuleDef[] = [
         items: [
           {
             to: '/tasks',
-            label: 'My tasks',
+            label: 'Tasks',
             shortLabel: 'Tasks',
             icon: CheckSquareIcon,
             permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
             phase: 7,
             reqs: 'REQ-V-01, REQ-V-03, REQ-V-05, REQ-V-07',
+          },
+          {
+            to: '/tasks/dashboard',
+            label: 'Task dashboard',
+            shortLabel: 'Task board',
+            icon: ChartLineUpIcon,
+            // The same key the tasks it counts need: an account that cannot
+            // open a task must not read a total built from tasks.
+            permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-V-11',
           },
         ],
       },

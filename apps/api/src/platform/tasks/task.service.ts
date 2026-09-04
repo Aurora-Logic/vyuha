@@ -18,18 +18,29 @@ import {
   type TaskView,
   type UpdateBoardColumnInput,
   type UpdateTaskInput,
+  REALTIME_RESOURCES,
+  PARTY_LEDGER_GROUPS,
+  type TaskAnalyticsQuery,
+  type TaskAnalyticsView,
+  type TaskItemInput,
+  type TaskAttachmentView,
+  type TaskFlowWeek,
 } from '@vyuha/shared';
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
+import { FileService } from '../files/file.service.js';
+import { isAcceptedUpload, sniffType } from '../files/magic-bytes.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { employees, organizations, tasks } from '../db/schema/index.js';
+import { employees, organizations, parties, stockItems, tasks } from '../db/schema/index.js';
 import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 import { hasPermission, orgContextOf, type Principal } from '../rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { localDateIn } from './local-date.js';
 import { TaskSubjectRegistry } from './task-subject.registry.js';
+import { TaskAnalyticsRepository } from './task-analytics.repository.js';
 import { BoardColumnRepository, TaskRepository } from './task.repository.js';
 
 /**
@@ -54,6 +65,31 @@ const TASK_GRANTS: ScopeGrants = {
 
 const SQL_TRUE = sql`true`;
 
+/** How many people the load chart names before the rest is noise. */
+const ASSIGNEE_LOAD_LIMIT = 8;
+
+/** Same reasoning for customers: a bar chart of forty accounts is a wall. */
+const CUSTOMER_LOAD_LIMIT = 8;
+
+/**
+ * Put back the weeks in which nothing happened.
+ *
+ * A grouped query returns only the weeks that have rows, so a quiet week
+ * would simply not be drawn -- and a line joins the week before straight to
+ * the week after, which reads as steady work across a gap that is the story.
+ */
+function fillWeeks(rows: readonly TaskFlowWeek[], since: Date, weeks: number): TaskFlowWeek[] {
+  const bySlot = new Map(rows.map((row) => [row.weekStart, row]));
+  const filled: TaskFlowWeek[] = [];
+  for (let index = 0; index < weeks; index += 1) {
+    const at = new Date(since);
+    at.setUTCDate(at.getUTCDate() + index * 7);
+    const weekStart = at.toISOString().slice(0, 10);
+    filled.push(bySlot.get(weekStart) ?? { weekStart, raised: 0, closed: 0 });
+  }
+  return filled;
+}
+
 @Injectable()
 export class TaskService {
   constructor(
@@ -62,6 +98,8 @@ export class TaskService {
     private readonly scopes: ScopeService,
     private readonly subjects: TaskSubjectRegistry,
     private readonly notifications: NotificationDispatcher,
+    private readonly realtime: RealtimeService,
+    private readonly files: FileService,
   ) {}
 
   // ------------------------------------------------------------------ reads
@@ -118,6 +156,12 @@ export class TaskService {
         : await columns.find(input.columnId);
     if (column === null) throw AppError.validation('The board column was not found.', { columnId: input.columnId ?? null });
 
+    // Resolved before the insert, so a task naming a party that does not
+    // exist fails without leaving half of itself behind.
+    const party = await this.resolveParty(principal, input.partyId, 'party');
+    const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
+    const items = await this.resolveItems(principal, input.items);
+
     const created = await repository.insert({
       title: input.title,
       description: input.description ?? null,
@@ -126,11 +170,16 @@ export class TaskService {
       subjectLabel: subject?.label ?? null,
       assigneeId,
       ownerId: principal.employeeId,
+      partyId: party?.id ?? null,
+      partyName: party?.name ?? null,
+      vendorId: vendor?.id ?? null,
+      vendorName: vendor?.name ?? null,
       dueDate: input.dueDate ?? null,
       priority: input.priority,
       columnId: column.id,
       closedAt: column.isDone ? new Date() : null,
     });
+    if (items !== null) await repository.setItems(created.id, items);
     const task = await repository.view(SQL_TRUE, created.id);
     if (task === null) throw new Error(`Task ${created.id} vanished between insert and read-back.`);
 
@@ -141,6 +190,7 @@ export class TaskService {
       before: null,
       after: taskAuditView(task),
     });
+    this.announce(principal, 'created', task.id);
     await this.notifyAssigned(principal, task, null);
     return task;
   }
@@ -164,6 +214,17 @@ export class TaskService {
       patch.subjectLabel = subject?.label ?? null;
     }
 
+    if (input.partyId !== undefined) {
+      const party = await this.resolveParty(principal, input.partyId, 'party');
+      patch.partyId = party?.id ?? null;
+      patch.partyName = party?.name ?? null;
+    }
+    if (input.vendorId !== undefined) {
+      const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
+      patch.vendorId = vendor?.id ?? null;
+      patch.vendorName = vendor?.name ?? null;
+    }
+
     let moved: { from: string; to: TaskBoardColumnView } | null = null;
     if (input.columnId !== undefined && input.columnId !== existing.columnId) {
       const column = await this.columns(principal).find(input.columnId);
@@ -176,8 +237,12 @@ export class TaskService {
       moved = { from: existing.columnName, to: column };
     }
 
+    // Resolved before the write for the same reason as on create.
+    const items = await this.resolveItems(principal, input.items);
+
     const updated = await repository.update(id, patch);
     if (updated === null) throw AppError.notFound('Task', id);
+    if (items !== null) await repository.setItems(id, items);
     const task = await repository.view(SQL_TRUE, id);
     if (task === null) throw AppError.notFound('Task', id);
 
@@ -198,6 +263,7 @@ export class TaskService {
       before: taskAuditView(existing),
       after: taskAuditView(task),
     });
+    this.announce(principal, 'updated', id);
 
     if (patch.assigneeId !== undefined && task.assigneeId !== null) {
       await this.notifyAssigned(principal, task, existing.assigneeId);
@@ -216,6 +282,7 @@ export class TaskService {
       before: taskAuditView(existing),
       after: null,
     });
+    this.announce(principal, 'deleted', id);
   }
 
   // ---------------------------------------------------------------- columns
@@ -239,6 +306,7 @@ export class TaskService {
       before: null,
       after: { ...view },
     });
+    this.announce(principal, 'updated', null);
     return view;
   }
 
@@ -277,6 +345,7 @@ export class TaskService {
       before: { ...existing },
       after: { ...view },
     });
+    this.announce(principal, 'updated', null);
     return view;
   }
 
@@ -295,6 +364,7 @@ export class TaskService {
       before: { order: before.map((c) => c.id) },
       after: { order: after.map((c) => c.id) },
     });
+    this.announce(principal, 'updated', null);
     return after;
   }
 
@@ -321,6 +391,7 @@ export class TaskService {
       before: { ...existing },
       after: null,
     });
+    this.announce(principal, 'updated', null);
   }
 
   // ---------------------------------------------------------------- helpers
@@ -381,7 +452,7 @@ export class TaskService {
   private async notifyAssigned(principal: Principal, task: TaskView, previousAssigneeId: string | null): Promise<void> {
     if (task.assigneeId === null || task.assigneeId === previousAssigneeId) return;
     if (task.assigneeId === principal.employeeId) return;
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.TASK_ASSIGNED,
       audience: { kind: 'employees', employeeIds: [task.assigneeId] },
@@ -392,6 +463,261 @@ export class TaskService {
         subjectLabel: task.subjectLabel ?? '',
         assignedBy: await this.actorName(principal),
       },
+    });
+  }
+
+  // ------------------------------------------------------------ attachments
+
+  /**
+   * REQ-V-12: a drawing, a signed challan, a photograph of what arrived
+   * damaged.
+   *
+   * `find` first, so the task's own scope decides whether this person may
+   * touch it at all -- an attachment is not a back door into a task their
+   * role does not reach. An image is re-encoded through the pipeline;
+   * anything else is sniffed and stored as it came, which is what stops an
+   * executable renamed `.pdf` from being served back as a document.
+   */
+  async addAttachment(
+    principal: Principal,
+    taskId: string,
+    file: { bytes: Buffer; filename: string },
+  ): Promise<TaskAttachmentView> {
+    const task = await this.find(principal, taskId);
+    const isImage = isAcceptedUpload(sniffType(file.bytes));
+    const stored = isImage
+      ? await this.files.storeImage({
+          orgId: principal.orgId,
+          uploadedBy: principal.userId,
+          purpose: 'TASK_ATTACHMENT',
+          bytes: file.bytes,
+          pathSegments: [task.id],
+        })
+      : await this.files.storeUpload({
+          orgId: principal.orgId,
+          uploadedBy: principal.userId,
+          purpose: 'TASK_ATTACHMENT',
+          bytes: file.bytes,
+          filename: file.filename,
+          pathSegments: [task.id],
+        });
+
+    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
+      INSERT INTO task_attachments (org_id, task_id, file_id, filename, created_by, updated_by)
+      VALUES (${principal.orgId}, ${task.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+      RETURNING id, created_at AS "createdAt"
+    `);
+    const row = inserted.rows[0];
+    if (row === undefined) throw new Error('Attachment insert returned no row.');
+
+    this.auditContext.record({
+      action: 'task.attachment_added',
+      entityType: 'task',
+      entityId: task.id,
+      after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
+    });
+    this.announce(principal, 'updated', task.id);
+    return {
+      id: row.id,
+      fileId: stored.id,
+      filename: file.filename,
+      mime: stored.mime,
+      bytes: stored.bytes,
+      uploadedAt: new Date(row.createdAt).toISOString(),
+      uploadedByName: await this.actorName(principal),
+    };
+  }
+
+  async listAttachments(principal: Principal, taskId: string): Promise<TaskAttachmentView[]> {
+    const task = await this.find(principal, taskId);
+    const rows = await this.db.execute<{
+      id: string;
+      fileId: string;
+      filename: string;
+      mime: string;
+      bytes: string | number;
+      uploadedAt: string | Date;
+      uploadedByName: string | null;
+    }>(sql`
+      SELECT a.id, a.file_id AS "fileId", a.filename, f.mime, f.bytes,
+             a.created_at AS "uploadedAt",
+             CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS "uploadedByName"
+      FROM task_attachments a
+      JOIN files f ON f.id = a.file_id
+      LEFT JOIN users u ON u.id = a.created_by
+      LEFT JOIN employees e ON e.id = u.employee_id
+      WHERE a.org_id = ${principal.orgId} AND a.task_id = ${task.id} AND a.deleted_at IS NULL
+      ORDER BY a.created_at DESC
+    `);
+    // `bytes` comes back as text from the driver on a bigint column; a string
+    // where the client expects a number breaks the size it renders.
+    return rows.rows.map((row) => ({
+      ...row,
+      bytes: Number(row.bytes),
+      uploadedAt: new Date(row.uploadedAt).toISOString(),
+    }));
+  }
+
+  async attachmentUrl(
+    principal: Principal,
+    taskId: string,
+    attachmentId: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    const found = (await this.listAttachments(principal, taskId)).find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    return this.files.signedUrlFor(principal, found.fileId);
+  }
+
+  async removeAttachment(principal: Principal, taskId: string, attachmentId: string): Promise<void> {
+    const found = (await this.listAttachments(principal, taskId)).find((a) => a.id === attachmentId);
+    if (found === undefined) throw AppError.notFound('Attachment', attachmentId);
+    // Soft, like every other record here: the file itself stays, because the
+    // trail names it and a purge is the recycle bin's job, not a delete key's.
+    await this.db.execute(sql`
+      UPDATE task_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
+      WHERE org_id = ${principal.orgId} AND id = ${attachmentId}
+    `);
+    this.auditContext.record({
+      action: 'task.attachment_removed',
+      entityType: 'task',
+      entityId: taskId,
+      before: { filename: found.filename },
+    });
+    this.announce(principal, 'updated', taskId);
+  }
+
+  // ----------------------------------------------------------- the dashboard
+
+  /**
+   * REQ-V-11. What a manager asks about a task list: how much is open, how
+   * much is late, where it is sitting, who is carrying it, and whether it is
+   * being closed as fast as it arrives.
+   *
+   * Aggregated under `this.scope(principal)` -- the same predicate the
+   * register uses -- so the totals equal the totals of the tasks that
+   * person's own list would show.
+   */
+  async analytics(principal: Principal, query: TaskAnalyticsQuery): Promise<TaskAnalyticsView> {
+    const scope = this.scope(principal);
+    const repository = new TaskAnalyticsRepository(this.db, orgContextOf(principal));
+    const timezone = await this.orgTimezone(principal.orgId);
+    const today = localDateIn(new Date(), timezone);
+
+    // Whole weeks, back from the Monday of this one, so neither the first
+    // nor the last column is a part-week that reads as a collapse.
+    const since = new Date(`${today}T00:00:00Z`);
+    since.setUTCDate(since.getUTCDate() - (since.getUTCDay() === 0 ? 6 : since.getUTCDay() - 1));
+    since.setUTCDate(since.getUTCDate() - (query.weeks - 1) * 7);
+
+    const [totals, columns, assignees, priorities, flow, ageing, customers] = await Promise.all([
+      repository.totals(scope, today, since),
+      repository.columns(scope),
+      repository.assignees(scope, today, ASSIGNEE_LOAD_LIMIT),
+      repository.priorities(scope),
+      repository.flow(scope, since, timezone),
+      repository.ageing(scope, today, timezone),
+      repository.customers(scope, today, CUSTOMER_LOAD_LIMIT),
+    ]);
+
+    return {
+      totals,
+      columns,
+      assignees,
+      priorities,
+      flow: fillWeeks(flow, since, query.weeks),
+      ageing,
+      customers,
+    };
+  }
+
+  private async orgTimezone(orgId: string): Promise<string> {
+    const rows = await this.db
+      .select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
+    return rows[0]?.timezone ?? 'Asia/Kolkata';
+  }
+
+  /**
+   * A party this organisation actually has, with the name snapshotted.
+   *
+   * The group is checked, not just the id: a customer chosen in the vendor
+   * field is a mistake worth refusing rather than a row that quietly reads
+   * "Vendor: Acme Trading Co" for ever. `null` clears the field; `undefined`
+   * never reaches here.
+   */
+  private async resolveParty(
+    principal: Principal,
+    partyId: string | null | undefined,
+    role: 'party' | 'vendor',
+  ): Promise<{ id: string; name: string } | null> {
+    if (partyId === null || partyId === undefined) return null;
+    const rows = await this.db
+      .select({ id: parties.id, name: parties.name, parentGroup: parties.parentGroup })
+      .from(parties)
+      .where(and(eq(parties.orgId, principal.orgId), eq(parties.id, partyId)))
+      .limit(1);
+    const row = rows[0];
+    if (row === undefined) {
+      throw AppError.validation(`The ${role} was not found.`, { [`${role}Id`]: partyId });
+    }
+    // Sundry Creditors is the supplier group and Sundry Debtors the customer
+    // one, verbatim from Tally (08 §3). Anything else -- a bank, an expense
+    // ledger -- is neither and belongs in no task field.
+    const wanted = role === 'vendor' ? PARTY_LEDGER_GROUPS.SUPPLIER : PARTY_LEDGER_GROUPS.CUSTOMER;
+    if (row.parentGroup !== wanted) {
+      throw AppError.validation(
+        role === 'vendor'
+          ? 'A vendor must be a party under Sundry Creditors.'
+          : 'A party must be a customer under Sundry Debtors.',
+        { [`${role}Id`]: partyId, parentGroup: row.parentGroup },
+      );
+    }
+    return { id: row.id, name: row.name };
+  }
+
+  /**
+   * The stock items named, in the order they were given.
+   *
+   * `null` means the caller said nothing and the existing list stands; an
+   * empty array means they cleared it. Duplicates are dropped rather than
+   * refused -- picking the same coupler twice is a slip, and a task carries
+   * no quantities for a second row to mean anything.
+   */
+  /**
+   * REQ-V-17: the items with what is being asked for.
+   *
+   * A repeat is still a slip rather than two of them -- the last one given
+   * wins, so re-adding an item is how a person corrects its quantity.
+   */
+  private async resolveItems(
+    principal: Principal,
+    items: readonly TaskItemInput[] | undefined,
+  ): Promise<{ id: string; name: string; quantity: string; rate: string | null; discountPct: string }[] | null> {
+    if (items === undefined) return null;
+    const byItemId = new Map(items.map((item) => [item.itemId, item]));
+    const unique = [...byItemId.keys()];
+    if (unique.length === 0) return [];
+    const rows = await this.db
+      .select({ id: stockItems.id, name: stockItems.name })
+      .from(stockItems)
+      .where(and(eq(stockItems.orgId, principal.orgId), inArray(stockItems.id, unique)));
+    const byId = new Map(rows.map((row) => [row.id, row.name]));
+    const missing = unique.filter((id) => !byId.has(id));
+    if (missing.length > 0) {
+      throw AppError.validation('One of the items was not found.', { itemIds: missing });
+    }
+    // The caller's order, not the database's: the list reads as it was built.
+    return unique.map((id) => {
+      const given = byItemId.get(id);
+      return {
+        id,
+        name: byId.get(id) ?? '',
+        quantity: given?.quantity ?? '1',
+        rate: given?.rate ?? null,
+        discountPct: given?.discountPct ?? '0',
+      };
     });
   }
 
@@ -423,6 +749,20 @@ export class TaskService {
   private columns(principal: Principal): BoardColumnRepository {
     return new BoardColumnRepository(this.db, orgContextOf(principal));
   }
+
+  /**
+   * Tell everyone else's open boards. A column change names no record: every
+   * card on the board moved, so naming one would leave the rest stale.
+   */
+  private announce(principal: Principal, action: 'created' | 'updated' | 'deleted', recordId: string | null): void {
+    this.realtime.publish(principal.orgId, {
+      resource: REALTIME_RESOURCES.TASK,
+      action,
+      recordId,
+      actorUserId: principal.userId,
+    });
+  }
+
 }
 
 function taskAuditView(task: TaskView): Record<string, unknown> {
@@ -433,10 +773,21 @@ function taskAuditView(task: TaskView): Record<string, unknown> {
     subjectId: task.subjectId,
     assigneeId: task.assigneeId,
     ownerId: task.ownerId,
+    partyId: task.partyId,
+    vendorId: task.vendorId,
+    // The ids, not the snapshotted names: the trail records what was linked,
+    // and a name that changed in Tally later did not change this task.
+    items: task.items.map((item) => ({
+      itemId: item.itemId,
+      quantity: item.quantity,
+      rate: item.rate,
+      discountPct: item.discountPct,
+    })),
     dueDate: task.dueDate,
     priority: task.priority,
     columnId: task.columnId,
     columnName: task.columnName,
     isClosed: task.isClosed,
   };
+
 }

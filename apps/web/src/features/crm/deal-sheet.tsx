@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
+import { NotesEditor } from '@/components/shared/notes-editor';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -12,9 +13,10 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PresenceAvatars } from '@/components/shared/presence-avatars';
+import { usePresence, useRecordViewers } from '@/lib/realtime/realtime-provider';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
@@ -24,14 +26,24 @@ import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS } from '@vyuha/shared';
+import { DEAL_PRIORITIES, PARTY_LEDGER_GROUPS, PERMISSIONS, REALTIME_RESOURCES, type DealPriority } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
+import { DealAttachments } from './deal-attachments';
 import { DealDocuments } from './deal-documents';
 import { DeleteDealDialog } from './delete-dialogs';
 import type { Deal, DealDraft } from './types';
-import { useCompanyOptions } from './use-crm';
+import { CompanyPicker } from './company-picker';
 import { useCompanyContacts, useLinkCompanyParty, usePipelines, useSaveDeal } from './use-deals';
+
+const NO_PRIORITY = '__none__';
+
+const DEAL_PRIORITY_LABELS: Record<DealPriority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  urgent: 'Urgent',
+};
 
 /**
  * One deal (REQ-U-05). Stage is a Select — moving through the pipeline needs
@@ -75,10 +87,15 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
   const canManageDeal = usePermission(PERMISSIONS.CRM_DEAL_MANAGE);
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const pipelines = usePipelines();
-  const companies = useCompanyOptions();
   const contacts = useCompanyContacts(draft.companyId);
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
+
+  // REQ-U-10: say this deal is open for as long as the sheet is, and show
+  // who else has it. A new deal has no id, so there is nothing to be in.
+  const dealId = initial.id ?? null;
+  usePresence(REALTIME_RESOURCES.CRM_DEAL, dealId);
+  const viewers = useRecordViewers(REALTIME_RESOURCES.CRM_DEAL, dealId);
 
   const pipelineList = pipelines.data ?? [];
   const pipeline = pipelineList.find((p) => p.id === (draft.pipelineId ?? pipelineList.find((x) => x.isDefault)?.id)) ?? pipelineList[0] ?? null;
@@ -87,7 +104,6 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
 
   const wonWithoutParty = record !== null && record.status === 'won' && record.companyId !== null && record.partyId === null;
 
-  const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const contactOptions: PickerOption[] = (contacts.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.designation === null ? {} : { hint: c.designation }) }));
   const ownerOptions: PickerOption[] = (owners.data ?? []).map((o) => ({ id: o.id, label: o.name, ...(o.hint === undefined ? {} : { hint: o.hint }) }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
@@ -119,6 +135,17 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
         <SheetTitle className="flex items-center gap-2">
           {isNew ? 'New deal' : initial.name}
           {record?.status === 'won' ? <Badge>Won</Badge> : record?.status === 'lost' ? <Badge variant="outline">Lost</Badge> : null}
+          {/* REQ-U-12: read from the invoice itself, never set by hand, so
+              it cannot say Invoiced when no invoice exists. */}
+          {record?.hasInvoice === true ? (
+            <Badge variant="secondary">Invoiced</Badge>
+          ) : record?.hasOrder === true ? (
+            <Badge variant="outline">Ordered</Badge>
+          ) : null}
+          {/* Beside the name, before the fields: whoever is about to type
+              needs to know a colleague is already in here, and finding that
+              out below the fold is finding it out too late. */}
+          <PresenceAvatars viewers={viewers} className="ml-auto" />
         </SheetTitle>
         <SheetDescription>
           {isNew
@@ -147,6 +174,9 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                 {canSeeParties ? (
                   <div className="mt-2 flex flex-col gap-2">
                     <PartyPicker
+                      // Sundry Debtors: a deal converts to a customer. Unfiltered this
+                      // offered every supplier too.
+                      parentGroup={PARTY_LEDGER_GROUPS.CUSTOMER}
                       label="Tally party"
                       placeholder="Choose the party Tally created"
                       icon={<BooksIcon className="text-muted-foreground" />}
@@ -309,18 +339,14 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
 
           <Field>
             <FieldLabel htmlFor="deal-company">Company</FieldLabel>
-            <RecordPicker
+            <CompanyPicker
               id="deal-company"
               label="Company"
               placeholder="No company"
-              searchPlaceholder="Search companies"
-              emptyMessage="No company matches that."
               icon={<BuildingsIcon className="text-muted-foreground" />}
-              options={companyOptions}
-              loading={companies.isPending}
               clearable
               clearLabel="No company"
-              value={pick(companyOptions, draft.companyId)}
+              companyId={draft.companyId}
               onValueChange={(next) => {
                 setDraft((current) => ({ ...current, companyId: next?.id ?? null, contactId: null }));
               }}
@@ -371,18 +397,127 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
             </Field>
           ) : null}
 
+          {/* Owner, 31 Aug 2026: the five things a pipeline review asks. */}
           <Field>
-            <FieldLabel htmlFor="deal-notes">Notes</FieldLabel>
-            <Textarea
-              id="deal-notes"
-              rows={3}
-              value={draft.notes}
+            <FieldLabel htmlFor="deal-lead-source">Lead source</FieldLabel>
+            <Input
+              id="deal-lead-source"
+              placeholder="Referral, exhibition, cold call, existing customer"
+              value={draft.leadSource}
               onChange={(event) => {
-                setDraft((current) => ({ ...current, notes: event.target.value }));
+                setDraft((current) => ({ ...current, leadSource: event.target.value }));
               }}
             />
           </Field>
+
+          <Field>
+            <FieldLabel htmlFor="deal-priority">Priority</FieldLabel>
+            <Select
+              value={draft.priority ?? NO_PRIORITY}
+              onValueChange={(next) => {
+                if (next === null) return;
+                setDraft((current) => ({ ...current, priority: next === NO_PRIORITY ? null : (next as DealPriority) }));
+              }}
+            >
+              <SelectTrigger id="deal-priority" aria-label="Priority">
+                <SelectValue>{(v: string) => (v === NO_PRIORITY ? 'Not set' : DEAL_PRIORITY_LABELS[v as DealPriority])}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PRIORITY}>Not set</SelectItem>
+                {DEAL_PRIORITIES.map((level) => (
+                  <SelectItem key={level} value={level}>{DEAL_PRIORITY_LABELS[level]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field>
+            <FieldLabel>Next follow-up</FieldLabel>
+            {draft.nextFollowUpDate === null ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDraft((current) => ({ ...current, nextFollowUpDate: toDateParam(new Date()) }));
+                }}
+              >
+                Set a date
+              </Button>
+            ) : (
+              <span className="flex min-w-0 items-center gap-2">
+                {/* The trigger is w-full, so beside a clear button it demanded
+                    100% and pushed the sheet into a horizontal scroll. Same
+                    wrapper the task sheet's due date already uses. */}
+                <span className="min-w-0 flex-1">
+                  <DateField
+                    label="Next follow-up"
+                    value={fromDateParam(draft.nextFollowUpDate)}
+                    onValueChange={(next) => {
+                      setDraft((current) => ({ ...current, nextFollowUpDate: toDateParam(next) }));
+                    }}
+                  />
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Clear the follow-up date"
+                  onClick={() => {
+                    setDraft((current) => ({ ...current, nextFollowUpDate: null }));
+                  }}
+                >
+                  <XIcon />
+                </Button>
+              </span>
+            )}
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="deal-competitor">Competitor</FieldLabel>
+            <Input
+              id="deal-competitor"
+              placeholder="Who else is quoting"
+              value={draft.competitor}
+              onChange={(event) => {
+                setDraft((current) => ({ ...current, competitor: event.target.value }));
+              }}
+            />
+          </Field>
+
+          {/* Only where it belongs: a loss reason on an open deal is a
+              question nobody asked. It stays visible once written, because
+              the pattern of losses is the point of recording it. */}
+          {record?.status === 'lost' || draft.lossReason !== '' ? (
+            <Field>
+              <FieldLabel htmlFor="deal-loss-reason">Loss reason</FieldLabel>
+              <Input
+                id="deal-loss-reason"
+                placeholder="Price, delivery, specification, no decision"
+                value={draft.lossReason}
+                onChange={(event) => {
+                  setDraft((current) => ({ ...current, lossReason: event.target.value }));
+                }}
+              />
+            </Field>
+          ) : null}
+
+          <Field>
+            <FieldLabel htmlFor="deal-notes">Notes</FieldLabel>
+            <NotesEditor
+              id="deal-notes"
+              value={draft.notes}
+              onValueChange={(next) => {
+                setDraft((current) => ({ ...current, notes: next }));
+              }}
+              placeholder="What was discussed, what was quoted, what happens next."
+            />
+          </Field>
         </FieldGroup>
+        {record === null ? null : (
+          <div className="mt-6 border-t pt-4">
+            <DealAttachments dealId={record.id} />
+          </div>
+        )}
         {record === null ? null : (
           <div className="mt-6 border-t pt-4">
             <DealDocuments deal={record} />

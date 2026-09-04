@@ -54,7 +54,7 @@ export function MatrixGrid({ rows, columns, cellOf, onCell, toneOf, emptyLabel, 
   const columnCount = columns.length + (totals ? 1 : 0);
 
   return (
-    <div className={cn('overflow-x-auto', className)}>
+    <div data-guide="screen.matrix" className={cn('overflow-x-auto', className)}>
       <div className="grid gap-1" style={{ gridTemplateColumns: `9rem repeat(${String(columnCount)}, minmax(5.5rem, 1fr))`, minWidth: `${String(9 + columnCount * 6)}rem` }}>
         <span />
         {columns.map((c) => (

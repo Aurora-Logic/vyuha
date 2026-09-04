@@ -184,7 +184,7 @@ Accepted as they stand: dialogs at 200ms in / 150ms out on the strong ease-out w
 | Tooltips without a provider waited Base UI's 600ms; the one provider in the tree had `delay=0`; no instant follow-on anywhere | One `TooltipProvider` at the root with a 300ms first-hover delay; `data-instant` zeroes the animation for neighbours | A pointer crossing a toolbar should not fire every label, and the second tooltip should not make the person wait again |
 | Theme change cut from light to dark in one frame (transitions deliberately disabled for the swap) | The swap runs inside `document.startViewTransition` after first paint, 200ms crossfade; reduced motion, the first application and browsers without the API take the cut | No abrupt brightness jump (Apple); the per-element transition lock stays so nothing animates twice |
 
-Still on the table from the same proposal: bottom-sheet drag-to-dismiss with momentum, morphing Save/Saving/Saved buttons, and removing the two committed `dist-probe-*` build directories.
+Still on the table from the same proposal: bottom-sheet drag-to-dismiss with momentum and morphing Save/Saving/Saved buttons.
 
 ---
 

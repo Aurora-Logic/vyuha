@@ -57,13 +57,13 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/shared/page-header';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+import { PeriodRangeField } from './period-field';
 import { useAreaInsights, useCustomReport, useCustomReportMutations } from './api';
 import { HeatmapTable } from '@/components/shared/heatmap-table';
 import { heatGridOf } from '@/components/shared/heat-grid';
@@ -72,7 +72,7 @@ import { usePivot } from './use-cfo';
 import { BuilderPanel } from './builder-panel';
 import { AREA_METRICS } from './catalogue';
 import { MetricChart, MetricPointsTable } from './metric-card';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 import { formatHeadline } from './units';
 
 /**
@@ -491,25 +491,7 @@ export function CustomReportPage() {
         >
           <ArrowsClockwiseIcon />
         </Button>
-        <DateRangeField
-          label="Period"
-          value={rangeAsPickerValue(range)}
-          presets={INSIGHT_PRESETS}
-          onValueChange={(next) => {
-            if (!next.from || !next.to) return;
-            const from = toApiDate(next.from);
-            const to = toApiDate(next.to);
-            setSearchParams(
-              (current) => {
-                const params = new URLSearchParams(current);
-                params.set('from', from);
-                params.set('to', to);
-                return params;
-              },
-              { replace: true },
-            );
-          }}
-        />
+        <PeriodRangeField range={range} />
         <span className="text-muted-foreground text-xs tabular-nums">
           {formatDate(range.from)} → {formatDate(range.to)}
         </span>

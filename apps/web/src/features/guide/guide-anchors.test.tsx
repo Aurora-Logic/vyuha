@@ -8,6 +8,16 @@ import { setViewportMatches } from '@/test-support/setup';
 import { ROLE_PERMISSION_MATRIX, type SystemRoleName } from '@vyuha/shared';
 
 import appSource from '@/App.tsx?raw';
+import attachmentPanelSource from '@/components/shared/attachment-panel.tsx?raw';
+import chartCardSource from '@/components/shared/chart-card.tsx?raw';
+import heatmapTableSource from '@/components/shared/heatmap-table.tsx?raw';
+import kanbanBoardSource from '@/components/shared/kanban-board.tsx?raw';
+import kpiGridSource from '@/components/shared/kpi-grid.tsx?raw';
+import matrixGridSource from '@/components/shared/matrix-grid.tsx?raw';
+import presenceAvatarsSource from '@/components/shared/presence-avatars.tsx?raw';
+import rowActionsSource from '@/components/shared/row-actions.tsx?raw';
+import savedViewsSource from '@/components/shared/saved-views.tsx?raw';
+import tabsToolbarSource from '@/components/shared/tabs-toolbar.tsx?raw';
 import dispatchPaperSource from '@/features/sales/dispatch-paper-page.tsx?raw';
 import documentEditorSource from '@/features/documents/document-editor.tsx?raw';
 import estimateEditorSource from '@/features/sales/estimate-editor-page.tsx?raw';
@@ -129,11 +139,23 @@ describe('guided tour anchors', () => {
 
     expect(furniture).toEqual([
       // A screen anchor, not furniture: the document editor renders no
-      // PageHeader, so the seven document screens are anchored on its toolbar
+      // PageHeader, so the document screens are anchored on its toolbar
       // instead. Absent everywhere else, which is why it is not in the shell
       // set either.
       'screen.document',
+      // The shared kit a screen is built from, in the order a page guide walks
+      // it. Each appears only when the screen in front of you actually renders
+      // it, which is why none of them can be required to be present.
+      'screen.presence',
+      'screen.tabs',
       'screen.search',
+      'screen.kpis',
+      'screen.chart',
+      'screen.row-actions',
+      'screen.saved-views',
+      'screen.board',
+      'screen.matrix',
+      'screen.attachments',
       'screen.table',
       'screen.table-cards',
       'screen.pagination',
@@ -176,18 +198,24 @@ describe('guided tour length', () => {
   // step sits behind its own key, so a role gains exactly the pages its
   // permissions open -- the sales roles the work lists, the credit-sighted
   // roles the receivable book, Employee and Purchase none at all.
+  //
+  // The task dashboard (REQ-V-11) moved every role holding a task view key,
+  // which after P7-2 is all of them but Warehouse -- the one role with no
+  // task keys, and it did not move. The CRM dashboard was removed on the
+  // owner's word (31 Aug 2026), taking a step back off the four deal-sighted
+  // roles and nobody else.
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
-    Employee: { desktop: 13, phone: 12 },
-    Operations: { desktop: 22, phone: 21 },
-    HR: { desktop: 27, phone: 26 },
-    Admin: { desktop: 78, phone: 77 },
+    Employee: { desktop: 14, phone: 13 },
+    Operations: { desktop: 23, phone: 22 },
+    HR: { desktop: 28, phone: 27 },
+    Admin: { desktop: 79, phone: 78 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
-    Sales: { desktop: 35, phone: 34 },
-    'Sales manager': { desktop: 48, phone: 47 },
-    'Relationship manager': { desktop: 34, phone: 33 },
-    Purchase: { desktop: 15, phone: 14 },
-    Accounts: { desktop: 45, phone: 44 },
+    Sales: { desktop: 36, phone: 35 },
+    'Sales manager': { desktop: 49, phone: 48 },
+    'Relationship manager': { desktop: 35, phone: 34 },
+    Purchase: { desktop: 16, phone: 15 },
+    Accounts: { desktop: 46, phone: 45 },
     Warehouse: { desktop: 14, phone: 13 },
   };
 
@@ -422,6 +450,46 @@ describe('the document screens', () => {
 
     for (const route of documentRoutes) {
       expect(introForPath(route)?.anchor, route).toBe(ANCHORS.screenDocument);
+    }
+  });
+});
+
+describe('the shared kit carries its anchors', () => {
+  /*
+   * A page guide has depth only because the kit is anchored, not the screens.
+   *
+   * Ten of these were seen rendering in a browser and guided. Four —
+   * presence, the board, the matrix reads and attachments — need data a
+   * stubbed API cannot produce: a record sheet open, a board with cards on it.
+   * Rather than claim them, this asserts the thing they rest on, which is that
+   * the shared component carries the attribute. If one is deleted in a
+   * refactor the step goes quiet on every screen at once, and this fails.
+   */
+  const KIT: [string, string, string][] = [
+    ['KpiGrid', kpiGridSource, ANCHORS.screenKpis],
+    ['ChartCard', chartCardSource, ANCHORS.screenChart],
+    ['TabsToolbar', tabsToolbarSource, ANCHORS.screenTabs],
+    ['RowActions', rowActionsSource, ANCHORS.screenRowActions],
+    ['SavedViews', savedViewsSource, ANCHORS.screenSavedViews],
+    ['PresenceAvatars', presenceAvatarsSource, ANCHORS.screenPresence],
+    ['KanbanBoard', kanbanBoardSource, ANCHORS.screenBoard],
+    ['AttachmentPanel', attachmentPanelSource, ANCHORS.screenAttachments],
+    ['HeatmapTable', heatmapTableSource, ANCHORS.screenMatrix],
+    ['MatrixGrid', matrixGridSource, ANCHORS.screenMatrix],
+  ];
+
+  it.each(KIT)('%s carries its anchor', (_name, source, anchor) => {
+    expect(source).toContain(`data-guide="${anchor}"`);
+  });
+
+  it('describes every anchor the kit carries', () => {
+    // The reverse direction: an attribute added to a component with no step to
+    // explain it is a silent no-op, which is the same failure wearing a
+    // different hat.
+    const described = new Set(ALL_STEPS.map((s) => s.anchor));
+
+    for (const [name, , anchor] of KIT) {
+      expect(described.has(anchor), `${name} -> ${anchor} has no step`).toBe(true);
     }
   });
 });

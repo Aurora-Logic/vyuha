@@ -1,5 +1,5 @@
 import { useParty } from './use-parties';
-import { useEffect, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { ArrowsClockwiseIcon, FunnelSimpleXIcon, LockKeyIcon, ReceiptIcon, XIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { DateRange } from 'react-day-picker';
@@ -34,8 +34,10 @@ import { DASHBOARD_PRESETS } from '@/lib/range-presets';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatCount, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSearchDraft } from '@/lib/use-search-draft';
 import { PERMISSIONS, VOUCHER_SORT_FIELDS } from '@vyuha/shared';
 
+import { DrCr, VoucherTypeLabel } from './dr-cr';
 import { magnitudeOf } from './voucher-amount';
 import { useVoucher, useVouchers, useVoucherTypes, type Voucher } from './use-vouchers';
 import { VoucherPaperPreview } from './voucher-paper-preview';
@@ -57,7 +59,9 @@ import { CompanyFilter } from './company-filter';
  */
 const COLUMNS: RecordColumn<Voucher>[] = [
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums', sortField: 'date' },
-  { key: 'type', header: 'Type', cell: (row) => row.voucherType, sortField: 'type' },
+  // Credit and debit notes are tinted here too, not only on the voucher:
+  // the register is where somebody hunts for them.
+  { key: 'type', header: 'Type', cell: (row) => <VoucherTypeLabel type={row.voucherType} />, sortField: 'type' },
   {
     key: 'number',
     header: 'Number',
@@ -125,7 +129,7 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
           <SheetTitle className="flex flex-wrap items-center gap-2">
             {voucher ? (
               <>
-                <span>{voucher.voucherType}</span>
+                <VoucherTypeLabel type={voucher.voucherType} />
                 <span className="tabular-nums">{voucher.voucherNumber || EMPTY_VALUE}</span>
                 {voucher.isCancelled ? <Badge variant="outline">Cancelled</Badge> : null}
               </>
@@ -163,8 +167,8 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
                       {line.kind === 'ledger' ? (
                         <>
                           <span>{line.ledgerName}</span>
-                          <span className="text-muted-foreground ml-2 text-xs">
-                            {line.isDeemedPositive === true ? 'Dr' : line.isDeemedPositive === false ? 'Cr' : ''}
+                          <span className="ml-2">
+                            <DrCr isDeemedPositive={line.isDeemedPositive} />
                           </span>
                         </>
                       ) : (
@@ -235,32 +239,7 @@ export function VouchersPage() {
     );
   }
 
-  const [draft, setDraft] = useState(q);
-  const [syncedQ, setSyncedQ] = useState(q);
-  if (syncedQ !== q) {
-    setSyncedQ(q);
-    if (draft.trim() !== q) setDraft(q);
-  }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const timer = window.setTimeout(() => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const value = draft.trim();
-          if (value) next.set('q', value);
-          else next.delete('q');
-          next.delete('page');
-          return next;
-        },
-        { replace: true },
-      );
-    }, 300);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [draft, q, setSearchParams]);
+  const [draft, setDraft] = useSearchDraft();
 
   const query = useVouchers(
     {

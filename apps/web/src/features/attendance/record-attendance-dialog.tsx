@@ -22,6 +22,7 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { EmployeePicker } from '@/features/shifts/employee-picker';
 import { type RosterCandidate } from '@/features/shifts/types';
 import { useRosterCandidates } from '@/features/shifts/use-shifts';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { apiRequest } from '@/lib/api/client';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
 
@@ -54,7 +55,8 @@ export function RecordAttendanceDialog({ open, onOpenChange }: { open: boolean; 
 }
 
 function RecordAttendanceForm({ onClose }: { onClose: () => void }) {
-  const candidates = useRosterCandidates();
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const candidates = useRosterCandidates(useDebouncedValue(candidateSearch, 200));
   const queryClient = useQueryClient();
   const [employee, setEmployee] = useState<RosterCandidate | null>(null);
   const [type, setType] = useState<PunchType>('IN');
@@ -114,6 +116,8 @@ function RecordAttendanceForm({ onClose }: { onClose: () => void }) {
             value={employee}
             onValueChange={setEmployee}
             candidates={candidates.data ?? []}
+            search={candidateSearch}
+            onSearchChange={setCandidateSearch}
             loading={candidates.isPending}
           />
           {attempted && missingEmployee ? <FieldError>Pick who this is for.</FieldError> : null}

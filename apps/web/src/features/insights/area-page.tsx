@@ -5,14 +5,14 @@ import { type InsightArea, type WidgetKind } from '@vyuha/shared';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/shared/page-header';
-import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { formatDate } from '@/lib/format';
 
+import { PeriodRangeField } from './period-field';
 import { useAreaInsights } from './api';
 import { AREA_CONFIG, type AreaConfig } from './catalogue';
 import { MetricCard } from './metric-card';
-import { INSIGHT_PRESETS, rangeAsPickerValue, rangeFromParams, toApiDate } from './period';
+import { rangeFromParams } from './period';
 
 /**
  * One prebuilt report page (owner, 26 Aug 2026, the Supabase shape): the
@@ -40,7 +40,7 @@ function CardsSkeleton() {
 // router names all four addresses, so a wrong one is an ordinary not-found
 // rather than a redirect this page has to invent.
 export function AreaPage({ area }: { area: InsightArea }) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const range = rangeFromParams(searchParams);
   const config = AREA_CONFIG[area];
   const query = useAreaInsights(area, range);
@@ -62,25 +62,7 @@ export function AreaPage({ area }: { area: InsightArea }) {
           >
             <ArrowsClockwiseIcon />
           </Button>
-          <DateRangeField
-            label="Period"
-            value={rangeAsPickerValue(range)}
-            presets={INSIGHT_PRESETS}
-            onValueChange={(next) => {
-              if (!next.from || !next.to) return;
-              const from = toApiDate(next.from);
-              const to = toApiDate(next.to);
-              setSearchParams(
-                (current) => {
-                  const nextParams = new URLSearchParams(current);
-                  nextParams.set('from', from);
-                  nextParams.set('to', to);
-                  return nextParams;
-                },
-                { replace: true },
-              );
-            }}
-          />
+          <PeriodRangeField range={range} />
           <span className="text-muted-foreground text-xs tabular-nums">
             {formatDate(range.from)} → {formatDate(range.to)}
           </span>

@@ -28,12 +28,12 @@ export default defineConfig([
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
 
-      // CLAUDE.md §3: no emojis anywhere. Icons only (lucide-react).
+      // CLAUDE.md §3: no emojis anywhere. Icons only (-icons/react).
       'no-restricted-syntax': [
         'error',
         {
           selector: 'Literal[value=/\\p{Extended_Pictographic}/u]',
-          message: 'No emojis (CLAUDE.md §3). Use a lucide-react icon.',
+          message: 'No emojis (CLAUDE.md §3). Use a Phosphor icon.',
         },
         // CLAUDE.md §3 and 05-decisions: native date and time inputs are the
         // single most common place the shadcn-only rule gets broken. They
@@ -61,7 +61,7 @@ export default defineConfig([
         'error',
         {
           selector: 'Literal[value=/\\p{Extended_Pictographic}/u]',
-          message: 'No emojis (CLAUDE.md §3). Use a lucide-react icon.',
+          message: 'No emojis (CLAUDE.md §3). Use a Phosphor icon.',
         },
         {
           selector:

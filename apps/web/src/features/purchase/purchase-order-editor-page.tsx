@@ -29,7 +29,7 @@ import { newLine, previewLine, previewTotals, type LineDraft } from '@/features/
 import { formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, PO_FULFILMENT_LABELS, PURCHASE_ORDER_STATUS_LABELS } from '@vyuha/shared';
+import { PARTY_LEDGER_GROUPS, PERMISSIONS, PO_FULFILMENT_LABELS, PURCHASE_ORDER_STATUS_LABELS } from '@vyuha/shared';
 
 import { AllocateDialog } from './allocation-form';
 import { GrnDialog } from './grn-dialog';
@@ -207,6 +207,10 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
         customer: (
           <div className="flex flex-col gap-1">
             <PartyPicker
+              // A vendor is a party under Sundry Creditors (13 §1). Left
+              // unfiltered this offered every customer too, so "Choose the
+              // party" listed the people you sell to.
+              parentGroup={PARTY_LEDGER_GROUPS.SUPPLIER}
               id="po-vendor"
               label="Vendor"
               placeholder="Choose the party"

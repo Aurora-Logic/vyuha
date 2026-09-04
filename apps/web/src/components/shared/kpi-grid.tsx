@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { ReactNode } from 'react';
-import { ArrowDownRightIcon, ArrowUpRightIcon, MinusIcon } from '@phosphor-icons/react';
+import { ArrowDownRightIcon, ArrowUpRightIcon, CaretRightIcon, MinusIcon } from '@phosphor-icons/react';
 
 import { deltaOf } from '@/lib/period-compare';
 import { Card } from '@/components/ui/card';
@@ -48,6 +48,9 @@ export interface KpiTileProps {
 export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4 | 5 | 6; className?: string }) {
   return (
     <dl
+      // The headline figures, on 21 screens. The page guide names them so the
+      // strip is read as the screen's answer rather than as decoration.
+      data-guide="screen.kpis"
       className={cn(
         // Six is the dashboard strip: a full set of headline figures in one
         // band on a wide screen, stepping down through three to the phone's
@@ -99,14 +102,29 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
         130px of label, and "Receivables exposure" cut to "Receivables ex..."
         tells the reader less than a second line does.
       */}
-      <dt className="text-muted-foreground text-xs leading-tight text-balance">
+      {/*
+        The caption is a micro-label: small, uppercase, letter-spaced, muted
+        (owner, 1 Sep 2026 -- Supabase's pattern, read off their own screens).
+        It reads as a field name rather than as a sentence, which is what lets
+        the figure under it be the only thing on the tile the eye stops on.
+        Uppercase is wider, so it still wraps rather than truncating: at 360px
+        two tiles leave about 130px, and "RECEIVABLES EXPOSURE" cut in half
+        tells the reader less than a second line does.
+      */}
+      <dt className="text-muted-foreground flex items-start gap-1 text-[0.6875rem] leading-tight tracking-wide text-balance uppercase">
         {icon === undefined ? null : (
-          <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">
+          <span aria-hidden className="mt-px inline-flex align-[-2px] [&_svg]:size-3">
             {icon}
           </span>
         )}
-        {label}
-        {info === undefined ? null : <span className="ml-1 inline-flex align-middle">{info}</span>}
+        <span className="min-w-0">{label}</span>
+        {info === undefined ? null : <span className="inline-flex align-middle normal-case">{info}</span>}
+        {onOpen === undefined ? null : (
+          // The drill-through affordance Supabase puts on a tile that opens
+          // something. Hidden from a screen reader: the tile is already a
+          // button and says where it goes.
+          <CaretRightIcon aria-hidden className="text-muted-foreground/60 ml-auto shrink-0" />
+        )}
       </dt>
       {/*
         A step smaller on a phone, and never truncated: a rupee figure cut in
