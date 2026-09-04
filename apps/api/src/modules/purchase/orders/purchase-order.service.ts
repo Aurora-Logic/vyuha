@@ -528,11 +528,34 @@ export class PurchaseOrderService implements OnModuleInit {
   async cancel(principal: Principal, id: string): Promise<PurchaseOrderView> {
     const existing = await this.find(principal, id);
     if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${existing.number} is confirmed; short-close it instead.`);
+    // The status is claimed by the write -- which `confirm` above already
+    // says this path does, and it did not. Cancelling read the status and
+    // then wrote CANCELLED unconditionally, so an author pressing Cancel as
+    // an approver approves passed the check while it was PENDING_APPROVAL
+    // and then cancelled a PO that had become CONFIRMED in between, with
+    // the goods already on their way. The org and deleted_at go in for the
+    // same reason they are in every other write here: a scoped read in
+    // front of an unscoped write is one refactor away from neither.
+    //
+    // Claimed before the request is withdrawn rather than after. If this
+    // throws, the inbox request is untouched and the PO stays decidable;
+    // the old order withdrew the request first, so a failure here left a PO
+    // sitting in PENDING_APPROVAL with nothing left that could approve it.
+    const claimed = await this.db.execute<{ id: string }>(sql`
+      UPDATE purchase_orders
+         SET status = 'CANCELLED', approval_request_id = NULL,
+             updated_at = now(), updated_by = ${principal.userId}
+       WHERE org_id = ${principal.orgId} AND id = ${id} AND deleted_at IS NULL
+         AND status IN ('DRAFT', 'PENDING_APPROVAL')
+      RETURNING id
+    `);
+    if (claimed.rows.length === 0) {
+      throw AppError.conflict(`${existing.number} is no longer cancellable.`);
+    }
     if (existing.status === 'PENDING_APPROVAL') {
       // The inbox request goes with it, or an approver decides a PO that no longer exists.
       await this.approvals.cancelForSubject(orgContextOf(principal), PURCHASE_ORDER_SUBJECT_TYPE, id, `${existing.number} cancelled by its author.`);
     }
-    await this.db.execute(sql`UPDATE purchase_orders SET status = 'CANCELLED', approval_request_id = NULL, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
     this.auditContext.record({ action: 'purchase.order.cancelled', entityType: 'purchase_order', entityId: id, before: null, after: null });
     return this.find(principal, id);
   }

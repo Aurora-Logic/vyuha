@@ -6,6 +6,7 @@ import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { PushOutcomeRegistry } from '../../../platform/sync/push-outcome.registry.js';
+import { PurchaseOrderService } from './purchase-order.service.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 
 /**
@@ -938,5 +939,61 @@ describe('who may confirm a PO that needs approval', () => {
     });
     expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
     expect(confirmed.body.status).toBe('PENDING_APPROVAL');
+  });
+
+  /**
+   * COM-4: the race the status claim in `cancel()` exists for.
+   *
+   * There is no seam in the endpoint to interleave two writes at, so the
+   * state the race produces is built directly instead -- a PO the caller
+   * last read as PENDING_APPROVAL whose row has since become CONFIRMED. Only
+   * the read is stubbed, once, standing in for the approver winning it;
+   * the guard, the UPDATE, the SQL and the database are all real.
+   *
+   * Take `AND status IN (...)` back out of that UPDATE and this test cancels
+   * a confirmed order, which is the whole point of it: goods already on
+   * their way against a PO that has quietly started saying CANCELLED.
+   */
+  it('refuses to cancel an order confirmed under the read, and leaves its request alone', async () => {
+    const po = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4300' }] },
+    });
+    expect(po.status).toBe(201);
+    const submitted = await harness.post<PurchaseOrderView>(`/purchase/orders/${po.body.id}/confirm`, {
+      token: adminToken,
+    });
+    expect(submitted.status, JSON.stringify(submitted.body)).toBe(200);
+    expect(submitted.body.status).toBe('PENDING_APPROVAL');
+
+    // The approver's write landing. Applied directly so the request stays
+    // PENDING -- that is what separates the claim from the guard above it,
+    // and it is exactly what the old order destroyed before finding out it
+    // could not cancel.
+    await harness.db.execute(sql`UPDATE purchase_orders SET status = 'CONFIRMED' WHERE id = ${po.body.id}`);
+
+    const service = harness.resolve(PurchaseOrderService);
+    const stale = vi.spyOn(service, 'find').mockResolvedValueOnce(submitted.body);
+    try {
+      const refused = await harness.post<ErrorBody>(`/purchase/orders/${po.body.id}/cancel`, {
+        token: adminToken,
+      });
+      expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+    } finally {
+      stale.mockRestore();
+    }
+
+    const row = await harness.db.execute<{ status: string }>(
+      sql`SELECT status FROM purchase_orders WHERE id = ${po.body.id}`,
+    );
+    expect(row.rows[0]?.status).toBe('CONFIRMED');
+
+    // The reorder: the claim runs before the request is withdrawn, so a
+    // refusal leaves the PO decidable rather than stranded in
+    // PENDING_APPROVAL with nothing left that could approve it.
+    const request = await harness.db.execute<{ status: string }>(
+      sql`SELECT status FROM approval_requests WHERE subject_id = ${po.body.id} ORDER BY created_at DESC LIMIT 1`,
+    );
+    expect(request.rows[0]?.status).toBe('PENDING');
   });
 });
