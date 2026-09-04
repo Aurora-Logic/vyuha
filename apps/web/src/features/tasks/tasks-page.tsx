@@ -556,15 +556,19 @@ export function TasksPage() {
               }}
             />
             {canConfigure ? (
+              // Icon-only on a phone (owner, 4 Sep 2026): the label is dropped
+              // to keep the toolbar row short, and the name lives on aria-label
+              // so the control is still announced.
               <Button
                 variant="ghost"
-                size="sm"
+                size={isMobile ? 'icon-sm' : 'sm'}
+                aria-label="Columns"
                 onClick={() => {
                   setConfiguring(true);
                 }}
               >
-                <GearIcon data-icon="inline-start" />
-                Columns
+                <GearIcon data-icon={isMobile ? undefined : 'inline-start'} />
+                {isMobile ? null : 'Columns'}
               </Button>
             ) : null}
             {/* The five-layout picker, the way Notion's offers them. On a phone
