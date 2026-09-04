@@ -3,6 +3,7 @@ import type { Params } from 'nestjs-pino';
 
 import { API_PREFIX_PATH, WILDCARD_ROUTE } from './constants.js';
 import { env } from './env.js';
+import { redactUrl } from './redact-url.js';
 import { resolveRequestId } from './request-id.js';
 
 /**
@@ -61,7 +62,7 @@ export function pinoParams(): Params {
         req: (req: { id: unknown; method: string; url: string; remoteAddress?: string }) => ({
           id: req.id,
           method: req.method,
-          url: req.url,
+          url: redactUrl(req.url),
           remoteAddress: req.remoteAddress,
         }),
         res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),

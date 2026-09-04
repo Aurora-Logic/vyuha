@@ -21,7 +21,7 @@ interface Captured {
   headers: Record<string, string>;
 }
 
-function makeHost(overrides: { headersSent?: boolean } = {}): {
+function makeHost(overrides: { headersSent?: boolean; url?: string } = {}): {
   host: ArgumentsHost;
   captured: Captured;
 } {
@@ -42,7 +42,8 @@ function makeHost(overrides: { headersSent?: boolean } = {}): {
     },
   };
 
-  const req = { id: REQUEST_ID, method: 'POST', originalUrl: '/api/v1/punches', url: '/api/v1/punches' };
+  const url = overrides?.url ?? '/api/v1/punches';
+  const req = { id: REQUEST_ID, method: 'POST', originalUrl: url, url };
 
   const host = {
     switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
@@ -51,7 +52,7 @@ function makeHost(overrides: { headersSent?: boolean } = {}): {
   return { host, captured };
 }
 
-function run(exception: unknown, overrides?: { headersSent?: boolean }): Captured {
+function run(exception: unknown, overrides?: { headersSent?: boolean; url?: string }): Captured {
   const { host, captured } = makeHost(overrides);
   new AppExceptionFilter().catch(exception, host);
   return captured;
@@ -104,6 +105,18 @@ describe('AppExceptionFilter', () => {
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toBe(original);
     expect(String((err as Error).stack)).toContain(original);
+  });
+
+  it('never logs a credential that rides in the URL (H-01)', () => {
+    const logged: unknown[] = [];
+    vi.spyOn(Logger.prototype, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(...args);
+    });
+
+    run(new Error('boom'), { url: '/api/v1/portal/prtl_9f3a2c?utm=x' });
+
+    expect(logged[0]).toMatchObject({ where: 'POST /api/v1/portal/[redacted]' });
+    expect(JSON.stringify(logged)).not.toContain('prtl_9f3a2c');
   });
 
   it('records a non-Error throw under `thrown` rather than pretending it is an error', () => {

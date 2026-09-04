@@ -12,6 +12,7 @@ import { ZodError } from 'zod';
 
 import { checkViolationConstraint, constraintMessage, isCheckViolation, isPoolConnectionTimeout } from '../db/pg-error.js';
 import { AppError, describeError, toErrorBody } from './errors.js';
+import { redactUrl } from './redact-url.js';
 import { REQUEST_ID_HEADER, requestIdOf } from './request-id.js';
 
 /**
@@ -230,7 +231,7 @@ export class AppExceptionFilter implements ExceptionFilter {
    * message would be swallowed and the log line would arrive empty.
    */
   private log(exception: unknown, resolved: Resolved, req: Request): void {
-    const where = `${req.method ?? 'UNKNOWN'} ${req.originalUrl ?? req.url ?? ''}`;
+    const where = `${req.method ?? 'UNKNOWN'} ${redactUrl(req.originalUrl ?? req.url ?? '')}`;
     // No `requestId` here: pino-http already binds it to the request's child
     // logger, and repeating it emits the key twice in one JSON object.
     const base = { status: resolved.status, code: resolved.code, where };
