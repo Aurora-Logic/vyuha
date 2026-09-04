@@ -38,6 +38,7 @@ function party(id: string, name: string): Party {
     creditLimit: null,
     creditDays: null,
     openingBalance: null,
+    closingBalance: null,
     absentInTally: false,
     lastPulledAt: '2026-01-01T00:00:00Z',
     manager: null,

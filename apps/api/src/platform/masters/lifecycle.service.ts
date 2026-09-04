@@ -179,12 +179,26 @@ export class LifecycleService {
         ? Promise.resolve(null)
         : this.db
             .execute<{ purchase_orders: number; receipts: number; purchased_value: string; last_purchase_at: string | null }>(sql`
-              SELECT count(*)::int AS purchase_orders,
-                     (SELECT count(*)::int FROM grns g JOIN purchase_orders q ON q.id = g.purchase_order_id WHERE q.org_id = ${orgId} AND q.party_id = ${partyId} AND g.deleted_at IS NULL) AS receipts,
-                     coalesce(sum(p.grand_total), 0)::text AS purchased_value,
-                     max(p.date)::text AS last_purchase_at
-                FROM purchase_orders p
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
+              WITH pos AS (
+                SELECT p.id, p.date, p.grand_total FROM purchase_orders p
+                 WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
+              ), tally_vch AS (
+                SELECT v.id, v.voucher_date,
+                       CASE WHEN v.voucher_type IN ('Purchase', 'GST PURCHASE') THEN abs(v.amount)
+                            WHEN v.voucher_type = 'Debit Note' THEN -abs(v.amount)
+                            ELSE 0 END AS amount
+                  FROM vouchers v
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE', 'Debit Note')
+              )
+              SELECT ((SELECT count(*) FROM pos) + (SELECT count(*) FROM tally_vch WHERE amount > 0))::int AS purchase_orders,
+                     ((SELECT count(*)::int FROM grns g JOIN purchase_orders q ON q.id = g.purchase_order_id WHERE q.org_id = ${orgId} AND q.party_id = ${partyId} AND g.deleted_at IS NULL) + (SELECT count(*) FROM tally_vch WHERE amount > 0))::int AS receipts,
+                     (coalesce((SELECT sum(grand_total) FROM pos), 0) + coalesce((SELECT sum(amount) FROM tally_vch), 0))::text AS purchased_value,
+                     (SELECT max(d)::text FROM (
+                        SELECT pos.date::text AS d FROM pos
+                        UNION ALL
+                        SELECT tally_vch.voucher_date::text AS d FROM tally_vch WHERE amount > 0
+                     ) dates) AS last_purchase_at
             `)
             .then((r) => r.rows[0] ?? null),
       this.partyEvents(orgId, partyId, sales, purchase, vouchers),

@@ -547,14 +547,32 @@ export class LifecycleAnalyticsService {
                   FROM purchase_orders p
                  WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
                    AND p.date BETWEEN ${range.from} AND ${range.to}
+              ), tally_vch AS (
+                SELECT v.id, v.voucher_date,
+                       CASE WHEN v.voucher_type IN ('Purchase', 'GST PURCHASE') THEN abs(v.amount)
+                            WHEN v.voucher_type = 'Debit Note' THEN -abs(v.amount)
+                            ELSE 0 END AS amount
+                  FROM vouchers v
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE', 'Debit Note')
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+              ), tally_lines AS (
+                SELECT vl.voucher_id,
+                       coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS qty
+                  FROM voucher_lines vl
+                  JOIN vouchers v ON v.id = vl.voucher_id
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE')
+                   AND vl.kind = 'inventory'
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               )
-              SELECT (SELECT count(*) FROM pos)::int AS purchase_orders,
-                     coalesce((SELECT sum(grand_total) FROM pos), 0)::text AS purchased_value,
-                     coalesce((SELECT sum(l.quantity) FROM purchase_order_lines l WHERE l.purchase_order_id IN (SELECT id FROM pos)), 0)::text AS purchased_qty,
-                     coalesce((SELECT sum(l.received_qty) FROM purchase_order_lines l WHERE l.purchase_order_id IN (SELECT id FROM pos)), 0)::text AS received_qty,
+              SELECT ((SELECT count(*) FROM pos) + (SELECT count(*) FROM tally_vch WHERE amount > 0))::int AS purchase_orders,
+                     (coalesce((SELECT sum(grand_total) FROM pos), 0) + coalesce((SELECT sum(amount) FROM tally_vch), 0))::text AS purchased_value,
+                     (coalesce((SELECT sum(l.quantity) FROM purchase_order_lines l WHERE l.purchase_order_id IN (SELECT id FROM pos)), 0) + coalesce((SELECT sum(qty) FROM tally_lines), 0))::text AS purchased_qty,
+                     (coalesce((SELECT sum(l.received_qty) FROM purchase_order_lines l WHERE l.purchase_order_id IN (SELECT id FROM pos)), 0) + coalesce((SELECT sum(qty) FROM tally_lines), 0))::text AS received_qty,
                      coalesce((SELECT sum(l.rejected_qty) FROM purchase_order_lines l WHERE l.purchase_order_id IN (SELECT id FROM pos)), 0)::text AS rejected_qty,
-                     (SELECT count(*) FROM grns g JOIN purchase_orders q ON q.id = g.purchase_order_id
-                       WHERE q.org_id = ${orgId} AND q.party_id = ${partyId} AND g.deleted_at IS NULL AND g.received_at::date BETWEEN ${range.from} AND ${range.to})::int AS receipts,
+                     ((SELECT count(*) FROM grns g JOIN purchase_orders q ON q.id = g.purchase_order_id
+                        WHERE q.org_id = ${orgId} AND q.party_id = ${partyId} AND g.deleted_at IS NULL AND g.received_at::date BETWEEN ${range.from} AND ${range.to}) + (SELECT count(*) FROM tally_vch WHERE amount > 0))::int AS receipts,
                      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (first_receipt - date::timestamptz)) / 86400) FROM pos WHERE first_receipt IS NOT NULL)::text AS lead_median,
                      (SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM (first_receipt - date::timestamptz)) / 86400) FROM pos WHERE first_receipt IS NOT NULL)::text AS lead_p90
             `)
@@ -605,14 +623,17 @@ export class LifecycleAnalyticsService {
                WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
                ORDER BY 1
             `)
-            .then((r) => r.rows.map((row) => row.date)),
-      !purchase
+            .then((r) => r.rows.map((row) => row.date)),      !purchase
         ? Promise.resolve(null)
         : this.db
             .execute<{ open_pos: number; last_at: string | null; promised_days: string | null }>(sql`
               SELECT count(*) FILTER (WHERE p.short_closed_at IS NULL
                        AND EXISTS (SELECT 1 FROM purchase_order_lines l WHERE l.purchase_order_id = p.id AND l.received_qty < l.quantity))::int AS open_pos,
-                     max(p.date)::text AS last_at,
+                     (SELECT max(d)::text FROM (
+                        SELECT p2.date::text AS d FROM purchase_orders p2 WHERE p2.org_id = ${orgId} AND p2.party_id = ${partyId} AND ${live('p2')} AND p2.deleted_at IS NULL
+                        UNION ALL
+                        SELECT v2.voucher_date::text AS d FROM vouchers v2 WHERE v2.org_id = ${orgId} AND v2.party_id = ${partyId} AND v2.is_cancelled = false AND v2.voucher_type IN ('Purchase', 'GST PURCHASE')
+                     ) sub) AS last_at,
                      (SELECT avg(iv.lead_time_days) FROM item_vendors iv WHERE iv.org_id = ${orgId} AND iv.party_id = ${partyId} AND iv.deleted_at IS NULL AND iv.lead_time_days IS NOT NULL)::text AS promised_days
                 FROM purchase_orders p
                WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
@@ -666,14 +687,24 @@ export class LifecycleAnalyticsService {
         ? Promise.resolve([])
         : this.db
             .execute<{ month: string; value: string; received: string }>(sql`
-              SELECT to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, sum(p.grand_total)::text AS value,
-                     coalesce((SELECT sum(l.received_qty) FROM purchase_order_lines l WHERE l.purchase_order_id = ANY(array_agg(p.id))), 0)::text AS received
-                FROM purchase_orders p
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
-                 AND p.date BETWEEN ${range.from} AND ${range.to}
+              SELECT to_char(date_trunc('month', d), 'YYYY-MM') AS month, sum(val)::text AS value, sum(rec)::text AS received
+                FROM (
+                  SELECT p.date AS d, p.grand_total AS val,
+                         coalesce((SELECT sum(l.received_qty) FROM purchase_order_lines l WHERE l.purchase_order_id = p.id), 0) AS rec
+                    FROM purchase_orders p
+                   WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
+                     AND p.date BETWEEN ${range.from} AND ${range.to}
+                  UNION ALL
+                  SELECT v.voucher_date AS d,
+                         CASE WHEN v.voucher_type IN ('Purchase', 'GST PURCHASE') THEN abs(v.amount) WHEN v.voucher_type = 'Debit Note' THEN -abs(v.amount) ELSE 0 END AS val,
+                         coalesce((SELECT sum(coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0)) FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.kind = 'inventory'), 0) AS rec
+                    FROM vouchers v
+                   WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                     AND v.voucher_type IN ('Purchase', 'GST PURCHASE', 'Debit Note')
+                     AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+                ) sub
                GROUP BY 1
-            `)
-            .then((r) => r.rows),
+            `)            .then((r) => r.rows),
     ]);
     for (const row of s) {
       const e = at(row.month);
@@ -713,18 +744,41 @@ export class LifecycleAnalyticsService {
   private async partyItemsSupplied(orgId: string, partyId: string, range: Range): Promise<PartyItemRow[]> {
     const rows = await this.db
       .execute<{ id: string | null; name: string; unit: string | null; quantity: string; value: string; documents: number; last_at: string; last_rate: string | null; best_rate: string | null }>(sql`
-        SELECT l.stock_item_id AS id, l.description AS name, l.unit, sum(l.quantity)::text AS quantity, sum(l.amount)::text AS value,
-               count(DISTINCT p.id)::int AS documents, max(p.date)::text AS last_at, (array_agg(l.rate ORDER BY p.date DESC))[1]::text AS last_rate,
+        WITH supplied AS (
+          SELECT l.stock_item_id AS id, l.description AS name, l.unit, l.quantity, l.amount,
+                 p.id AS doc_id, p.date, l.rate
+            FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
+           WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
+             AND p.date BETWEEN ${range.from} AND ${range.to}
+          UNION ALL
+          SELECT vl.stock_item_id AS id, coalesce(si.name, vl.stock_item_name, 'Unknown') AS name, si.unit,
+                 coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS quantity,
+                 abs(vl.amount) AS amount,
+                 v.id AS doc_id, v.voucher_date AS date, vl.rate
+            FROM voucher_lines vl
+            JOIN vouchers v ON v.id = vl.voucher_id
+            LEFT JOIN stock_items si ON si.id = vl.stock_item_id
+           WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+             AND v.voucher_type IN ('Purchase', 'GST PURCHASE')
+             AND vl.kind = 'inventory'
+             AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+        )
+        SELECT s.id, s.name, s.unit, sum(s.quantity)::text AS quantity, sum(s.amount)::text AS value,
+               count(DISTINCT s.doc_id)::int AS documents, max(s.date)::text AS last_at, (array_agg(s.rate ORDER BY s.date DESC))[1]::text AS last_rate,
                -- The best last rate any vendor gave for the item, all time: the price this vendor is measured against.
                (SELECT min(r.last_rate) FROM (
-                  SELECT DISTINCT ON (q.party_id) l2.rate AS last_rate
-                    FROM purchase_order_lines l2 JOIN purchase_orders q ON q.id = l2.purchase_order_id
-                   WHERE q.org_id = ${orgId} AND l2.stock_item_id = l.stock_item_id AND ${live('q')} AND q.deleted_at IS NULL AND l2.rate > 0
-                   ORDER BY q.party_id, q.date DESC) r)::text AS best_rate
-          FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-         WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
-           AND p.date BETWEEN ${range.from} AND ${range.to}
-         GROUP BY l.stock_item_id, l.description, l.unit ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
+                  SELECT DISTINCT ON (rates.party_id) rates.rate AS last_rate
+                    FROM (
+                      SELECT q.party_id, l2.rate, q.date FROM purchase_order_lines l2 JOIN purchase_orders q ON q.id = l2.purchase_order_id
+                       WHERE q.org_id = ${orgId} AND l2.stock_item_id = s.id AND ${live('q')} AND q.deleted_at IS NULL AND l2.rate > 0
+                      UNION ALL
+                      SELECT v2.party_id, vl2.rate, v2.voucher_date AS date FROM voucher_lines vl2 JOIN vouchers v2 ON v2.id = vl2.voucher_id
+                       WHERE v2.org_id = ${orgId} AND vl2.stock_item_id = s.id AND v2.is_cancelled = false
+                         AND v2.voucher_type IN ('Purchase', 'GST PURCHASE') AND vl2.kind = 'inventory' AND vl2.rate > 0
+                    ) rates
+                   ORDER BY rates.party_id, rates.date DESC) r)::text AS best_rate
+          FROM supplied s
+         GROUP BY s.id, s.name, s.unit ORDER BY sum(s.amount) DESC LIMIT ${ROW_CAP}
       `)
       .then((r) => r.rows);
     return rows.map((r) => {
@@ -766,15 +820,35 @@ export class LifecycleAnalyticsService {
         : await this.db
             .execute<{ row_id: string | null; row: string; month: string; value: string }>(sql`
               WITH top AS (
-                SELECT l.description AS key FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
+                SELECT coalesce(description, 'Unknown') AS key
+                  FROM (
+                    SELECT l.description, l.amount FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
+                     WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
+                       AND p.date BETWEEN ${range.from} AND ${range.to}
+                    UNION ALL
+                    SELECT coalesce(si.name, vl.stock_item_name) AS description, abs(vl.amount) AS amount
+                      FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id LEFT JOIN stock_items si ON si.id = vl.stock_item_id
+                     WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                       AND v.voucher_type IN ('Purchase', 'GST PURCHASE') AND vl.kind = 'inventory'
+                       AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+                  ) all_lines
+                 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT ${ROW_CAP}
+              ), combined AS (
+                SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, l.quantity AS value
+                  FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
                  WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
                    AND p.date BETWEEN ${range.from} AND ${range.to}
-                 GROUP BY 1 ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
+                UNION ALL
+                SELECT vl.stock_item_id AS row_id, coalesce(si.name, vl.stock_item_name, 'Unknown') AS row, to_char(date_trunc('month', v.voucher_date), 'YYYY-MM') AS month,
+                       coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS value
+                  FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id LEFT JOIN stock_items si ON si.id = vl.stock_item_id
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE') AND vl.kind = 'inventory'
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               )
-              SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS value
-                FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
-               WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
-                 AND p.date BETWEEN ${range.from} AND ${range.to} AND l.description IN (SELECT key FROM top)
+              SELECT row_id, row, month, sum(value)::text AS value
+                FROM combined
+               WHERE row IN (SELECT key FROM top)
                GROUP BY 1, 2, 3
             `)
             .then((r) => r.rows);

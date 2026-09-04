@@ -23,6 +23,7 @@ export const partySchema = z.object({
   creditLimit: z.string().nullable(),
   creditDays: z.number().nullable(),
   openingBalance: z.string().nullable(),
+  closingBalance: z.string().nullable(),
   absentInTally: z.boolean(),
   lastPulledAt: z.string(),
   /** The relationship manager who owns this customer, when one is assigned. */
