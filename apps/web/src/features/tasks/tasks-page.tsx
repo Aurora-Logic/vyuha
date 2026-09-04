@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckSquareIcon, GearIcon, ReceiptIcon, CalendarBlankIcon, ChartBarHorizontalIcon, KanbanIcon, SquaresFourIcon, TableIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
+import { CheckSquareIcon, GearIcon, ReceiptIcon, CalendarBlankIcon, ChartBarHorizontalIcon, KanbanIcon, RowsIcon, SquaresFourIcon, TableIcon, LockKeyIcon, PaperclipIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ListSkeleton } from '@/components/shared/list-skeleton';
@@ -12,6 +12,7 @@ import { EMPTY_VALUE } from '@/lib/format';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { PersonChip } from '@/components/shared/person';
 import { CollapsibleSearch } from '@/components/shared/collapsible-search';
+import { SearchField } from '@/components/shared/search-field';
 import { FilterButton, FilterChips, FilterField, type FilterChip } from '@/components/shared/filter-bar';
 import { SavedViews } from '@/components/shared/saved-views';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -227,7 +228,21 @@ export function TasksPage() {
   const priority = TASK_PRIORITIES.find((value) => value === priorityParam);
   const assigneeParam = searchParams.get('assignee') ?? '';
   const viewParam = searchParams.get('view');
-  const view: TaskViewMode = isTaskViewMode(viewParam) ? viewParam : defaultView;
+  const rawView: TaskViewMode = isTaskViewMode(viewParam) ? viewParam : defaultView;
+  // The phone shows the stacked board in the list's place and offers only the
+  // two board layouts (owner, 4 Sep 2026: "remove the list view, add another
+  // relevant mobile view"); every wide-screen view resolves to the stacked
+  // board there. A desktop never renders the stacked board -- it is the
+  // phone's rendering of the list -- so a stored `stacked` resolves to the
+  // list. This is the only place the two are mapped to each other.
+  const view: TaskViewMode = isMobile
+    ? rawView === 'board'
+      ? 'board'
+      : 'stacked'
+    : rawView === 'stacked'
+      ? 'list'
+      : rawView;
+  const usesBoard = view === 'board' || view === 'stacked';
   // Calendar, gallery and timeline are whole-set views: a month with only
   // the first 25 of its tasks on it is a lie, not a page. They ask for the
   // server's maximum and say so below when even that is not everything.
@@ -272,7 +287,7 @@ export function TasksPage() {
     { ...filters, page, ...(sort ? { sort } : {}), ...(wholeSet ? { pageSize: MAX_PAGE_SIZE, page: 1 } : {}) },
     { enabled: canView && (view === 'list' || wholeSet) },
   );
-  const board = useTaskBoard(filters, { enabled: canView && view === 'board' });
+  const board = useTaskBoard(filters, { enabled: canView && usesBoard });
   const open = useTask(canView ? openId : null);
   const move = useMoveTask();
   const save = useSaveTask();
@@ -325,12 +340,12 @@ export function TasksPage() {
 
   const rows = list.data?.data ?? [];
   const meta = list.data?.meta ?? null;
-  const query = view === 'board' ? board : list;
+  const query = usesBoard ? board : list;
   const openTask = (task: Task) => {
     void navigate(`/tasks/${task.id}${window.location.search}`);
   };
   const nothing =
-    view === 'board'
+    usesBoard
       ? board.isSuccess && board.data.lanes.every((l) => l.tasks.length === 0)
       : list.isSuccess && rows.length === 0;
   const filtered = Boolean(q) || due !== 'open' || mine || !includeClosed || priority !== undefined || assigneeParam !== '';
@@ -401,13 +416,28 @@ export function TasksPage() {
             search box, a toggle, three dropdowns and a switch, always, wrapped
             onto two rows. */}
         <div className="flex flex-wrap items-center gap-1.5">
-          <CollapsibleSearch
-            id="task-search"
-            label="Search tasks"
-            value={draft}
-            onValueChange={setDraft}
-            placeholder="Title or notes"
-          />
+          {/* Prominent on a phone (owner, 4 Sep 2026): a full-width field on
+              its own row, not the collapsed icon the desktop uses to keep its
+              toolbar quiet -- searching is a first move on a phone, and an
+              icon someone has to find first is not that. */}
+          {isMobile ? (
+            <SearchField
+              id="task-search"
+              label="Search tasks"
+              value={draft}
+              onValueChange={setDraft}
+              placeholder="Title or notes"
+              className="w-full"
+            />
+          ) : (
+            <CollapsibleSearch
+              id="task-search"
+              label="Search tasks"
+              value={draft}
+              onValueChange={setDraft}
+              placeholder="Title or notes"
+            />
+          )}
 
           <FilterButton
             active={activeFilters.length}
@@ -538,11 +568,11 @@ export function TasksPage() {
               </Button>
             ) : null}
             {/* The five-layout picker, the way Notion's offers them. On a phone
-                only the two that earn a 360px row are shown -- List and Board
-                (owner, 4 Sep 2026: "add kanban view") -- so the pipeline is
-                reachable on a phone, while the calendar, gallery and timeline,
-                which need a wide screen to say anything, stay on the desktop
-                where they already lived. The list view itself is unchanged. */}
+                it is the two board layouts -- the stacked sections and the
+                horizontal kanban (owner, 4 Sep 2026: "remove the list, add
+                another relevant mobile view"); the list, calendar, gallery and
+                timeline each need a wide screen and stay on the desktop, where
+                the stacked board is not offered because the list already is. */}
             <ToggleGroup
               variant="outline"
               aria-label="View"
@@ -556,14 +586,23 @@ export function TasksPage() {
                 }
               }}
             >
-              <ToggleGroupItem value="list" aria-label="Table view">
-                <TableIcon />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="board" aria-label="Board view">
-                <KanbanIcon />
-              </ToggleGroupItem>
-              {isMobile ? null : (
+              {isMobile ? (
                 <>
+                  <ToggleGroupItem value="stacked" aria-label="Stacked view">
+                    <RowsIcon />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="board" aria-label="Board view">
+                    <KanbanIcon />
+                  </ToggleGroupItem>
+                </>
+              ) : (
+                <>
+                  <ToggleGroupItem value="list" aria-label="Table view">
+                    <TableIcon />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="board" aria-label="Board view">
+                    <KanbanIcon />
+                  </ToggleGroupItem>
                   <ToggleGroupItem value="calendar" aria-label="Calendar view">
                     <CalendarBlankIcon />
                   </ToggleGroupItem>
@@ -659,9 +698,10 @@ export function TasksPage() {
           </>
         ) : null}
 
-        {view === 'board' && board.data !== undefined && !nothing ? (
+        {usesBoard && board.data !== undefined && !nothing ? (
           <TaskBoard
             board={board.data}
+            stacked={view === 'stacked'}
             moving={move.isPending}
             {...(canManage
               ? {

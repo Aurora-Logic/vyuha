@@ -38,6 +38,7 @@ export function TaskBoard({
   onSetPriority,
   onDelete,
   moving,
+  stacked = false,
 }: {
   board: BoardResponse;
   onOpen: (task: Task) => void;
@@ -46,6 +47,8 @@ export function TaskBoard({
   onSetPriority?: (task: Task, priority: TaskPriority) => void;
   onDelete?: (task: Task) => void;
   moving: boolean;
+  /** The phone layout: vertical collapsible lanes instead of a sideways row. */
+  stacked?: boolean;
 }) {
   const { shown } = useTaskCardFields();
   const columns = board.lanes.map((lane) => lane.column);
@@ -53,6 +56,7 @@ export function TaskBoard({
   return (
     <KanbanBoard
       ariaLabel="Task board"
+      stacked={stacked}
       lanes={board.lanes.map(({ column, tasks, total }, index) => ({
         id: column.id,
         label: column.name,

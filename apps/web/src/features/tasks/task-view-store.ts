@@ -7,10 +7,15 @@ import { persist } from 'zustand/middleware';
  * bottom-bar store: it belongs to this person on this device and losing it
  * costs one click.
  */
-export type TaskViewMode = 'list' | 'board' | 'calendar' | 'gallery' | 'timeline';
+export type TaskViewMode = 'list' | 'board' | 'stacked' | 'calendar' | 'gallery' | 'timeline';
 
-/** Every mode, in the order the switcher offers them. */
-export const TASK_VIEW_MODES = ['list', 'board', 'calendar', 'gallery', 'timeline'] as const;
+/**
+ * Every mode, in the order the switcher offers them. `stacked` is the phone's
+ * board -- the same lanes as `board`, turned into vertical collapsible sections
+ * so a 360px screen reads them top to bottom instead of scrolling sideways. It
+ * is offered only on a phone; the tasks page maps it to `list` on a desktop.
+ */
+export const TASK_VIEW_MODES = ['list', 'board', 'stacked', 'calendar', 'gallery', 'timeline'] as const;
 
 export function isTaskViewMode(value: string | null): value is TaskViewMode {
   return value !== null && (TASK_VIEW_MODES as readonly string[]).includes(value);
