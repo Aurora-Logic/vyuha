@@ -75,7 +75,7 @@ export class MastersService {
           ...withRelevance(
             query.q,
             parties.name,
-            masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays }, parties.name, parties.id),
+            masterOrderBy(parseSort(query.sort ?? DEFAULT_PARTY_SORT, PARTY_SORT_FIELDS), { name: parties.name, creditLimit: parties.creditLimit, creditDays: parties.creditDays, openingBalance: parties.openingBalance, closingBalance: parties.closingBalance }, parties.name, parties.id),
           ),
         )
         .limit(limit)
@@ -475,6 +475,7 @@ function toView(row: typeof parties.$inferSelect): PartyView {
     creditLimit: row.creditLimit,
     creditDays: row.creditDays,
     openingBalance: row.openingBalance,
+    closingBalance: row.closingBalance,
     absentInTally: row.absentInTally,
     lastPulledAt: row.lastPulledAt.toISOString(),
     manager: null,

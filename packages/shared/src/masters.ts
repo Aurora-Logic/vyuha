@@ -33,6 +33,8 @@ export interface PartyView {
   readonly creditLimit: string | null;
   readonly creditDays: number | null;
   readonly openingBalance: string | null;
+  /** Exact decimal as text (D-01): Tally's closing balance / outstanding figure. */
+  readonly closingBalance: string | null;
   /** REQ-R-06: gone from Tally, kept here so references keep resolving. */
   readonly absentInTally: boolean;
   /** REQ-Y-07's habit, started early: every projected figure says its age. */
@@ -44,7 +46,7 @@ export interface PartyView {
 }
 
 /** The columns the parties register orders by; a header and a `?sort=` term are the same word. */
-export const PARTY_SORT_FIELDS = ['name', 'creditLimit', 'creditDays'] as const;
+export const PARTY_SORT_FIELDS = ['name', 'creditLimit', 'creditDays', 'openingBalance', 'closingBalance'] as const;
 export const DEFAULT_PARTY_SORT = 'name';
 
 export const partyListQuerySchema = pageQuerySchema.extend({

@@ -280,6 +280,8 @@ export function PartyPage() {
           </dd>
           <dt className="text-muted-foreground">Opening balance</dt>
           <dd className="tabular-nums">{party.openingBalance ? formatMoney(party.openingBalance) : EMPTY_VALUE}</dd>
+          <dt className="text-muted-foreground">Closing balance</dt>
+          <dd className="tabular-nums">{party.closingBalance ? formatMoney(party.closingBalance) : EMPTY_VALUE}</dd>
         </dl>
       </section>
 
