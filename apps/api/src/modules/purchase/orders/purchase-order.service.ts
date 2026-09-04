@@ -34,7 +34,7 @@ import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
 import { orgToday, resolveDocumentLines } from '../../../platform/documents/document-support.js';
-import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
+import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { PushOutcomeRegistry, type PushMirror, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
@@ -598,6 +598,7 @@ export class PurchaseOrderService implements OnModuleInit {
         throw AppError.validation('A rejected quantity needs a reason.', { fields: [{ path: `lines.${String(index)}.rejectionReason`, message: 'is required' }] });
       }
     }
+    const arrivals: NotificationEvent[] = [];
     const grnId = await this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx, principal.orgId, 'GRN', 'GRN');
       const inserted = await tx.execute<{ id: string }>(sql`
@@ -624,11 +625,16 @@ export class PurchaseOrderService implements OnModuleInit {
         `);
         if (waiting.rows.length === 1 && waiting.rows[0] !== undefined) {
           const share = Math.min(Number(entry.receivedQty), Number(waiting.rows[0].outstanding));
-          if (share > 0) await this.allocate(tx, principal, id, entry.purchaseOrderLineId, waiting.rows[0].requirement_id, share.toFixed(3));
+          if (share > 0) {
+            const arrival = await this.allocate(tx, principal, id, entry.purchaseOrderLineId, waiting.rows[0].requirement_id, share.toFixed(3));
+            if (arrival !== null) arrivals.push(arrival);
+          }
         }
       }
       return id;
     });
+    // Told after the commit, never inside it (H-06).
+    for (const arrival of arrivals) await this.notifications.emitAfterCommit(arrival);
     await this.enqueueGrnPush(principal, grnId);
     this.auditContext.record({ action: 'purchase.grn.created', entityType: 'grn', entityId: grnId, before: null, after: { purchaseOrderId, lines: input.lines } });
     return this.findGrn(principal, grnId);
@@ -638,20 +644,29 @@ export class PurchaseOrderService implements OnModuleInit {
   async allocateReceipt(principal: Principal, grnId: string, input: AllocateReceiptInput): Promise<GrnView> {
     if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Allocating a receipt across waiting orders needs purchase.document.approve.');
     const grn = await this.findGrn(principal, grnId);
+    const arrivals: NotificationEvent[] = [];
     await this.db.transaction(async (tx) => {
       for (const allocation of input.allocations) {
         const pending = grn.pendingAllocations.find((p) => p.waiting.some((w) => w.requirementId === allocation.requirementId));
         if (pending === undefined) throw AppError.validation('That requirement is not waiting on this receipt.', { requirementId: allocation.requirementId });
         // How much is left is read inside the transaction, not from the
         // snapshot this request was built against -- see `allocate`.
-        await this.allocate(tx, principal, grnId, pending.purchaseOrderLineId, allocation.requirementId, allocation.quantity);
+        const arrival = await this.allocate(tx, principal, grnId, pending.purchaseOrderLineId, allocation.requirementId, allocation.quantity);
+        if (arrival !== null) arrivals.push(arrival);
       }
     });
+    for (const arrival of arrivals) await this.notifications.emitAfterCommit(arrival);
     this.auditContext.record({ action: 'purchase.grn.allocated', entityType: 'grn', entityId: grnId, before: null, after: { allocations: input.allocations } });
     return this.findGrn(principal, grnId);
   }
 
-  private async allocate(tx: Transaction, principal: Principal, grnId: string, purchaseOrderLineId: string, requirementId: string, quantity: string): Promise<void> {
+  /**
+   * Returns the notice the caller should send once its transaction has
+   * committed, rather than sending it here. This runs inside the caller's
+   * transaction, and an emit in here could outlive a rollback -- or, on a
+   * Redis blip, throw and roll back an allocation that was fine (H-06).
+   */
+  private async allocate(tx: Transaction, principal: Principal, grnId: string, purchaseOrderLineId: string, requirementId: string, quantity: string): Promise<NotificationEvent | null> {
     /*
      * Two ceilings, both read here with the rows locked rather than from the
      * view the caller was looking at.
@@ -700,15 +715,16 @@ export class PurchaseOrderService implements OnModuleInit {
       `);
       const o = order.rows[0];
       if (o?.owner_id) {
-        await this.notifications.emit({
+        return {
           orgId: principal.orgId,
           type: NOTIFICATION_EVENTS.PROCUREMENT_STOCK_ARRIVED,
           audience: { kind: 'employees', employeeIds: [o.owner_id] },
           payload: { orderId: row.sales_order_id, orderNumber: o.number, grnNumber: o.grn, stockItemName: o.item, quantity },
           idempotencyKey: `stock-arrived-${grnId}-${requirementId}`,
-        });
+        };
       }
     }
+    return null;
   }
 
   // ------------------------------------------------ item facts and history

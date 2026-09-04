@@ -598,11 +598,20 @@ describe('the two ceilings on an allocation (audits 11, 12)', () => {
     expect(refused.body.error.message).toContain('waiting for only');
 
     // One is taken, which is all it was waiting for.
+    // H-06: the notice fails to queue, and the allocation still stands. The
+    // emit used to run inside the transaction, so a Redis blip here rolled
+    // back an allocation that was fine and answered 500 for it.
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const spy = vi.spyOn(dispatcher, 'emit').mockRejectedValueOnce(new Error('Redis blipped'));
+    const callsBefore = spy.mock.calls.length;
     const allowed = await harness.post<GrnView>(`/purchase/grns/${grn.id}/allocate`, {
       token: adminToken,
       body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '1' }] },
     });
-    expect(allowed.status).toBe(200);
+    expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
+    expect(spy.mock.calls.length - callsBefore, 'the notice was never attempted, so this proves nothing').toBe(1);
+    const settled = await lastGrn();
+    expect(Number(settled.pendingAllocations[0]?.unallocatedQty ?? 0)).toBe(Number(pending?.unallocatedQty) - 1);
   });
 });
 

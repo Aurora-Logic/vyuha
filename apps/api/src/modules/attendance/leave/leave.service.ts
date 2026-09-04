@@ -558,7 +558,12 @@ export class LeaveService {
     // is a route to name. It used to go to everyone holding
     // `leave.approve.team` anywhere in the organisation, which told four
     // managers about a request none of them can act on.
-    await this.notifications.emit({
+    // The request is committed above; the notice is a courtesy. `emit` here
+    // threw on a Redis blip and the screen said the application had failed
+    // about a request that exists -- the retry then made a second one. All
+    // five notices in this file sit after their transaction for the same
+    // reason and use the same call (H-06).
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.LEAVE_APPLIED,
       audience: { kind: 'users', userIds: route.filter((id) => id !== requesterUserId) },
@@ -676,7 +681,7 @@ export class LeaveService {
     const before = balanceBeforeApproval(closingAfter, request.totalDays);
     if (!crossedLowBalance(before, closingAfter)) return;
 
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId,
       type: NOTIFICATION_EVENTS.LEAVE_BALANCE_LOW,
       audience: { kind: 'employees', employeeIds: [request.employeeId] },
@@ -796,7 +801,7 @@ export class LeaveService {
           after: { status: 'REJECTED', reason: decision.reason },
         });
 
-        await this.notifications.emit({
+        await this.notifications.emitAfterCommit({
           orgId: ctx.orgId,
           type: NOTIFICATION_EVENTS.LEAVE_REJECTED,
           audience: { kind: 'employees', employeeIds: [request.employeeId] },
@@ -878,7 +883,7 @@ export class LeaveService {
         },
       });
 
-      await this.notifications.emit({
+      await this.notifications.emitAfterCommit({
         orgId: ctx.orgId,
         type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
         audience: { kind: 'employees', employeeIds: [request.employeeId] },
@@ -1028,7 +1033,7 @@ export class LeaveService {
       },
     });
 
-    await this.notifications.emit({
+    await this.notifications.emitAfterCommit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.LEAVE_CANCELLED,
       audience: { kind: 'employees', employeeIds: [request.employeeId] },
