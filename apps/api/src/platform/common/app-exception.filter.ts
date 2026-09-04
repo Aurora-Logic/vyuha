@@ -193,6 +193,19 @@ export class AppExceptionFilter implements ExceptionFilter {
       };
     }
 
+    if (isEntityTooLarge(exception)) {
+      // body-parser's refusal, thrown before any guard or handler runs. It
+      // is not a Nest HttpException, so it used to fall through to a 500 --
+      // which also means the old 15 MB limit was never hit in a test (H-02).
+      return {
+        status: 413,
+        code: ERROR_CODES.PAYLOAD_TOO_LARGE,
+        message: 'The request body is larger than this route accepts.',
+        details: undefined,
+        expected: true,
+      };
+    }
+
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       // A 5xx HttpException is still a server fault, so it is treated like an
@@ -279,4 +292,9 @@ function safeStringify(value: unknown): string {
     // that exists to report other failures.
     return '[unserialisable]';
   }
+}
+
+/** body-parser marks the oversize case by `type`; the status alone is not enough to know it was ours. */
+function isEntityTooLarge(exception: unknown): boolean {
+  return typeof exception === 'object' && exception !== null && (exception as { type?: unknown }).type === 'entity.too.large';
 }

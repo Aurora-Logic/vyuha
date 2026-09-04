@@ -10,6 +10,7 @@ export const ERROR_CODES = {
   CONFLICT: 'CONFLICT',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   RATE_LIMITED: 'RATE_LIMITED',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   /**
    * The request was fine and the server could not serve it right now — a
    * contended row lock, an exhausted connection pool, a dependency that is
