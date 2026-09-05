@@ -74,6 +74,35 @@ afterAll(async () => {
 });
 
 describe('storing an image', () => {
+  it('moves 500 poison cleanup tasks behind newer removable objects (F-03)', async () => {
+    const prefix = `cleanup-fairness-${uuidv7()}`;
+    const now = new Date();
+    await harness.db.insert(fileCleanupTasks).values(
+      Array.from({ length: 501 }, (_, index) => ({
+        orgId: ORG_ID,
+        purpose: 'PUNCH_PHOTO' as const,
+        storageKey: `${prefix}/${index}`,
+        runAfter: new Date(now.getTime() - 10_000 + index),
+      })),
+    );
+    const objects = harness.resolve(ObjectStore);
+    const deletion = vi.spyOn(objects, 'delete').mockImplementation((_bucket, key) => key === `${prefix}/500`
+      ? Promise.resolve()
+      : Promise.reject(new Error('persistent object failure')));
+    try {
+      expect(await service.cleanupPendingObjects(now)).toMatchObject({ failed: 500 });
+      expect(await service.cleanupPendingObjects(now)).toMatchObject({ removed: 1, failed: 0 });
+      const rows = await harness.db.select().from(fileCleanupTasks)
+        .where(sql`${fileCleanupTasks.storageKey} LIKE ${`${prefix}/%`}`);
+      expect(rows).toHaveLength(500);
+      expect(rows.every((row) => row.runAfter > now && row.attempts === 1)).toBe(true);
+    } finally {
+      deletion.mockRestore();
+      await harness.db.delete(fileCleanupTasks)
+        .where(sql`${fileCleanupTasks.storageKey} LIKE ${`${prefix}/%`}`);
+    }
+  });
+
   it('refuses a payload whose bytes are not an image, whatever it is called', async () => {
     const disguised = Buffer.concat([
       Buffer.from('%PDF-1.7\n%\xE2\xE3\xCF\xD3\n', 'binary'),
@@ -271,7 +300,7 @@ describe('storing an image', () => {
     expect(pending[0]?.attempts).toBe(1);
     expect(await objects.exists('photos', storageKey)).toBe(true);
 
-    const cleanup = await service.cleanupPendingObjects(new Date(Date.now() + 1_000));
+    const cleanup = await service.cleanupPendingObjects(new Date(Date.now() + 60_000));
     expect(cleanup.removed).toBeGreaterThanOrEqual(1);
     expect(await objects.exists('photos', storageKey)).toBe(false);
     const left = await harness.db

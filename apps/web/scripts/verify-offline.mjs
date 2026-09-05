@@ -272,10 +272,10 @@ try {
 
   check(
     'The served worker precaches this build, not an empty list',
-    precached.length > 0 && precached.every((url) => codeAndStyle.includes(url)),
+    precached.length > 0 && codeAndStyle.some((url) => precached.includes(url)) && precached.every((url) => (emitted ?? []).some((name) => `/assets/${name}` === url)),
     precached.length === 0
       ? 'BUILD_CRITICAL is empty — this is what the dev server serves, and what CI used to check'
-      : `${String(precached.length)} critical entries from ${String(codeAndStyle.length)} emitted code and stylesheet file(s)`,
+      : `${String(precached.length)} critical entries from ${String(codeAndStyle.length)} emitted code and stylesheet file(s), plus their local style assets`,
   );
 
   // ------------------------------------------ a genuinely first install

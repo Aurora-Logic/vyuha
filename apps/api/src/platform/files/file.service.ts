@@ -859,6 +859,9 @@ export class FileService {
           .update(fileCleanupTasks)
           .set({
             attempts: sql`${fileCleanupTasks.attempts} + 1`,
+            // Move failures behind other due work; otherwise 500 permanently
+            // failing objects occupy every batch forever (F-03).
+            runAfter: sql`now() + least(3600, 30 * power(2, least(${fileCleanupTasks.attempts}, 7))) * interval '1 second'`,
             lastError: describeError(error).slice(0, 500),
             updatedAt: new Date(),
           })

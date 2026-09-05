@@ -1365,11 +1365,11 @@ export class ApprovalService {
     const requests = new ApprovalRepository(executor, ctx, this.subjects);
     const steps = new ApprovalStepRepository(executor, ctx);
 
-    const [summary, row, history] = await Promise.all([
-      requests.summary(id),
-      requests.findRow(id),
-      steps.history(id),
-    ]);
+    // `executor` can be a transaction backed by one pg client. Submit its
+    // statements sequentially; concurrent queries on that client are deprecated.
+    const summary = await requests.summary(id);
+    const row = await requests.findRow(id);
+    const history = await steps.history(id);
 
     if (summary === null || row === null) throw AppError.notFound('Approval request', id);
 

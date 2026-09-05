@@ -1,5 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import type { NotificationChannel as NotificationChannelKey } from '@vyuha/shared';
+import { and, eq } from 'drizzle-orm';
 
 import { InjectDatabase, type Database } from '../../db/db.provider.js';
 import { notifications } from '../../db/schema/index.js';
@@ -32,6 +33,11 @@ export class InAppChannel implements NotificationChannel, OnModuleInit {
     this.registry.register(this);
   }
 
+  async reconcileReceipt(to: Recipient, deliveryKey: string, channels: readonly NotificationChannelKey[]): Promise<void> {
+    await this.db.update(notifications).set({ channelsSent: [...channels] })
+      .where(and(eq(notifications.orgId, to.orgId), eq(notifications.userId, to.userId), eq(notifications.deliveryKey, deliveryKey)));
+  }
+
   async send(
     to: Recipient,
     message: RenderedNotification,
@@ -47,6 +53,7 @@ export class InAppChannel implements NotificationChannel, OnModuleInit {
       // can render richer content without a schema change.
       payload: { ...message.payload, actionUrl: message.actionUrl },
       channelsSent: [...context.channels],
-    });
+      deliveryKey: context.deliveryKey ?? null,
+    }).onConflictDoNothing({ target: [notifications.orgId, notifications.deliveryKey] });
   }
 }

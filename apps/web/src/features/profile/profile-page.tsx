@@ -15,7 +15,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemSeparator, ItemTitle } from '@/components/ui/item';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { NotificationPreferences } from '@/features/notifications';
+import { NotificationPreferences } from '@/features/notifications/notification-preferences';
 import { humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useMe } from '@/lib/session/use-session';

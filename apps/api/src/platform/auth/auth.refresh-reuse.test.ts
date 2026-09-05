@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApiHarness, CookieJar, scopedEmail } from '../../test-support/api-harness.js';
 import { sessions } from '../db/schema/index.js';
 import { REFRESH_COOKIE_NAME } from './refresh-cookie.js';
+import { openSecret } from './secret-box.js';
+import { env } from '../common/env.js';
 import { SessionService } from './session.service.js';
 import { REDIS_CLIENT } from '../redis/redis.provider.js';
 
@@ -80,6 +82,30 @@ describe('REQ-B-05: rotating refresh tokens', () => {
     await redis.set(key, 'corrupted replay entry', 'EX', 10);
     const refused = await harness.post('/auth/refresh', { cookieOverride: `${REFRESH_COOKIE_NAME}=${original}` });
     expect(refused.status).toBe(401);
+  });
+
+  it.each(['swapped', 'legacy'] as const)('refuses %s replay entries without returning another token (F-07)', async (mode) => {
+    const redis = harness.resolve<Redis>(REDIS_CLIENT);
+    const service = harness.resolve(SessionService);
+    const entries: { original: string; key: string; sealed: string }[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const jar = new CookieJar();
+      await harness.post('/auth/login', { body: { email, password }, withCookies: true }, jar);
+      const original = jar.get(REFRESH_COOKIE_NAME) ?? '';
+      expect((await harness.post('/auth/refresh', { withCookies: true }, jar)).status).toBe(200);
+      const key = service.replayKeyForTest(original);
+      const sealed = await redis.get(key);
+      if (sealed === null) throw new Error('expected sealed replay entry');
+      entries.push({ original, key, sealed });
+    }
+    const first = entries[0];
+    const second = entries[1];
+    if (first === undefined || second === undefined) throw new Error('missing test sessions');
+    const replacement = mode === 'swapped' ? second.sealed : openSecret(first.sealed, env.JWT_REFRESH_SECRET, first.key);
+    await redis.set(first.key, replacement, 'EX', 10);
+    const response = await harness.post<ErrorBody>('/auth/refresh', { cookieOverride: `${REFRESH_COOKIE_NAME}=${first.original}` });
+    expect(response.status).toBe(401);
+    expect(response.body).not.toHaveProperty('accessToken');
   });
 
   it('issues a new refresh token on every use and refuses the old one', async () => {

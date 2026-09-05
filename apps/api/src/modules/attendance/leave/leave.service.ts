@@ -534,6 +534,23 @@ export class LeaveService {
         const linked = await tx.updateRequest(id, { approvalRequestId: approval.id });
         if (linked === null) throw AppError.notFound('Leave request', id);
 
+        // REQ-G-09 / F-01: a committed request always has durable notification
+        // intent, even if the process stops before returning its response.
+        await this.notifications.stageInTransaction({
+          orgId: principal.orgId,
+          type: NOTIFICATION_EVENTS.LEAVE_APPLIED,
+          audience: { kind: 'users', userIds: route.filter((userId) => userId !== requesterUserId) },
+          idempotencyKey: `leave-applied.${id}`,
+          payload: {
+            employeeName: evaluation.employee.name,
+            leaveType: evaluation.type.name,
+            fromDate: input.fromDate,
+            toDate: input.toDate,
+            leaveRequestId: id,
+            approvalRequestId: approval.id,
+          },
+        }, executor);
+
         return { requestId: id, approvalRequestId: approval.id };
       },
     );
@@ -554,31 +571,6 @@ export class LeaveService {
       },
     });
 
-    // The people the request was actually routed to (REQ-G-09), now that there
-    // is a route to name. It used to go to everyone holding
-    // `leave.approve.team` anywhere in the organisation, which told four
-    // managers about a request none of them can act on.
-    // The request is committed above; the notice is a courtesy. `emit` here
-    // threw on a Redis blip and the screen said the application had failed
-    // about a request that exists -- the retry then made a second one. All
-    // five notices in this file sit after their transaction for the same
-    // reason and use the same call (H-06).
-    await this.notifications.emitAfterCommit({
-      orgId: principal.orgId,
-      type: NOTIFICATION_EVENTS.LEAVE_APPLIED,
-      audience: { kind: 'users', userIds: route.filter((id) => id !== requesterUserId) },
-      payload: {
-        employeeName: evaluation.employee.name,
-        leaveType: evaluation.type.name,
-        fromDate: input.fromDate,
-        toDate: input.toDate,
-        leaveRequestId: requestId,
-        // The template links to `/approvals/:id`; before the join there was no
-        // id to send, so the one notification whose whole purpose is "go and
-        // decide this" arrived with nothing to open.
-        approvalRequestId,
-      },
-    });
 
     return this.getRequest(principal, requestId);
   }

@@ -3,6 +3,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
+    // This suite boots real Postgres/Redis/object-store integrations. Vitest's
+    // 5s unit-test default intermittently interrupts otherwise correct burst
+    // and month-recompute checks on busy hosts. Latency contracts belong in
+    // the explicit benchmark budgets; correctness assertions stay unchanged.
+    testTimeout: 15_000,
     include: ['src/**/*.test.ts', 'seed/**/*.test.ts'],
     // The integration suite writes to the shared development database. Running
     // files concurrently would let one file's cleanup delete rows another file

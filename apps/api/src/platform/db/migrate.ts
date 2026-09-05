@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 
 import { loadDotEnvFiles } from '../common/dotenv.js';
+import { migrationPreflight } from './migration-preflight.js';
 
 /**
  * Applies pending migrations. Run on deploy, forward-only (technical design
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
     // Fail with a bounded lock timeout instead of killing unrelated users'
     // legitimate transactions. Serialize migration runners on this database.
     await pool.query('SELECT pg_advisory_lock(8073115240912002)');
+    await migrationPreflight(drizzle(pool));
     await migrate(drizzle(pool), { migrationsFolder: resolve(process.cwd(), 'drizzle') });
     console.log(`migrations applied in ${String(Date.now() - started)}ms`);
   } finally {

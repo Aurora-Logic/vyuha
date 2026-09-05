@@ -63,6 +63,7 @@ jobs:
           bash -n scripts/deploy-systemd.sh docker/backup.sh docker/restore.sh
           node --check scripts/verify-release.mjs
           node --test scripts/verify-release.test.mjs
+          node --test scripts/benchmark-api.test.mjs
 
       - name: Migrate the test database
         run: pnpm --filter @vyuha/api db:migrate
@@ -75,6 +76,21 @@ jobs:
           VITE_API_BASE_URL: https://ci.invalid
           NODE_ENV: production
         run: pnpm build
+
+      - name: Verify production bundle and first-install offline startup
+        run: |
+          set -euo pipefail
+          node apps/web/scripts/check-production-bundle.mjs
+          browser_binary=$(command -v google-chrome || command -v chromium)
+          browser_profile=$(mktemp -d)
+          "$browser_binary" --headless=new --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir="$browser_profile" --no-first-run about:blank > /tmp/vyuha-browser.log 2>&1 &
+          browser_pid=$!
+          trap 'kill "$browser_pid" 2>/dev/null || true; wait "$browser_pid" 2>/dev/null || true; rm -rf "$browser_profile"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9222/json/version > /dev/null; then break; fi
+            sleep 1
+          done
+          node apps/web/scripts/verify-offline.mjs
 
   deploy:
     name: Deploy to server

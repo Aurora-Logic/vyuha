@@ -53,7 +53,7 @@ export class SendNotificationHandler implements JobHandler<'send-notification'>,
       type: eventType,
       audience,
       payload: asScalarPayload(eventType, payload.payload),
-    });
+    }, payload.outboxId);
 
     return { ...report, eventType };
   }

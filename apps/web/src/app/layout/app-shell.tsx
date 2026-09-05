@@ -52,8 +52,8 @@ import {
 import { Toaster, toast } from '@/components/ui/toast';
 import { CalculatorButton, CalculatorPanel, useCalculatorStore } from '@/features/calculator';
 import { GuideOverlay } from '@/features/guide';
-import { NotificationBell } from '@/features/notifications';
-import { hasUnread } from '@/features/updates';
+import { NotificationBell } from '@/features/notifications/notification-bell';
+import { hasUnread } from '@/features/updates/changelog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useGuideStore } from '@/lib/guide-store';
 import { ShortcutLayer } from '@/lib/keyboard/registry';

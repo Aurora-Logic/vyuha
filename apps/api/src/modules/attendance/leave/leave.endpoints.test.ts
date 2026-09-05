@@ -16,7 +16,7 @@ import {
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { employees, settings } from '../../../platform/db/schema/index.js';
+import { employees, settings, notificationOutbox } from '../../../platform/db/schema/index.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 import { ApprovalService } from '../../../platform/approvals/approval.service.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
@@ -589,7 +589,7 @@ describe('applying (REQ-G-06, REQ-G-07, REQ-G-08)', () => {
     // the obvious retry made a second one.
     await grantDays(employeeBId, casualTypeId, 1);
     const dispatcher = harness.resolve(NotificationDispatcher);
-    const spy = vi.spyOn(dispatcher, 'emit').mockRejectedValueOnce(new Error('Redis blipped'));
+    const spy = vi.spyOn(dispatcher, 'emit').mockRejectedValue(new Error('Redis blipped'));
     const callsBefore = spy.mock.calls.length;
     try {
       const response = await harness.post<LeaveRequestDetail & ErrorBody>('/leave/requests', {
@@ -598,7 +598,10 @@ describe('applying (REQ-G-06, REQ-G-07, REQ-G-08)', () => {
       });
       expect(response.status, response.text).toBe(201);
       expect(response.body.status).toBe('PENDING');
-      expect(spy.mock.calls.length - callsBefore, 'the notice was never attempted, so this proves nothing').toBe(1);
+      expect(spy.mock.calls.length - callsBefore, 'request must not depend on a post-commit emit').toBe(0);
+      const intents = await harness.db.select().from(notificationOutbox).where(eq(notificationOutbox.idempotencyKey, `leave-applied.${response.body.id}`));
+      expect(intents).toHaveLength(1);
+      expect(intents[0]?.state).toBe('PENDING');
       const cancelled = await harness.post<LeaveRequestDetail>(`/leave/requests/${response.body.id}/cancel`, { token: otherToken, body: { reason: 'Clearing the fixture' } });
       expect(cancelled.status, cancelled.text).toBe(201);
     } finally {

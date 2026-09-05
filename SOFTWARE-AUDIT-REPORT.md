@@ -4,6 +4,8 @@
 
 > **Later pre-push verification:** The action plan now records 3,338 passing package tests, six passing release-script tests, a passing production build and a fresh lint pass after two integration corrections. Remaining bundle/pg warnings and missing Node 22, browser/load and staging evidence are documented there. This does not replace the historical scorecard below.
 
+> **Implementation follow-through:** [The recovery hardening record](docs/audits/RECOVERY-HARDENING-2026-09-05.md) documents subsequent recovery/security fixes, 3,354 passing package tests, eight passing script tests, a 9/9 offline-browser check, passing lint/typecheck/build, and a fresh zero-advisory result after dependency patches. Earlier integration timeouts and remaining warnings/gates are recorded there. These updates supersede matching current-status claims at the historical baseline; they do not establish a new 9/10 score or unrestricted production readiness.
+
 **Re-audit date:** 5 September 2026\
 **Reviewed commit:** `7097a125eebdde1a7d77962d4ccf444654278d51` (`phase-6a`)\
 **Comparison baseline:** `497eda9a`, before the 16 remediation commits\

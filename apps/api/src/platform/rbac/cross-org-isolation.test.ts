@@ -59,6 +59,11 @@ interface Route {
 let a: ApiHarness;
 let tokenA = '';
 let tokenB = '';
+let limitedToken = '';
+let companyAId = '';
+let taskAId = '';
+let partyAId = '';
+let itemAId = '';
 let routes: Route[] = [];
 
 function routeTable(harness: ApiHarness): Route[] {
@@ -137,11 +142,13 @@ beforeAll(async () => {
     VALUES (${ORG_A}, ${connectionId}, 'Isolation Traders', 'Sundry Debtors', 50000) RETURNING id
   `);
   const partyId = party.rows[0]?.id ?? '';
+  partyAId = partyId;
   const item = await a.db.execute<{ id: string }>(sql`
     INSERT INTO stock_items (org_id, connection_id, name, parent_group, unit, gst_rate, closing_qty, cost_price)
     VALUES (${ORG_A}, ${connectionId}, 'Isolation Cable', 'Cables', 'NOS', '18.00', 10, 100) RETURNING id
   `);
   const itemId = item.rows[0]?.id ?? '';
+  itemAId = itemId;
   const voucher = await a.db.execute<{ id: string }>(sql`
     INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
     VALUES (${ORG_A}, ${connectionId}, CURRENT_DATE, 'Sales', 'ISO-1', 'Isolation Traders', ${partyId}, false, '1000.00') RETURNING id
@@ -177,7 +184,13 @@ beforeAll(async () => {
   const company = await a.post<{ id: string }>('/crm/companies', { token: tokenA, body: { name: 'Isolation Trading Co' } });
   await a.post('/crm/contacts', { token: tokenA, body: { name: 'Isolation Contact', companyId: company.body.id } });
   await a.post('/crm/deals', { token: tokenA, body: { name: 'Isolation deal' } });
-  await a.post('/tasks', { token: tokenA, body: { title: 'Isolation task', dueDate: '2026-08-01', priority: 'HIGH' } });
+  companyAId = company.body.id;
+  expect(company.status, company.text).toBe(201);
+  const task = await a.post<{ id: string }>('/tasks', { token: tokenA, body: { title: 'Isolation task', dueDate: '2026-08-01', priority: 'HIGH' } });
+  expect(task.status, task.text).toBe(201);
+  taskAId = task.body.id;
+  const limited = await a.createUser({ email: scopedEmail('isolation-no-permissions') });
+  limitedToken = (await a.login(limited.email, limited.password)).token;
   await a.post('/leave/types', { token: tokenA, body: { name: 'Isolation Leave', code: 'ISOL' } });
   await a.post('/collections/promises', {
     token: tokenA,
@@ -189,6 +202,51 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await a.close();
+});
+
+describe('write isolation and privilege boundaries (F-06)', () => {
+  async function state() {
+    const result = await a.db.execute<{ snapshot: unknown }>(sql`
+      SELECT jsonb_build_object(
+        'companies', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM crm_companies c WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'contacts', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM crm_contacts c WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'tasks', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM tasks t WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'documents', (SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM sales_documents d WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'notifications', (SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM notification_outbox n WHERE org_id IN (${ORG_A}, ${ORG_B}))
+      ) AS snapshot
+    `);
+    return result.rows[0]?.snapshot;
+  }
+
+  it('rejects foreign PATCH/DELETE and nested create IDs without changing either tenant', async () => {
+    const before = await state();
+    for (const [method, path, body] of [
+      ['PATCH', `/crm/companies/${companyAId}`, { name: 'Foreign edit' }],
+      ['DELETE', `/crm/companies/${companyAId}`, undefined],
+      ['PATCH', `/tasks/${taskAId}`, { title: 'Foreign edit' }],
+      ['DELETE', `/tasks/${taskAId}`, undefined],
+      ['POST', '/crm/contacts', { name: 'Foreign link', companyId: companyAId }],
+      ['POST', '/sales/orders', { partyId: partyAId, lines: [{ stockItemId: itemAId, quantity: '1', rate: '10' }] }],
+    ] as const) {
+      const response = await a.request(method, path, { token: tokenB, ...(body === undefined ? {} : { body }) });
+      if (path === '/crm/contacts' || path === '/sales/orders') {
+        expect(response.status, response.text).toBe(400);
+        expect(response.body).toMatchObject({ error: { code: 'VALIDATION_FAILED', message: path === '/crm/contacts' ? 'The company was not found.' : 'The party was not found.' } });
+      } else {
+        expect([403, 404], `${method} ${path}: ${response.text}`).toContain(response.status);
+      }
+    }
+    expect(await state()).toEqual(before);
+  });
+
+  it('rejects a same-tenant account with no permissions and anonymous writes', async () => {
+    const before = await state();
+    for (const token of [limitedToken, null]) {
+      const response = await a.request('PATCH', `/crm/companies/${companyAId}`, { token, body: { name: 'Forbidden' } });
+      expect(response.status).toBe(token === null ? 401 : 403);
+    }
+    expect(await state()).toEqual(before);
+  });
 });
 
 describe('every route, as the wrong organisation (P-25)', () => {

@@ -17,6 +17,7 @@ export interface BuiltFile {
   readonly isEntry?: boolean;
   readonly imports?: readonly string[];
   readonly facadeModuleId?: string | null;
+  readonly source?: string | Uint8Array;
 }
 
 /** The one route that must work with no network: the punch screen (REQ-D-01). */
@@ -41,6 +42,18 @@ export function splitPrecache(bundle: Readonly<Record<string, BuiltFile>>): { cr
     for (const dep of bundle[name]?.imports ?? []) walk(dep);
   };
   for (const root of roots) walk(root);
+
+  // CSS loads fonts and images independently of the JavaScript import graph.
+  // A first install must also retain those local style dependencies.
+  for (const name of names.filter((entry) => entry.endsWith('.css'))) {
+    const source = bundle[name]?.source;
+    const css = typeof source === 'string' ? source : source === undefined ? '' : new TextDecoder().decode(source);
+    for (const match of css.matchAll(/url\(\s*["']?([^"')\s]+)["']?\s*\)/gu)) {
+      const url = new URL(match[1] ?? '', `https://build.invalid/${name}`);
+      const dependency = url.pathname.slice(1);
+      if (url.origin === 'https://build.invalid' && bundle[dependency] !== undefined) shell.add(dependency);
+    }
+  }
 
   const critical: string[] = [];
   const optional: string[] = [];

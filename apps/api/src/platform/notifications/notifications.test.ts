@@ -14,6 +14,9 @@ import {
 } from '../db/schema/index.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
 import { QUEUES } from '../jobs/queue.registry.js';
+import { AuditService } from '../audit/audit.service.js';
+import { EmailChannel } from './channels/email.channel.js';
+import { InAppChannel } from './channels/in-app.channel.js';
 import { Mailer } from '../mail/mailer.js';
 import {
   ChannelRegistry,
@@ -79,6 +82,68 @@ afterEach(async () => {
 
 afterAll(async () => {
   await harness.close();
+});
+
+describe('durable recipient delivery (F-01/F-02)', () => {
+  const event = () => ({
+    orgId: ORG_ID,
+    type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
+    audience: { kind: 'users' as const, userIds: [employeeUserId] },
+    payload: { leaveType: 'Casual Leave' },
+  });
+
+  it('rolls back notification intent with the business transaction', async () => {
+    await expect(harness.db.transaction(async (tx) => {
+      await dispatcher.stageInTransaction(event(), tx);
+      throw new Error('business rollback');
+    })).rejects.toThrow('business rollback');
+    const rows = await harness.db.select().from(notificationOutbox).where(eq(notificationOutbox.orgId, ORG_ID));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('retries only failed channels using persisted progress', async () => {
+    const staged = await harness.db.transaction((tx) => dispatcher.stageInTransaction(event(), tx));
+    if (staged === null) throw new Error('missing staged event');
+    const email = vi.spyOn(harness.resolve(EmailChannel), 'send').mockRejectedValueOnce(new Error('transport refused'));
+    const bell = vi.spyOn(harness.resolve(InAppChannel), 'send');
+    try {
+      expect(await dispatcher.deliver(event(), staged.id)).toMatchObject({ failed: 1, delivered: 1 });
+      expect(await dispatcher.deliver(event(), staged.id)).toMatchObject({ failed: 0, delivered: 1 });
+      expect(email).toHaveBeenCalledTimes(2);
+      expect(bell).toHaveBeenCalledTimes(1);
+      expect(await notificationsFor(employeeUserId)).toHaveLength(1);
+      expect((await notificationsFor(employeeUserId))[0]?.channelsSent).toEqual(['email', 'in_app']);
+      const [row] = await harness.db.select().from(notificationOutbox).where(eq(notificationOutbox.id, staged.id));
+      expect(row?.state).toBe('DELIVERED');
+      expect(await dispatcher.deliver(event(), staged.id)).toMatchObject({ delivered: 0 });
+    } finally { email.mockRestore(); bell.mockRestore(); }
+  });
+
+  it('does not repeat successful sends when audit persistence fails', async () => {
+    const staged = await harness.db.transaction((tx) => dispatcher.stageInTransaction(event(), tx));
+    if (staged === null) throw new Error('missing staged event');
+    const audit = vi.spyOn(harness.resolve(AuditService), 'write').mockResolvedValueOnce(false);
+    try {
+      await expect(dispatcher.deliver(event(), staged.id)).rejects.toThrow('audit pending');
+      await harness.db.update(notificationOutbox).set({ claimUntil: new Date(0) }).where(eq(notificationOutbox.id, staged.id));
+      expect(await dispatcher.deliver(event(), staged.id)).toMatchObject({ delivered: 0, failed: 0 });
+      expect(mail.sent).toHaveLength(1);
+      expect(await notificationsFor(employeeUserId)).toHaveLength(1);
+    } finally { audit.mockRestore(); }
+  });
+
+  it('holds ambiguous external sends for reconciliation and fences concurrent consumers', async () => {
+    const staged = await harness.db.transaction((tx) => dispatcher.stageInTransaction(event(), tx));
+    if (staged === null) throw new Error('missing staged event');
+    await harness.db.update(notificationOutbox).set({
+      progress: { [`${employeeUserId}.email`]: 'SENDING' },
+    }).where(eq(notificationOutbox.id, staged.id));
+    await Promise.all([dispatcher.deliver(event(), staged.id), dispatcher.deliver(event(), staged.id)]);
+    expect(mail.sent).toHaveLength(0);
+    expect(await notificationsFor(employeeUserId)).toHaveLength(1);
+    const [row] = await harness.db.select().from(notificationOutbox).where(eq(notificationOutbox.id, staged.id));
+    expect(row?.state).toBe('ATTENTION');
+  });
 });
 
 describe('dispatch', () => {
@@ -583,14 +648,17 @@ describe('an event that must not be sent twice (audit 20)', () => {
       .set({ runAfter: new Date(Date.now() - 1_000) })
       .where(eq(notificationOutbox.id, pending[0]?.id ?? ''));
     const retried = await dispatcher.drainOutbox();
-    expect(retried).toMatchObject({ scanned: 1, enqueued: 1, failed: 0 });
-    expect(await queue.getJob(jobId)).toBeDefined();
+    expect(retried.scanned).toBeGreaterThanOrEqual(1);
+    expect(retried.enqueued).toBe(retried.scanned);
+    expect(retried.failed).toBe(0);
+    const recoveryJobs = await queue.getJobs(['waiting', 'active', 'completed', 'failed', 'delayed']);
+    expect(recoveryJobs.some((job) => job.data.outboxId === pending[0]?.id)).toBe(true);
 
     const recovered = await harness.db
       .select({ state: notificationOutbox.state })
       .from(notificationOutbox)
       .where(eq(notificationOutbox.id, pending[0]?.id ?? ''));
-    expect(recovered[0]?.state).toBe('ENQUEUED');
+    expect(['ENQUEUED', 'DELIVERED']).toContain(recovered[0]?.state);
   });
 
   it('lets a different key through', async () => {

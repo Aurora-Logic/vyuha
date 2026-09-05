@@ -45,6 +45,16 @@ describe('splitPrecache', () => {
     expect(optional).toEqual(['/assets/charts-h8.js', '/assets/reports-g7.js', '/icons/icon-192.png']);
   });
 
+  it('includes fonts referenced by CSS, without fetching remote fonts', () => {
+    const result = splitPrecache({
+      'assets/app.css': { type: 'asset', source: 'a{src:url(./font.woff2)}b{src:url(https://remote.invalid/other.woff2)}' },
+      'assets/font.woff2': { type: 'asset' },
+      'assets/unused.woff2': { type: 'asset' },
+    });
+    expect(result.critical).toContain('/assets/font.woff2');
+    expect(result.optional).toContain('/assets/unused.woff2');
+  });
+
   it('never lists index.html or the worker itself', () => {
     expect([...critical, ...optional]).not.toContain('/index.html');
     expect([...critical, ...optional]).not.toContain('/sw.js');

@@ -149,6 +149,9 @@ for (const { route, component } of devOnly) {
   const imported = new RegExp(
     `import\\s*\\{[^}]*\\b${component}\\b[^}]*\\}\\s*from\\s*'@/([^']+)'`,
     'u',
+  ).exec(appSource) ?? new RegExp(
+    `const\\s+${component}\\s*=\\s*(?:import\\.meta\\.env\\.DEV\\s*\\?\\s*)?lazy\\(\\(\\)\\s*=>\\s*import\\('@/([^']+)'\\)`,
+    'u',
   ).exec(appSource);
   if (!imported) {
     fail(`could not resolve where ${component} (route "${route}") is imported from in App.tsx.`);
@@ -194,7 +197,7 @@ for (const { route, component } of devOnly) {
       `the dev-only route "${route}" is in the bundle: ${present
         .map((e) => `${JSON.stringify(e.marker)} in ${e.where.join(', ')}`)
         .join('; ')}.\n` +
-        '    `import.meta.env.DEV` folded to true, so the sample data shipped.',
+        '    Guard the import as well as the route with `import.meta.env.DEV`; sample data must not be emitted.',
     );
   } else {
     notes.push(

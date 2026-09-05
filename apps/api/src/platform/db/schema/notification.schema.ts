@@ -44,6 +44,7 @@ export const notifications = pgTable(
     title: text('title').notNull(),
     body: text('body').notNull(),
     payload: jsonb('payload'),
+    deliveryKey: text('delivery_key'),
 
     readAt: timestamp('read_at', { withTimezone: true }),
     channelsSent: text('channels_sent')
@@ -60,6 +61,7 @@ export const notifications = pgTable(
       .on(t.userId, t.createdAt.desc())
       .where(sql`read_at IS NULL AND deleted_at IS NULL`),
     index('notifications_user_idx').on(t.orgId, t.userId, t.createdAt.desc()),
+    uniqueIndex('notifications_delivery_key_uq').on(t.orgId, t.deliveryKey),
   ],
 );
 
@@ -135,6 +137,9 @@ export const notificationOutbox = pgTable(
     runAfter: timestamp('run_after', { withTimezone: true }).notNull().defaultNow(),
     lastError: text('last_error'),
     enqueuedAt: timestamp('enqueued_at', { withTimezone: true }),
+    progress: jsonb('progress').notNull().default(sql`'{}'::jsonb`),
+    claimToken: uuid('claim_token'),
+    claimUntil: timestamp('claim_until', { withTimezone: true }),
     ...standardColumns(),
   },
   (t) => [

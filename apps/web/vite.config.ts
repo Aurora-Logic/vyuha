@@ -102,15 +102,18 @@ function serviceWorker(): Plugin {
       // each. Two builds of identical source produce the same version and no
       // pointless reinstall; a single changed byte anywhere changes a chunk
       // name, and so changes this.
+      const critical = splitPrecache(bundle).critical
       const version = createHash("sha256")
         .update(Object.keys(bundle).sort().join("\n"))
+        .update(read())
+        .update(JSON.stringify(critical))
         .digest("hex")
         .slice(0, 12)
 
       this.emitFile({
         type: "asset",
         fileName: "sw.js",
-        source: render(version, splitPrecache(bundle).critical),
+        source: render(version, critical),
       })
     },
   }

@@ -191,6 +191,7 @@ export interface JobPayloads {
 
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
+    readonly outboxId?: string;
     readonly orgId: string;
     readonly eventType: string;
     readonly audience: unknown;
