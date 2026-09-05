@@ -8,11 +8,9 @@ import { auditLogs } from '../db/schema/index.js';
 /**
  * REQ-M-01: the append-only trail. This is the only writer.
  *
- * Two rules shape the file. First, an audit write must never be the reason a
- * request fails -- refusing a punch because the trail could not be written
- * would lose the attendance record *and* the audit of it. Second, a failure to
- * write must never be quiet, because a trail with silent gaps is worse than no
- * trail: it looks complete.
+ * Existing best-effort callers report a failed write explicitly. Callers with
+ * a business transaction can use writeInTransaction so the mutation and its
+ * audit entry commit together. Migration of existing callers is incremental.
  */
 
 /** Never written to the trail, whatever a caller passes. */
@@ -33,7 +31,12 @@ const REDACTED_KEYS: ReadonlySet<string> = new Set([
   'secret',
   'authorization',
   'cookie',
-]);
+  'setCookie',
+  'apiKey',
+  'clientSecret',
+  'recoveryCodes',
+  'backupCodes',
+].map((key) => key.replaceAll(/[_-]/g, '').toLowerCase()));
 
 const REDACTION = '[redacted]';
 
@@ -64,7 +67,8 @@ export function redact(value: unknown, depth = 0): unknown {
 
   const output: Json = {};
   for (const [key, item] of Object.entries(value)) {
-    output[key] = REDACTED_KEYS.has(key) ? REDACTION : redact(item, depth + 1);
+    output[key] = REDACTED_KEYS.has(key.replaceAll(/[_-]/g, '').toLowerCase())
+      ? REDACTION : redact(item, depth + 1);
   }
   return output;
 }
@@ -113,33 +117,12 @@ export class AuditService {
   constructor(@InjectDatabase() private readonly db: Database) {}
 
   /**
-   * Writes one row. Returns false when the write failed, having logged the
-   * whole entry at error level so the trail can be reconstructed from the
-   * application log.
+   * Best-effort writer for existing callers. Returns false and logs identifiers
+   * on failure; this does not provide a durable recovery record.
    */
   async write(entry: AuditWrite): Promise<boolean> {
-    const hasDiff = entry.before !== undefined || entry.after !== undefined;
-    const diff = hasDiff ? diffJson(entry.before, entry.after) : { before: null, after: null };
-
     try {
-      await this.db.insert(auditLogs).values({
-        orgId: entry.orgId,
-        actorUserId: entry.actorUserId,
-        impersonatorUserId: entry.impersonatorUserId ?? null,
-        action: entry.action,
-        entityType: entry.entityType,
-        // A non-UUID id would be rejected by the column type and take the
-        // request's error path with it. Entities keyed by something else are
-        // identified inside `after` instead.
-        entityId: typeof entry.entityId === 'string' && isUuid(entry.entityId)
-          ? entry.entityId
-          : null,
-        before: diff.before ?? null,
-        after: diff.after ?? null,
-        ip: entry.ip ?? null,
-        userAgent: entry.userAgent ?? null,
-        requestId: entry.requestId ?? null,
-      });
+      await this.writeInTransaction(entry, this.db);
       return true;
     } catch (error: unknown) {
       this.logger.error({
@@ -155,4 +138,30 @@ export class AuditService {
       return false;
     }
   }
+
+  /** Call inside the business transaction when a missing trail must roll it back. */
+  async writeInTransaction(entry: AuditWrite, executor: Database): Promise<void> {
+    const hasDiff = entry.before !== undefined || entry.after !== undefined;
+    const diff = hasDiff ? diffJson(entry.before, entry.after) : { before: null, after: null };
+
+    await executor.insert(auditLogs).values({
+      orgId: entry.orgId,
+      actorUserId: entry.actorUserId,
+      impersonatorUserId: entry.impersonatorUserId ?? null,
+      action: entry.action,
+      entityType: entry.entityType,
+      // A non-UUID id would be rejected by the column type and take the
+      // request's error path with it. Entities keyed by something else are
+      // identified inside `after` instead.
+      entityId: typeof entry.entityId === 'string' && isUuid(entry.entityId)
+        ? entry.entityId
+        : null,
+      before: diff.before ?? null,
+      after: diff.after ?? null,
+      ip: entry.ip ?? null,
+      userAgent: entry.userAgent ?? null,
+      requestId: entry.requestId ?? null,
+    });
+  }
+
 }

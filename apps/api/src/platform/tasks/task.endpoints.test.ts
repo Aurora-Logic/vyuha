@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { AuditService } from '../audit/audit.service.js';
 import { JobRegistry } from '../jobs/job-handler.js';
 import { NotificationDispatcher, type NotificationEvent } from '../notifications/notification.dispatcher.js';
 
@@ -47,6 +48,13 @@ beforeAll(async () => {
   vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
     emitted.push(event);
     return Promise.resolve('spied');
+  });
+
+  const stage = dispatcher.stageInTransaction.bind(dispatcher);
+  vi.spyOn(dispatcher, 'stageInTransaction').mockImplementation(async (event, tx) => {
+    const result = await stage(event, tx);
+    emitted.push(event);
+    return result;
   });
 
   const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
@@ -451,7 +459,7 @@ describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', (
     const dispatcher = harness.resolve(NotificationDispatcher);
     const failing = vi.spyOn(dispatcher, 'emit').mockRejectedValue(
       new Error('Background work could not be queued just now. Try again shortly.'),
-    );
+    ).mockClear();
     try {
       const created = await harness.post<TaskView>('/tasks', {
         token: adminToken,
@@ -460,7 +468,9 @@ describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', (
       expect(created.status, JSON.stringify(created.body)).toBe(201);
       expect(created.body.title).toBe('Ohmnova tech - Dispatch Via Courier');
       expect(created.body.assigneeId).toBe(meeraId);
-      expect(failing, 'the notice was genuinely attempted').toHaveBeenCalled();
+      expect(failing, 'queue hand-off belongs to the durable drain').not.toHaveBeenCalled();
+      const intent = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND payload->>'taskId' = ${created.body.id}`);
+      expect(intent.rows).toHaveLength(1);
 
       // And on a reassignment, which notifies the same way.
       const moved = await harness.patch<TaskView>(`/tasks/${created.body.id}`, {
@@ -501,4 +511,48 @@ describe('Operations can hand work to anybody (owner, 31 Aug 2026)', () => {
     expect(assigned.status, JSON.stringify(assigned.body)).toBe(201);
     expect(assigned.body.assigneeId).toBe(outsiderId);
   });
+});
+
+
+describe('transactional task assignment', () => {
+  it('rolls back creation and reassignment when durable notification staging fails', async () => {
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const created = await harness.post<TaskView>('/tasks', {
+      token: adminToken, body: { title: 'Assignment rollback fixture', assigneeId: meeraId, priority: 'HIGH' },
+    });
+    expect(created.status).toBe(201);
+    const fail = vi.spyOn(dispatcher, 'stageInTransaction').mockRejectedValue(new Error('Outbox unavailable'));
+    try {
+      const refused = await harness.post('/tasks', {
+        token: adminToken, body: { title: 'Must roll back entirely', assigneeId: meeraId, priority: 'HIGH' },
+      });
+      expect(refused.status).toBe(500);
+      const absent = await harness.db.execute(sql`SELECT id FROM tasks WHERE org_id = ${ORG_ID} AND title = 'Must roll back entirely'`);
+      expect(absent.rows).toHaveLength(0);
+      const reassigned = await harness.patch(`/tasks/${created.body.id}`, { token: adminToken, body: { assigneeId: raviId, title: 'Must not persist' } });
+      expect(reassigned.status).toBe(500);
+      const unchanged = await harness.get<TaskView>(`/tasks/${created.body.id}`, { token: adminToken });
+      expect(unchanged.body.assigneeId).toBe(meeraId);
+      expect(unchanged.body.title).toBe('Assignment rollback fixture');
+    } finally { fail.mockRestore(); }
+  });
+});
+
+
+it('commits one attributed audit entry with the task and rolls back on audit failure', async () => {
+  const created = await harness.post<TaskView>('/tasks', { token: adminToken, body: { title: 'Durable audit fixture', priority: 'HIGH' } });
+  expect(created.status).toBe(201);
+  const trail = await harness.db.execute<{ request_id: string; action: string }>(sql`SELECT request_id, action FROM audit_logs WHERE org_id = ${ORG_ID} AND entity_id = ${created.body.id}`);
+  expect(trail.rows).toHaveLength(1);
+  expect(trail.rows[0]?.action).toBe('task.created');
+  expect(trail.rows[0]?.request_id).toBeTruthy();
+  const fail = vi.spyOn(harness.resolve(AuditService), 'writeInTransaction').mockRejectedValueOnce(new Error('Audit unavailable'));
+  try {
+    const refused = await harness.post('/tasks', { token: adminToken, body: { title: 'No unaudited task', assigneeId: meeraId, priority: 'HIGH' } });
+    expect(refused.status).toBe(500);
+    const rows = await harness.db.execute(sql`SELECT id FROM tasks WHERE org_id = ${ORG_ID} AND title = 'No unaudited task'`);
+    expect(rows.rows).toHaveLength(0);
+    const notices = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND payload->>'title' = 'No unaudited task'`);
+    expect(notices.rows).toHaveLength(0);
+  } finally { fail.mockRestore(); }
 });

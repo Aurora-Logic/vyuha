@@ -571,7 +571,6 @@ export class LeaveService {
       },
     });
 
-
     return this.getRequest(principal, requestId);
   }
 
@@ -667,22 +666,21 @@ export class LeaveService {
     orgId: string,
     request: { employeeId: string; leaveTypeName: string; totalDays: number },
     closingAfter: number | null,
-    approvalRequestId?: string,
+    approvalRequestId: string,
+    executor: Database,
   ): Promise<void> {
     if (closingAfter === null) return;
 
     const before = balanceBeforeApproval(closingAfter, request.totalDays);
     if (!crossedLowBalance(before, closingAfter)) return;
 
-    await this.notifications.emitAfterCommit({
+    await this.notifications.stageInTransaction({
       orgId,
       type: NOTIFICATION_EVENTS.LEAVE_BALANCE_LOW,
       audience: { kind: 'employees', employeeIds: [request.employeeId] },
       payload: { leaveType: request.leaveTypeName, remainingDays: closingAfter },
-      ...(approvalRequestId === undefined
-        ? {}
-        : { idempotencyKey: `approval-settlement.${approvalRequestId}.leave-balance-low` }),
-    });
+      idempotencyKey: `approval-settlement.${approvalRequestId}.leave-balance-low`,
+    }, executor);
   }
 
   /** REQ-F-05: "rejection requires a reason. The employee is notified with it." */
@@ -787,7 +785,21 @@ export class LeaveService {
       });
       if (updated === null) throw AppError.notFound('Leave request', decision.subjectId);
 
-      return async () => {
+      await this.notifications.stageInTransaction({
+        orgId: ctx.orgId,
+        type: NOTIFICATION_EVENTS.LEAVE_REJECTED,
+        audience: { kind: 'employees', employeeIds: [request.employeeId] },
+        payload: {
+          leaveType: request.leaveTypeName,
+          fromDate: request.fromDate,
+          toDate: request.toDate,
+          reason: decision.reason,
+          leaveRequestId: decision.subjectId,
+        },
+        idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-rejected`,
+      }, executor);
+
+      return () => {
         this.auditContext.record({
           action: 'leave_request.rejected',
           entityType: 'leave_request',
@@ -797,19 +809,7 @@ export class LeaveService {
           after: { status: 'REJECTED', reason: decision.reason },
         });
 
-        await this.notifications.emitAfterCommit({
-          orgId: ctx.orgId,
-          type: NOTIFICATION_EVENTS.LEAVE_REJECTED,
-          audience: { kind: 'employees', employeeIds: [request.employeeId] },
-          payload: {
-            leaveType: request.leaveTypeName,
-            fromDate: request.fromDate,
-            toDate: request.toDate,
-            reason: decision.reason,
-            leaveRequestId: decision.subjectId,
-          },
-          idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-rejected`,
-        });
+        return Promise.resolve();
       };
     }
 
@@ -855,6 +855,26 @@ export class LeaveService {
     });
     if (updated === null) throw AppError.notFound('Leave request', decision.subjectId);
 
+    await this.notifications.stageInTransaction({
+      orgId: ctx.orgId,
+      type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
+      audience: { kind: 'employees', employeeIds: [request.employeeId] },
+      payload: {
+        leaveType: request.leaveTypeName,
+        fromDate: request.fromDate,
+        toDate: request.toDate,
+        // Resolved through the approver's employee record by the repository.
+        // Null for a login with no employee row, which the template renders
+        // as "your approver" -- better than the email address this used to
+        // put in the body of a message the whole team can be copied on.
+        approverName: updated.decidedByName,
+        leaveRequestId: decision.subjectId,
+      },
+      idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-approved`,
+    }, executor);
+
+    await this.warnIfBalanceLow(ctx.orgId, request, projected.closing, decision.approvalRequestId, executor);
+
     return async () => {
       // After the commit, so the engine reads the APPROVED status it is
       // recomputing from. An approved leave must reach the muster now, not at
@@ -880,27 +900,6 @@ export class LeaveService {
         },
       });
 
-      await this.notifications.emitAfterCommit({
-        orgId: ctx.orgId,
-        type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
-        audience: { kind: 'employees', employeeIds: [request.employeeId] },
-          payload: {
-          leaveType: request.leaveTypeName,
-          fromDate: request.fromDate,
-          toDate: request.toDate,
-          // Resolved through the approver's employee record by the repository.
-          // Null for a login with no employee row, which the template renders
-          // as "your approver" -- better than the email address this used to
-          // put in the body of a message the whole team can be copied on.
-          approverName: updated.decidedByName,
-            leaveRequestId: decision.subjectId,
-          },
-          idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-approved`,
-      });
-
-      // REQ-K-03's low-balance warning, after the approval it was caused by,
-      // and only when this deduction is what crossed the threshold.
-      await this.warnIfBalanceLow(ctx.orgId, request, projected.closing, decision.approvalRequestId);
     };
   }
 
@@ -936,12 +935,9 @@ export class LeaveService {
         },
         idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-approved`,
       });
-      await this.warnIfBalanceLow(
-        ctx.orgId,
-        request,
-        projected.closing,
-        decision.approvalRequestId,
-      );
+      await this.db.transaction((tx) => this.warnIfBalanceLow(
+        ctx.orgId, request, projected.closing, decision.approvalRequestId, tx,
+      ));
       return;
     }
 
@@ -1008,17 +1004,6 @@ export class LeaveService {
     const ctx = orgContextOf(principal);
     const leaveYear = await this.leaveYearFor(repository, request.fromDate);
 
-    // Withdrawn first, and inside nothing: `cancelForSubject` refuses a
-    // request that is already decided, so a decision landing between here and
-    // the commit below cannot be overwritten -- the reversal would then be
-    // reversing a leave that really was approved, which is correct.
-    await this.approvals.cancelForSubject(
-      ctx,
-      LEAVE_REQUEST_SUBJECT_TYPE,
-      id,
-      reason ?? 'The leave request was cancelled.',
-    );
-
     // REQ-G-10: "cancellation reverses the ledger entries". Reversed, never
     // deleted -- the ledger refuses a delete, and the pair of rows is the
     // record that the leave happened and then did not.
@@ -1026,7 +1011,13 @@ export class LeaveService {
     // The status is re-read under a row lock rather than reused from the check
     // above: an approval deciding this request between the two would otherwise
     // have its AVAILED row stranded with no reversal.
-    const statusAtCancellation = await repository.transaction(async (tx) => {
+    const statusAtCancellation = await repository.transaction(async (tx, executor) => {
+      // Match approval decision lock order: approval first, then subject.
+      // Withdrawal, reversal and notification intent must roll back together.
+      await this.approvals.cancelForSubject(
+        ctx, LEAVE_REQUEST_SUBJECT_TYPE, id,
+        reason ?? 'The leave request was cancelled.', executor,
+      );
       const locked = await tx.lockRequestStatus(id);
       if (locked === null) throw AppError.notFound('Leave request', id);
       if (locked === 'CANCELLED' || locked === 'REJECTED') {
@@ -1059,6 +1050,17 @@ export class LeaveService {
         cancellationReason: reason,
       });
       if (updated === null) throw AppError.notFound('Leave request', id);
+      await this.notifications.stageInTransaction({
+        orgId: principal.orgId,
+        type: NOTIFICATION_EVENTS.LEAVE_CANCELLED,
+        audience: { kind: 'employees', employeeIds: [request.employeeId] },
+        payload: {
+          leaveType: request.leaveTypeName,
+          fromDate: request.fromDate,
+          toDate: request.toDate,
+          leaveRequestId: id,
+        },
+      }, executor);
       return locked;
     });
 
@@ -1084,18 +1086,6 @@ export class LeaveService {
         reason,
         reversedDays: statusAtCancellation === 'APPROVED' ? request.totalDays : 0,
         recompute,
-      },
-    });
-
-    await this.notifications.emitAfterCommit({
-      orgId: principal.orgId,
-      type: NOTIFICATION_EVENTS.LEAVE_CANCELLED,
-      audience: { kind: 'employees', employeeIds: [request.employeeId] },
-      payload: {
-        leaveType: request.leaveTypeName,
-        fromDate: request.fromDate,
-        toDate: request.toDate,
-        leaveRequestId: id,
       },
     });
 

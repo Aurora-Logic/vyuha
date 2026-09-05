@@ -93,8 +93,8 @@ export class RealtimeService {
    * Best-effort by construction: a subscriber whose socket has closed between
    * the write and this call is dropped rather than thrown from. A caller has
    * already committed its work by the time it publishes, and a delivery
-   * failure must never turn a saved record into a failed request -- the same
-   * reasoning that put `emitAfterCommit` on the notification dispatcher.
+   * failure must never turn a saved record into a failed request. Durable
+   * user notifications use the transactional notification outbox separately.
    */
   publish(orgId: string, change: Omit<RealtimeChange, 'kind' | 'at' | 'actorName'>): void {
     const channel = this.channels.get(orgId);

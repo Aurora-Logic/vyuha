@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src seed",
     "test": "tsx src/test-support/run-isolated.ts",
+    "test:upgrade": "tsx src/test-support/rehearse-upgrade.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/platform/db/migrate.ts",
     "db:seed": "tsx seed/run-seed.ts",

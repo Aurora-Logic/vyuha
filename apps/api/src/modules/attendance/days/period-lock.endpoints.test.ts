@@ -6,8 +6,9 @@ import {
 } from '@vyuha/shared';
 import { and, eq } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { employees } from '../../../platform/db/schema/index.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 import { attendanceDays, attendancePeriodLocks, shifts } from '../schema/index.js';
@@ -491,4 +492,38 @@ describe('the reason the database keeps (audit 19)', () => {
 
     await harness.db.execute(sql`DELETE FROM attendance_period_locks WHERE id = ${id}`);
   });
+});
+
+
+it('rolls back lock creation and reopening when notification intent cannot be saved', async () => {
+  const dispatcher = harness.resolve(NotificationDispatcher);
+  const fail = vi.spyOn(dispatcher, 'stageInTransaction').mockRejectedValueOnce(new Error('Outbox unavailable'));
+  const refused = await harness.post('/attendance/locks', { token: adminToken, body: { year: 2027, month: 3, reason: 'Atomicity check' } });
+  expect(refused.status).toBe(500);
+  const missing = await harness.db.execute(sql`SELECT id FROM attendance_period_locks WHERE org_id = ${ORG_ID} AND year = 2027 AND month = 3`);
+  expect(missing.rows).toHaveLength(0);
+  fail.mockRestore();
+  const locked = await harness.post<PeriodLock>('/attendance/locks', { token: adminToken, body: { year: 2027, month: 3, reason: 'Atomicity check' } });
+  expect(locked.status).toBe(201);
+  const reopening = vi.spyOn(dispatcher, 'stageInTransaction').mockRejectedValueOnce(new Error('Outbox unavailable'));
+  try {
+    const response = await harness.request('DELETE', `/attendance/locks/${locked.body.id}`, { token: adminToken, body: { reason: 'Rollback reopening' } });
+    expect(response.status).toBe(500);
+    const retained = await harness.db.execute<{ unlocked_at: unknown }>(sql`SELECT unlocked_at FROM attendance_period_locks WHERE org_id = ${ORG_ID} AND id = ${locked.body.id}`);
+    expect(retained.rows[0]?.unlocked_at).toBeNull();
+  } finally { reopening.mockRestore(); }
+});
+
+
+it('serializes concurrent locks for a month into one record, notice and audit entry', async () => {
+  const results = await Promise.all(Array.from({ length: 3 }, () => harness.post<PeriodLock>('/attendance/locks', {
+    token: adminToken, body: { year: 2027, month: 4, reason: 'Concurrent lock fixture' },
+  })));
+  expect(results.map((result) => result.status).sort()).toEqual([201, 409, 409]);
+  const created = results.find((result) => result.status === 201);
+  expect(created).toBeDefined();
+  const audit = await harness.db.execute(sql`SELECT id FROM audit_logs WHERE org_id = ${ORG_ID} AND entity_id = ${created?.body.id ?? ''}`);
+  expect(audit.rows).toHaveLength(1);
+  const notices = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND event_type = 'period.locked' AND payload->>'period' = 'April 2027'`);
+  expect(notices.rows).toHaveLength(1);
 });

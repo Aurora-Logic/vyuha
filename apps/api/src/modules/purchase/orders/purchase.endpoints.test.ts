@@ -35,6 +35,13 @@ const emitted: NotificationEvent[] = [];
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Procurement Fixture Org');
+  const dispatcher = harness.resolve(NotificationDispatcher);
+  const stage = dispatcher.stageInTransaction.bind(dispatcher);
+  vi.spyOn(dispatcher, 'stageInTransaction').mockImplementation(async (event, tx) => {
+    const result = await stage(event, tx);
+    emitted.push(event);
+    return result;
+  });
   vi.spyOn(harness.resolve(NotificationDispatcher), 'emit').mockImplementation((event) => {
     emitted.push(event);
     return Promise.resolve('spied');
@@ -609,7 +616,9 @@ describe('the two ceilings on an allocation (audits 11, 12)', () => {
       body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '1' }] },
     });
     expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
-    expect(spy.mock.calls.length - callsBefore, 'the notice was never attempted, so this proves nothing').toBe(1);
+    expect(spy.mock.calls.length - callsBefore, 'delivery is deferred until after durable staging').toBe(0);
+    const intent = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND event_type = 'procurement.stock_arrived'`);
+    expect(intent.rows.length).toBeGreaterThan(0);
     const settled = await lastGrn();
     expect(Number(settled.pendingAllocations[0]?.unallocatedQty ?? 0)).toBe(Number(pending?.unallocatedQty) - 1);
   });

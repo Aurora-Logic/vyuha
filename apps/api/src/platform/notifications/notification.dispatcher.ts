@@ -287,34 +287,6 @@ export class NotificationDispatcher {
   }
 
   /**
-   * The same emit, for callers whose work is already committed.
-   *
-   * Found live, 31 Aug 2026: a task saved, its audit row was written, and
-   * then the notification enqueue timed out against a Redis blip -- so the
-   * screen said "Saving the task failed" about a task that exists, and the
-   * obvious retry made a second one. A notice is a courtesy; the record is
-   * the point. Once the record is committed, a failure to tell somebody is
-   * logged and swallowed, because the alternative is losing the work or
-   * lying about it.
-   *
-   * Queue outages are already absorbed by `emit` because the outbox owns that
-   * retry. This catch is for the narrower case where even the database could
-   * not accept the durable envelope.
-   */
-  async emitAfterCommit(event: NotificationEvent): Promise<void> {
-    try {
-      await this.emit(event);
-    } catch (error) {
-      this.logger.warn({
-        msg: 'Notification could not be queued; the work it describes is committed',
-        eventType: event.type,
-        orgId: event.orgId,
-        error: describeError(error),
-      });
-    }
-  }
-
-  /**
    * Resolve, render, filter by preference, fan out.
    *
    * Outbox-backed events persist per-channel progress. Failed sends are

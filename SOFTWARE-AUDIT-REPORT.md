@@ -6,6 +6,8 @@
 
 > **Implementation follow-through:** [The recovery hardening record](docs/audits/RECOVERY-HARDENING-2026-09-05.md) documents subsequent recovery/security fixes, 3,354 passing package tests, eight passing script tests, a 9/9 offline-browser check, passing lint/typecheck/build, and a fresh zero-advisory result after dependency patches. Earlier integration timeouts and remaining warnings/gates are recorded there. These updates supersede matching current-status claims at the historical baseline; they do not establish a new 9/10 score or unrestricted production readiness.
 
+> **Further transaction hardening:** [The next evidence record](docs/audits/TRANSACTION-HARDENING-2026-09-05.md) covers transactional task/period audits, conversion of all former best-effort post-commit notification callers, atomic leave withdrawal/cancellation, broader approval/file tenant tests, and a passing synthetic populated 0090→0094 upgrade rehearsal. Remaining engineering and production-evidence requirements are explicit; the historical scorecard below is unchanged.
+
 **Re-audit date:** 5 September 2026\
 **Reviewed commit:** `7097a125eebdde1a7d77962d4ccf444654278d51` (`phase-6a`)\
 **Comparison baseline:** `497eda9a`, before the 16 remediation commits\

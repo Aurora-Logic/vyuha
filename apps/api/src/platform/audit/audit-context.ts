@@ -2,6 +2,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { Injectable } from '@nestjs/common';
 
+import type { Database } from '../db/db.provider.js';
+import { AuditService, type AuditWrite } from './audit.service.js';
+
 /**
  * The channel a service uses to tell the audit interceptor what it just did,
  * without the controller having to thread an audit object through every call.
@@ -13,6 +16,8 @@ import { Injectable } from '@nestjs/common';
  */
 
 export interface AuditEntry {
+  /** Already written in the business transaction; never write it twice. */
+  readonly persisted?: boolean;
   /** Overrides the route-derived default, e.g. `session.family_revoked`. */
   readonly action?: string;
   readonly entityType?: string;
@@ -25,6 +30,7 @@ export interface AuditEntry {
 }
 
 export interface AuditStore {
+  requestMetadata?: Pick<AuditWrite, 'ip' | 'userAgent' | 'requestId'>;
   entries: AuditEntry[];
   /** True when this request should produce no row at all. */
   suppressed: boolean;
@@ -40,6 +46,15 @@ function emptyStore(): AuditStore {
 @Injectable()
 export class AuditContext {
   private readonly storage = new AsyncLocalStorage<AuditStore>();
+
+  constructor(private readonly audit: AuditService) {}
+
+  /** Failure propagates so the caller's business transaction rolls back. */
+  async recordInTransaction(entry: AuditWrite, executor: Database): Promise<void> {
+    const store = this.storage.getStore();
+    await this.audit.writeInTransaction({ ...store?.requestMetadata, ...entry }, executor);
+    this.record({ ...entry, persisted: true });
+  }
 
   /**
    * Established by `AuditContextMiddleware`, which is the earliest point in

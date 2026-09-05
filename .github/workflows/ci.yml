@@ -68,6 +68,9 @@ jobs:
       - name: Migrate the test database
         run: pnpm --filter @vyuha/api db:migrate
 
+      - name: Rehearse populated local schema upgrade
+        run: pnpm --filter @vyuha/api test:upgrade
+
       - name: Test
         run: pnpm test
 

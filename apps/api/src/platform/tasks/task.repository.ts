@@ -325,7 +325,8 @@ export class TaskRepository extends ScopedRepository<typeof tasks> {
     const rows = await this.query(this.scoped(scope, eq(tasks.id, id))).limit(1);
     const row = rows[0];
     if (row === undefined) return null;
-    const [items, attachments] = await Promise.all([this.itemsFor([row.id]), this.attachmentCounts([row.id])]);
+    const items = await this.itemsFor([row.id]);
+    const attachments = await this.attachmentCounts([row.id]);
     return toTaskView(row, items, attachments);
   }
 

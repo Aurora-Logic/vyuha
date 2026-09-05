@@ -34,7 +34,8 @@ async function main(): Promise<void> {
       await pool.end();
     }
     console.log(`Isolated API test database: ${name}`);
-    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', ...process.argv.slice(2)], {
+    const filters = process.argv.slice(2).filter((argument) => argument !== '--');
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', ...filters], {
       stdio: 'inherit',
       env: { ...process.env, NODE_ENV: 'test', DATABASE_URL: url.href, JOBS_QUEUE_PREFIX: name },
     });

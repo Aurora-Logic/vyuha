@@ -172,7 +172,6 @@ export class TaskService {
   // ----------------------------------------------------------------- writes
 
   async create(principal: Principal, input: CreateTaskInput): Promise<TaskView> {
-    const repository = this.tasks(principal);
     const columns = this.columns(principal);
 
     const assigneeId = await this.resolveAssignee(principal, input.assigneeId);
@@ -189,41 +188,46 @@ export class TaskService {
     const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
     const items = await this.resolveItems(principal, input.items);
 
-    const created = await repository.insert({
-      title: input.title,
-      description: input.description ?? null,
-      subjectType: subject?.type ?? null,
-      subjectId: subject?.id ?? null,
-      subjectLabel: subject?.label ?? null,
-      assigneeId,
-      ownerId: principal.employeeId,
-      partyId: party?.id ?? null,
-      partyName: party?.name ?? null,
-      vendorId: vendor?.id ?? null,
-      vendorName: vendor?.name ?? null,
-      dueDate: input.dueDate ?? null,
-      priority: input.priority,
-      columnId: column.id,
-      closedAt: column.isDone ? new Date() : null,
+    const task = await this.db.transaction(async (tx) => {
+      const repository = new TaskRepository(tx, orgContextOf(principal));
+      const created = await repository.insert({
+        title: input.title,
+        description: input.description ?? null,
+        subjectType: subject?.type ?? null,
+        subjectId: subject?.id ?? null,
+        subjectLabel: subject?.label ?? null,
+        assigneeId,
+        ownerId: principal.employeeId,
+        partyId: party?.id ?? null,
+        partyName: party?.name ?? null,
+        vendorId: vendor?.id ?? null,
+        vendorName: vendor?.name ?? null,
+        dueDate: input.dueDate ?? null,
+        priority: input.priority,
+        columnId: column.id,
+        closedAt: column.isDone ? new Date() : null,
+      });
+      if (items !== null) await repository.setItems(created.id, items);
+      const task = await repository.view(SQL_TRUE, created.id);
+      if (task === null) throw new Error(`Task ${created.id} vanished between insert and read-back.`);
+      await this.notifyAssigned(principal, task, null, tx);
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.created',
+        entityType: 'task',
+        entityId: task.id,
+        before: null,
+        after: taskAuditView(task),
+      }, tx);
+      return task;
     });
-    if (items !== null) await repository.setItems(created.id, items);
-    const task = await repository.view(SQL_TRUE, created.id);
-    if (task === null) throw new Error(`Task ${created.id} vanished between insert and read-back.`);
 
-    this.auditContext.record({
-      action: 'task.created',
-      entityType: 'task',
-      entityId: task.id,
-      before: null,
-      after: taskAuditView(task),
-    });
+
     this.announce(principal, 'created', task.id);
-    await this.notifyAssigned(principal, task, null);
     return task;
   }
 
   async update(principal: Principal, id: string, input: UpdateTaskInput): Promise<TaskView> {
-    const repository = this.tasks(principal);
     const existing = await this.find(principal, id);
 
     const patch: Parameters<TaskRepository['update']>[1] = {};
@@ -270,34 +274,39 @@ export class TaskService {
     // Resolved before the write for the same reason as on create.
     const items = await this.resolveItems(principal, input.items);
 
-    const updated = await repository.update(id, patch);
-    if (updated === null) throw AppError.notFound('Task', id);
-    if (items !== null) await repository.setItems(id, items);
-    const task = await repository.view(SQL_TRUE, id);
-    if (task === null) throw AppError.notFound('Task', id);
-
-    // One entry per write, named for what the write was: a drag is `moved`
-    // (REQ-V-06), a drag into Done is `closed`, anything else `updated`.
-    const action =
-      moved === null
-        ? 'task.updated'
-        : moved.to.isDone && !existing.isClosed
-          ? 'task.closed'
-          : !moved.to.isDone && existing.isClosed
-            ? 'task.reopened'
-            : 'task.moved';
-    this.auditContext.record({
-      action,
-      entityType: 'task',
-      entityId: id,
-      before: taskAuditView(existing),
-      after: taskAuditView(task),
+    const task = await this.db.transaction(async (tx) => {
+      const repository = new TaskRepository(tx, orgContextOf(principal));
+      const updated = await repository.update(id, patch);
+      if (updated === null) throw AppError.notFound('Task', id);
+      if (items !== null) await repository.setItems(id, items);
+      const task = await repository.view(SQL_TRUE, id);
+      if (task === null) throw AppError.notFound('Task', id);
+      if (patch.assigneeId !== undefined) {
+        await this.notifyAssigned(principal, task, existing.assigneeId, tx);
+      }
+      // One entry per write, named for what the write was: a drag is `moved`
+      // (REQ-V-06), a drag into Done is `closed`, anything else `updated`.
+      const action =
+        moved === null
+          ? 'task.updated'
+          : moved.to.isDone && !existing.isClosed
+            ? 'task.closed'
+            : !moved.to.isDone && existing.isClosed
+              ? 'task.reopened'
+              : 'task.moved';
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action,
+        entityType: 'task',
+        entityId: id,
+        before: taskAuditView(existing),
+        after: taskAuditView(task),
+      }, tx);
+      return task;
     });
+
     this.announce(principal, 'updated', id);
 
-    if (patch.assigneeId !== undefined && task.assigneeId !== null) {
-      await this.notifyAssigned(principal, task, existing.assigneeId);
-    }
     return task;
   }
 
@@ -523,10 +532,10 @@ export class TaskService {
   }
 
   /** REQ-V-08: the assignee hears about it, unless they assigned it to themselves. */
-  private async notifyAssigned(principal: Principal, task: TaskView, previousAssigneeId: string | null): Promise<void> {
+  private async notifyAssigned(principal: Principal, task: TaskView, previousAssigneeId: string | null, executor: Database): Promise<void> {
     if (task.assigneeId === null || task.assigneeId === previousAssigneeId) return;
     if (task.assigneeId === principal.employeeId) return;
-    await this.notifications.emitAfterCommit({
+    await this.notifications.stageInTransaction({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.TASK_ASSIGNED,
       audience: { kind: 'employees', employeeIds: [task.assigneeId] },
@@ -535,9 +544,9 @@ export class TaskService {
         title: task.title,
         dueDate: task.dueDate ?? '',
         subjectLabel: task.subjectLabel ?? '',
-        assignedBy: await this.actorName(principal),
+        assignedBy: await this.actorName(principal, executor),
       },
-    });
+    }, executor);
   }
 
   // ------------------------------------------------------------ attachments
@@ -833,12 +842,12 @@ export class TaskService {
   }
 
   /** The actor as the assignee will read it: their employee name, or their email when they have no record. */
-  private async actorName(principal: Principal): Promise<string> {
+  private async actorName(principal: Principal, executor: Database = this.db): Promise<string> {
     if (principal.employeeId === null) return principal.email;
-    const rows = await this.db
+    const rows = await executor
       .select({ firstName: employees.firstName, lastName: employees.lastName })
       .from(employees)
-      .where(eq(employees.id, principal.employeeId))
+      .where(and(eq(employees.orgId, principal.orgId), eq(employees.id, principal.employeeId)))
       .limit(1);
     const row = rows[0];
     return row === undefined ? principal.email : [row.firstName, row.lastName].filter((p) => p !== null && p !== '').join(' ');

@@ -32,7 +32,7 @@ Status: Planned / In progress / Verified / Needs external evidence / Needs appro
 | P1 | Use an isolated test database; remove unsafe migration session killing and pg initialization races. | M-16, M-18 | Clean migrations/full suite; migration timeout/connection configuration checks. | In progress |
 | P2 | Refresh vulnerability advisories and update existing vulnerable dependencies. | M-15 | Approved npm scan, reviewed lockfile, full regression verification. | Verified |
 | P2 | Expand browser E2E, performance and recovery evidence. | M-07, M-17 | Critical browser workflows; representative load; staging backup restoration. | Planned |
-| P2 | Review durable audit writes, idempotent creates, financial precision and malware quarantine design. | M-06, M-08–10 | Explicit bounded contracts, adversarial tests and operational policy; no blanket claims. | Planned |
+| P2 | Review durable audit writes, idempotent creates, financial precision and malware quarantine design. | M-06, M-08–10 | Explicit bounded contracts, adversarial tests and operational policy; no blanket claims. | In progress |
 | P2 | Reconcile versions, deployment docs, legal/operator inputs and remaining maintainability findings. | M-19–24 | Accurate docs/version reporting; operator/legal decisions remain external evidence. | Planned |
 
 ## Execution and guardrails
@@ -109,3 +109,20 @@ No production deployment or restore is implied. Keep the intentional zoom restri
 - Local verification used Node 24.15.0; hosted Node 22 CI, staging activation, populated upgrade, representative business load, and full application restore remain external/unperformed checks. Every disposable API test database from the completed runs was removed by its wrapper, and the isolated test browser was stopped.
 
 These results establish the listed local fixes; they do not close the remaining business atomicity, quarantine, broader security/E2E and operational-evidence work or establish 9/10 in every category.
+
+
+## Further transaction hardening — 5 September 2026
+
+[Transaction hardening evidence](docs/audits/TRANSACTION-HARDENING-2026-09-05.md) records the follow-through after `292ff5b5`:
+
+- All former best-effort post-commit notification callers now stage intent with their business transaction; the helper was removed. This covers task assignment, help, leave outcomes/cancellation and receipt allocations, plus period locks.
+- Task writes and period lock/unlock now commit their business audit entry atomically, retaining request attribution without duplicate interceptor entries. Other audit writers remain open.
+- Leave cancellation and approval withdrawal now roll back together. Period operations serialize by organization/month. Tests cover outbox/audit failure rollback and concurrent duplicate locks.
+- Cross-tenant individual/bulk approval and nested attachment probes assert no mutation in either organization.
+- A disposable, synthetic populated 0090→0094 migration rehearsal passed and is now part of CI. Production-scale upgrade and complete restore evidence remain open.
+- Credential field redaction handles casing and separator aliases. The test runner now applies requested file filters correctly.
+
+F-01, F-04 and F-06 have further implementation/evidence but retain their broader outstanding acceptance criteria. The record above lists remaining local engineering separately from workload/operator/staging dependencies. No new 9/10 score is asserted.
+
+
+Final verification for this pass: **3,362 package tests passed** (API 2,340 across 159 files; web 934 across 117; shared 73 across 9; agent 15 across 4). Eight release/benchmark script tests passed. Root lint, typecheck, production build and production bundle inspection passed. After final connection/audit wiring corrections, affected task (21), help (7) and isolation (7) tests passed again; the API typecheck/lint/build were also checked. The synthetic populated upgrade rehearsal passed. No new frontend changes were made, and the previous 9/9 offline-browser evidence was not rerun or relabelled as a new browser result. Large bundle and PostgreSQL concurrent-query warnings remain; Node 22 hosted CI, representative load, full restoration and the other outstanding engineering items remain open.

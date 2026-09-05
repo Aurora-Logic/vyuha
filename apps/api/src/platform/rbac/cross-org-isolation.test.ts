@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { SYSTEM_ROLES } from '@vyuha/shared';
+import { SYSTEM_ROLES, type BulkApprovalResult } from '@vyuha/shared';
 
 import { runSeed } from '../../../seed/seed.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
@@ -64,6 +64,9 @@ let companyAId = '';
 let taskAId = '';
 let partyAId = '';
 let itemAId = '';
+let approvalAId = '';
+let attachmentAId = '';
+let localTaskBId = '';
 let routes: Route[] = [];
 
 function routeTable(harness: ApiHarness): Route[] {
@@ -189,6 +192,24 @@ beforeAll(async () => {
   const task = await a.post<{ id: string }>('/tasks', { token: tokenA, body: { title: 'Isolation task', dueDate: '2026-08-01', priority: 'HIGH' } });
   expect(task.status, task.text).toBe(201);
   taskAId = task.body.id;
+
+  const approval = await a.db.execute<{ id: string }>(sql`
+    INSERT INTO approval_requests (org_id, type, requester_user_id, subject_type, subject_id, subject_summary)
+    VALUES (${ORG_A}, 'LEAVE', ${adminA.id}, 'leave_request', ${taskAId}, 'Isolation approval') RETURNING id
+  `);
+  approvalAId = approval.rows[0]?.id ?? '';
+  const file = await a.db.execute<{ id: string }>(sql`
+    INSERT INTO files (org_id, storage_key, mime, bytes, checksum, purpose, uploaded_by)
+    VALUES (${ORG_A}, 'isolation/fixture.pdf', 'application/pdf', 10, 'fixture', 'TASK_ATTACHMENT', ${adminA.id}) RETURNING id
+  `);
+  const attachment = await a.db.execute<{ id: string }>(sql`
+    INSERT INTO task_attachments (org_id, task_id, file_id, filename)
+    VALUES (${ORG_A}, ${taskAId}, ${file.rows[0]?.id ?? ''}, 'fixture.pdf') RETURNING id
+  `);
+  attachmentAId = attachment.rows[0]?.id ?? '';
+  const ownTask = await a.post<{ id: string }>('/tasks', { token: tokenB, body: { title: 'Org B attachment probe', priority: 'HIGH' } });
+  expect(ownTask.status).toBe(201);
+  localTaskBId = ownTask.body.id;
   const limited = await a.createUser({ email: scopedEmail('isolation-no-permissions') });
   limitedToken = (await a.login(limited.email, limited.password)).token;
   await a.post('/leave/types', { token: tokenA, body: { name: 'Isolation Leave', code: 'ISOL' } });
@@ -212,6 +233,9 @@ describe('write isolation and privilege boundaries (F-06)', () => {
         'contacts', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM crm_contacts c WHERE org_id IN (${ORG_A}, ${ORG_B})),
         'tasks', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM tasks t WHERE org_id IN (${ORG_A}, ${ORG_B})),
         'documents', (SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM sales_documents d WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'approvals', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM approval_requests r WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'attachments', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM task_attachments r WHERE org_id IN (${ORG_A}, ${ORG_B})),
+        'files', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM files r WHERE org_id IN (${ORG_A}, ${ORG_B})),
         'notifications', (SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM notification_outbox n WHERE org_id IN (${ORG_A}, ${ORG_B}))
       ) AS snapshot
     `);
@@ -235,6 +259,27 @@ describe('write isolation and privilege boundaries (F-06)', () => {
       } else {
         expect([403, 404], `${method} ${path}: ${response.text}`).toContain(response.status);
       }
+    }
+    expect(await state()).toEqual(before);
+  });
+
+
+  it('refuses foreign approval decisions, bulk decisions and attachment IDs without side effects', async () => {
+    const before = await state();
+    for (const action of ['approve', 'reject']) {
+      const response = await a.post(`/approvals/${approvalAId}/${action}`, { token: tokenB, body: { reason: 'Foreign decision' } });
+      expect(response.status, response.text).toBe(403);
+      expect(response.body).toMatchObject({ error: { code: 'FORBIDDEN', message: 'That request does not exist.' } });
+    }
+    const bulk = await a.post<BulkApprovalResult>('/approvals/bulk', { token: tokenB, body: { ids: [approvalAId], action: 'APPROVE' } });
+    expect(bulk.status, bulk.text).toBe(201);
+    expect(bulk.body.applied).toEqual([]);
+    expect(bulk.body.skipped).toEqual([{ id: approvalAId, code: 'FORBIDDEN', message: 'That request does not exist.' }]);
+    for (const taskId of [taskAId, localTaskBId]) {
+      const download = await a.get(`/tasks/${taskId}/attachments/${attachmentAId}/url`, { token: tokenB });
+      expect([403, 404], download.text).toContain(download.status);
+      const remove = await a.request('DELETE', `/tasks/${taskId}/attachments/${attachmentAId}`, { token: tokenB });
+      expect([403, 404], remove.text).toContain(remove.status);
     }
     expect(await state()).toEqual(before);
   });

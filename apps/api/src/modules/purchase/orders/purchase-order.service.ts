@@ -622,7 +622,6 @@ export class PurchaseOrderService implements OnModuleInit {
         throw AppError.validation('A rejected quantity needs a reason.', { fields: [{ path: `lines.${String(index)}.rejectionReason`, message: 'is required' }] });
       }
     }
-    const arrivals: NotificationEvent[] = [];
     const grnId = await this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx, principal.orgId, 'GRN', 'GRN');
       const inserted = await tx.execute<{ id: string }>(sql`
@@ -651,14 +650,12 @@ export class PurchaseOrderService implements OnModuleInit {
           const share = Math.min(Number(entry.receivedQty), Number(waiting.rows[0].outstanding));
           if (share > 0) {
             const arrival = await this.allocate(tx, principal, id, entry.purchaseOrderLineId, waiting.rows[0].requirement_id, share.toFixed(3));
-            if (arrival !== null) arrivals.push(arrival);
+            if (arrival !== null) await this.notifications.stageInTransaction(arrival, tx);
           }
         }
       }
       return id;
     });
-    // Told after the commit, never inside it (H-06).
-    for (const arrival of arrivals) await this.notifications.emitAfterCommit(arrival);
     await this.enqueueGrnPush(principal, grnId);
     this.auditContext.record({ action: 'purchase.grn.created', entityType: 'grn', entityId: grnId, before: null, after: { purchaseOrderId, lines: input.lines } });
     return this.findGrn(principal, grnId);
@@ -668,7 +665,6 @@ export class PurchaseOrderService implements OnModuleInit {
   async allocateReceipt(principal: Principal, grnId: string, input: AllocateReceiptInput): Promise<GrnView> {
     if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Allocating a receipt across waiting orders needs purchase.document.approve.');
     const grn = await this.findGrn(principal, grnId);
-    const arrivals: NotificationEvent[] = [];
     await this.db.transaction(async (tx) => {
       for (const allocation of input.allocations) {
         const pending = grn.pendingAllocations.find((p) => p.waiting.some((w) => w.requirementId === allocation.requirementId));
@@ -676,17 +672,16 @@ export class PurchaseOrderService implements OnModuleInit {
         // How much is left is read inside the transaction, not from the
         // snapshot this request was built against -- see `allocate`.
         const arrival = await this.allocate(tx, principal, grnId, pending.purchaseOrderLineId, allocation.requirementId, allocation.quantity);
-        if (arrival !== null) arrivals.push(arrival);
+        if (arrival !== null) await this.notifications.stageInTransaction(arrival, tx);
       }
     });
-    for (const arrival of arrivals) await this.notifications.emitAfterCommit(arrival);
     this.auditContext.record({ action: 'purchase.grn.allocated', entityType: 'grn', entityId: grnId, before: null, after: { allocations: input.allocations } });
     return this.findGrn(principal, grnId);
   }
 
   /**
-   * Returns the notice the caller should send once its transaction has
-   * committed, rather than sending it here. This runs inside the caller's
+   * Returns notification intent for the caller to stage in its transaction.
+   * The durable drain delivers only after commit. This runs inside the caller's
    * transaction, and an emit in here could outlive a rollback -- or, on a
    * Redis blip, throw and roll back an allocation that was fine (H-06).
    */

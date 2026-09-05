@@ -610,6 +610,26 @@ describe('applying (REQ-G-06, REQ-G-07, REQ-G-08)', () => {
     }
   });
 
+  it('rolls back approval withdrawal and leave cancellation when staging fails', async () => {
+    const date = addDays(MONDAY, 21);
+    const created = await harness.post<LeaveRequestDetail>('/leave/requests', {
+      token: otherToken, body: { leaveTypeId: casualTypeId, fromDate: date, toDate: date, reason: 'Cancellation rollback fixture' },
+    });
+    expect(created.status, created.text).toBe(201);
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const fail = vi.spyOn(dispatcher, 'stageInTransaction').mockRejectedValueOnce(new Error('Outbox unavailable'));
+    try {
+      const refused = await harness.post(`/leave/requests/${created.body.id}/cancel`, { token: otherToken, body: { reason: 'Fail atomically' } });
+      expect(refused.status).toBe(500);
+      const retained = await harness.get<LeaveRequestDetail>(`/leave/requests/${created.body.id}`, { token: otherToken });
+      expect(retained.body.status).toBe('PENDING');
+      const approval = await harness.db.execute<{ status: string }>(sql`SELECT status FROM approval_requests WHERE org_id = ${ORG_ID} AND subject_id = ${created.body.id}`);
+      expect(approval.rows[0]?.status).toBe('PENDING');
+    } finally { fail.mockRestore(); }
+    const cleared = await harness.post(`/leave/requests/${created.body.id}/cancel`, { token: otherToken, body: { reason: 'Clear fixture' } });
+    expect(cleared.status).toBe(201);
+  });
+
   it('stores the skipped days uncounted so the day engine can read them', async () => {
     await grantDays(employeeAId, casualTypeId, 20);
 
