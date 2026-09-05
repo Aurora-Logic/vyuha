@@ -29,7 +29,6 @@ const APP_BUILT_AT = process.env.BUILT_AT ?? ""
 const SW_SOURCE = path.resolve(import.meta.dirname, "./src/lib/offline/service-worker.js")
 const SW_VERSION_TOKEN = "__SW_VERSION__"
 const SW_CRITICAL_TOKEN = "__SW_BUILD_CRITICAL__"
-const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
 
 /**
  * Serves `src/lib/offline/service-worker.js` at `/sw.js`, with its version
@@ -53,11 +52,10 @@ const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
  * would be wrong the first time anybody edited a component, and wrong
  * silently.
  *
- * Critical is code and stylesheet: without them the document paints an empty
- * `<div id="root">` and nothing else, which is exactly the blank screen a
- * first install used to give at a gate. Everything else the build emits -
- * font subsets - is optional: missing one costs a fallback typeface, and
- * failing the whole install over it would cost offline punching.
+ * Critical is the shell/Punch static dependency closure plus styles: without
+ * it the document paints an empty `<div id="root">`. Every other emitted
+ * asset is cached when its route first asks for it, so installing the worker
+ * does not download the complete lazy application.
  */
 
 function serviceWorker(): Plugin {
@@ -65,12 +63,11 @@ function serviceWorker(): Plugin {
 
   const render = (
     version: string,
-    precache: { critical: string[]; optional: string[] } = { critical: [], optional: [] },
+    critical: readonly string[] = [],
   ): string =>
     read()
       .replaceAll(SW_VERSION_TOKEN, version)
-      .replaceAll(SW_CRITICAL_TOKEN, JSON.stringify(precache.critical))
-      .replaceAll(SW_OPTIONAL_TOKEN, JSON.stringify(precache.optional))
+      .replaceAll(SW_CRITICAL_TOKEN, JSON.stringify(critical))
 
   // In development the version is a hash of the worker's own source. Stable
   // across reloads and across dev-server restarts, so nothing is reinstalled
@@ -113,7 +110,7 @@ function serviceWorker(): Plugin {
       this.emitFile({
         type: "asset",
         fileName: "sw.js",
-        source: render(version, splitPrecache(bundle)),
+        source: render(version, splitPrecache(bundle).critical),
       })
     },
   }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { PERMISSIONS, uuidv7 } from '@vyuha/shared';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +9,7 @@ import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { principalFixture } from '../../test-support/principal-fixture.js';
 import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
-import { files } from '../db/schema/index.js';
+import { fileCleanupTasks, files } from '../db/schema/index.js';
 import { ObjectStore } from '../storage/object-store.js';
 import { FileService } from './file.service.js';
 
@@ -199,6 +199,86 @@ describe('storing an image', () => {
       put.mockRestore();
       removed.mockRestore();
     }
+  });
+
+  it.each([
+    [
+      'uploaded document',
+      (orgId: string) =>
+        service.storeUpload({
+          orgId,
+          uploadedBy: uploaderId,
+          purpose: 'CRM_ATTACHMENT',
+          bytes: Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(32, 0x20)]),
+          filename: 'quote.pdf',
+        }),
+    ],
+    [
+      'generated document',
+      (orgId: string) =>
+        service.storeDocument({
+          orgId,
+          createdBy: uploaderId,
+          purpose: 'EXPORT',
+          bytes: Buffer.from('generated export'),
+          mime: 'text/csv',
+          extension: 'csv',
+        }),
+    ],
+  ])('compensates a %s whose metadata row cannot be written', async (_label, write) => {
+    const objects = harness.resolve(ObjectStore);
+    const put = vi.spyOn(objects, 'put');
+    const removed = vi.spyOn(objects, 'delete');
+    try {
+      await expect(write(uuidv7())).rejects.toThrow();
+      expect(put).toHaveBeenCalledTimes(1);
+      const [bucket, key] = put.mock.calls[0] ?? [];
+      expect(removed).toHaveBeenCalledWith(bucket, key);
+    } finally {
+      put.mockRestore();
+      removed.mockRestore();
+    }
+  });
+
+  it('retains and retries a cleanup task when object deletion is unavailable', async () => {
+    const stored = await store('PUNCH_PHOTO', await photoWithExif());
+    const objects = harness.resolve(ObjectStore);
+    const row = await harness.db
+      .select({ storageKey: files.storageKey })
+      .from(files)
+      .where(eq(files.id, stored.id));
+    const storageKey = row[0]?.storageKey;
+    if (storageKey === undefined) throw new Error('stored file row is missing');
+
+    const unavailable = vi
+      .spyOn(objects, 'delete')
+      .mockRejectedValueOnce(new Error('object store unavailable'));
+    try {
+      await expect(service.discardUnreferenced(ORG_ID, [stored.id])).resolves.toBe(1);
+    } finally {
+      unavailable.mockRestore();
+    }
+
+    const pending = await harness.db
+      .select({ attempts: fileCleanupTasks.attempts })
+      .from(fileCleanupTasks)
+      .where(
+        and(
+          eq(fileCleanupTasks.purpose, stored.purpose),
+          eq(fileCleanupTasks.storageKey, storageKey),
+        ),
+      );
+    expect(pending[0]?.attempts).toBe(1);
+    expect(await objects.exists('photos', storageKey)).toBe(true);
+
+    const cleanup = await service.cleanupPendingObjects(new Date(Date.now() + 1_000));
+    expect(cleanup.removed).toBeGreaterThanOrEqual(1);
+    expect(await objects.exists('photos', storageKey)).toBe(false);
+    const left = await harness.db
+      .select({ id: fileCleanupTasks.id })
+      .from(fileCleanupTasks)
+      .where(eq(fileCleanupTasks.storageKey, storageKey));
+    expect(left).toHaveLength(0);
   });
 
   it('never stores the bytes the client supplied, and strips EXIF doing it', async () => {

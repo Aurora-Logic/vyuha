@@ -122,6 +122,16 @@ export interface ApprovalSubjectHandler {
     decision: ApprovalSubjectDecision,
     tx: Database,
   ): Promise<ApprovalSubjectSettlement | null>;
+
+  /**
+   * Rebuilds only the idempotent post-commit work from durable decision data.
+   * Production handlers that return a settlement implement this; optional so
+   * lightweight third-party/test handlers that never return one remain valid.
+   */
+  recoverSettlement?(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+  ): Promise<void>;
 }
 
 @Injectable()

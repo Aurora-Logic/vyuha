@@ -76,7 +76,7 @@ export class AgentApiClient {
       });
     } catch (error) {
       if (error instanceof Error && error.name === 'TimeoutError') {
-        throw new Error(`${path} did not answer within ${String(this.timeoutMs)}ms.`);
+        throw new Error(`${path} did not answer within ${String(this.timeoutMs)}ms.`, { cause: error });
       }
       throw error;
     }

@@ -116,36 +116,45 @@ export function reconcile(
  */
 export function buildSyncBody(batch: readonly QueuedPunch[]): FormData {
   const form = new FormData();
-  const punches = batch.map((entry, index) => ({
-    type: entry.type,
-    clientTime: entry.clientTime,
-    // Sent together or not at all; the server rejects one without the other.
-    ...(entry.latitude !== null && entry.longitude !== null
-      ? {
-          latitude: entry.latitude,
-          longitude: entry.longitude,
-          ...(entry.gpsAccuracyM === null ? {} : { gpsAccuracyM: entry.gpsAccuracyM }),
-        }
-      : {}),
-    isHalfDay: entry.isHalfDay,
-    // Meaningful only alongside isHalfDay, and rejected otherwise.
-    ...(entry.isHalfDay && entry.halfDayPart !== null ? { halfDayPart: entry.halfDayPart } : {}),
-    ...(entry.reason === null || entry.reason === '' ? {} : { reason: entry.reason }),
-    // REQ-M-03: the tick recorded when the punch was taken, so the server can
-    // record the acceptance with the synced punch.
-    consentAccepted: entry.consentAccepted,
-    idempotencyKey: entry.idempotencyKey,
-    // The server refuses a row that was not this person's (C-01).
-    ...(entry.owner === null ? {} : { ownerUserId: entry.owner.userId }),
-    photoIndex: index,
-  }));
+  const punches = batch.map((entry, index) => {
+    if (entry.owner === null) {
+      throw new Error('A legacy queued punch without an owner cannot be synced safely.');
+    }
+    return {
+      type: entry.type,
+      clientTime: entry.clientTime,
+      // Sent together or not at all; the server rejects one without the other.
+      ...(entry.latitude !== null && entry.longitude !== null
+        ? {
+            latitude: entry.latitude,
+            longitude: entry.longitude,
+            ...(entry.gpsAccuracyM === null ? {} : { gpsAccuracyM: entry.gpsAccuracyM }),
+          }
+        : {}),
+      isHalfDay: entry.isHalfDay,
+      // Meaningful only alongside isHalfDay, and rejected otherwise.
+      ...(entry.isHalfDay && entry.halfDayPart !== null ? { halfDayPart: entry.halfDayPart } : {}),
+      ...(entry.reason === null || entry.reason === '' ? {} : { reason: entry.reason }),
+      // REQ-M-03: the tick recorded when the punch was taken, so the server can
+      // record the acceptance with the synced punch.
+      consentAccepted: entry.consentAccepted,
+      idempotencyKey: entry.idempotencyKey,
+      // Required by the shared/server contract. Legacy ownerless rows are
+      // routed to recovery UI before this boundary, never attributed by guess.
+      ownerUserId: entry.owner.userId,
+      photoIndex: index,
+    };
+  });
 
   form.set('payload', JSON.stringify({ punches }));
   for (const entry of batch) form.append('photos', entry.photo, 'punch.jpg');
   return form;
 }
 
-export async function postPunchSync(batch: readonly QueuedPunch[]): Promise<PunchSyncReport> {
+export async function postPunchSync(
+  batch: readonly QueuedPunch[],
+  signal?: AbortSignal,
+): Promise<PunchSyncReport> {
   return postMultipart('/punches/sync', buildSyncBody(batch), (body) => {
     const parsed = syncReportSchema.safeParse(body);
     if (parsed.success) return parsed.data;
@@ -159,7 +168,7 @@ export async function postPunchSync(batch: readonly QueuedPunch[]): Promise<Punc
       status: 0,
       details: { issues: z.treeifyError(parsed.error) },
     });
-  });
+  }, {}, signal);
 }
 
 /**

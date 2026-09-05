@@ -7,9 +7,9 @@
  * lazy route, and a single failed chunk -- a deploy mid-download, a flaky
  * link -- aborted the whole installation (H-13). The shell that has to work
  * offline is the entry, what it statically imports, every stylesheet, and the
- * punch screen; that is what installs atomically. The other routes are
- * fetched one by one, a miss is a warning, and the runtime cache picks them
- * up on first use anyway.
+ * punch screen; that is what installs atomically. The other routes are only
+ * classified for build verification. The worker caches them on first use;
+ * it does not download every route while installing.
  */
 export interface BuiltFile {
   readonly type: string;

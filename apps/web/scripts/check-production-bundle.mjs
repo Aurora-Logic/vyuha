@@ -23,7 +23,7 @@
  *   1. no development JSX runtime
  *   2. no absolute path from the build machine
  *   3. no dev-only route, and none of its sample data
- *   4. the service worker precaches the build's own output
+ *   4. the service worker precaches the document's startup assets
  *
  * (4) is here rather than in `check-precache.mjs` because that script reads
  * source and the list it would need does not exist in source: it is computed
@@ -225,17 +225,22 @@ if (worker === undefined) {
       critical = null;
     }
 
-    // What the app cannot start without: its own code and stylesheet.
-    const mustHold = files
-      .map((f) => `/${f.name}`)
-      .filter((url) => /^\/assets\/.+\.(js|css)$/u.test(url))
+    // What this document asks for before a route can render. The Punch route's
+    // additional static closure is covered by splitPrecache's graph test; the
+    // production offline harness proves the emitted set can boot.
+    const document = text.get('index.html') ?? '';
+    const mustHold = [
+      ...document.matchAll(/(?:src|href)="(\/assets\/[^"]+\.(?:js|css))"/gu),
+    ]
+      .map((match) => match[1])
+      .filter((url) => url !== undefined)
       .sort();
 
     if (!Array.isArray(critical) || critical.length === 0) {
       fail(
         'the service worker precaches nothing from this build: BUILD_CRITICAL is empty.\n' +
           '    A first install would cache the shell and not the script that fills it,\n' +
-          `    so the first offline load is a blank page. Expected ${String(mustHold.length)} file(s).`,
+          `    so the first offline load is a blank page. Expected at least ${String(mustHold.length)} startup file(s).`,
       );
     } else {
       const missing = mustHold.filter((url) => !critical.includes(url));
@@ -247,7 +252,7 @@ if (worker === undefined) {
             (unknown.length > 0 ? `    precached but not emitted: ${unknown.join(', ')}\n` : ''),
         );
       } else {
-        notes.push(`precache holds all ${String(mustHold.length)} code and stylesheet file(s)`);
+        notes.push(`precache holds all ${String(mustHold.length)} startup code and stylesheet file(s)`);
       }
     }
   }

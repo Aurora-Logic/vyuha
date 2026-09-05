@@ -1005,4 +1005,35 @@ describe('who may confirm a PO that needs approval', () => {
     );
     expect(request.rows[0]?.status).toBe('PENDING');
   });
+
+  it('serialises a real cancellation/approval race into one consistent winner', async () => {
+    const po = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4400' }] },
+    });
+    expect(po.status).toBe(201);
+    const submitted = await harness.post<PurchaseOrderView>(`/purchase/orders/${po.body.id}/confirm`, {
+      token: adminToken,
+    });
+    expect(submitted.status, JSON.stringify(submitted.body)).toBe(200);
+    expect(submitted.body.status).toBe('PENDING_APPROVAL');
+
+    const [cancelled, approved] = await Promise.all([
+      harness.post<PurchaseOrderView | ErrorBody>(`/purchase/orders/${po.body.id}/cancel`, { token: adminToken }),
+      harness.post<PurchaseOrderView | ErrorBody>(`/purchase/orders/${po.body.id}/approve`, { token: secondApproverToken }),
+    ]);
+    expect([cancelled, approved].filter((response) => response.status < 300)).toHaveLength(1);
+    expect([cancelled, approved].filter((response) => response.status === 409)).toHaveLength(1);
+
+    const state = await harness.db.execute<{ document_status: string; approval_status: string }>(sql`
+      SELECT p.status AS document_status, a.status AS approval_status
+        FROM purchase_orders p JOIN approval_requests a ON a.id = p.approval_request_id OR a.subject_id = p.id
+       WHERE p.id = ${po.body.id}
+       ORDER BY a.created_at DESC LIMIT 1
+    `);
+    expect([
+      { document_status: 'CANCELLED', approval_status: 'CANCELLED' },
+      { document_status: 'CONFIRMED', approval_status: 'APPROVED' },
+    ]).toContainEqual(state.rows[0]);
+  });
 });

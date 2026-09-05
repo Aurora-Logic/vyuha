@@ -17,9 +17,9 @@
  * not a token, and an id is exactly what a log line is for.
  */
 const SECRET_SEGMENTS: readonly RegExp[] = [
-  /(\/portal\/)[^/?#]+/u,
-  /(\/invitations\/)(?!for-employee(?:[/?#]|$))[^/?#]+/u,
-  /(\/password-resets\/)(?!for-employee(?:[/?#]|$))[^/?#]+/u,
+  /(\/portal\/)[^/?#]+/iu,
+  /(\/invitations\/)(?!for-employee(?:[/?#]|$))[^/?#]+/iu,
+  /(\/password-resets\/)(?!for-employee(?:[/?#]|$))[^/?#]+/iu,
 ];
 
 export function redactUrl(url: string): string {

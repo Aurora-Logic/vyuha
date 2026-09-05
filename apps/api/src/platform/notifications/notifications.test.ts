@@ -6,7 +6,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { RecordingMailer } from '../../test-support/recording-mailer.js';
 import { env } from '../common/env.js';
-import { notificationPreferences, notifications } from '../db/schema/index.js';
+import {
+  notificationIdempotency,
+  notificationOutbox,
+  notificationPreferences,
+  notifications,
+} from '../db/schema/index.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
 import { QUEUES } from '../jobs/queue.registry.js';
 import { Mailer } from '../mail/mailer.js';
@@ -62,6 +67,10 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await harness.db.delete(notifications).where(eq(notifications.orgId, ORG_ID));
+  await harness.db.delete(notificationOutbox).where(eq(notificationOutbox.orgId, ORG_ID));
+  await harness.db
+    .delete(notificationIdempotency)
+    .where(eq(notificationIdempotency.orgId, ORG_ID));
   await harness.db
     .delete(notificationPreferences)
     .where(eq(notificationPreferences.orgId, ORG_ID));
@@ -529,10 +538,7 @@ describe('an event that must not be sent twice (audit 20)', () => {
     expect(claims.rows[0]?.n).toBe(1);
   }, 60_000);
 
-  it('does not spend the key when the enqueue fails (H-05)', async () => {
-    // The claim was written before the enqueue and never undone, so a Redis
-    // blip during the enqueue left a claimed key and no job: every retry
-    // returned early, and the notice was never sent by anybody.
+  it('keeps the envelope durable and retries it when queue hand-off fails (R-07)', async () => {
     const dispatcher = harness.resolve(NotificationDispatcher);
     const runner = harness.resolve(JobRunner);
     const queue = runner.queueFor(QUEUES.NOTIFICATION);
@@ -546,19 +552,45 @@ describe('an event that must not be sent twice (audit 20)', () => {
     } as const;
 
     const blip = vi.spyOn(runner, 'enqueue').mockRejectedValueOnce(new Error('Redis blipped'));
+    let jobId: string | undefined;
     try {
-      await expect(dispatcher.emit(event)).rejects.toThrow('Redis blipped');
+      jobId = await dispatcher.emit(event);
     } finally {
       blip.mockRestore();
     }
+    if (jobId === undefined) throw new Error('notification emit returned no job id');
     const claims = await harness.db.execute<{ n: number }>(
       sql`SELECT count(*)::int AS n FROM notification_idempotency WHERE org_id = ${ORG_ID} AND key = ${key}`,
     );
-    expect(claims.rows[0]?.n, 'a failed enqueue left its claim behind').toBe(0);
+    expect(claims.rows[0]?.n).toBe(1);
 
-    // The retry is the point: it must actually queue the notice.
-    const retried = await dispatcher.emit(event);
-    expect(await queue.getJob(retried)).toBeDefined();
+    const pending = await harness.db
+      .select({ id: notificationOutbox.id, state: notificationOutbox.state })
+      .from(notificationOutbox)
+      .where(
+        and(
+          eq(notificationOutbox.orgId, ORG_ID),
+          eq(notificationOutbox.idempotencyKey, key),
+        ),
+      );
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.state).toBe('PENDING');
+
+    // The database row is the restart boundary: no caller-held closure/state
+    // is needed for a later process's scheduled drain to recover it.
+    await harness.db
+      .update(notificationOutbox)
+      .set({ runAfter: new Date(Date.now() - 1_000) })
+      .where(eq(notificationOutbox.id, pending[0]?.id ?? ''));
+    const retried = await dispatcher.drainOutbox();
+    expect(retried).toMatchObject({ scanned: 1, enqueued: 1, failed: 0 });
+    expect(await queue.getJob(jobId)).toBeDefined();
+
+    const recovered = await harness.db
+      .select({ state: notificationOutbox.state })
+      .from(notificationOutbox)
+      .where(eq(notificationOutbox.id, pending[0]?.id ?? ''));
+    expect(recovered[0]?.state).toBe('ENQUEUED');
   });
 
   it('lets a different key through', async () => {

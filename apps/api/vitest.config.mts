@@ -48,6 +48,6 @@ export default defineConfig({
     // dependency to make the job fail - watched a job complete instead,
     // because the API's unmocked worker had run it. Nothing in the test could
     // see that; it just reported "expected failed, got completed".
-    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false', JOBS_QUEUE_PREFIX: 'vyuha-test' },
+    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false', JOBS_QUEUE_PREFIX: process.env.JOBS_QUEUE_PREFIX ?? 'vyuha-test' },
   },
 });

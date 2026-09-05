@@ -558,6 +558,7 @@ export function AppShell() {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Go to a screen or report"
                 data-guide="header.goto"
                 className="text-muted-foreground max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:px-0 max-sm:shadow-none gap-2 font-normal"
                 onClick={toggleGoto}

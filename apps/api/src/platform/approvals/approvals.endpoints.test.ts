@@ -8,10 +8,11 @@ import {
   type Paginated,
   type PermissionKey,
 } from '@vyuha/shared';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { OrgContext } from '../db/scoped-repository.js';
+import { approvalSettlementOutbox } from '../db/schema/index.js';
 import { JobRegistry } from '../jobs/job-handler.js';
 import { JOB_QUEUE, QUEUES, SCHEDULED_JOBS } from '../jobs/queue.registry.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
@@ -67,6 +68,8 @@ const UNHANDLED_SUBJECT = 'unregistered_probe';
  * a real subject in `regularization.endpoints.test.ts`.
  */
 const NARROW_SUBJECT = 'device';
+const RECOVERY_SUBJECT = 'settlement_probe';
+let recoveredSettlements = 0;
 
 /** Every decision this file's subjects were told about, in order. */
 const decisionsSeen: { subjectType: string; subjectId: string; status: string }[] = [];
@@ -159,6 +162,17 @@ beforeAll(async () => {
   subjects.register(probeHandler(PROBE_SUBJECT));
   subjects.register(probeHandler(OTHER_PROBE_SUBJECT));
   subjects.register(probeHandler(NARROW_SUBJECT, [PERMISSIONS.SETTINGS_MANAGE]));
+  subjects.register({
+    subjectType: RECOVERY_SUBJECT,
+    actPermissions: [PERMISSIONS.LEAVE_APPROVE_TEAM, PERMISSIONS.LEAVE_APPROVE_ALL],
+    overridePermissions: [PERMISSIONS.LEAVE_APPROVE_ALL],
+    applyDecision: () =>
+      Promise.resolve(() => Promise.reject(new Error('post-commit probe failed'))),
+    recoverSettlement: () => {
+      recoveredSettlements += 1;
+      return Promise.resolve();
+    },
+  });
 
   const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
   const operationsRoleId = await harness.createSystemRole(SYSTEM_ROLES.OPERATIONS);
@@ -465,6 +479,40 @@ describe('deciding (REQ-I-03, REQ-F-05)', () => {
     expect(result.status).toBe(201);
     expect(result.body.status).toBe('APPROVED');
     expect(result.body.awaiting).toBeNull();
+  });
+
+  it('returns the committed decision and recovers failed post-commit work', async () => {
+    const created = await raise({
+      requesterUserId: empUserId,
+      approverUserIds: [mgrUserId],
+      subjectType: RECOVERY_SUBJECT,
+    });
+
+    const result = await harness.post<ApprovalRequestDetail>(
+      `/approvals/${created.id}/approve`,
+      { token: mgrToken, body: {} },
+    );
+    expect(result.status).toBe(201);
+    expect(result.body.status).toBe('APPROVED');
+
+    const pending = await harness.db
+      .select({ id: approvalSettlementOutbox.id, state: approvalSettlementOutbox.state })
+      .from(approvalSettlementOutbox)
+      .where(eq(approvalSettlementOutbox.approvalRequestId, created.id));
+    expect(pending[0]?.state).toBe('PENDING');
+
+    await harness.db
+      .update(approvalSettlementOutbox)
+      .set({ runAfter: new Date(Date.now() - 1_000) })
+      .where(eq(approvalSettlementOutbox.id, pending[0]?.id ?? ''));
+    await approvals.drainSettlementOutbox();
+
+    const settled = await harness.db
+      .select({ state: approvalSettlementOutbox.state })
+      .from(approvalSettlementOutbox)
+      .where(eq(approvalSettlementOutbox.id, pending[0]?.id ?? ''));
+    expect(settled[0]?.state).toBe('DONE');
+    expect(recoveredSettlements).toBe(1);
   });
 
   it('refuses a second decision on a closed request', async () => {

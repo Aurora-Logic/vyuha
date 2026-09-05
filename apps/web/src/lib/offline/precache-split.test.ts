@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { splitPrecache, type BuiltFile } from './precache-split';
 
+const WORKER_SOURCE = import.meta.glob<string>('/src/lib/offline/service-worker.js', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})['/src/lib/offline/service-worker.js'] ?? '';
+
 /** A build the way Rollup describes one: an entry, shared vendor chunks, one lazy route per feature. */
 const chunk = (over: Partial<BuiltFile>): BuiltFile => ({ type: 'chunk', imports: [], facadeModuleId: null, ...over });
 
@@ -42,5 +48,19 @@ describe('splitPrecache', () => {
   it('never lists index.html or the worker itself', () => {
     expect([...critical, ...optional]).not.toContain('/index.html');
     expect([...critical, ...optional]).not.toContain('/sw.js');
+  });
+});
+
+describe('service-worker installation', () => {
+  it('awaits only the shell/Punch closure, not every lazy route', () => {
+    const installStart = WORKER_SOURCE.indexOf("self.addEventListener('install'");
+    const activateStart = WORKER_SOURCE.indexOf("self.addEventListener('activate'");
+    const installHandler = WORKER_SOURCE.slice(installStart, activateStart);
+
+    expect(installStart).toBeGreaterThan(-1);
+    expect(activateStart).toBeGreaterThan(installStart);
+    expect(installHandler).toContain('cache.addAll(PRECACHE_CRITICAL)');
+    expect(installHandler).not.toContain('RUNTIME_OPTIONAL');
+    expect(WORKER_SOURCE).not.toContain('__SW_BUILD_OPTIONAL__');
   });
 });

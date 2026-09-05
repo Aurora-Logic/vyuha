@@ -182,12 +182,12 @@ describe('buildSyncBody', () => {
     expect((photos[1] as File).size).toBe(4);
   });
 
-  it('names the account that queued each punch, and nothing for a row that has none (C-01)', () => {
+  it('names the account that queued each punch and refuses to serialize a legacy row (C-01)', () => {
     const mine = entry({ idempotencyKey: 'key-0000-0001' });
     const legacy = entry({ idempotencyKey: 'key-0000-0002', owner: null });
-    const punches = payloadOf(buildSyncBody([mine, legacy])).punches;
+    const punches = payloadOf(buildSyncBody([mine])).punches;
     expect(punches[0]?.ownerUserId).toBe('user-a');
-    expect(punches[1]).not.toHaveProperty('ownerUserId');
+    expect(() => buildSyncBody([legacy])).toThrow(/without an owner/u);
   });
 
   it('sends the stored idempotency key, never a fresh one', () => {

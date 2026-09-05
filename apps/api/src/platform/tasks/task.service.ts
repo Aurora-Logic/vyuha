@@ -559,30 +559,40 @@ export class TaskService {
   ): Promise<TaskAttachmentView> {
     const task = await this.find(principal, taskId);
     const isImage = isAcceptedUpload(sniffType(file.bytes));
-    const stored = isImage
-      ? await this.files.storeImage({
-          orgId: principal.orgId,
-          uploadedBy: principal.userId,
-          purpose: 'TASK_ATTACHMENT',
-          bytes: file.bytes,
-          pathSegments: [task.id],
-        })
-      : await this.files.storeUpload({
-          orgId: principal.orgId,
-          uploadedBy: principal.userId,
-          purpose: 'TASK_ATTACHMENT',
-          bytes: file.bytes,
-          filename: file.filename,
-          pathSegments: [task.id],
-        });
+    const { stored, row } = await this.db.transaction(async (tx) => {
+      const stored = isImage
+        ? await this.files.storeImage(
+            {
+              orgId: principal.orgId,
+              uploadedBy: principal.userId,
+              purpose: 'TASK_ATTACHMENT',
+              bytes: file.bytes,
+              pathSegments: [task.id],
+            },
+            { executor: tx, deferFinalization: true },
+          )
+        : await this.files.storeUpload(
+            {
+              orgId: principal.orgId,
+              uploadedBy: principal.userId,
+              purpose: 'TASK_ATTACHMENT',
+              bytes: file.bytes,
+              filename: file.filename,
+              pathSegments: [task.id],
+            },
+            { executor: tx, deferFinalization: true },
+          );
 
-    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
-      INSERT INTO task_attachments (org_id, task_id, file_id, filename, created_by, updated_by)
-      VALUES (${principal.orgId}, ${task.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
-      RETURNING id, created_at AS "createdAt"
-    `);
-    const row = inserted.rows[0];
-    if (row === undefined) throw new Error('Attachment insert returned no row.');
+      const inserted = await tx.execute<{ id: string; createdAt: string | Date }>(sql`
+        INSERT INTO task_attachments (org_id, task_id, file_id, filename, created_by, updated_by)
+        VALUES (${principal.orgId}, ${task.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+        RETURNING id, created_at AS "createdAt"
+      `);
+      const row = inserted.rows[0];
+      if (row === undefined) throw new Error('Attachment insert returned no row.');
+      return { stored, row };
+    });
+    await this.files.finalizeStoredFiles([stored.id]);
 
     this.auditContext.record({
       action: 'task.attachment_added',

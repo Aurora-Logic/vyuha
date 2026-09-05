@@ -301,7 +301,21 @@ export class SalesOrderService implements OnModuleInit {
           },
           tx,
         );
-        await tx.execute(sql`UPDATE sales_documents SET status = 'PENDING_APPROVAL', approval_request_id = ${approval.id}, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+        // The draft read predates this transaction. Claim that exact state so
+        // a cancellation (or a second submit) that wins in between cannot be
+        // overwritten back to PENDING_APPROVAL. Throwing also rolls the new
+        // approval request back, leaving no orphan in the inbox.
+        const claimed = await tx.execute<{ id: string }>(sql`
+          UPDATE sales_documents
+             SET status = 'PENDING_APPROVAL', approval_request_id = ${approval.id},
+                 updated_at = now(), updated_by = ${principal.userId}
+           WHERE id = ${id} AND org_id = ${principal.orgId} AND deleted_at IS NULL
+             AND doc_type = 'SALES_ORDER' AND status = 'DRAFT'
+          RETURNING id
+        `);
+        if (claimed.rows.length === 0) {
+          throw AppError.conflict(`${existing.number} is no longer a draft.`);
+        }
       });
       this.auditContext.record({ action: 'sales.order.submitted_for_approval', entityType: 'sales_document', entityId: id, before: auditView(existing), after: { steepestDiscountPct: steepest, threshold: settings.discountApprovalPct } });
       return this.find(principal, id);
@@ -312,7 +326,8 @@ export class SalesOrderService implements OnModuleInit {
   /** The order becomes confirmed and its voucher is queued — from confirm directly, or from the inbox's decision. */
   private async release(principal: Principal, existing: SalesDocumentView): Promise<SalesDocumentView> {
     const repository = this.repository(principal);
-    await repository.setStatus(existing.id, 'CONFIRMED');
+    const released = await repository.setStatus(existing.id, 'CONFIRMED', ['DRAFT', 'PENDING_APPROVAL']);
+    if (!released) throw AppError.conflict(`${existing.number} is no longer confirmable.`);
     const queued = await this.enqueuePush(principal, { ...existing, status: 'CONFIRMED' });
     const order = await repository.view(SQL_TRUE, existing.id);
     if (order === null) throw AppError.notFound('Sales order', existing.id);
@@ -348,19 +363,50 @@ export class SalesOrderService implements OnModuleInit {
     if (decision.status === 'ESCALATED') return null;
     if (order.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${order.number} is ${order.status.toLowerCase()}, not awaiting approval.`);
     if (decision.status === 'REJECTED') {
-      await tx.execute(sql`UPDATE sales_documents SET status = 'DRAFT', approval_request_id = NULL, updated_at = now(), updated_by = ${decision.decidedByUserId} WHERE id = ${order.id}`);
+      const rejected = await tx.execute<{ id: string }>(sql`
+        UPDATE sales_documents
+           SET status = 'DRAFT', approval_request_id = NULL, updated_at = now(), updated_by = ${decision.decidedByUserId}
+         WHERE id = ${order.id} AND org_id = ${ctx.orgId} AND deleted_at IS NULL
+           AND status = 'PENDING_APPROVAL' AND approval_request_id = ${decision.approvalRequestId}
+        RETURNING id
+      `);
+      if (rejected.rows.length === 0) throw AppError.conflict(`${order.number} is no longer awaiting this approval.`);
       return () => {
         this.auditContext.record({ action: 'sales.order.discount_rejected', entityType: 'sales_document', entityId: order.id, before: null, after: { reason: decision.reason } });
         return Promise.resolve();
       };
     }
-    await tx.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED', updated_at = now(), updated_by = ${decision.decidedByUserId} WHERE id = ${order.id}`);
+    const approved = await tx.execute<{ id: string }>(sql`
+      UPDATE sales_documents
+         SET status = 'CONFIRMED', updated_at = now(), updated_by = ${decision.decidedByUserId}
+       WHERE id = ${order.id} AND org_id = ${ctx.orgId} AND deleted_at IS NULL
+         AND status = 'PENDING_APPROVAL' AND approval_request_id = ${decision.approvalRequestId}
+      RETURNING id
+    `);
+    if (approved.rows.length === 0) throw AppError.conflict(`${order.number} is no longer awaiting this approval.`);
     return async () => {
       // The push needs a principal-shaped actor for its audit; the decider is the actor.
       const view = await new EstimateRepository(this.db, { orgId: ctx.orgId, actorUserId: decision.decidedByUserId }, 'SALES_ORDER').view(SQL_TRUE, order.id);
       if (view !== null) await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId } as Principal, view);
       this.auditContext.record({ action: 'sales.order.discount_approved', entityType: 'sales_document', entityId: order.id, before: null, after: { approvalRequestId: decision.approvalRequestId } });
     };
+  }
+
+  async recoverApprovalSettlement(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+  ): Promise<void> {
+    if (decision.status !== 'APPROVED') return;
+    const view = await new EstimateRepository(
+      this.db,
+      { orgId: ctx.orgId, actorUserId: decision.decidedByUserId },
+      'SALES_ORDER',
+    ).view(SQL_TRUE, decision.subjectId);
+    if (view === null) throw AppError.notFound('Sales order', decision.subjectId);
+    await this.enqueuePush(
+      { orgId: ctx.orgId, userId: decision.decidedByUserId } as Principal,
+      view,
+    );
   }
 
   /**
@@ -528,19 +574,32 @@ export class SalesOrderService implements OnModuleInit {
     if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') {
       throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}; a confirmed order is cancelled in Tally, and the change arrives on the next pull.`);
     }
+    await this.db.transaction(async (tx) => {
+      // The framework decides request then subject. Cancellation takes the
+      // same lock order, so approval and cancellation cannot deadlock or each
+      // commit half of the pair. A stale DRAFT read claims only DRAFT; if a
+      // concurrent confirm submitted it meanwhile, retry sees and withdraws
+      // the request rather than leaving it live behind a cancelled order.
+      if (existing.status === 'PENDING_APPROVAL') {
+        const cancelled = await this.approvals.cancelForSubject(
+          orgContextOf(principal),
+          SALES_ORDER_SUBJECT_TYPE,
+          id,
+          `${existing.number} cancelled by its author.`,
+          tx,
+        );
+        if (cancelled === null) throw AppError.conflict(`${existing.number}'s approval was already decided.`);
+      }
+      const claimed = await tx.execute<{ id: string }>(sql`
+        UPDATE sales_documents
+           SET status = 'CANCELLED', approval_request_id = NULL, updated_at = now(), updated_by = ${principal.userId}
+         WHERE id = ${id} AND org_id = ${principal.orgId} AND deleted_at IS NULL
+           AND status = ${existing.status}
+        RETURNING id
+      `);
+      if (claimed.rows.length === 0) throw AppError.conflict(`${existing.number} is no longer cancellable.`);
+    });
     const repository = this.repository(principal);
-    // Claimed before the request is withdrawn, and claimed against the
-    // status just read: an author pressing Cancel as the approver approved
-    // passed the check above and then cancelled a CONFIRMED order (COM-2).
-    // Claim first so a refusal leaves the request untouched and the order
-    // still decidable, rather than pending with nothing left to approve it.
-    const claimed = await repository.setStatus(id, 'CANCELLED', ['DRAFT', 'PENDING_APPROVAL']);
-    if (!claimed) throw AppError.conflict(`${existing.number} is no longer cancellable.`);
-    if (existing.status === 'PENDING_APPROVAL') {
-      // The inbox request goes with it, or an approver decides an order that no longer exists.
-      await this.approvals.cancelForSubject(orgContextOf(principal), SALES_ORDER_SUBJECT_TYPE, id, `${existing.number} cancelled by its author.`);
-      await this.db.execute(sql`UPDATE sales_documents SET approval_request_id = NULL WHERE id = ${id}`);
-    }
     const order = await repository.view(SQL_TRUE, id);
     if (order === null) throw AppError.notFound('Sales order', id);
     this.auditContext.record({ action: 'sales.order.cancelled', entityType: 'sales_document', entityId: id, before: auditView(existing), after: auditView(order) });

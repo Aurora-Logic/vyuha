@@ -9,7 +9,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { files } from '../db/schema/index.js';
+import { fileCleanupTasks, files } from '../db/schema/index.js';
 import { ScopedRepository } from '../db/scoped-repository.js';
 import type { Principal } from '../rbac/principal.js';
 import { orgContextOf } from '../rbac/principal.js';
@@ -158,6 +158,15 @@ export interface StoredFile {
   readonly purpose: FilePurpose;
 }
 
+/**
+ * A caller writing the file reference in its own transaction passes that
+ * executor and defers finalisation until the transaction has committed.
+ */
+export interface FileWriteOptions {
+  readonly executor?: Database;
+  readonly deferFinalization?: boolean;
+}
+
 export interface SignedFileUrl {
   readonly url: string;
   readonly expiresInSeconds: number;
@@ -169,6 +178,14 @@ export interface PurgeResult {
   /** Rows whose object had already gone; the row is still closed out. */
   readonly alreadyAbsent: number;
   /** Still due when the run stopped: nought means the backlog was cleared. */
+  readonly remaining: number;
+}
+
+export interface FileCleanupResult {
+  readonly scanned: number;
+  readonly removed: number;
+  readonly protected: number;
+  readonly failed: number;
   readonly remaining: number;
 }
 
@@ -186,6 +203,10 @@ const PURGE_BATCH_SIZE = 500;
  */
 const PURGE_RUN_LIMIT = 50_000;
 
+/** Long enough that a live 3 MB request cannot race its own recovery task. */
+const WRITE_CLEANUP_GRACE_MS = 15 * 60 * 1000;
+const CLEANUP_BATCH_SIZE = 500;
+
 @Injectable()
 export class FileService {
   private readonly logger = new Logger(FileService.name);
@@ -199,7 +220,10 @@ export class FileService {
 
   // ---------------------------------------------------------------- write
 
-  async storeImage(input: StoreImageInput): Promise<StoredFile> {
+  async storeImage(
+    input: StoreImageInput,
+    options: FileWriteOptions = {},
+  ): Promise<StoredFile> {
     if (input.bytes.length === 0) {
       throw new AppError(ERROR_CODES.PUNCH_PHOTO_REQUIRED, 'No image was uploaded.');
     }
@@ -233,17 +257,17 @@ export class FileService {
     const storageKey = this.buildKey(input, fileId, sanitized.extension);
     const bucket = BUCKET_BY_PURPOSE[input.purpose];
 
-    await this.objects.put(
-      bucket,
-      storageKey,
-      sanitized.bytes,
-      sanitized.mime,
-      digest.toString('base64'),
-    );
-
-    let inserted: { id: string }[];
+    await this.stageCleanup(input.orgId, input.purpose, storageKey);
     try {
-      inserted = await this.db
+      await this.objects.put(
+        bucket,
+        storageKey,
+        sanitized.bytes,
+        sanitized.mime,
+        digest.toString('base64'),
+      );
+
+      const inserted = await (options.executor ?? this.db)
         .insert(files)
         .values({
           id: fileId,
@@ -259,32 +283,15 @@ export class FileService {
           updatedBy: input.uploadedBy,
         })
         .returning({ id: files.id });
-    } catch (error) {
-      // The object is already in the bucket with no row naming it, and
-      // nothing that sweeps files can find an object no row names. Take it
-      // back out now, while this is the one place that knows the key (H-09).
-      // Best effort: if the delete fails too, the key goes in the log so a
-      // person can.
-      try {
-        await this.objects.delete(bucket, storageKey);
-      } catch (cleanupError) {
-        this.logger.error({
-          msg: 'Object left behind after its file row failed to insert',
-          bucket,
-          storageKey,
-          insertError: describeError(error),
-          cleanupError: describeError(cleanupError),
-        });
+      if (inserted[0] === undefined) {
+        throw new Error(`File row insert returned nothing for object ${storageKey}.`);
       }
+    } catch (error) {
+      await this.abandonObject(input.purpose, storageKey, error);
       throw error;
     }
 
-    if (inserted[0] === undefined) {
-      // The object is written but unreferenced. Better to fail loudly and let
-      // the retention sweep find an orphan than to return an id that is not
-      // in the table.
-      throw new Error(`File row insert returned nothing for object ${storageKey}.`);
-    }
+    if (!options.deferFinalization) await this.finalizeObject(input.purpose, storageKey);
 
     // Enrichment, not a write: the interceptor turns this into a row on the
     // request that uploaded the file. Outside a request it is a silent no-op,
@@ -327,7 +334,10 @@ export class FileService {
    * whether the thing is acceptable. Images do not come here -- they go
    * through `storeImage`, which re-encodes them.
    */
-  async storeUpload(input: StoreUploadInput): Promise<StoredFile> {
+  async storeUpload(
+    input: StoreUploadInput,
+    options: FileWriteOptions = {},
+  ): Promise<StoredFile> {
     if (input.bytes.length === 0) {
       throw AppError.validation('No file was uploaded.');
     }
@@ -350,32 +360,39 @@ export class FileService {
       document.extension,
     );
 
-    await this.objects.put(
-      BUCKET_BY_PURPOSE[input.purpose],
-      storageKey,
-      input.bytes,
-      document.mime,
-      digest.toString('base64'),
-    );
-
-    const inserted = await this.db
-      .insert(files)
-      .values({
-        id: fileId,
-        orgId: input.orgId,
+    await this.stageCleanup(input.orgId, input.purpose, storageKey);
+    try {
+      await this.objects.put(
+        BUCKET_BY_PURPOSE[input.purpose],
         storageKey,
-        mime: document.mime,
-        bytes: input.bytes.length,
-        checksum: digest.toString('hex'),
-        purpose: input.purpose,
-        uploadedBy: input.uploadedBy,
-        createdBy: input.uploadedBy,
-        updatedBy: input.uploadedBy,
-      })
-      .returning({ id: files.id });
-    if (inserted[0] === undefined) {
-      throw new Error(`File row insert returned nothing for object ${storageKey}.`);
+        input.bytes,
+        document.mime,
+        digest.toString('base64'),
+      );
+
+      const inserted = await (options.executor ?? this.db)
+        .insert(files)
+        .values({
+          id: fileId,
+          orgId: input.orgId,
+          storageKey,
+          mime: document.mime,
+          bytes: input.bytes.length,
+          checksum: digest.toString('hex'),
+          purpose: input.purpose,
+          uploadedBy: input.uploadedBy,
+          createdBy: input.uploadedBy,
+          updatedBy: input.uploadedBy,
+        })
+        .returning({ id: files.id });
+      if (inserted[0] === undefined) {
+        throw new Error(`File row insert returned nothing for object ${storageKey}.`);
+      }
+    } catch (error) {
+      await this.abandonObject(input.purpose, storageKey, error);
+      throw error;
     }
+    if (!options.deferFinalization) await this.finalizeObject(input.purpose, storageKey);
 
     return {
       id: fileId,
@@ -397,7 +414,10 @@ export class FileService {
    * Provenance, checksum and signed-URL-only access are unchanged, and so is
    * the retention column that REQ-J-03's seven days rides on.
    */
-  async storeDocument(input: StoreDocumentInput): Promise<StoredFile> {
+  async storeDocument(
+    input: StoreDocumentInput,
+    options: FileWriteOptions = {},
+  ): Promise<StoredFile> {
     if (input.bytes.length === 0) {
       throw new Error('Refusing to store an empty document.');
     }
@@ -410,36 +430,43 @@ export class FileService {
       input.extension,
     );
 
-    await this.objects.put(
-      BUCKET_BY_PURPOSE[input.purpose],
-      storageKey,
-      input.bytes,
-      input.mime,
-      digest.toString('base64'),
-    );
-
-    const inserted = await this.db
-      .insert(files)
-      .values({
-        id: fileId,
-        orgId: input.orgId,
+    await this.stageCleanup(input.orgId, input.purpose, storageKey);
+    try {
+      await this.objects.put(
+        BUCKET_BY_PURPOSE[input.purpose],
         storageKey,
-        mime: input.mime,
-        bytes: input.bytes.length,
-        checksum: digest.toString('hex'),
-        purpose: input.purpose,
-        // The requester, so `mayReadFile`'s uploader rule lets them read back
-        // the file they asked for even if their permissions narrow afterwards.
-        uploadedBy: input.createdBy,
-        expiresAt: input.expiresAt ?? null,
-        createdBy: input.createdBy,
-        updatedBy: input.createdBy,
-      })
-      .returning({ id: files.id });
+        input.bytes,
+        input.mime,
+        digest.toString('base64'),
+      );
 
-    if (inserted[0] === undefined) {
-      throw new Error(`File row insert returned nothing for object ${storageKey}.`);
+      const inserted = await (options.executor ?? this.db)
+        .insert(files)
+        .values({
+          id: fileId,
+          orgId: input.orgId,
+          storageKey,
+          mime: input.mime,
+          bytes: input.bytes.length,
+          checksum: digest.toString('hex'),
+          purpose: input.purpose,
+          // The requester, so `mayReadFile`'s uploader rule lets them read back
+          // the file they asked for even if their permissions narrow afterwards.
+          uploadedBy: input.createdBy,
+          expiresAt: input.expiresAt ?? null,
+          createdBy: input.createdBy,
+          updatedBy: input.createdBy,
+        })
+        .returning({ id: files.id });
+
+      if (inserted[0] === undefined) {
+        throw new Error(`File row insert returned nothing for object ${storageKey}.`);
+      }
+    } catch (error) {
+      await this.abandonObject(input.purpose, storageKey, error);
+      throw error;
     }
+    if (!options.deferFinalization) await this.finalizeObject(input.purpose, storageKey);
 
     // No `auditContext.record` here: this runs in a job, where there is no
     // request to enrich. The job writes its own audit row (REQ-J-06).
@@ -484,6 +511,118 @@ export class FileService {
       ...(input.pathSegments ?? []),
       `${fileId}.${extension}`,
     ].join('/');
+  }
+
+  /**
+   * Commits recovery metadata before object storage is touched. The task is
+   * intentionally written through the service database even when the file row
+   * will be part of a caller transaction: a rollback must not erase the only
+   * record of the object it left behind.
+   */
+  private async stageCleanup(
+    orgId: string,
+    purpose: FilePurpose,
+    storageKey: string,
+  ): Promise<void> {
+    const now = new Date();
+    await this.db
+      .insert(fileCleanupTasks)
+      .values({
+        orgId,
+        purpose,
+        storageKey,
+        runAfter: new Date(now.getTime() + WRITE_CLEANUP_GRACE_MS),
+      })
+      .onConflictDoUpdate({
+        target: [fileCleanupTasks.purpose, fileCleanupTasks.storageKey],
+        set: {
+          orgId,
+          runAfter: new Date(now.getTime() + WRITE_CLEANUP_GRACE_MS),
+          lastError: null,
+          updatedAt: now,
+        },
+      });
+  }
+
+  /**
+   * A committed outer transaction calls this for its file ids. Failure is not
+   * surfaced as a false failure after commit: a leftover task is safe, because
+   * the worker proves the metadata row still exists before deleting anything.
+   */
+  async finalizeStoredFiles(fileIds: readonly string[]): Promise<void> {
+    if (fileIds.length === 0) return;
+    try {
+      const committed = await this.db
+        .select({ purpose: files.purpose, storageKey: files.storageKey })
+        .from(files)
+        .where(inArray(files.id, [...fileIds]));
+      for (const file of committed) await this.finalizeObject(file.purpose, file.storageKey);
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: 'Stored file recovery intents could not be finalised; cleanup will recheck them.',
+        fileIds,
+        reason: describeError(error),
+      });
+    }
+  }
+
+  private async finalizeObject(purpose: FilePurpose, storageKey: string): Promise<void> {
+    try {
+      await this.db
+        .delete(fileCleanupTasks)
+        .where(
+          and(
+            eq(fileCleanupTasks.purpose, purpose),
+            eq(fileCleanupTasks.storageKey, storageKey),
+          ),
+        );
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: 'File recovery intent remains after metadata committed; cleanup will recheck it.',
+        purpose,
+        storageKey,
+        reason: describeError(error),
+      });
+    }
+  }
+
+  /** Makes the pre-write task immediately eligible, then attempts it once. */
+  private async abandonObject(
+    purpose: FilePurpose,
+    storageKey: string,
+    cause: unknown,
+  ): Promise<void> {
+    try {
+      await this.db
+        .update(fileCleanupTasks)
+        .set({ runAfter: new Date(), lastError: describeError(cause).slice(0, 500), updatedAt: new Date() })
+        .where(
+          and(
+            eq(fileCleanupTasks.purpose, purpose),
+            eq(fileCleanupTasks.storageKey, storageKey),
+          ),
+        );
+    } catch (error: unknown) {
+      this.logger.error({
+        msg: 'Could not make a failed file write immediately eligible for cleanup.',
+        purpose,
+        storageKey,
+        writeError: describeError(cause),
+        recoveryError: describeError(error),
+      });
+    }
+
+    await this.cleanupOne({ purpose, storageKey }).catch((error: unknown) => {
+      // `cleanupOne` has already preserved/incremented the durable task where
+      // possible. The original storage failure remains the caller's error.
+      this.logger.error({
+        msg: 'Immediate object compensation failed; durable cleanup will retry it.',
+        purpose,
+        storageKey,
+        writeError: describeError(cause),
+        cleanupError: describeError(error),
+      });
+    });
   }
 
   /**
@@ -635,6 +774,120 @@ export class FileService {
   // ------------------------------------------------------------- retention
 
   /**
+   * Retries object removals whose database half could not complete. A live
+   * metadata row always wins: it proves the write committed, so only the stale
+   * recovery task is removed. Without that recheck, a crash after the file row
+   * committed but before its task was cleared could turn recovery into data
+   * loss.
+   */
+  async cleanupPendingObjects(now: Date = new Date()): Promise<FileCleanupResult> {
+    const due = await this.db
+      .select({ purpose: fileCleanupTasks.purpose, storageKey: fileCleanupTasks.storageKey })
+      .from(fileCleanupTasks)
+      .where(lte(fileCleanupTasks.runAfter, now))
+      .orderBy(asc(fileCleanupTasks.runAfter))
+      .limit(CLEANUP_BATCH_SIZE);
+
+    let removed = 0;
+    let protectedCount = 0;
+    let failed = 0;
+    for (const task of due) {
+      try {
+        const result = await this.cleanupOne(task);
+        if (result === 'removed') removed += 1;
+        else protectedCount += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    const remainingRows = await this.db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(fileCleanupTasks)
+      .where(lte(fileCleanupTasks.runAfter, now));
+    const remaining = remainingRows[0]?.value ?? 0;
+
+    if (due.length > 0 || remaining > 0) {
+      this.logger.log({
+        msg: 'Pending file-object cleanup processed',
+        scanned: due.length,
+        removed,
+        protected: protectedCount,
+        failed,
+        remaining,
+      });
+    }
+    return { scanned: due.length, removed, protected: protectedCount, failed, remaining };
+  }
+
+  private async cleanupOne(task: {
+    readonly purpose: FilePurpose;
+    readonly storageKey: string;
+  }): Promise<'removed' | 'protected'> {
+    const metadata = await this.db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(eq(files.purpose, task.purpose), eq(files.storageKey, task.storageKey)))
+      .limit(1);
+
+    if (metadata.length > 0) {
+      await this.db
+        .delete(fileCleanupTasks)
+        .where(
+          and(
+            eq(fileCleanupTasks.purpose, task.purpose),
+            eq(fileCleanupTasks.storageKey, task.storageKey),
+          ),
+        );
+      return 'protected';
+    }
+
+    try {
+      await this.objects.delete(BUCKET_BY_PURPOSE[task.purpose], task.storageKey);
+      await this.db
+        .delete(fileCleanupTasks)
+        .where(
+          and(
+            eq(fileCleanupTasks.purpose, task.purpose),
+            eq(fileCleanupTasks.storageKey, task.storageKey),
+          ),
+        );
+      return 'removed';
+    } catch (error: unknown) {
+      try {
+        await this.db
+          .update(fileCleanupTasks)
+          .set({
+            attempts: sql`${fileCleanupTasks.attempts} + 1`,
+            lastError: describeError(error).slice(0, 500),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(fileCleanupTasks.purpose, task.purpose),
+              eq(fileCleanupTasks.storageKey, task.storageKey),
+            ),
+          );
+      } catch (recordError: unknown) {
+        this.logger.error({
+          msg: 'Could not record a failed object cleanup attempt.',
+          purpose: task.purpose,
+          storageKey: task.storageKey,
+          cleanupError: describeError(error),
+          recordError: describeError(recordError),
+        });
+      }
+      this.logger.error({
+        msg: 'Could not remove an orphaned object; its durable cleanup task remains.',
+        purpose: task.purpose,
+        storageKey: task.storageKey,
+        reason: describeError(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
    * REQ-L-03: "A retention job purges photos older than the configured window
    * and nulls `photo_file_id`, leaving the punch record intact." The second
    * half belongs to Phase 1, which owns `punches`; this half deletes the
@@ -760,21 +1013,40 @@ export class FileService {
   async discardUnreferenced(orgId: string, fileIds: readonly string[]): Promise<number> {
     if (fileIds.length === 0) return 0;
 
-    const removed = await this.db
-      .delete(files)
-      .where(and(eq(files.orgId, orgId), inArray(files.id, [...fileIds])))
-      .returning({ id: files.id, storageKey: files.storageKey, purpose: files.purpose });
+    const removed = await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .delete(files)
+        .where(and(eq(files.orgId, orgId), inArray(files.id, [...fileIds])))
+        .returning({ id: files.id, storageKey: files.storageKey, purpose: files.purpose });
+
+      if (rows.length > 0) {
+        await tx
+          .insert(fileCleanupTasks)
+          .values(
+            rows.map((file) => ({
+              orgId,
+              purpose: file.purpose,
+              storageKey: file.storageKey,
+              runAfter: new Date(),
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [fileCleanupTasks.purpose, fileCleanupTasks.storageKey],
+            set: { runAfter: new Date(), lastError: null, updatedAt: new Date() },
+          });
+      }
+      return rows;
+    });
 
     for (const file of removed) {
       try {
-        await this.objects.delete(BUCKET_BY_PURPOSE[file.purpose], file.storageKey);
+        await this.cleanupOne(file);
       } catch (error: unknown) {
-        // The row is already gone, so nothing will ever sweep this object
-        // again. Logged rather than thrown: the caller is on a path that has
-        // already failed or replayed, and turning a leaked object into a
-        // failed punch would be the worse trade.
-        this.logger.error({
-          msg: 'Discarded a file row but could not remove its object; it is now orphaned in the bucket.',
+        // The durable task remains. This path is commonly already handling a
+        // failed/replayed business operation, so object-store downtime must
+        // not turn its original answer into a different one.
+        this.logger.warn({
+          msg: 'Discarded file is awaiting a later object-cleanup retry.',
           fileId: file.id,
           storageKey: file.storageKey,
           reason: describeError(error),

@@ -212,7 +212,7 @@ export const punchSyncItemSchema = z
      * it refuse a row queued by somebody else on a shared browser rather than
      * file their photograph under this person's name (C-01).
      */
-    ownerUserId: z.uuid().optional(),
+    ownerUserId: z.uuid(),
   })
   .superRefine(checkPunchFacts);
 

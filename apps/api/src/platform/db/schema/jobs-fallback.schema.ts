@@ -30,6 +30,14 @@ export const fallbackJobs = pgTable(
     externalJobId: text('external_job_id'),
     claimedBy: text('claimed_by'),
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    /**
+     * Monotonic fencing token. Every successful claim increments it and every
+     * lease renewal/state transition must present the generation it received.
+     * `claimed_by` alone is not enough: the same process can lose a stale
+     * lease and later reclaim the row, leaving an older invocation with the
+     * same owner id able to overwrite the newer one.
+     */
+    claimGeneration: integer('claim_generation').notNull().default(0),
     lastError: text('last_error'),
     ...auditColumns(),
   },

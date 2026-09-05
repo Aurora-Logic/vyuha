@@ -52,7 +52,6 @@ const SHELL_URL = new URL('/', self.location.href).href;
  * waiting in the queue. That is the walk from a desk to a gate with no signal.
  */
 const BUILD_CRITICAL = __SW_BUILD_CRITICAL__;
-const BUILD_OPTIONAL = __SW_BUILD_OPTIONAL__;
 
 /**
  * What must be present for the app to start with no network at all. If any of
@@ -63,24 +62,25 @@ const BUILD_OPTIONAL = __SW_BUILD_OPTIONAL__;
 const PRECACHE_CRITICAL = ['/', ...BUILD_CRITICAL];
 
 /**
- * Wanted, but not worth failing an install over. A missing icon costs an icon;
- * a missing font subset costs a fallback typeface. Each is fetched on its own
- * so one bad entry cannot take the rest down with it.
+ * Non-hashed static files that become cache-first after their first request.
+ * They are deliberately not fetched during install: an optional icon should
+ * neither delay worker activation nor make a newly deployed shell compete
+ * with every lazy route for bandwidth (H-13). Hashed build assets follow the
+ * same on-demand path through `IMMUTABLE` below.
  *
  * Everything `index.html` and the manifest reference is here, and
  * `scripts/check-precache.mjs` fails the lint if that ever stops being true.
  * The favicon was the one that was missed, and it cost a `net::ERR_FAILED` on
- * every single offline load - noise in the one console where a real error has
- * to be spotted.
+ * an offline load before it had ever been requested. Once requested under a
+ * controlling worker, it is retained with the rest of this version's shell.
  */
-const PRECACHE_OPTIONAL = [
+const RUNTIME_OPTIONAL = [
   '/manifest.webmanifest',
   '/icons/favicon.svg',
   '/icons/apple-touch-icon-180.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/maskable-512.png',
-  ...BUILD_OPTIONAL,
 ];
 
 /**
@@ -170,16 +170,6 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await openShell();
       await cache.addAll(PRECACHE_CRITICAL);
-      await Promise.all(
-        PRECACHE_OPTIONAL.map((url) =>
-          cache.add(url).catch((cause) => {
-            // Reported rather than swallowed: the app still works, but a
-            // permanently missing entry is a build problem somebody has to
-            // see, and a silent one never gets fixed.
-            console.warn('Service worker could not precache', url, cause);
-          }),
-        ),
-      );
       // Do not wait for every tab to close. A worker that sits in `waiting`
       // for days is how a broken deploy becomes unfixable, and this app is
       // opened at a gate and left open.
@@ -222,7 +212,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (IMMUTABLE.test(url.pathname)) {
+  if (IMMUTABLE.test(url.pathname) || RUNTIME_OPTIONAL.includes(url.pathname)) {
     event.respondWith(cacheFirst(event));
     return;
   }

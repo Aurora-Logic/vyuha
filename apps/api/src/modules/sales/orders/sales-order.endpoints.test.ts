@@ -42,6 +42,12 @@ interface ErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> };
 }
 
+function latch(): { wait: Promise<void>; release: () => void } {
+  let open = (): void => {};
+  const wait = new Promise<void>((resolve) => { open = resolve; });
+  return { wait, release: () => { open(); } };
+}
+
 let harness: ApiHarness;
 let adminToken: string;
 let salesToken: string;
@@ -1347,45 +1353,159 @@ describe('an order cancelled in Tally (audit 1)', () => {
   });
 });
 
-/**
- * Last in the file on purpose: it leaves a SALES_DISCOUNT request PENDING
- * against an order that is CONFIRMED -- that is the raced state it exists
- * to prove -- and the inbox cases above find "the PENDING request" by
- * searching for it.
- */
 describe('cancelling under a stale read (COM-2)', () => {
+  beforeAll(async () => {
+    await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: 10 } });
+  });
+
+  afterAll(async () => {
+    await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: null } });
+  });
+
+  const pendingOrder = async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000', discountPct: '25' }] },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const pending = await harness.post<SalesDocumentView>(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+    expect(pending.status, JSON.stringify(pending.body)).toBe(200);
+    expect(pending.body.status).toBe('PENDING_APPROVAL');
+    return { created: created.body, pending: pending.body };
+  };
+
   it('refuses to cancel an order confirmed under the read, and leaves its request alone (COM-2)', async () => {
     // The raced state built directly: an order the author last read as
     // PENDING_APPROVAL whose row the approver has since moved to CONFIRMED.
     // Only the read is stubbed; guard, UPDATE, SQL and database are real.
-    await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: 10 } });
-    try {
-      const created = await harness.post<SalesDocumentView>('/sales/orders', {
-        token: salesToken,
-        body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000', discountPct: '25' }] },
-      });
-      expect(created.status, JSON.stringify(created.body)).toBe(201);
-      const pending = await harness.post<SalesDocumentView>(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
-      expect(pending.status, JSON.stringify(pending.body)).toBe(200);
-      expect(pending.body.status).toBe('PENDING_APPROVAL');
+    const { created, pending } = await pendingOrder();
 
-      await harness.db.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED' WHERE id = ${created.body.id}`);
-      const service = harness.resolve(SalesOrderService);
-      const stale = vi.spyOn(service, 'find').mockResolvedValueOnce(pending.body);
-      try {
-        const refused = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/cancel`, { token: salesToken });
-        expect(refused.status, JSON.stringify(refused.body)).toBe(409);
-      } finally {
-        stale.mockRestore();
-      }
-      const row = await harness.db.execute<{ status: string }>(sql`SELECT status FROM sales_documents WHERE id = ${created.body.id}`);
-      expect(row.rows[0]?.status).toBe('CONFIRMED');
-      const request = await harness.db.execute<{ status: string }>(
-        sql`SELECT status FROM approval_requests WHERE subject_id = ${created.body.id} ORDER BY created_at DESC LIMIT 1`,
-      );
-      expect(request.rows[0]?.status).toBe('PENDING');
+    await harness.db.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED' WHERE id = ${created.id}`);
+    const service = harness.resolve(SalesOrderService);
+    const stale = vi.spyOn(service, 'find').mockResolvedValueOnce(pending);
+    try {
+      const refused = await harness.post<ErrorBody>(`/sales/orders/${created.id}/cancel`, { token: salesToken });
+      expect(refused.status, JSON.stringify(refused.body)).toBe(409);
     } finally {
-      await harness.put('/sales/settings', { token: adminToken, body: { discountApprovalPct: null } });
+      stale.mockRestore();
     }
+    const row = await harness.db.execute<{ status: string }>(sql`SELECT status FROM sales_documents WHERE id = ${created.id}`);
+    expect(row.rows[0]?.status).toBe('CONFIRMED');
+    const request = await harness.db.execute<{ status: string }>(
+      sql`SELECT status FROM approval_requests WHERE subject_id = ${created.id} ORDER BY created_at DESC LIMIT 1`,
+    );
+    expect(request.rows[0]?.status).toBe('PENDING');
+  });
+
+  it('does not resurrect a cancelled draft when its approval submission held a stale read', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000', discountPct: '25' }] },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    // Cancellation won after confirm read the DRAFT view. Stub only that
+    // stale read; the approval raise, guarded subject update and rollback are
+    // real. Without the DRAFT compare-and-swap, confirm overwrites CANCELLED
+    // with PENDING_APPROVAL and leaves a live request behind it.
+    await harness.db.execute(sql`UPDATE sales_documents SET status = 'CANCELLED' WHERE id = ${created.body.id}`);
+    const service = harness.resolve(SalesOrderService);
+    const stale = vi.spyOn(service, 'find').mockResolvedValueOnce(created.body);
+    try {
+      const refused = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+      expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+    } finally {
+      stale.mockRestore();
+    }
+
+    const document = await harness.db.execute<{ status: string; approval_request_id: string | null }>(sql`
+      SELECT status, approval_request_id FROM sales_documents WHERE id = ${created.body.id}
+    `);
+    expect(document.rows[0]).toEqual({ status: 'CANCELLED', approval_request_id: null });
+    const requests = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM approval_requests WHERE subject_id = ${created.body.id}
+    `);
+    expect(Number(requests.rows[0]?.count)).toBe(0);
+  });
+
+  it('keeps both records cancelled when cancellation wins after approval read the order', async () => {
+    const { created } = await pendingOrder();
+    const service = harness.resolve(SalesOrderService);
+    const read = latch();
+    const resume = latch();
+    const find = service.find.bind(service);
+    const stale = vi.spyOn(service, 'find').mockImplementationOnce(async (actor, orderId) => {
+      const view = await find(actor, orderId);
+      read.release();
+      await resume.wait;
+      return view;
+    });
+
+    const approving = harness.post<SalesDocumentView | ErrorBody>(`/sales/orders/${created.id}/approve`, { token: managerToken });
+    await read.wait;
+    const cancelled = await harness.post<SalesDocumentView | ErrorBody>(`/sales/orders/${created.id}/cancel`, { token: salesToken });
+    resume.release();
+    const approved = await approving;
+    stale.mockRestore();
+
+    expect(cancelled.status, JSON.stringify(cancelled.body)).toBe(200);
+    expect(approved.status, JSON.stringify(approved.body)).toBe(409);
+    const state = await harness.db.execute<{ document_status: string; approval_status: string }>(sql`
+      SELECT d.status AS document_status, a.status AS approval_status
+        FROM sales_documents d JOIN approval_requests a ON a.subject_id = d.id
+       WHERE d.id = ${created.id} ORDER BY a.created_at DESC LIMIT 1
+    `);
+    expect(state.rows[0]).toEqual({ document_status: 'CANCELLED', approval_status: 'CANCELLED' });
+  });
+
+  it('keeps both records approved when approval wins after cancellation read the order', async () => {
+    const { created } = await pendingOrder();
+    const service = harness.resolve(SalesOrderService);
+    const read = latch();
+    const resume = latch();
+    const find = service.find.bind(service);
+    const stale = vi.spyOn(service, 'find').mockImplementationOnce(async (actor, orderId) => {
+      const view = await find(actor, orderId);
+      read.release();
+      await resume.wait;
+      return view;
+    });
+
+    const cancelling = harness.post<SalesDocumentView | ErrorBody>(`/sales/orders/${created.id}/cancel`, { token: salesToken });
+    await read.wait;
+    const approved = await harness.post<SalesDocumentView | ErrorBody>(`/sales/orders/${created.id}/approve`, { token: managerToken });
+    resume.release();
+    const cancelled = await cancelling;
+    stale.mockRestore();
+
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect(cancelled.status, JSON.stringify(cancelled.body)).toBe(409);
+    const state = await harness.db.execute<{ document_status: string; approval_status: string }>(sql`
+      SELECT d.status AS document_status, a.status AS approval_status
+        FROM sales_documents d JOIN approval_requests a ON a.subject_id = d.id
+       WHERE d.id = ${created.id} ORDER BY a.created_at DESC LIMIT 1
+    `);
+    expect(state.rows[0]).toEqual({ document_status: 'CONFIRMED', approval_status: 'APPROVED' });
+  });
+
+  it('serialises a real cancellation/approval race into one consistent winner', async () => {
+    const { created } = await pendingOrder();
+    const [cancelled, approved] = await Promise.all([
+      harness.post<SalesDocumentView | ErrorBody>(`/sales/orders/${created.id}/cancel`, { token: salesToken }),
+      harness.post<SalesDocumentView | ErrorBody>(`/sales/orders/${created.id}/approve`, { token: managerToken }),
+    ]);
+    expect([cancelled, approved].filter((response) => response.status < 300)).toHaveLength(1);
+    expect([cancelled, approved].filter((response) => response.status === 409)).toHaveLength(1);
+
+    const state = await harness.db.execute<{ document_status: string; approval_status: string }>(sql`
+      SELECT d.status AS document_status, a.status AS approval_status
+        FROM sales_documents d JOIN approval_requests a ON a.id = d.approval_request_id OR a.subject_id = d.id
+       WHERE d.id = ${created.id}
+       ORDER BY a.created_at DESC LIMIT 1
+    `);
+    expect([
+      { document_status: 'CANCELLED', approval_status: 'CANCELLED' },
+      { document_status: 'CONFIRMED', approval_status: 'APPROVED' },
+    ]).toContainEqual(state.rows[0]);
   });
 });

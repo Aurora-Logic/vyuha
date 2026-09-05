@@ -12,6 +12,7 @@ import { ZodError } from 'zod';
 
 import { checkViolationConstraint, constraintMessage, isCheckViolation, isPoolConnectionTimeout } from '../db/pg-error.js';
 import { AppError, describeError, toErrorBody } from './errors.js';
+import { captureUnexpectedError } from './error-monitoring.js';
 import { redactUrl } from './redact-url.js';
 import { REQUEST_ID_HEADER, requestIdOf } from './request-id.js';
 
@@ -119,6 +120,9 @@ export class AppExceptionFilter implements ExceptionFilter {
 
     const resolved = this.resolve(exception);
     this.log(exception, resolved, req);
+    if (!resolved.expected && resolved.status >= SERVER_ERROR_FLOOR) {
+      captureUnexpectedError(exception, requestId, resolved.status, resolved.code);
+    }
 
     if (res.headersSent) {
       // Express has already flushed a status line; writing a second body would

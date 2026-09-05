@@ -151,6 +151,7 @@ export class DispatchService implements OnModuleInit {
     }
 
     const ctx = orgContextOf(principal);
+    const storedFileIds: string[] = [];
     const dispatchId = await this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx, ctx.orgId);
       const inserted = await tx.execute<{ id: string }>(sql`
@@ -168,7 +169,11 @@ export class DispatchService implements OnModuleInit {
       // REQ-AA-20/AA-21: the punch pipeline, gallery allowed, no stamp — an LR is a document.
       for (const [kind, buffers] of [['box', photos.box], ['lr', photos.lr]] as const) {
         for (const bytes of buffers) {
-          const stored = await this.files.storeImage({ orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [id] });
+          const stored = await this.files.storeImage(
+            { orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [id] },
+            { executor: tx, deferFinalization: true },
+          );
+          storedFileIds.push(stored.id);
           await tx.execute(sql`INSERT INTO dispatch_attachments (org_id, dispatch_id, file_id, kind, created_by, updated_by) VALUES (${ctx.orgId}, ${id}, ${stored.id}, ${kind}, ${ctx.actorUserId}, ${ctx.actorUserId})`);
         }
       }
@@ -184,6 +189,7 @@ export class DispatchService implements OnModuleInit {
       }
       return id;
     });
+    await this.files.finalizeStoredFiles(storedFileIds);
 
     await this.enqueuePush(principal, dispatchId);
     this.auditContext.record({
@@ -216,13 +222,18 @@ export class DispatchService implements OnModuleInit {
       throw AppError.validation('A delivery needs its photograph.', { fields: [{ path: 'photo', message: 'a photograph at the door is required' }] });
     }
     const ctx = orgContextOf(principal);
+    const storedFileIds: string[] = [];
     await this.db.transaction(async (tx) => {
       await tx.execute(sql`
         UPDATE dispatches SET delivered_at = now(), delivered_by = ${ctx.actorUserId}, received_by = ${input.receivedBy}, delivery_note = ${input.note ?? null}, updated_at = now(), updated_by = ${ctx.actorUserId}
          WHERE id = ${dispatchId} AND org_id = ${ctx.orgId}
       `);
       for (const bytes of photos) {
-        const stored = await this.files.storeImage({ orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [dispatchId] });
+        const stored = await this.files.storeImage(
+          { orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [dispatchId] },
+          { executor: tx, deferFinalization: true },
+        );
+        storedFileIds.push(stored.id);
         await tx.execute(sql`INSERT INTO dispatch_attachments (org_id, dispatch_id, file_id, kind, created_by, updated_by) VALUES (${ctx.orgId}, ${dispatchId}, ${stored.id}, 'delivery', ${ctx.actorUserId}, ${ctx.actorUserId})`);
       }
       const text = this.composeDelivered(existing, input.receivedBy);
@@ -234,6 +245,7 @@ export class DispatchService implements OnModuleInit {
         `);
       }
     });
+    await this.files.finalizeStoredFiles(storedFileIds);
     this.auditContext.record({
       action: 'sales.dispatch.delivered',
       entityType: 'dispatch',

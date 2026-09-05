@@ -89,6 +89,7 @@ export function QueuePanel({
   waiting,
   refused,
   unreadable,
+  legacy,
   locked,
   draining,
   lastResult,
@@ -100,6 +101,7 @@ export function QueuePanel({
   waiting: readonly QueuedPunch[];
   refused: readonly QueuedPunch[];
   unreadable: number;
+  legacy: number;
   locked: number;
   draining: boolean;
   lastResult: DrainResult | null;
@@ -108,7 +110,15 @@ export function QueuePanel({
   onRetry: () => void;
   onDismiss: (idempotencyKey: string) => void;
 }) {
-  if (waiting.length === 0 && refused.length === 0 && unreadable === 0 && locked === 0) return null;
+  if (
+    waiting.length === 0 &&
+    refused.length === 0 &&
+    unreadable === 0 &&
+    legacy === 0 &&
+    locked === 0
+  ) {
+    return null;
+  }
 
   // Prefer this session's own result; fall back to what the entries themselves
   // remember, which is what survives a reload.
@@ -248,6 +258,23 @@ export function QueuePanel({
         </ItemGroup>
       ) : null}
 
+      {legacy > 0 ? (
+        <Alert variant="destructive">
+          <WarningIcon />
+          <AlertTitle>
+            {legacy === 1
+              ? '1 older queued punch needs manual recovery'
+              : `${String(legacy)} older queued punches need manual recovery`}
+          </AlertTitle>
+          <AlertDescription>
+            An older app version did not record which account made these punches, so they cannot
+            be synced safely and their details are hidden from every account on this shared device.
+            Nothing has been deleted. Check your attendance for a missing punch, then raise a
+            regularization or ask HR to help identify the affected day.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {locked > 0 ? (
         <Alert>
           <WarningIcon />
@@ -257,9 +284,8 @@ export function QueuePanel({
               : `${String(locked)} queued punches belong to another account`}
           </AlertTitle>
           <AlertDescription>
-            They were recorded on this device by somebody else, or before this app began recording
-            who queued a punch. They will be sent only when that person signs in here. Nothing has
-            been deleted.
+            They were recorded on this device by somebody else. They will be sent only when that
+            person signs in here. Nothing has been deleted.
           </AlertDescription>
         </Alert>
       ) : null}

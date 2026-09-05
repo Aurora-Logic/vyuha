@@ -65,6 +65,12 @@ export interface JobPayloads {
     readonly requestedAt: string;
   };
 
+  /** Retries object removals recorded before/around cross-store file writes. */
+  'cleanup-file-objects': {
+    /** Only for the trail; the handler uses the database clock/window. */
+    readonly requestedAt: string;
+  };
+
   /**
    * REQ-R-07: masters sync runs on a schedule. One sweep enqueues a pull job
    * per eligible connection per entity type with a writer, rather than a
@@ -126,6 +132,11 @@ export interface JobPayloads {
     readonly requestedAt: string;
   };
 
+  /** Retries derived/external work after an approval decision has committed. */
+  'settle-approval-outbox': {
+    readonly requestedAt: string;
+  };
+
   /**
    * REQ-V-08: due-today and overdue task reminders, each morning in each
    * organisation's own day. `date` overrides the clock for a replay.
@@ -184,6 +195,11 @@ export interface JobPayloads {
     readonly eventType: string;
     readonly audience: unknown;
     readonly payload: Record<string, unknown>;
+  };
+
+  /** Retries durable notification envelopes not yet accepted by a queue. */
+  'drain-notification-outbox': {
+    readonly requestedAt: string;
   };
 
   /**
@@ -283,6 +299,7 @@ export type JobName = keyof JobPayloads;
 
 export const JOB_QUEUE: Record<JobName, QueueName> = {
   'purge-expired-files': QUEUES.MAINTENANCE,
+  'cleanup-file-objects': QUEUES.MAINTENANCE,
   // On the export queue with the jobs it starts, so a backlog of exports also
   // delays the sweep that would add to it rather than racing ahead of it.
   'enqueue-sync-pulls': QUEUES.MAINTENANCE,
@@ -291,6 +308,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'replay-sync-inbox': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
+  'settle-approval-outbox': QUEUES.NOTIFICATION,
   'send-task-reminders': QUEUES.NOTIFICATION,
   'link-sales-invoices': QUEUES.MAINTENANCE,
   'detect-duplicates': QUEUES.MAINTENANCE,
@@ -299,6 +317,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'build-interest-snapshots': QUEUES.MAINTENANCE,
   'snapshot-receivables': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
+  'drain-notification-outbox': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
   'carry-forward-leave': QUEUES.LEAVE,
@@ -395,10 +414,14 @@ export interface ScheduledJob {
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   { schedulerId: 'maintenance:purge-expired-files', jobName: 'purge-expired-files', pattern: '0 3 * * 0' },
+  // Object-store compensation is intentionally much quicker than retention:
+  // these tasks mean a write/discard failed halfway and is already due.
+  { schedulerId: 'maintenance:cleanup-file-objects', jobName: 'cleanup-file-objects', pattern: '*/15 * * * *' },
   // Daily rather than weekly: REQ-G-09's threshold is measured in days, and a
   // weekly sweep would turn "escalate after 3 days" into "escalate after
   // somewhere between 3 and 10". 02:00 keeps it clear of the working day.
   { schedulerId: 'notification:escalate-stale-approvals', jobName: 'escalate-stale-approvals', pattern: '0 2 * * *' },
+  { schedulerId: 'notification:settle-approval-outbox', jobName: 'settle-approval-outbox', pattern: '* * * * *' },
   // REQ-V-08. Early enough to be read with the first coffee; the handler
   // works out each organisation's own date, so one server-time cron serves all.
   { schedulerId: 'notification:send-task-reminders', jobName: 'send-task-reminders', pattern: '30 2 * * *' },
@@ -452,6 +475,9 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // sweep costs one preference query per organisation when nobody has opted
   // in, which is the state it ships in.
   { schedulerId: 'notification:punch-reminders', jobName: 'send-punch-reminders', pattern: '*/15 * * * *' },
+  // A transient Redis hand-off failure should recover promptly without making
+  // the already-committed request that emitted it report failure.
+  { schedulerId: 'notification:drain-outbox', jobName: 'drain-notification-outbox', pattern: '* * * * *' },
   // REQ-E-07's nightly closeout. 01:15 rather than midnight: a shift that
   // crosses midnight is attributed to its start date (REQ-C-02), so sweeping
   // at 00:00 would call a night shift's missing OUT before the shift had

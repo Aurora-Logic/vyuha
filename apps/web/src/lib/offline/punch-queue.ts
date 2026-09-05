@@ -7,7 +7,7 @@ import {
 } from '@vyuha/shared';
 import { z } from 'zod';
 
-import { idbAdd, idbDelete, idbGetAll, idbPut, inTransaction, openDatabase } from './idb';
+import { idbAdd, idbDelete, idbGet, idbGetAll, idbPut, inTransaction, openDatabase } from './idb';
 
 /**
  * The offline punch queue (REQ-D-10, technical design section 8).
@@ -162,21 +162,22 @@ export interface QueueContents {
    * may still be somebody's punch; counted, because a silent one is worse.
    */
   readonly unreadable: number;
-  /** Rows queued by another account, or by none: kept, never drained here. */
+  /** Ownerless rows from an older build. Counted without exposing their details. */
+  readonly legacy: number;
+  /** Rows queued by another account: kept for that account, never drained here. */
   readonly locked: number;
 }
 
 /**
- * Only the rows the signed-in person queued are theirs to send. A row of
- * another account stays on the device for that person to send when they
- * sign in; a row of no account (written before owners were recorded) stays
- * too. Both are counted so the screen can say so. The signed-out case locks
- * everything (C-01).
+ * Only the rows the signed-in person queued are theirs to send. Another
+ * account's row stays on the device for that person. An ownerless row from an
+ * older build cannot safely be assigned to anybody, so it is separated into
+ * a recovery list rather than described as something that will later sync.
  */
 export function partitionQueue(rows: readonly unknown[], owner: QueueOwner | null): QueueContents {
-
   const waiting: QueuedPunch[] = [];
   const refused: QueuedPunch[] = [];
+  let legacy = 0;
   let unreadable = 0;
 
   let locked = 0;
@@ -187,7 +188,11 @@ export function partitionQueue(rows: readonly unknown[], owner: QueueOwner | nul
       unreadable += 1;
       continue;
     }
-    if (owner === null || parsed.data.owner === null || parsed.data.owner.userId !== owner.userId) {
+    if (parsed.data.owner === null) {
+      legacy += 1;
+      continue;
+    }
+    if (owner === null || parsed.data.owner.userId !== owner.userId) {
       locked += 1;
       continue;
     }
@@ -201,6 +206,7 @@ export function partitionQueue(rows: readonly unknown[], owner: QueueOwner | nul
     waiting: waiting.sort(byQueuedAt),
     refused: refused.sort(byQueuedAt),
     unreadable,
+    legacy,
     locked,
   };
 }
@@ -237,12 +243,40 @@ export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> 
   return parsed;
 }
 
-export async function removeQueued(idempotencyKey: string): Promise<void> {
-  await withStore('readwrite', (store) => idbDelete(store, idempotencyKey));
+async function ownedEntry(
+  store: IDBObjectStore,
+  idempotencyKey: string,
+  owner: QueueOwner,
+): Promise<QueuedPunch | null> {
+  const parsed = queuedPunchSchema.safeParse(await idbGet(store, idempotencyKey));
+  if (!parsed.success || parsed.data.owner?.userId !== owner.userId) return null;
+  return parsed.data;
 }
 
-export async function updateQueued(entry: QueuedPunch): Promise<void> {
-  await withStore('readwrite', (store) => idbPut(store, entry));
+/** Deletes only after ownership is re-read in the same transaction. */
+export async function removeOwnedQueued(
+  idempotencyKey: string,
+  owner: QueueOwner,
+  refusalRequired = false,
+): Promise<boolean> {
+  return withStore('readwrite', async (store) => {
+    const entry = await ownedEntry(store, idempotencyKey, owner);
+    if (entry === null || (refusalRequired && entry.refusal === null)) return false;
+    await idbDelete(store, idempotencyKey);
+    return true;
+  });
+}
+
+/** Updates only while the stored row still belongs to the captured account. */
+export async function updateOwnedQueued(
+  entry: QueuedPunch,
+  owner: QueueOwner,
+): Promise<boolean> {
+  return withStore('readwrite', async (store) => {
+    if ((await ownedEntry(store, entry.idempotencyKey, owner)) === null) return false;
+    await idbPut(store, entry);
+    return true;
+  });
 }
 
 /** Hours this entry has been waiting, against the server's 48-hour limit. */

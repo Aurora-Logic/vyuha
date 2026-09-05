@@ -151,8 +151,24 @@ async function performRefresh(): Promise<RefreshOutcome> {
     if (outcome === 'unauthenticated') setAccessToken(null);
     return outcome;
   }
-  const body = (await response.json()) as { accessToken?: unknown };
-  if (typeof body.accessToken !== 'string') return 'unauthenticated';
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    // A 2xx without the refresh contract is not evidence that the cookie was
+    // refused. Treat it like any other temporary/protocol failure so an
+    // already-rendered session is not erased over a broken proxy response.
+    return 'network-error';
+  }
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('accessToken' in body) ||
+    typeof body.accessToken !== 'string' ||
+    body.accessToken.length === 0
+  ) {
+    return 'network-error';
+  }
   setAccessToken(body.accessToken);
   return 'refreshed';
 }
@@ -423,8 +439,20 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   // 401 is the server's verdict on the request rather than an expired token,
   // and exchanging the cookie again would only rotate it for nothing.
   if (response.status === 401 && !options.skipRefresh && !refreshedBeforeSending) {
-    if ((await refreshAccessToken()) === 'refreshed') {
+    const refreshOutcome = await refreshAccessToken();
+    if (refreshOutcome === 'refreshed') {
       return apiRequest<T>(path, { ...options, skipRefresh: true });
+    }
+    if (refreshOutcome === 'network-error') {
+      // The 401 only says the in-memory access token expired. A temporary
+      // failure exchanging the refresh cookie says nothing about whether the
+      // session still exists, so do not surface the original 401 to callers
+      // that correctly interpret it as a definitive sign-out (H-14).
+      throw new ApiError({
+        code: 'NETWORK_ERROR',
+        message: 'The session could not be refreshed because the server is temporarily unavailable.',
+        status: 0,
+      });
     }
   }
 

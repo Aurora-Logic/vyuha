@@ -62,6 +62,7 @@ let hrToken: string;
 let noPunchToken: string;
 let consentToken: string;
 let syncToken: string;
+let userAId: string;
 let consentUserId: string;
 let syncUserId: string;
 
@@ -279,6 +280,7 @@ beforeAll(async () => {
     roleIds: [employeeRoleId],
     employeeId: syncEmployeeId,
   });
+  userAId = userA.id;
   consentUserId = consentUser.id;
   syncUserId = syncUser.id;
 
@@ -550,6 +552,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
         punches: [
           {
             idempotencyKey: `pt-sync-stale-${runId}`,
+            ownerUserId: userAId,
             photoIndex: 0,
             latitude: FIXTURE_OFFICE.latitude,
             longitude: FIXTURE_OFFICE.longitude,
@@ -561,6 +564,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           },
           {
             idempotencyKey: `pt-sync-fresh-${runId}`,
+            ownerUserId: userAId,
             photoIndex: 1,
             latitude: FIXTURE_OFFICE.latitude,
             longitude: FIXTURE_OFFICE.longitude,
@@ -604,6 +608,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
         punches: [
           {
             idempotencyKey: `pt-sync-stale-${runId}`,
+            ownerUserId: userAId,
             photoIndex: 0,
             latitude: FIXTURE_OFFICE.latitude,
             longitude: FIXTURE_OFFICE.longitude,
@@ -615,6 +620,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           },
           {
             idempotencyKey: `pt-sync-fresh-${runId}`,
+            ownerUserId: userAId,
             photoIndex: 1,
             latitude: FIXTURE_OFFICE.latitude,
             longitude: FIXTURE_OFFICE.longitude,
@@ -704,6 +710,7 @@ describe('consent gate (REQ-M-03)', () => {
         punches: [
           {
             idempotencyKey: `pt-consent-sync-no-${runId}`,
+            ownerUserId: syncUserId,
             photoIndex: 0,
             latitude: FIXTURE_OFFICE.latitude,
             longitude: FIXTURE_OFFICE.longitude,
@@ -729,6 +736,7 @@ describe('consent gate (REQ-M-03)', () => {
         punches: [
           {
             idempotencyKey: `pt-consent-sync-yes-${runId}`,
+            ownerUserId: syncUserId,
             photoIndex: 0,
             latitude: FIXTURE_OFFICE.latitude,
             longitude: FIXTURE_OFFICE.longitude,

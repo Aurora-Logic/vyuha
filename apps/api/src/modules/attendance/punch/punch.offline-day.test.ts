@@ -63,8 +63,10 @@ let timezone: string;
 let localDate: string;
 
 let shiftEmployeeId: string;
+let shiftUserId: string;
 let shiftToken: string;
 let manyEmployeeId: string;
+let manyUserId: string;
 let manyToken: string;
 
 let photoBytes: Buffer;
@@ -106,11 +108,11 @@ interface QueuedPunch {
   readonly type: 'IN' | 'OUT';
   readonly clientTime: Date;
   readonly photoIndex: number;
-  readonly ownerUserId?: string;
 }
 
 async function drain(
   token: string,
+  ownerUserId: string | null,
   queue: readonly QueuedPunch[],
   bytes: Buffer,
 ): Promise<{ status: number; body: PunchSyncReport }> {
@@ -124,7 +126,7 @@ async function drain(
       punches: queue.map((entry) => ({
         idempotencyKey: entry.key,
         photoIndex: entry.photoIndex,
-        ...(entry.ownerUserId === undefined ? {} : { ownerUserId: entry.ownerUserId }),
+        ...(ownerUserId === null ? {} : { ownerUserId }),
         type: entry.type,
         clientTime: entry.clientTime.toISOString(),
         consentAccepted: true,
@@ -238,7 +240,7 @@ beforeAll(async () => {
     })),
   );
 
-  const logins = await Promise.all(
+  const accounts = await Promise.all(
     [
       ['ofd-shift', shiftEmployeeId],
       ['ofd-many', manyEmployeeId],
@@ -248,10 +250,17 @@ beforeAll(async () => {
         roleIds: [employeeRoleId],
         employeeId,
       });
-      return (await harness.login(user.email, user.password)).token;
+      return { userId: user.id, token: (await harness.login(user.email, user.password)).token };
     }),
   );
-  [shiftToken, manyToken] = logins as [string, string];
+  const [shiftAccount, manyAccount] = accounts;
+  if (shiftAccount === undefined || manyAccount === undefined) {
+    throw new Error('offline account fixtures were not created');
+  }
+  shiftUserId = shiftAccount.userId;
+  shiftToken = shiftAccount.token;
+  manyUserId = manyAccount.userId;
+  manyToken = manyAccount.token;
   expect([shiftToken, manyToken].every((token) => token !== '')).toBe(true);
 }, 60_000);
 
@@ -267,6 +276,7 @@ describe('a shift drained from the offline queue (REQ-D-10)', () => {
 
     const result = await drain(
       shiftToken,
+      shiftUserId,
       [
         { key: `ofd-in-${runId}`, type: 'IN', clientTime: inAt, photoIndex: 0 },
         { key: `ofd-out-${runId}`, type: 'OUT', clientTime: outAt, photoIndex: 1 },
@@ -346,7 +356,7 @@ describe('a shift drained from the offline queue (REQ-D-10)', () => {
       });
     }
 
-    const result = await drain(manyToken, queue, smallPhotoBytes);
+    const result = await drain(manyToken, manyUserId, queue, smallPhotoBytes);
     expect(result.status, JSON.stringify(result.body)).toBe(200);
     expect(result.body.created, JSON.stringify(result.body.results.map((r) => r.error))).toBe(14);
 
@@ -391,13 +401,31 @@ describe('a punch queued by another account (C-01)', () => {
     const key = `ofd-stranger-${runId}`;
     const result = await drain(
       shiftToken,
-      [{ key, type: 'IN', clientTime: new Date(Date.now() - IN_AGE_MS), photoIndex: 0, ownerUserId: uuidv7() }],
+      uuidv7(),
+      [{ key, type: 'IN', clientTime: new Date(Date.now() - IN_AGE_MS), photoIndex: 0 }],
       photoBytes,
     );
     expect(result.status, JSON.stringify(result.body)).toBe(200);
     expect(result.body.rejected).toBe(1);
     expect(result.body.results[0]?.error?.code).toBe('PUNCH_OWNER_MISMATCH');
     const rows = await harness.db.select({ id: punches.id }).from(punches).where(eq(punches.idempotencyKey, key));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('rejects an ownerless legacy payload at the request boundary', async () => {
+    const key = `ofd-ownerless-${runId}`;
+    const result = await drain(
+      shiftToken,
+      null,
+      [{ key, type: 'IN', clientTime: new Date(Date.now() - IN_AGE_MS), photoIndex: 0 }],
+      photoBytes,
+    );
+
+    expect(result.status).toBe(400);
+    const rows = await harness.db
+      .select({ id: punches.id })
+      .from(punches)
+      .where(eq(punches.idempotencyKey, key));
     expect(rows).toHaveLength(0);
   });
 });

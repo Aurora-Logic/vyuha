@@ -170,6 +170,7 @@ export class ReturnService {
       throw AppError.forbidden('Recording a returned line as scrap needs returns.disposition; record it as restock and ask for the change.');
     }
     const receivedOn = input.receivedOn ?? (await orgToday(this.db, ctx.orgId));
+    const storedFileIds: string[] = [];
     const id = await this.db.transaction(async (tx) => {
       // Inside the transaction and under a row lock on the source line, so
       // two receipts against the same line queue up and the second sees the
@@ -197,7 +198,11 @@ export class ReturnService {
       // return often arrives before anyone with a company phone sees it.
       for (const kind of PHOTO_KINDS) {
         for (const bytes of photos[kind] ?? []) {
-          const stored = await this.files.storeImage({ orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [returnId] });
+          const stored = await this.files.storeImage(
+            { orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [returnId] },
+            { executor: tx, deferFinalization: true },
+          );
+          storedFileIds.push(stored.id);
           await tx.execute(sql`
             INSERT INTO sales_return_attachments (org_id, return_id, file_id, kind, created_by, updated_by)
             VALUES (${ctx.orgId}, ${returnId}, ${stored.id}, ${kind}, ${ctx.actorUserId}, ${ctx.actorUserId})
@@ -206,6 +211,7 @@ export class ReturnService {
       }
       return returnId;
     });
+    await this.files.finalizeStoredFiles(storedFileIds);
 
     this.auditContext.record({
       action: 'sales.return.received',
@@ -254,10 +260,19 @@ export class ReturnService {
     if (existing.state === 'credited') throw AppError.conflict(`${existing.number} has Tally's credit note against it; cancel that in Tally first.`);
     if (existing.state === 'cancelled') throw AppError.conflict(`${existing.number} is already cancelled.`);
     if (existing.replacement !== null) throw AppError.conflict(`${existing.number} has replacement ${existing.replacement.number} against it.`);
-    await this.db.execute(sql`
+    const cancelled = await this.db.execute<{ id: string }>(sql`
       UPDATE sales_returns SET state = 'cancelled', cancelled_reason = ${reason}, updated_at = now(), updated_by = ${principal.userId}
-       WHERE id = ${returnId} AND org_id = ${principal.orgId}
+       WHERE id = ${returnId} AND org_id = ${principal.orgId} AND deleted_at IS NULL
+         AND state NOT IN ('credited', 'cancelled') AND replacement_charge IS NULL
+      RETURNING id
     `);
+    // Replacement and cancellation both claim this row. If replacement set
+    // its decision after the view above, waiting here and rechecking the
+    // predicate refuses the stale cancellation instead of cancelling a
+    // return whose ordinary replacement order is already live.
+    if (cancelled.rows.length === 0) {
+      throw AppError.conflict(`${existing.number} is no longer cancellable.`);
+    }
     this.auditContext.record({ action: 'sales.return.cancelled', entityType: 'sales_return', entityId: returnId, before: { state: existing.state }, after: { reason, number: existing.number } });
     return this.find(principal, returnId);
   }
@@ -366,39 +381,65 @@ export class ReturnService {
         ? base.map((line) => ({ ...line, rate: '0', taxPct: '0', freeOfCharge: true }))
         : (await resolveDocumentLines(this.db, principal, base)).map((line) => ({ ...line, freeOfCharge: false }));
 
+    const documentDate = await orgToday(this.db, ctx.orgId);
     let documentId: string;
     try {
-      documentId = await orders.create(
-        {
-          date: await orgToday(this.db, ctx.orgId),
-          validUntil: null,
-          partyId: existing.partyId,
-          companyId: null,
-          dealId: null,
-          returnId,
-          customerName: existing.customerName,
-          ownerId: principal.employeeId,
-          notes: `Replacement for return ${existing.number}${input.charge === 'free' ? ' (free of charge)' : ''}.`,
-          terms: null,
-        },
-        replacementLines,
-      );
+      documentId = await this.db.transaction(async (tx) => {
+        // Claim the return inside the same transaction that creates the order.
+        // Besides making a second decision wait, this closes the cancellation
+        // race: a return cancelled after the view above may not gain an order.
+        const claimed = await tx.execute<{ id: string }>(sql`
+          UPDATE sales_returns
+             SET replacement_charge = ${input.charge}, updated_at = now(), updated_by = ${ctx.actorUserId}
+           WHERE id = ${returnId} AND org_id = ${ctx.orgId} AND deleted_at IS NULL
+             AND state <> 'cancelled' AND replacement_charge IS NULL
+          RETURNING id
+        `);
+        if (claimed.rows.length === 0) {
+          throw AppError.conflict(`${existing.number} is no longer eligible for a replacement order.`);
+        }
+
+        const createdId = await orders.createWithin(
+          tx,
+          {
+            date: documentDate,
+            validUntil: null,
+            partyId: existing.partyId,
+            companyId: null,
+            dealId: null,
+            returnId,
+            customerName: existing.customerName,
+            ownerId: principal.employeeId,
+            notes: `Replacement for return ${existing.number}${input.charge === 'free' ? ' (free of charge)' : ''}.`,
+            terms: null,
+          },
+          replacementLines,
+        );
+
+        for (const { line, quantity } of wanted) {
+          const updated = await tx.execute<{ id: string }>(sql`
+            UPDATE sales_return_lines
+               SET replaced_qty = replaced_qty + ${quantity.toFixed(3)}::numeric, updated_at = now()
+             WHERE id = ${line.id} AND return_id = ${returnId} AND deleted_at IS NULL
+               AND replaced_qty + ${quantity.toFixed(3)}::numeric <= quantity
+            RETURNING id
+          `);
+          if (updated.rows.length === 0) {
+            throw AppError.conflict(`Line ${String(line.lineNo)} is no longer available in the quantity read for this replacement.`);
+          }
+        }
+        return createdId;
+      });
     } catch (error) {
       // The read above is what two concurrent decisions both pass; the
-      // partial unique index on return_id is what only one of them passes.
-      // The repository's own transaction has already rolled the loser's
-      // order back, so this is the whole of the cleanup (H-08).
+      // return claim and partial unique index are the two defences. Every
+      // write is now under the outer transaction, so either one rolls the
+      // entire losing replacement back (H-08).
       if (uniqueViolationConstraint(error) === 'sales_documents_one_replacement_per_return_uq') {
         throw AppError.conflict(`${existing.number} already has a replacement order.`);
       }
       throw error;
     }
-    await this.db.transaction(async (tx) => {
-      await tx.execute(sql`UPDATE sales_returns SET replacement_charge = ${input.charge}, updated_at = now(), updated_by = ${ctx.actorUserId} WHERE id = ${returnId} AND org_id = ${ctx.orgId}`);
-      for (const { line, quantity } of wanted) {
-        await tx.execute(sql`UPDATE sales_return_lines SET replaced_qty = replaced_qty + ${quantity.toFixed(3)}::numeric, updated_at = now() WHERE id = ${line.id} AND return_id = ${returnId}`);
-      }
-    });
     this.auditContext.record({
       action: 'sales.return.replacement_raised',
       entityType: 'sales_return',

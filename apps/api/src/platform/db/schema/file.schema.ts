@@ -1,6 +1,6 @@
-import { bigint, index, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-import { primaryId, standardColumns } from '../columns.js';
+import { auditColumns, primaryId, standardColumns } from '../columns.js';
 import { users } from './identity.schema.js';
 import { organizations } from './organizations.schema.js';
 
@@ -47,6 +47,35 @@ export const files = pgTable(
   (t) => [
     index('files_org_purpose_idx').on(t.orgId, t.purpose),
     index('files_expiry_idx').on(t.expiresAt),
+  ],
+);
+
+/**
+ * Durable intent to remove an object that may not have a live metadata row.
+ *
+ * Object storage and Postgres cannot share a transaction. A task is therefore
+ * committed before each put. Successful metadata finalisation removes it;
+ * any crash/failure leaves a key that the cleanup worker can retry. A short
+ * grace period prevents the worker racing an upload that is still in flight.
+ */
+export const fileCleanupTasks = pgTable(
+  'file_cleanup_tasks',
+  {
+    id: primaryId(),
+    // Deliberately no organisation FK: cleanup must remain possible after an
+    // organisation row is removed, and an invalid/missing org must not stop us
+    // recording the key before object storage is touched.
+    orgId: uuid('org_id').notNull(),
+    purpose: filePurposeEnum('purpose').notNull(),
+    storageKey: text('storage_key').notNull(),
+    runAfter: timestamp('run_after', { withTimezone: true }).notNull().defaultNow(),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    ...auditColumns(),
+  },
+  (t) => [
+    uniqueIndex('file_cleanup_tasks_object_uq').on(t.purpose, t.storageKey),
+    index('file_cleanup_tasks_due_idx').on(t.runAfter),
   ],
 );
 

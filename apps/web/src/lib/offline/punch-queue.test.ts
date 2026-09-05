@@ -48,11 +48,12 @@ const rows: unknown[] = [
 describe('partitionQueue', () => {
 
 
-  it('gives a person only the rows they queued, and counts the rest as locked', () => {
+  it('gives a person only their rows and separates legacy recovery from other accounts', () => {
     const forA = partitionQueue(rows, A);
     expect(forA.waiting.map((r) => r.idempotencyKey)).toEqual(['a-waiting']);
     expect(forA.refused.map((r) => r.idempotencyKey)).toEqual(['a-refused']);
-    expect(forA.locked).toBe(2);
+    expect(forA.legacy).toBe(1);
+    expect(forA.locked).toBe(1);
     expect(forA.unreadable).toBe(1);
   });
 
@@ -60,7 +61,8 @@ describe('partitionQueue', () => {
     const forB = partitionQueue(rows, B);
     expect(forB.waiting.map((r) => r.idempotencyKey)).toEqual(['b-waiting']);
     expect(forB.refused).toEqual([]);
-    expect(forB.locked).toBe(3);
+    expect(forB.legacy).toBe(1);
+    expect(forB.locked).toBe(2);
   });
 
   it('treats a row with no owner as nobody\'s, whoever is signed in', () => {
@@ -73,6 +75,7 @@ describe('partitionQueue', () => {
     const nobody = partitionQueue(rows, null);
     expect(nobody.waiting).toEqual([]);
     expect(nobody.refused).toEqual([]);
-    expect(nobody.locked).toBe(4);
+    expect(nobody.legacy).toBe(1);
+    expect(nobody.locked).toBe(3);
   });
 });

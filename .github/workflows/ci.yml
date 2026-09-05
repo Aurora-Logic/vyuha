@@ -9,25 +9,27 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Action versions are tags, not commit SHAs: this machine had no route to
-# GitHub when the pin was due, and an unverified SHA breaks the deploy where
-# a tag merely trusts it. Pin each `uses:` to its commit from a networked
-# machine (H-03).
+permissions:
+  contents: read
+
+# Public upstream tag hashes verified on 5 September 2026. Updates require review.
 jobs:
   checks:
     name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: 24
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
           cache: pnpm
 
       - name: Install (frozen)
@@ -56,6 +58,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Validate deployment scripts
+        run: |
+          bash -n scripts/deploy-systemd.sh docker/backup.sh docker/restore.sh
+          node --check scripts/verify-release.mjs
+          node --test scripts/verify-release.test.mjs
+
       - name: Migrate the test database
         run: pnpm --filter @vyuha/api db:migrate
 
@@ -73,45 +81,34 @@ jobs:
     needs: checks
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 30
     steps:
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          host: ${{ secrets.SSH_IP }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            set -euo pipefail
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-
-            export PNPM_HOME="$HOME/.local/share/pnpm"
-            export PATH="$PNPM_HOME:$PATH"
-
-            if ! command -v pnpm &> /dev/null; then
-              corepack enable 2>/dev/null || npm install -g pnpm 2>/dev/null || true
-            fi
-
-            echo "## 1. Navigating to project directory"
-            cd "${{ secrets.SSH_DIR }}"
-
-            echo "## 2. Pulling latest changes"
-            git pull --ff-only origin main
-
-            echo "## 3. Installing dependencies (frozen to the lockfile)"
-            pnpm install --frozen-lockfile
-
-            # Build before migrating: a build that fails must leave the old
-            # code on the old schema, not the old code on a new one (H-04).
-            echo "## 4. Building applications"
-            VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" NODE_ENV=production pnpm build
-
-            echo "## 5. Running database migrations"
-            (cd apps/api && pnpm db:migrate)
-
-            echo "## 6. Restarting service"
-            sudo systemctl restart "${{ secrets.SERVICE_NAME }}"
-
-            echo "Deployed Successfully!"
+          persist-credentials: false
+      - name: Deploy the checked revision with verified SSH host identity
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SOURCE_DIR: ${{ secrets.SSH_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVICE_NAME }}
+          CURRENT_LINK: ${{ secrets.CURRENT_RELEASE_LINK }}
+          HEALTH_ORIGIN: ${{ secrets.HEALTH_ORIGIN }}
+          BACKUP_SCRIPT: ${{ secrets.BACKUP_SCRIPT }}
+          WEB_API: ${{ secrets.VITE_API_BASE_URL }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          : "${SSH_KNOWN_HOSTS:?Configure independently verified host keys}"
+          : "${CURRENT_LINK:?Prepare the release symlink first}"
+          task_ssh_dir=$(mktemp -d)
+          trap 'rm -f "$task_ssh_dir/key" "$task_ssh_dir/known_hosts"; rmdir "$task_ssh_dir"' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$task_ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$task_ssh_dir/known_hosts"
+          printf -v remote 'bash -l -s -- %q %q %q %q %q %q %q' "$SOURCE_DIR" "$DEPLOY_SHA" "$SERVICE_NAME" "$CURRENT_LINK" "$HEALTH_ORIGIN" "$BACKUP_SCRIPT" "$WEB_API"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$task_ssh_dir/known_hosts" -i "$task_ssh_dir/key" -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "$remote" < scripts/deploy-systemd.sh

@@ -56,6 +56,16 @@ export const SESSION_QUERY_KEY = ['session', 'me'] as const;
  * the session is over, or on sign-out.
  */
 const LAST_ME_KEY = 'vyuha.session.me';
+const EXTERNAL_SESSION_CHANGE_EVENT = 'vyuha:external-session-change';
+
+export interface SessionIdentity {
+  readonly userId: string;
+  readonly employeeId: string | null;
+}
+
+const identityListeners = new Set<(identity: SessionIdentity | null) => void>();
+let identitySnapshot: SessionIdentity | null | undefined;
+let storageListenerInstalled = false;
 
 const meSnapshotSchema = z.object({
   user: z.object({
@@ -96,15 +106,31 @@ const meSnapshotSchema = z.object({
   mfa: z.object({ enabled: z.boolean(), required: z.boolean(), enrolmentRequired: z.boolean() }).optional(),
 });
 
-// localStorage can be denied outright (privacy modes). Each helper treats
-// that as "no snapshot": the offline shell is then unavailable, which is the
-// pre-existing behaviour, not an error worth surfacing.
+function identityOf(me: Me | null): SessionIdentity | null {
+  return me === null ? null : { userId: me.user.id, employeeId: me.user.employeeId };
+}
+
+function sameIdentity(a: SessionIdentity | null, b: SessionIdentity | null): boolean {
+  return a?.userId === b?.userId && a?.employeeId === b?.employeeId;
+}
+
+function publishIdentity(identity: SessionIdentity | null): void {
+  const previous = identitySnapshot;
+  identitySnapshot = identity;
+  if (previous !== undefined && sameIdentity(previous, identity)) return;
+  for (const listener of identityListeners) listener(identity);
+}
+
+// localStorage can be denied outright (privacy modes). The shell snapshot is
+// then unavailable, but the live identity remains in memory so ownership
+// checks do not become a storage feature.
 function rememberMe(me: Me): void {
   try {
     localStorage.setItem(LAST_ME_KEY, JSON.stringify(me));
   } catch {
     // Handled: without storage there is simply nothing to restore offline.
   }
+  publishIdentity(identityOf(me));
 }
 
 function forgetMe(): void {
@@ -113,18 +139,67 @@ function forgetMe(): void {
   } catch {
     // Handled: if storage is denied, nothing was remembered either.
   }
+  publishIdentity(null);
+}
+
+function parseMeSnapshot(raw: string | null): Me | null {
+  if (raw === null) return null;
+  try {
+    const parsed = meSnapshotSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    // Corrupt JSON means the same thing as no snapshot.
+    return null;
+  }
 }
 
 function lastKnownMe(): Me | null {
   try {
-    const raw = localStorage.getItem(LAST_ME_KEY);
-    if (raw === null) return null;
-    const parsed = meSnapshotSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : null;
+    return parseMeSnapshot(localStorage.getItem(LAST_ME_KEY));
   } catch {
-    // Corrupt JSON or denied storage both mean the same thing: no snapshot.
+    // Denied storage means there is no restorable snapshot.
     return null;
   }
+}
+
+function installIdentityStorageListener(): void {
+  if (storageListenerInstalled || typeof window === 'undefined') return;
+  storageListenerInstalled = true;
+  window.addEventListener('storage', (event) => {
+    if (event.key !== LAST_ME_KEY) return;
+    const externalIdentity = identityOf(parseMeSnapshot(event.newValue));
+    if (
+      identitySnapshot !== undefined &&
+      sameIdentity(identitySnapshot, externalIdentity)
+    ) {
+      return;
+    }
+
+    // A refresh cookie is origin-wide while an access token is per document.
+    // If another tab changes account, keeping this tab's old bearer would let
+    // the UI continue as A while local durable state is stamped as B. Lock the
+    // identity immediately, discard the bearer, and let the session gate
+    // resolve the cookie's current owner before another punch can be queued.
+    setAccessToken(null);
+    publishIdentity(null);
+    window.dispatchEvent(new Event(EXTERNAL_SESSION_CHANGE_EVENT));
+  });
+}
+
+/**
+ * Observes account changes in this document and in sibling tabs.
+ *
+ * The offline outbox uses this to invalidate its module-global snapshot and
+ * abort an in-flight drain before a different account can act on its result.
+ */
+export function subscribeToSessionIdentity(
+  listener: (identity: SessionIdentity | null) => void,
+): () => void {
+  installIdentityStorageListener();
+  identityListeners.add(listener);
+  return () => {
+    identityListeners.delete(listener);
+  };
 }
 
 /**
@@ -152,43 +227,46 @@ function lastKnownMe(): Me | null {
  * into a logout (H-14).
  */
 /** Who this app currently believes is signed in, for state that must be tied to a person: the offline punch queue (C-01). */
-export function currentIdentity(): { userId: string; employeeId: string | null } | null {
-  const me = lastKnownMe();
-  return me === null ? null : { userId: me.user.id, employeeId: me.user.employeeId };
+export function currentIdentity(): SessionIdentity | null {
+  if (identitySnapshot === undefined) identitySnapshot = identityOf(lastKnownMe());
+  return identitySnapshot;
 }
 
 export function shouldForgetSession(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
+/** The query function split out so session recovery can be tested end to end. */
+export async function resolveSession(): Promise<Me | null> {
+  // Refresh first when there is no token in memory, rather than calling
+  // /auth/me and letting it fail. On a cold load that call cannot succeed
+  // - there is nothing to authenticate with - so making it anyway put a
+  // guaranteed 401 in the console on every single page load, which is both
+  // noise and a real request the server has to answer.
+  if (!getAccessToken()) {
+    const outcome = await refreshAccessToken();
+    if (outcome === 'network-error') return lastKnownMe();
+    if (outcome !== 'refreshed') {
+      forgetMe();
+      return null;
+    }
+  }
+
+  try {
+    const me = await apiRequest<Me>('/auth/me');
+    rememberMe(me);
+    return me;
+  } catch (error) {
+    if (!shouldForgetSession(error)) return lastKnownMe();
+    forgetMe();
+    return null;
+  }
+}
+
 export function useMe() {
   return useQuery<Me | null>({
     queryKey: SESSION_QUERY_KEY,
-    queryFn: async () => {
-      // Refresh first when there is no token in memory, rather than calling
-      // /auth/me and letting it fail. On a cold load that call cannot succeed
-      // - there is nothing to authenticate with - so making it anyway put a
-      // guaranteed 401 in the console on every single page load, which is both
-      // noise and a real request the server has to answer.
-      if (!getAccessToken()) {
-        const outcome = await refreshAccessToken();
-        if (outcome === 'network-error') return lastKnownMe();
-        if (outcome !== 'refreshed') {
-          forgetMe();
-          return null;
-        }
-      }
-
-      try {
-        const me = await apiRequest<Me>('/auth/me');
-        rememberMe(me);
-        return me;
-      } catch (error) {
-        if (!shouldForgetSession(error)) return lastKnownMe();
-        forgetMe();
-        return null;
-      }
-    },
+    queryFn: resolveSession,
     retry: false,
     staleTime: 5 * 60 * 1000,
     // Kept for the ordinary case - a tab that was open when the connection
@@ -232,9 +310,17 @@ export function useRevalidateSessionOnReconnect(): void {
     const revalidate = (): void => {
       void queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
     };
+    const resetForAccountChange = (): void => {
+      // `resetQueries` clears the previous account's data synchronously and
+      // refetches active observers. The gate shows its loading state while the
+      // new refresh-cookie owner is resolved; it never renders A under B.
+      void queryClient.resetQueries({ queryKey: SESSION_QUERY_KEY, exact: true });
+    };
     window.addEventListener('online', revalidate);
+    window.addEventListener(EXTERNAL_SESSION_CHANGE_EVENT, resetForAccountChange);
     return () => {
       window.removeEventListener('online', revalidate);
+      window.removeEventListener(EXTERNAL_SESSION_CHANGE_EVENT, resetForAccountChange);
     };
   }, [queryClient]);
 }

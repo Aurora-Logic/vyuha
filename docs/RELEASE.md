@@ -47,7 +47,7 @@ wrong commit sends whoever is debugging to the wrong diff, and an honest
 
 ## Cutting a release
 
-1. **Green first.** `pnpm --filter '@vyuha/*' typecheck lint test build`, and CI
+1. **Green first.** Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm build`, and obtain CI
    green on the branch. Per CLAUDE.md section 5, `/ultrareview` before a phase
    closes.
 2. **Bump** the version in every `package.json` (root, `apps/*`, `packages/*`).
@@ -109,13 +109,40 @@ document used to say there was. The two real paths are:
    the data written between the backup and now.
 
 ```
-docker/backup.sh                                          # before anything
-docker/restore.sh <the pre-release backup>                # only if rolling forward is not possible
-docker compose -f docker/docker-compose.prod.yml up -d    # with the old tag
+docker/backup.sh
+# Only with an explicitly approved loss-of-post-backup-writes recovery decision:
+docker compose --env-file .env.production -f docker/docker-compose.prod.yml stop api
+VYUHA_RESTORE_OVER_LIVE=yes docker/restore.sh <pre-release-backup.dump> <actual-live-db-name>
+docker compose --env-file .env.production -f docker/docker-compose.prod.yml up -d  # with the compatible release
 ```
 
 Deploys now build before they migrate, so a build that fails leaves the old
 code on the old schema and none of this is needed.
+
+## Hardened systemd CI deployment (operator setup required)
+
+The workflow no longer builds inside the live checkout or deploys a moving `main` tip. It passes the full checked `github.sha` to `scripts/deploy-systemd.sh`, builds a detached worktree, stops API writers, requires a successful backup, applies migrations, switches the prepared release symlink atomically, starts the API and verifies both readiness and the full runtime revision. Failed phases exit nonzero; old releases are retained. A migration failure never triggers an automatic destructive restore or an unverified code downgrade.
+
+This is a deliberate deployment-layout change and **must not be enabled until staging has rehearsed it**. No production unit, symlink or secret is changed by editing this repository.
+
+Operator requirements:
+
+- Install Node 22 and pnpm 10.33.2 for the SSH user's login shell; CI and the Docker API use Node 22.
+- Keep `SSH_DIR` as a control checkout with its `.env` / `apps/api/.env` and Git origin access. Builds go into a sibling `releases/` directory, not into this checkout.
+- Prepare `CURRENT_RELEASE_LINK`, an absolute symlink to an existing valid release. Configure both the static server root and systemd `WorkingDirectory`/`ExecStart` through this link. Do not repoint live paths without a reviewed migration/recovery plan.
+- Add `EnvironmentFile=-<CURRENT_RELEASE_LINK>/.env.release` to the systemd unit. This generated file carries the exact revision, build time and version. Existing unit environment must not override those values.
+- Verify traversal/read access as the actual API and static-server users in staging. Release directories are 0755; copied environments are 0640 in the systemd API service's group. The deployer needs permission to assign that group. Keep the static-server user out of the API secrets group and deny dotfiles in the static web root.
+- Configure the `production` GitHub environment with required reviewers. Existing SSH secrets remain, plus `SSH_KNOWN_HOSTS` (host keys independently verified with the server operator), `CURRENT_RELEASE_LINK`, `HEALTH_ORIGIN`, and `BACKUP_SCRIPT`.
+- `BACKUP_SCRIPT` is an absolute executable, uses the real deployment's database credentials/configuration, verifies the archive, copies it to the approved off-host destination, and exits nonzero on any failure. A Docker backup script is not automatically suitable for a host-managed database. CI stops the API before invoking it; identify and stop any other writers too.
+- Grant only the required systemd stop/start permissions. The workflow uses native OpenSSH with strict host-key verification, no auto-trusted `ssh-keyscan` and no downloaded SSH helper action.
+- Rehearse a backup restore into a **new named scratch database**, e.g. `docker/restore.sh <dump> vyuha_restore_rehearsal --compare vyuha` for the Docker topology. Compare against a stable/quiesced source, record results, then remove only that verified scratch database.
+- If backup fails, the old code/schema remain, but the API is stopped: inspect the cause and deliberately restart the old service. If migration/activation/readiness fails, inspect the recorded phase and schema state before choosing a forward fix or approved recovery.
+
+Validation in this repository is not evidence that these production requirements are configured. Track staging activation, a wrong-revision readiness refusal, and a restore drill before release approval.
+
+## Isolated test runs
+
+`pnpm --filter @vyuha/api test [test files]` now creates a unique database on the local development Postgres (loopback port 55432), migrates it, runs Vitest with a unique queue prefix and removes that database after completion. It refuses remote/production hosts. The development role needs CREATEDB. A killed process or leaked connection may leave a clearly named `vyuha_test_<random>` scratch database; inspect ownership/connections before removing it. Direct `vitest` invocation is diagnostic-only and does not provide this isolation.
 
 ## Roll forward instead, where you can
 

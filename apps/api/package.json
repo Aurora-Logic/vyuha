@@ -8,7 +8,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src seed",
-    "test": "vitest run",
+    "test": "tsx src/test-support/run-isolated.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/platform/db/migrate.ts",
     "db:seed": "tsx seed/run-seed.ts",

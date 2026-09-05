@@ -37,7 +37,8 @@ async function bootstrap(): Promise<void> {
   // failures after this line are captured too.
   if (env.SENTRY_DSN !== undefined && env.SENTRY_DSN !== '') {
     const Sentry = await import('@sentry/node');
-    Sentry.init({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
+    const { sanitizeMonitoringEvent } = await import('./platform/common/error-monitoring.js');
+    Sentry.init({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV, sendDefaultPii: false, beforeSend: sanitizeMonitoringEvent });
   }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, rawBody: true });

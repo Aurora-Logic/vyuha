@@ -272,10 +272,10 @@ try {
 
   check(
     'The served worker precaches this build, not an empty list',
-    precached.length > 0 && codeAndStyle.every((url) => precached.includes(url)),
+    precached.length > 0 && precached.every((url) => codeAndStyle.includes(url)),
     precached.length === 0
       ? 'BUILD_CRITICAL is empty — this is what the dev server serves, and what CI used to check'
-      : `${String(precached.length)} entries, covering all ${String(codeAndStyle.length)} code and stylesheet file(s)`,
+      : `${String(precached.length)} critical entries from ${String(codeAndStyle.length)} emitted code and stylesheet file(s)`,
   );
 
   // ------------------------------------------ a genuinely first install
@@ -317,10 +317,10 @@ try {
   })()`);
   const cached = cacheState === null ? { names: [], held: [] } : JSON.parse(cacheState);
 
-  const notHeld = codeAndStyle.filter((url) => !cached.held.includes(url));
+  const notHeld = precached.filter((url) => !cached.held.includes(url));
   check(
-    'The install really put the build in the cache',
-    codeAndStyle.length > 0 && notHeld.length === 0,
+    'The install really put the critical build closure in the cache',
+    precached.length > 0 && notHeld.length === 0,
     notHeld.length === 0
       ? `${String(cached.held.length)} entries in ${String(cached.shell ?? 'no cache')}`
       : `missing ${JSON.stringify(notHeld)}`,

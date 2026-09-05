@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { NotificationChannel as NotificationChannelKey } from '@vyuha/shared';
-import { sql } from 'drizzle-orm';
+import { and, asc, eq, lte, sql } from 'drizzle-orm';
 
 import { AuditService } from '../audit/audit.service.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { notificationIdempotency, notificationOutbox } from '../db/schema/index.js';
 import { env } from '../common/env.js';
 import { describeError } from '../common/errors.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
@@ -65,11 +66,22 @@ function assertUsableAsJobId(key: string): string {
   return key;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export interface DeliveryReport {
   readonly recipients: number;
   readonly delivered: number;
   readonly failed: number;
   readonly suppressed: number;
+}
+
+const OUTBOX_BATCH_SIZE = 200;
+
+interface StagedNotification {
+  readonly id: string;
+  readonly jobId: string;
 }
 
 @Injectable()
@@ -106,71 +118,168 @@ export class NotificationDispatcher {
   }
 
   /**
-   * Hands the event to the `notification` queue and returns.
+   * Persists the envelope, then hands it to the notification queue.
    *
-   * An idempotency key is claimed in the database first. It used to be
-   * BullMQ's own job id and nothing else, which suppresses a duplicate only
-   * while the completed job still exists -- and `DEFAULT_JOB_OPTIONS` keeps
-   * two hundred of them, so on a busy day the key meant to stop a repeat for
-   * ever was evicted and the sweep told everybody a second time about a punch
-   * they had already been told about. Nothing failed; the notice simply went
-   * out again.
-   *
-   * The job id is still passed. It costs nothing and it catches the narrower
-   * case the row cannot: two emits racing before either has committed.
+   * The outbox and idempotency claim are one database transaction. A process
+   * dying after that commit leaves a PENDING row for the drain job, while a
+   * process dying after queue acceptance retries with the same BullMQ job id.
+   * Queue failure is therefore not released/discarded and is not a reason to
+   * fail already-committed business work.
    */
   async emit(event: NotificationEvent): Promise<string> {
-    if (event.idempotencyKey !== undefined) {
-      // The same id a duplicate has always returned -- BullMQ answered with
-      // the existing job's id rather than enqueuing a second, and callers
-      // that keep the id must go on getting it. Only the enqueue is skipped.
+    const staged = await this.stage(event);
+    if (staged === null) {
+      // Historical idempotency rows may predate the outbox. They name an event
+      // that was already accepted, so preserve the old stable return value.
       const key = event.idempotencyKey;
-      const jobId = `notify-${assertUsableAsJobId(key)}`;
-      if (!(await this.claimIdempotencyKey(event.orgId, key))) return jobId;
-      try {
-        return await this.enqueueNotification(event, { jobId });
-      } catch (error) {
-        // The claim guards the enqueue. If the enqueue never happened -- a
-        // Redis blip, a timeout -- the claim must not stand, or every retry
-        // of this event finds the key spent and skips a notice nobody sent.
-        // The row was permanent and the loss was silent (H-05).
-        await this.releaseIdempotencyKey(event.orgId, key, error);
-        throw error;
-      }
+      if (key === undefined) throw new Error('A notification without an idempotency key was not staged.');
+      return `notify-${assertUsableAsJobId(key)}`;
     }
-    return this.enqueueNotification(event, {});
+
+    await this.enqueueOutbox(staged);
+    return staged.jobId;
   }
 
-  private enqueueNotification(event: NotificationEvent, options: { jobId?: string }): Promise<string> {
-    return this.jobs.enqueue(
-      'send-notification',
-      {
-        orgId: event.orgId,
-        eventType: event.type,
-        audience: event.audience,
-        payload: { ...(event.payload ?? {}) },
-      },
-      options,
-    );
+  private async stage(event: NotificationEvent): Promise<StagedNotification | null> {
+    const key = event.idempotencyKey;
+    const jobId = key === undefined
+      ? null
+      : `notify-${assertUsableAsJobId(key)}`;
+
+    return this.db.transaction(async (tx) => {
+      if (key !== undefined) {
+        const claimed = await tx
+          .insert(notificationIdempotency)
+          .values({ orgId: event.orgId, key })
+          .onConflictDoNothing()
+          .returning({ key: notificationIdempotency.key });
+
+        if (claimed.length === 0) {
+          const existing = await tx
+            .select({ id: notificationOutbox.id })
+            .from(notificationOutbox)
+            .where(
+              and(
+                eq(notificationOutbox.orgId, event.orgId),
+                eq(notificationOutbox.idempotencyKey, key),
+              ),
+            )
+            .limit(1);
+          return existing[0] === undefined ? null : { id: existing[0].id, jobId: jobId ?? '' };
+        }
+      }
+
+      const inserted = await tx
+        .insert(notificationOutbox)
+        .values({
+          orgId: event.orgId,
+          eventType: event.type,
+          audience: event.audience,
+          payload: { ...(event.payload ?? {}) },
+          idempotencyKey: key ?? null,
+        })
+        .returning({ id: notificationOutbox.id });
+      const id = inserted[0]?.id;
+      if (id === undefined) throw new Error('Notification outbox insert returned no row.');
+      return { id, jobId: jobId ?? `notify-outbox-${id}` };
+    });
   }
 
   /**
-   * Undoes a claim whose enqueue failed. Best effort: if this fails too the
-   * database is the thing that is down, the claim probably never landed
-   * either, and the caller is about to see the original error regardless.
+   * Attempts one durable hand-off. False means the PENDING row remains for a
+   * scheduled retry; callers do not need to turn that into their own retry.
    */
-  private async releaseIdempotencyKey(orgId: string, key: string, cause: unknown): Promise<void> {
+  private async enqueueOutbox(staged: StagedNotification): Promise<boolean> {
     try {
-      await this.db.execute(sql`DELETE FROM notification_idempotency WHERE org_id = ${orgId} AND key = ${key}`);
-    } catch (error) {
-      this.logger.error({
-        msg: 'Notification claim could not be released after a failed enqueue; the event will be skipped on retry',
-        orgId,
-        key,
-        enqueueError: describeError(cause),
-        releaseError: describeError(error),
+      const rows = await this.db
+        .select({
+          orgId: notificationOutbox.orgId,
+          eventType: notificationOutbox.eventType,
+          audience: notificationOutbox.audience,
+          payload: notificationOutbox.payload,
+        })
+        .from(notificationOutbox)
+        .where(and(eq(notificationOutbox.id, staged.id), eq(notificationOutbox.state, 'PENDING')))
+        .limit(1);
+      const row = rows[0];
+      if (row === undefined) return true;
+
+      await this.jobs.enqueue(
+        'send-notification',
+        {
+          orgId: row.orgId,
+          eventType: row.eventType,
+          audience: row.audience,
+          payload: isRecord(row.payload) ? row.payload : {},
+        },
+        { jobId: staged.jobId },
+      );
+
+      await this.db
+        .update(notificationOutbox)
+        .set({ state: 'ENQUEUED', enqueuedAt: new Date(), lastError: null, updatedAt: new Date() })
+        .where(and(eq(notificationOutbox.id, staged.id), eq(notificationOutbox.state, 'PENDING')));
+      return true;
+    } catch (error: unknown) {
+      try {
+        await this.db
+          .update(notificationOutbox)
+          .set({
+            attempts: sql`${notificationOutbox.attempts} + 1`,
+            runAfter: new Date(Date.now() + 30_000),
+            lastError: describeError(error).slice(0, 500),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(notificationOutbox.id, staged.id), eq(notificationOutbox.state, 'PENDING')));
+      } catch (recordError: unknown) {
+        this.logger.error({
+          msg: 'Notification outbox could not record a failed queue hand-off.',
+          outboxId: staged.id,
+          enqueueError: describeError(error),
+          recordError: describeError(recordError),
+        });
+      }
+      this.logger.warn({
+        msg: 'Notification remains pending in the outbox after queue hand-off failed.',
+        outboxId: staged.id,
+        error: describeError(error),
       });
+      return false;
     }
+  }
+
+  /** Drained by a recurring maintenance job and callable directly in tests. */
+  async drainOutbox(now: Date = new Date()): Promise<{
+    scanned: number;
+    enqueued: number;
+    failed: number;
+    remaining: number;
+  }> {
+    const pending = await this.db
+      .select({ id: notificationOutbox.id, idempotencyKey: notificationOutbox.idempotencyKey })
+      .from(notificationOutbox)
+      .where(and(eq(notificationOutbox.state, 'PENDING'), lte(notificationOutbox.runAfter, now)))
+      .orderBy(asc(notificationOutbox.runAfter))
+      .limit(OUTBOX_BATCH_SIZE);
+
+    let enqueued = 0;
+    for (const row of pending) {
+      const jobId = row.idempotencyKey === null
+        ? `notify-outbox-${row.id}`
+        : `notify-${assertUsableAsJobId(row.idempotencyKey)}`;
+      if (await this.enqueueOutbox({ id: row.id, jobId })) enqueued += 1;
+    }
+
+    const remainingRows = await this.db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(notificationOutbox)
+      .where(eq(notificationOutbox.state, 'PENDING'));
+    return {
+      scanned: pending.length,
+      enqueued,
+      failed: pending.length - enqueued,
+      remaining: remainingRows[0]?.value ?? 0,
+    };
   }
 
   /**
@@ -184,8 +293,9 @@ export class NotificationDispatcher {
    * logged and swallowed, because the alternative is losing the work or
    * lying about it.
    *
-   * Not the behaviour of `emit` itself: a caller inside a job wants the
-   * throw, so its retry can carry the notice.
+   * Queue outages are already absorbed by `emit` because the outbox owns that
+   * retry. This catch is for the narrower case where even the database could
+   * not accept the durable envelope.
    */
   async emitAfterCommit(event: NotificationEvent): Promise<void> {
     try {
@@ -198,16 +308,6 @@ export class NotificationDispatcher {
         error: describeError(error),
       });
     }
-  }
-
-  /** True the first time this organisation claims this key, false after. */
-  private async claimIdempotencyKey(orgId: string, key: string): Promise<boolean> {
-    const claimed = await this.db.execute<{ key: string }>(sql`
-      INSERT INTO notification_idempotency (org_id, key) VALUES (${orgId}, ${key})
-      ON CONFLICT (org_id, key) DO NOTHING
-      RETURNING key
-    `);
-    return claimed.rows.length > 0;
   }
 
   /**

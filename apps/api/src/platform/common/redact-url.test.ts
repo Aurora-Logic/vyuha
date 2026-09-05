@@ -4,6 +4,12 @@ import { pinoParams } from './logging.js';
 import { redactUrl } from './redact-url.js';
 
 describe('redactUrl', () => {
+  it.each(['portal', 'PORTAL', 'PoRtAl', 'auth/INVITATIONS', 'AUTH/Password-Resets'])(
+    'masks credentials on case-insensitive Express routes: %s', (route) => {
+      expect(redactUrl(`/api/v1/${route}/test-secret?signature=secret`)).toBe(`/api/v1/${route}/[redacted]`);
+    },
+  );
+
   it('masks the portal key and keeps the rest of the route', () => {
     expect(redactUrl('/api/v1/portal/prtl_9f3a2c')).toBe('/api/v1/portal/[redacted]');
     expect(redactUrl('/api/v1/portal/prtl_9f3a2c/media/0190-file')).toBe('/api/v1/portal/[redacted]/media/0190-file');

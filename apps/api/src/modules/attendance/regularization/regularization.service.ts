@@ -644,7 +644,13 @@ export class RegularizationService {
           before: { status: request.status },
           after: { status: 'REJECTED', reason: decision.reason },
         });
-        await this.notifyDecision(ctx.orgId, request, 'rejected', decision.reason);
+        await this.notifyDecision(
+          ctx.orgId,
+          request,
+          'rejected',
+          decision.reason,
+          decision.approvalRequestId,
+        );
       };
     }
 
@@ -714,8 +720,36 @@ export class RegularizationService {
         },
       });
 
-      await this.notifyDecision(ctx.orgId, request, 'approved', decision.reason);
+      await this.notifyDecision(
+        ctx.orgId,
+        request,
+        'approved',
+        decision.reason,
+        decision.approvalRequestId,
+      );
     };
+  }
+
+  async recoverApprovalSettlement(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+  ): Promise<void> {
+    const request = await new RegularizationRepository(this.db, ctx).findRegularization(
+      decision.subjectId,
+      sql`true`,
+    );
+    if (request === null) throw AppError.notFound('Regularization', decision.subjectId);
+    if (decision.status === 'ESCALATED') return;
+    if (decision.status === 'APPROVED') {
+      await this.recomputeDates(ctx, request.employeeId, [request.date]);
+    }
+    await this.notifyDecision(
+      ctx.orgId,
+      request,
+      decision.status === 'APPROVED' ? 'approved' : 'rejected',
+      decision.reason,
+      decision.approvalRequestId,
+    );
   }
 
   // ------------------------------------------------------------ REQ-F-04
@@ -943,7 +977,13 @@ export class RegularizationService {
           before: { status: request.status },
           after: { status: 'REJECTED', reason: decision.reason },
         });
-        await this.notifyOnDutyDecision(ctx.orgId, request, 'rejected', decision.reason);
+        await this.notifyOnDutyDecision(
+          ctx.orgId,
+          request,
+          'rejected',
+          decision.reason,
+          decision.approvalRequestId,
+        );
       };
     }
 
@@ -969,8 +1009,40 @@ export class RegularizationService {
         },
       });
 
-      await this.notifyOnDutyDecision(ctx.orgId, request, 'approved', decision.reason);
+      await this.notifyOnDutyDecision(
+        ctx.orgId,
+        request,
+        'approved',
+        decision.reason,
+        decision.approvalRequestId,
+      );
     };
+  }
+
+  async recoverOnDutySettlement(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+  ): Promise<void> {
+    const request = await new RegularizationRepository(this.db, ctx).findOnDuty(
+      decision.subjectId,
+      sql`true`,
+    );
+    if (request === null) throw AppError.notFound('On-duty request', decision.subjectId);
+    if (decision.status === 'ESCALATED') return;
+    if (decision.status === 'APPROVED') {
+      await this.recomputeDates(
+        ctx,
+        request.employeeId,
+        datesBetween(request.fromDate, request.toDate),
+      );
+    }
+    await this.notifyOnDutyDecision(
+      ctx.orgId,
+      request,
+      decision.status === 'APPROVED' ? 'approved' : 'rejected',
+      decision.reason,
+      decision.approvalRequestId,
+    );
   }
 
   // ------------------------------------------------------------ internals
@@ -1106,6 +1178,7 @@ export class RegularizationService {
     request: RegularizationRow,
     outcome: 'approved' | 'rejected',
     reason: string | null,
+    approvalRequestId: string,
   ): Promise<void> {
     await this.notifications.emit({
       orgId,
@@ -1119,6 +1192,7 @@ export class RegularizationService {
         // in the payload rather than only into the audit trail.
         reason,
       },
+      idempotencyKey: `approval-settlement.${approvalRequestId}.regularization-${outcome}`,
     });
   }
 
@@ -1127,6 +1201,7 @@ export class RegularizationService {
     request: OnDutyRow,
     outcome: 'approved' | 'rejected',
     reason: string | null,
+    approvalRequestId: string,
   ): Promise<void> {
     await this.notifications.emit({
       orgId,
@@ -1141,6 +1216,7 @@ export class RegularizationService {
         regularizationId: request.id,
         reason,
       },
+      idempotencyKey: `approval-settlement.${approvalRequestId}.on-duty-${outcome}`,
     });
   }
 }

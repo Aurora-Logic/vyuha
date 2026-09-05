@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  billAllocationPullRowSchema,
   PUSH_KINDS,
   voucherPushPayloadSchema,
   type AgentResultsAck,
@@ -104,12 +105,12 @@ export class SyncWriterService {
 
       if (input.entityType === 'voucher_push') {
         await this.settlePush(tx, agent, job.id, job.payload, input);
-        return { written: 0, skipped: 0, lastAlterId: 0, pushed: true };
+        return { written: 0, skipped: 0, deferred: 0, lastAlterId: 0, pushed: true };
       }
 
       // The discriminant narrows `rows`; a chunk of stock items claiming to
       // be parties never got past validation.
-      let skipped = 0;
+      let deferred = 0;
       if (input.entityType === 'party') {
         for (const row of input.rows) await this.upsertParty(tx, agent, row);
       } else if (input.entityType === 'stock_item') {
@@ -117,17 +118,18 @@ export class SyncWriterService {
       } else if (input.entityType === 'price_list') {
         for (const row of input.rows) await this.upsertPriceEntry(tx, agent, row);
       } else {
-        skipped = await this.replaceBillAllocations(tx, agent, input.rows);
+        deferred = await this.replaceBillAllocations(tx, agent, input.rows);
       }
 
       // REQ-Q-06: the exchange, hashed. `result` is the writer's outcome —
       // the agent's own errors arrive on the errors endpoint, never here.
-      // Skips are part of that outcome: the journal is where "this chunk
-      // carried rows the projection could not anchor yet" stays visible.
+      // Deferred rows are part of that outcome: the journal says which chunk
+      // had to wait for its voucher, while the staging table keeps the actual
+      // validated rows until that GUID is projected.
       const journalResult =
-        skipped === 0
+        deferred === 0
           ? `ok: ${String(input.rows.length)} rows`
-          : `ok: ${String(input.rows.length - skipped)} rows, ${String(skipped)} skipped: voucher not yet pulled`;
+          : `ok: ${String(input.rows.length)} rows, ${String(deferred)} deferred: voucher not yet pulled`;
       await tx.execute(sql`
         INSERT INTO sync_journal
           (org_id, connection_id, direction, entity_type, request_hash, response_hash,
@@ -198,8 +200,9 @@ export class SyncWriterService {
       }
 
       return {
-        written: input.rows.length - skipped,
-        skipped,
+        written: input.rows.length,
+        skipped: 0,
+        deferred,
         lastAlterId: committedAlterId,
         pushed: false,
       };
@@ -215,7 +218,7 @@ export class SyncWriterService {
       connectionId: agent.connectionId,
       entityType: input.entityType,
       rows: written.written,
-      skipped: written.skipped,
+      deferred: written.deferred,
       final: input.final,
     });
 
@@ -239,7 +242,6 @@ export class SyncWriterService {
     return {
       jobId: input.jobId,
       written: written.written,
-      ...(written.skipped > 0 ? { skipped: written.skipped } : {}),
       // The watermark THIS transaction committed, read inside it via
       // RETURNING — a post-commit read could report a rival chunk's later
       // cursor as if this chunk had established it.
@@ -353,6 +355,11 @@ export class SyncWriterService {
     } else if (rows.entityType === 'stock_item') {
       for (const row of rows.rows) await this.upsertStockItem(tx, scope, row);
     } else {
+      // Bill-allocation chunks and webhook voucher chunks can arrive at the
+      // same instant. Lock every GUID in deterministic order before mapping
+      // any of them, so "looked missing, then voucher drained, then deferred"
+      // cannot strand a set after its voucher already committed.
+      await this.lockBillAllocationAnchors(tx, scope.connectionId, rows.rows.map((row) => row.guid));
       for (const row of rows.rows) await this.upsertVoucher(tx, scope, row);
     }
   }
@@ -591,7 +598,6 @@ export class SyncWriterService {
          WHERE id = ${mapping.internalId}
       `);
       await this.touchMapping(tx, agent, 'party', row.guid, row.alterId);
-      this.partyCache.delete(`${agent.connectionId}:${row.name}`);
       return;
     }
 
@@ -612,7 +618,6 @@ export class SyncWriterService {
     const partyId = inserted.rows[0]?.id;
     if (partyId === undefined) throw new Error('Party insert returned no row.');
     await this.insertMapping(tx, agent, 'party', row.guid, row.alterId, partyId);
-    this.partyCache.delete(`${agent.connectionId}:${row.name}`);
   }
 
   /** REQ-R-02, the same shape as parties: GUID-anchored, Tally wins. */
@@ -653,7 +658,6 @@ export class SyncWriterService {
          WHERE id = ${mapping.internalId}
       `);
       await this.touchMapping(tx, agent, 'stock_item', row.guid, row.alterId);
-      this.stockItemCache.delete(`${agent.connectionId}:${row.name}`);
       return;
     }
 
@@ -670,7 +674,6 @@ export class SyncWriterService {
     const itemId = inserted.rows[0]?.id;
     if (itemId === undefined) throw new Error('Stock item insert returned no row.');
     await this.insertMapping(tx, agent, 'stock_item', row.guid, row.alterId, itemId);
-    this.stockItemCache.delete(`${agent.connectionId}:${row.name}`);
   }
 
   /**
@@ -801,6 +804,7 @@ export class SyncWriterService {
     // document's module what Tally now says about it — cancelled, renumbered
     // — through the same seam that told it the push landed.
     await this.mirrorToDocument(tx, agent, row);
+    await this.applyPendingBillAllocationSet(tx, agent, row.guid, voucherId);
   }
 
   private async mirrorToDocument(tx: Transaction, agent: WriterScope, row: VoucherPullRow): Promise<void> {
@@ -827,20 +831,21 @@ export class SyncWriterService {
   }
 
   /**
-   * Name -> id, per connection, for the life of the process. Hits only: a
-   * miss used to be cached too, so a voucher naming a party that had not
-   * arrived yet pinned that name to null until restart, and every later
-   * voucher for the party carried no party_id. An upsert drops its name from
-   * the cache rather than writing the new id, because it runs inside a
-   * transaction that may still roll back (H-10).
+   * Name -> id, per transaction. Hits only: misses must be retried after a
+   * later master pull, and hits must not outlive a master rename. A previous
+   * process-global cache did both: it could pin a miss forever, or keep an old
+   * name resolving to the renamed master until restart (H-10). Weak keys make
+   * the memoisation disappear with the transaction while still collapsing a
+   * 500-row allocation chunk's repeated party lookups to one query.
    */
-  private readonly partyCache = new Map<string, string>();
-  private readonly stockItemCache = new Map<string, string>();
+  private readonly partyCaches = new WeakMap<Transaction, Map<string, string>>();
+  private readonly stockItemCaches = new WeakMap<Transaction, Map<string, string>>();
 
   private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
     const cacheKey = `${agent.connectionId}:${name}`;
-    const cached = this.partyCache.get(cacheKey);
+    const cache = this.cacheFor(this.partyCaches, tx);
+    const cached = cache.get(cacheKey);
     if (cached !== undefined) return cached;
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM parties
@@ -848,14 +853,15 @@ export class SyncWriterService {
        LIMIT 1
     `);
     const id = rows.rows[0]?.id ?? null;
-    if (id !== null) this.partyCache.set(cacheKey, id);
+    if (id !== null) cache.set(cacheKey, id);
     return id;
   }
 
   private async resolveStockItemId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
     if (name === '') return null;
     const cacheKey = `${agent.connectionId}:${name}`;
-    const cached = this.stockItemCache.get(cacheKey);
+    const cache = this.cacheFor(this.stockItemCaches, tx);
+    const cached = cache.get(cacheKey);
     if (cached !== undefined) return cached;
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM stock_items
@@ -863,8 +869,19 @@ export class SyncWriterService {
        LIMIT 1
     `);
     const id = rows.rows[0]?.id ?? null;
-    if (id !== null) this.stockItemCache.set(cacheKey, id);
+    if (id !== null) cache.set(cacheKey, id);
     return id;
+  }
+
+  private cacheFor(
+    stores: WeakMap<Transaction, Map<string, string>>,
+    tx: Transaction,
+  ): Map<string, string> {
+    const existing = stores.get(tx);
+    if (existing !== undefined) return existing;
+    const created = new Map<string, string>();
+    stores.set(tx, created);
+    return created;
   }
 
   /**
@@ -920,11 +937,10 @@ export class SyncWriterService {
    *
    * A voucher that has not arrived cannot anchor its allocations. Expected
    * on this path — vouchers reach Vyuha through the webhook door, and this
-   * queue orders nothing before them — so the rows are skipped and counted,
-   * never thrown: failing the chunk would wedge the whole pull behind one
-   * unmatched GUID. The cursor still advances past a skipped row; a later
-   * alteration of the voucher, or a full re-pull, delivers the set again
-   * once the voucher lands.
+   * queue orders nothing before them — so its complete set is staged, not
+   * skipped. The cursor may advance because the rows committed durably, and
+   * the voucher upsert drains them once it creates the GUID mapping. A shared
+   * advisory lock closes the missing-row race in both arrival orders.
    */
   private async replaceBillAllocations(
     tx: Transaction,
@@ -938,13 +954,17 @@ export class SyncWriterService {
       else group.push(row);
     }
 
-    let skipped = 0;
-    for (const [guid, group] of byVoucher) {
+    const groups = [...byVoucher.entries()].sort(([left], [right]) => left.localeCompare(right));
+    await this.lockBillAllocationAnchors(tx, agent.connectionId, groups.map(([guid]) => guid));
+
+    let deferred = 0;
+    for (const [guid, group] of groups) {
       const mapping = await this.resolveMapping(tx, agent, 'voucher', guid);
       if (mapping.internalId === null) {
-        skipped += group.length;
+        deferred += group.length;
+        await this.deferBillAllocationSet(tx, agent, guid, group);
         this.logger.warn({
-          msg: 'Bill allocations skipped: voucher not yet pulled (REQ-AJ-02)',
+          msg: 'Bill allocations deferred: voucher not yet pulled (REQ-AJ-02)',
           connectionId: agent.connectionId,
           voucherGuid: guid,
           rows: group.length,
@@ -952,20 +972,127 @@ export class SyncWriterService {
         continue;
       }
 
-      await tx.execute(sql`DELETE FROM bill_allocations WHERE voucher_id = ${mapping.internalId}`);
-      for (const row of group) {
-        const partyId = await this.resolvePartyId(tx, agent, row.partyName);
-        await tx.execute(sql`
-          INSERT INTO bill_allocations
-            (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type,
-             bill_date, due_date, amount)
-          VALUES
-            (${agent.orgId}, ${agent.connectionId}, ${mapping.internalId}, ${partyId},
-             ${row.partyName}, ${row.billName}, ${row.refType},
-             ${row.billDate ?? null}, ${row.dueDate ?? null}, ${row.amount})
-        `);
-      }
+      await this.materializeNewestBillAllocationSet(tx, agent, guid, mapping.internalId, group);
     }
-    return skipped;
+    return deferred;
+  }
+
+  /** One lock namespace for allocation arrival and voucher arrival. */
+  private async lockBillAllocationAnchors(
+    tx: Transaction,
+    connectionId: string,
+    voucherGuids: readonly string[],
+  ): Promise<void> {
+    const ordered = [...new Set(voucherGuids)].sort((left, right) => left.localeCompare(right));
+    for (const guid of ordered) {
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`bill-allocation:${connectionId}:${guid}`}, 0)
+        )
+      `);
+    }
+  }
+
+  private async deferBillAllocationSet(
+    tx: Transaction,
+    agent: WriterScope,
+    voucherGuid: string,
+    rows: readonly BillAllocationPullRow[],
+  ): Promise<void> {
+    const sourceAlterId = Math.max(...rows.map((row) => row.alterId));
+    await tx.execute(sql`
+      INSERT INTO pending_bill_allocation_sets
+        (org_id, connection_id, voucher_guid, source_alter_id, rows)
+      VALUES
+        (${agent.orgId}, ${agent.connectionId}, ${voucherGuid}, ${sourceAlterId},
+         ${JSON.stringify(rows)}::jsonb)
+      ON CONFLICT (connection_id, voucher_guid)
+      DO UPDATE SET source_alter_id = EXCLUDED.source_alter_id,
+                    rows = EXCLUDED.rows,
+                    updated_at = now()
+            WHERE pending_bill_allocation_sets.source_alter_id <= EXCLUDED.source_alter_id
+    `);
+  }
+
+  /** Called while the voucher/allocation advisory lock is already held. */
+  private async applyPendingBillAllocationSet(
+    tx: Transaction,
+    agent: WriterScope,
+    voucherGuid: string,
+    voucherId: string,
+  ): Promise<void> {
+    const pending = await this.pendingBillAllocationSet(tx, agent, voucherGuid);
+    if (pending === null) return;
+    await this.writeBillAllocationSet(tx, agent, voucherId, pending.rows);
+    await tx.execute(sql`DELETE FROM pending_bill_allocation_sets WHERE id = ${pending.id}`);
+    this.logger.log({
+      msg: 'Deferred bill allocations materialized after voucher arrival (REQ-AJ-02)',
+      connectionId: agent.connectionId,
+      voucherGuid,
+      rows: pending.rows.length,
+    });
+  }
+
+  /**
+   * Normally no staged row remains once a mapping exists. If one predates
+   * this coordination, prefer whichever complete set has the later AlterID,
+   * materialise it, and retire the staging row.
+   */
+  private async materializeNewestBillAllocationSet(
+    tx: Transaction,
+    agent: WriterScope,
+    voucherGuid: string,
+    voucherId: string,
+    incoming: readonly BillAllocationPullRow[],
+  ): Promise<void> {
+    const pending = await this.pendingBillAllocationSet(tx, agent, voucherGuid);
+    const incomingAlterId = Math.max(...incoming.map((row) => row.alterId));
+    const rows = pending !== null && pending.sourceAlterId > incomingAlterId ? pending.rows : incoming;
+    await this.writeBillAllocationSet(tx, agent, voucherId, rows);
+    if (pending !== null) {
+      await tx.execute(sql`DELETE FROM pending_bill_allocation_sets WHERE id = ${pending.id}`);
+    }
+  }
+
+  private async pendingBillAllocationSet(
+    tx: Transaction,
+    agent: WriterScope,
+    voucherGuid: string,
+  ): Promise<{ id: string; sourceAlterId: number; rows: BillAllocationPullRow[] } | null> {
+    const found = await tx.execute<{ id: string; source_alter_id: string | number; rows: unknown }>(sql`
+      SELECT id, source_alter_id, rows
+        FROM pending_bill_allocation_sets
+       WHERE org_id = ${agent.orgId} AND connection_id = ${agent.connectionId}
+         AND voucher_guid = ${voucherGuid}
+       FOR UPDATE
+    `);
+    const row = found.rows[0];
+    if (row === undefined) return null;
+    return {
+      id: row.id,
+      sourceAlterId: Number(row.source_alter_id),
+      rows: billAllocationPullRowSchema.array().parse(row.rows),
+    };
+  }
+
+  private async writeBillAllocationSet(
+    tx: Transaction,
+    agent: WriterScope,
+    voucherId: string,
+    rows: readonly BillAllocationPullRow[],
+  ): Promise<void> {
+    await tx.execute(sql`DELETE FROM bill_allocations WHERE voucher_id = ${voucherId}`);
+    for (const row of rows) {
+      const partyId = await this.resolvePartyId(tx, agent, row.partyName);
+      await tx.execute(sql`
+        INSERT INTO bill_allocations
+          (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type,
+           bill_date, due_date, amount)
+        VALUES
+          (${agent.orgId}, ${agent.connectionId}, ${voucherId}, ${partyId},
+           ${row.partyName}, ${row.billName}, ${row.refType},
+           ${row.billDate ?? null}, ${row.dueDate ?? null}, ${row.amount})
+      `);
+    }
   }
 }

@@ -3,6 +3,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -100,6 +101,41 @@ export const approvalRequests = pgTable(
     // is deliberately not the leading column: the job asks "what is stale
     // anywhere", and a leading org_id would make that a full scan per org.
     index('approval_requests_escalation_idx').on(t.status, t.currentStepStartedAt),
+  ],
+);
+
+/**
+ * Durable post-commit work for a decision/escalation. The subject's state is
+ * changed in the same transaction that inserts this row; derived recomputes,
+ * notifications and external queue hand-offs may then retry independently
+ * without making a committed decision look like an HTTP failure.
+ */
+export const approvalSettlementOutbox = pgTable(
+  'approval_settlement_outbox',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    approvalRequestId: uuid('approval_request_id')
+      .notNull()
+      .references(() => approvalRequests.id, { onDelete: 'cascade' }),
+    subjectType: text('subject_type').notNull(),
+    /** JSON form of `ApprovalSubjectDecision`, validated on recovery. */
+    decision: jsonb('decision').notNull(),
+    eventKey: text('event_key').notNull(),
+    state: text('state').notNull().default('PENDING'), // PENDING | DONE
+    attempts: integer('attempts').notNull().default(0),
+    runAfter: timestamp('run_after', { withTimezone: true }).notNull().defaultNow(),
+    claimToken: uuid('claim_token'),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('approval_settlement_outbox_event_uq').on(t.eventKey),
+    index('approval_settlement_outbox_pending_idx').on(t.state, t.runAfter),
   ],
 );
 

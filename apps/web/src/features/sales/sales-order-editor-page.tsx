@@ -29,6 +29,7 @@ import { type StockItem } from '@/features/masters/use-stock-items';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
+import { useMe } from '@/lib/session/use-session';
 import { PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS } from '@vyuha/shared';
 
 import { DispatchDialog } from './dispatch-dialog';
@@ -147,7 +148,8 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
   };
   // Crash insurance for a new document: the unsaved draft mirrors into
   // sessionStorage and comes back if the tab reloads mid-typing.
-  const backup = useDraftBackup('sales-order', draft, record === null);
+  const { data: me } = useMe();
+  const backup = useDraftBackup('sales-order', draft, record === null, me?.user.id ?? null);
 
   const [backupOffered, setBackupOffered] = useState(false);
   if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Injectable, Logger } from '@nestjs/common';
 import {
   APPROVAL_ACT_KEYS,
@@ -38,11 +40,12 @@ import {
   type Principal,
 } from '../rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
-import { users } from '../db/schema/index.js';
+import { approvalSettlementOutbox, users } from '../db/schema/index.js';
 import { approvalDelegations, delegationLiveOn } from '../db/schema/approval.schema.js';
 import { ApprovalRoutingService } from './approval-routing.service.js';
 import {
   ApprovalSubjectRegistry,
+  type ApprovalSubjectDecision,
   type ApprovalSubjectSettlement,
 } from './approval-subject.registry.js';
 import {
@@ -111,6 +114,37 @@ function isExclusionViolation(error: unknown): boolean {
   return false;
 }
 
+function asApprovalSubjectDecision(value: unknown): ApprovalSubjectDecision {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('Approval settlement carries no decision object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const status = candidate.status;
+  const decidedByUserId = candidate.decidedByUserId;
+  const at = typeof candidate.at === 'string' || candidate.at instanceof Date
+    ? new Date(candidate.at)
+    : null;
+  if (
+    typeof candidate.approvalRequestId !== 'string' ||
+    typeof candidate.subjectId !== 'string' ||
+    (status !== 'APPROVED' && status !== 'REJECTED' && status !== 'ESCALATED') ||
+    (candidate.reason !== null && typeof candidate.reason !== 'string') ||
+    (decidedByUserId !== null && typeof decidedByUserId !== 'string') ||
+    at === null ||
+    Number.isNaN(at.getTime())
+  ) {
+    throw new Error('Approval settlement carries an invalid decision payload.');
+  }
+  return {
+    approvalRequestId: candidate.approvalRequestId,
+    subjectId: candidate.subjectId,
+    status,
+    reason: candidate.reason,
+    decidedByUserId,
+    at,
+  };
+}
+
 /**
  * What a slice hands the framework to put something up for approval.
  *
@@ -137,6 +171,9 @@ export interface RaiseApprovalInput {
 
 /** How many stale requests one sweep will move. */
 const ESCALATION_BATCH = 500;
+const SETTLEMENT_BATCH = 100;
+const SETTLEMENT_STALE_MS = 5 * 60 * 1000;
+const SETTLEMENT_MAX_ATTEMPTS = 10;
 
 export interface EscalationOutcome {
   readonly scanned: number;
@@ -309,8 +346,9 @@ export class ApprovalService {
     subjectType: string,
     subjectId: string,
     reason: string,
+    executor: Database = this.db,
   ): Promise<ApprovalRequestDetail | null> {
-    const requests = new ApprovalRepository(this.db, ctx, this.subjects);
+    const requests = new ApprovalRepository(executor, ctx, this.subjects);
     const row = await requests.findBySubject(subjectType, subjectId);
     if (row === null || (row.status !== 'PENDING' && row.status !== 'ESCALATED')) return null;
 
@@ -331,7 +369,7 @@ export class ApprovalService {
       after: { status: 'CANCELLED', reason },
     });
 
-    return this.buildDetail(ctx, row.id);
+    return this.buildDetail(ctx, row.id, executor);
   }
 
   // ------------------------------------------------------------------ reading
@@ -380,7 +418,10 @@ export class ApprovalService {
     const ctx = orgContextOf(principal);
     const outcome = await this.applyDecision(principal, ctx, id, action, reason);
     if (!outcome.ok) throw this.toError(outcome.refusal);
-    if (outcome.settle !== null) await outcome.settle();
+    outcome.record();
+    if (outcome.settle !== null) {
+      await this.settleAfterCommit(outcome.settlementId, outcome.settle);
+    }
     return this.buildDetail(ctx, id);
   }
 
@@ -417,11 +458,204 @@ export class ApprovalService {
       // Settled one at a time rather than gathered and run at the end: the
       // decision is already committed, so a failure here must not stop the
       // rows after it from being told about their own decisions.
-      if (outcome.settle !== null) await outcome.settle();
+      outcome.record();
+      if (outcome.settle !== null) {
+        await this.settleAfterCommit(outcome.settlementId, outcome.settle);
+      }
       applied.push(id);
     }
 
     return { applied, skipped };
+  }
+
+  /**
+   * Runs post-commit work without ever turning a committed decision into a
+   * false HTTP failure. When an outbox row exists, failure returns it to
+   * PENDING for the recurring recovery job.
+   */
+  private async settleAfterCommit(
+    settlementId: string | null,
+    work: ApprovalSubjectSettlement,
+  ): Promise<void> {
+    if (settlementId === null) {
+      try {
+        await work();
+      } catch (error: unknown) {
+        this.logger.error({
+          msg: 'Non-durable approval post-commit work failed.',
+          reason: describeError(error),
+        });
+      }
+      return;
+    }
+
+    try {
+      const claimed = await this.claimSettlement(settlementId);
+      if (claimed === null) return;
+      await this.runClaimedSettlement(claimed, work);
+    } catch (error: unknown) {
+      // The row was committed with the decision and remains PENDING if even
+      // claiming it failed. Reporting success is the only honest answer for
+      // the already-committed decision; the sweep will try again.
+      this.logger.error({
+        msg: 'Approval post-commit work remains in the durable outbox.',
+        settlementId,
+        reason: describeError(error),
+      });
+    }
+  }
+
+  /** Called by the recurring job; public so recovery tests can drive it. */
+  async drainSettlementOutbox(): Promise<{
+    scanned: number;
+    settled: number;
+    failed: number;
+    remaining: number;
+  }> {
+    await this.db.execute(sql`
+      UPDATE approval_settlement_outbox
+         SET state = 'PENDING', claim_token = NULL, claimed_at = NULL, updated_at = now()
+       WHERE state = 'CLAIMED'
+         AND claimed_at < now() - (${SETTLEMENT_STALE_MS} * interval '1 millisecond')
+    `);
+
+    let scanned = 0;
+    let settled = 0;
+    for (; scanned < SETTLEMENT_BATCH; scanned += 1) {
+      const claimed = await this.claimSettlement();
+      if (claimed === null) break;
+      if (await this.runClaimedSettlement(claimed)) settled += 1;
+    }
+
+    const remainingRows = await this.db.execute<{ count: number }>(sql`
+      SELECT count(*)::int AS count
+        FROM approval_settlement_outbox
+       WHERE state IN ('PENDING', 'CLAIMED')
+    `);
+    return {
+      scanned,
+      settled,
+      failed: scanned - settled,
+      remaining: remainingRows.rows[0]?.count ?? 0,
+    };
+  }
+
+  private async claimSettlement(id?: string): Promise<{
+    id: string;
+    orgId: string;
+    subjectType: string;
+    decision: unknown;
+    attempts: number;
+    claimToken: string;
+  } | null> {
+    const claimToken = randomUUID();
+    const rows = await this.db.execute<{
+      id: string;
+      org_id: string;
+      subject_type: string;
+      decision: unknown;
+      attempts: number;
+    }>(sql`
+      UPDATE approval_settlement_outbox
+         SET state = 'CLAIMED', claim_token = ${claimToken}, claimed_at = now(),
+             attempts = attempts + 1, updated_at = now()
+       WHERE id = (
+         SELECT id FROM approval_settlement_outbox
+          WHERE state = 'PENDING' AND run_after <= now()
+            ${id === undefined ? sql`` : sql`AND id = ${id}`}
+          ORDER BY run_after
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+       )
+       RETURNING id, org_id, subject_type, decision, attempts
+    `);
+    const row = rows.rows[0];
+    return row === undefined
+      ? null
+      : {
+          id: row.id,
+          orgId: row.org_id,
+          subjectType: row.subject_type,
+          decision: row.decision,
+          attempts: row.attempts,
+          claimToken,
+        };
+  }
+
+  private async runClaimedSettlement(
+    row: {
+      id: string;
+      orgId: string;
+      subjectType: string;
+      decision: unknown;
+      attempts: number;
+      claimToken: string;
+    },
+    immediate?: ApprovalSubjectSettlement,
+  ): Promise<boolean> {
+    const renew = setInterval(() => {
+      void this.db
+        .execute(sql`
+          UPDATE approval_settlement_outbox SET claimed_at = now()
+           WHERE id = ${row.id} AND state = 'CLAIMED' AND claim_token = ${row.claimToken}
+        `)
+        .catch((error: unknown) => {
+          this.logger.warn({
+            msg: 'Could not renew an approval-settlement claim.',
+            settlementId: row.id,
+            reason: describeError(error),
+          });
+        });
+    }, Math.floor(SETTLEMENT_STALE_MS / 3));
+    try {
+      if (immediate !== undefined) {
+        await immediate();
+      } else {
+        const decision = asApprovalSubjectDecision(row.decision);
+        const handler = this.subjects.get(row.subjectType);
+        if (handler?.recoverSettlement === undefined) {
+          throw new Error(
+            `Approval subject "${row.subjectType}" cannot recover post-commit settlement.`,
+          );
+        }
+        await handler.recoverSettlement(
+          { orgId: row.orgId, actorUserId: decision.decidedByUserId },
+          decision,
+        );
+      }
+
+      const completed = await this.db.execute<{ id: string }>(sql`
+        UPDATE approval_settlement_outbox
+           SET state = 'DONE', claim_token = NULL, claimed_at = NULL,
+               completed_at = now(), last_error = NULL, updated_at = now()
+         WHERE id = ${row.id} AND state = 'CLAIMED' AND claim_token = ${row.claimToken}
+         RETURNING id
+      `);
+      return completed.rows.length > 0;
+    } catch (error: unknown) {
+      const permanent = row.attempts >= SETTLEMENT_MAX_ATTEMPTS;
+      const retryMs = Math.min(5 * 60_000, 2 ** Math.max(0, row.attempts - 1) * 2_000);
+      await this.db.execute(sql`
+        UPDATE approval_settlement_outbox
+           SET state = ${permanent ? 'FAILED' : 'PENDING'},
+               claim_token = NULL, claimed_at = NULL,
+               run_after = now() + (${retryMs} * interval '1 millisecond'),
+               last_error = ${describeError(error).slice(0, 500)}, updated_at = now()
+         WHERE id = ${row.id} AND state = 'CLAIMED' AND claim_token = ${row.claimToken}
+      `);
+      this.logger.error({
+        msg: permanent
+          ? 'Approval post-commit settlement exhausted its retries.'
+          : 'Approval post-commit settlement failed and will retry.',
+        settlementId: row.id,
+        subjectType: row.subjectType,
+        attempt: row.attempts,
+        reason: describeError(error),
+      });
+      return false;
+    } finally {
+      clearInterval(renew);
+    }
   }
 
   // -------------------------------------------------------------- delegation
@@ -672,7 +906,12 @@ export class ApprovalService {
     action: ApprovalDecision,
     reason: string | null,
   ): Promise<
-    | { ok: true; settle: ApprovalSubjectSettlement | null }
+    | {
+        ok: true;
+        record: () => void;
+        settle: ApprovalSubjectSettlement | null;
+        settlementId: string | null;
+      }
     | { ok: false; refusal: DecisionRefusal }
   > {
     try {
@@ -696,7 +935,12 @@ export class ApprovalService {
     action: ApprovalDecision,
     reason: string | null,
   ): Promise<
-    | { ok: true; settle: ApprovalSubjectSettlement | null }
+    | {
+        ok: true;
+        record: () => void;
+        settle: ApprovalSubjectSettlement | null;
+        settlementId: string | null;
+      }
     | { ok: false; refusal: DecisionRefusal }
   > {
     const requests = new ApprovalRepository(tx, ctx, this.subjects);
@@ -807,21 +1051,35 @@ export class ApprovalService {
     // Only a status the subject has to mirror. An approval that merely moved
     // to the next level is nothing to the subject: it is still pending, and
     // saying so twice would be two records agreeing loudly about nothing.
-    const settle =
-      updated.status === 'APPROVED' || updated.status === 'REJECTED'
-        ? await handler.applyDecision(
-            ctx,
-            {
-              approvalRequestId: id,
-              subjectId: request.subjectId,
-              status: updated.status,
-              reason,
-              decidedByUserId: principal.userId,
-              at: now,
-            },
-            tx,
-          )
-        : null;
+    let decision: ApprovalSubjectDecision | null = null;
+    let subjectSettlement: ApprovalSubjectSettlement | null = null;
+    if (updated.status === 'APPROVED' || updated.status === 'REJECTED') {
+      decision = {
+        approvalRequestId: id,
+        subjectId: request.subjectId,
+        status: updated.status,
+        reason,
+        decidedByUserId: principal.userId,
+        at: now,
+      };
+      subjectSettlement = await handler.applyDecision(ctx, decision, tx);
+    }
+
+    let settlementId: string | null = null;
+    if (subjectSettlement !== null && decision !== null) {
+      const settlement = await tx
+        .insert(approvalSettlementOutbox)
+        .values({
+          orgId: ctx.orgId,
+          approvalRequestId: id,
+          subjectType: request.subjectType,
+          decision,
+          eventKey: `${id}.${String(current.stepNo)}.${updated.status}`,
+        })
+        .returning({ id: approvalSettlementOutbox.id });
+      settlementId = settlement[0]?.id ?? null;
+      if (settlementId === null) throw new Error('Approval settlement outbox insert returned no row.');
+    }
 
     const record = (): void => {
       this.auditContext.record({
@@ -846,10 +1104,9 @@ export class ApprovalService {
     // transaction would leave an entry saying "approved" behind a rollback.
     return {
       ok: true,
-      settle: async () => {
-        record();
-        if (settle !== null) await settle();
-      },
+      settlementId,
+      record,
+      settle: subjectSettlement,
     };
   }
 

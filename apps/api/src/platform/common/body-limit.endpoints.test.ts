@@ -31,4 +31,9 @@ describe('the JSON body limit', () => {
     const response = await harness.post('/sync/agent/results', { body: twoMegabytes });
     expect(response.status, JSON.stringify(response.body).slice(0, 300)).not.toBe(413);
   });
+
+  it('does not grant the large limit to unknown sync routes', async () => {
+    const response = await harness.post('/sync/not-a-route', { body: twoMegabytes });
+    expect(response.status).toBe(413);
+  });
 });

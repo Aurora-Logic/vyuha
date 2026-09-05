@@ -4,6 +4,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -370,5 +371,36 @@ export const billAllocations = pgTable(
     index('bill_allocations_bill_idx').on(t.orgId, t.partyName, t.billName),
     // A re-pull rewrites a voucher's allocations as a set.
     index('bill_allocations_voucher_idx').on(t.voucherId),
+  ],
+);
+
+/**
+ * Complete bill-allocation sets whose voucher GUID has not been projected
+ * yet. The sync cursor may advance once this row commits because the data is
+ * durable; the voucher writer drains it in the same transaction that creates
+ * the GUID mapping (REQ-AJ-02).
+ */
+export const pendingBillAllocationSets = pgTable(
+  'pending_bill_allocation_sets',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => integrationConnections.id, { onDelete: 'cascade' }),
+    voucherGuid: text('voucher_guid').notNull(),
+    sourceAlterId: bigint('source_alter_id', { mode: 'number' }).notNull(),
+    /** Validated BillAllocationPullRow[]; parsed again before materialising. */
+    rows: jsonb('rows').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('pending_bill_allocation_sets_connection_voucher_uq').on(
+      t.connectionId,
+      t.voucherGuid,
+    ),
   ],
 );

@@ -365,18 +365,23 @@ export class EmployeeDataExportService {
     });
 
     const finishedAt = new Date();
-    await this.db
-      .update(exportJobs)
-      .set({
-        status: 'DONE',
-        fileId: stored.id,
-        rowCount: writer.rowCount,
-        progress: 100,
-        error: null,
-        finishedAt,
-        updatedAt: finishedAt,
-      })
-      .where(eq(exportJobs.id, row.id));
+    try {
+      await this.db
+        .update(exportJobs)
+        .set({
+          status: 'DONE',
+          fileId: stored.id,
+          rowCount: writer.rowCount,
+          progress: 100,
+          error: null,
+          finishedAt,
+          updatedAt: finishedAt,
+        })
+        .where(eq(exportJobs.id, row.id));
+    } catch (error) {
+      await this.filesService.discardUnreferenced(row.orgId, [stored.id]);
+      throw error;
+    }
 
     // Written directly rather than through `AuditContext`: a job has no request
     // to enrich, and the completed export -- with what it contained and the

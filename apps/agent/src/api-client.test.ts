@@ -18,7 +18,8 @@ describe('AgentApiClient', () => {
       (_url: string, init: RequestInit) =>
         new Promise((_resolve, reject) => {
           init.signal?.addEventListener('abort', () => {
-            reject(init.signal?.reason);
+            const reason: unknown = init.signal?.reason;
+            reject(reason instanceof Error ? reason : new Error('Request aborted', { cause: reason }));
           });
         }),
     );

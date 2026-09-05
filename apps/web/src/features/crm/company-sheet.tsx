@@ -8,7 +8,7 @@ import { RecordPicker, type PickerOption } from '@/components/shared/record-pick
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
@@ -22,6 +22,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
+import { companyDraftErrors } from './company-validation';
 import { DeleteCompanyDialog } from './delete-dialogs';
 import type { Company, CompanyDraft } from './types';
 import { useSaveCompany } from './use-crm';
@@ -77,6 +78,7 @@ function CompanySheetBody({
   onDeleted?: () => void;
 }) {
   const [draft, setDraft] = useState<CompanyDraft>(initial);
+  const [attempted, setAttempted] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const save = useSaveCompany();
   const canAssign = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_ALL);
@@ -89,10 +91,12 @@ function CompanySheetBody({
     label: o.name,
     ...(o.hint === undefined ? {} : { hint: o.hint }),
   }));
-  const nameMissing = draft.name.trim().length === 0;
+  const errors = companyDraftErrors(draft);
+  const valid = Object.keys(errors).length === 0;
 
   function submit() {
-    if (nameMissing || save.isPending) return;
+    setAttempted(true);
+    if (!valid || save.isPending) return;
     save.mutate(draft, {
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? 'Company added' : 'Company saved', description: saved.name });
@@ -146,72 +150,82 @@ function CompanySheetBody({
             </Alert>
           ) : null}
 
-          <Field>
+          <Field data-invalid={attempted && errors.name ? true : undefined}>
             <FieldLabel htmlFor="company-name">Name</FieldLabel>
             <Input
               id="company-name"
               autoFocus
               autoComplete="organization"
+              aria-invalid={attempted && errors.name ? true : undefined}
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
               }}
             />
+            {attempted && errors.name ? <FieldError>{errors.name}</FieldError> : null}
           </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
+            <Field data-invalid={attempted && errors.phone ? true : undefined}>
               <FieldLabel htmlFor="company-phone">Phone</FieldLabel>
               <Input
                 id="company-phone"
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
+                aria-invalid={attempted && errors.phone ? true : undefined}
                 value={draft.phone}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, phone: event.target.value }));
                 }}
               />
+              {attempted && errors.phone ? <FieldError>{errors.phone}</FieldError> : null}
             </Field>
-            <Field>
+            <Field data-invalid={attempted && errors.email ? true : undefined}>
               <FieldLabel htmlFor="company-email">Email</FieldLabel>
               <Input
                 id="company-email"
                 type="email"
                 inputMode="email"
                 autoComplete="off"
+                aria-invalid={attempted && errors.email ? true : undefined}
                 value={draft.email}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, email: event.target.value }));
                 }}
               />
+              {attempted && errors.email ? <FieldError>{errors.email}</FieldError> : null}
             </Field>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
+            <Field data-invalid={attempted && errors.website ? true : undefined}>
               <FieldLabel htmlFor="company-website">Website</FieldLabel>
               <Input
                 id="company-website"
                 inputMode="url"
                 autoComplete="off"
+                aria-invalid={attempted && errors.website ? true : undefined}
                 placeholder="acme.example"
                 value={draft.website}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, website: event.target.value }));
                 }}
               />
+              {attempted && errors.website ? <FieldError>{errors.website}</FieldError> : null}
             </Field>
-            <Field>
+            <Field data-invalid={attempted && errors.city ? true : undefined}>
               <FieldLabel htmlFor="company-city">City</FieldLabel>
               <Input
                 id="company-city"
                 autoComplete="off"
+                aria-invalid={attempted && errors.city ? true : undefined}
                 value={draft.city}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, city: event.target.value }));
                 }}
               />
+              {attempted && errors.city ? <FieldError>{errors.city}</FieldError> : null}
             </Field>
           </div>
 
@@ -238,16 +252,18 @@ function CompanySheetBody({
             </Field>
           ) : null}
 
-          <Field>
+          <Field data-invalid={attempted && errors.notes ? true : undefined}>
             <FieldLabel htmlFor="company-notes">Notes</FieldLabel>
             <Textarea
               id="company-notes"
               rows={3}
+              aria-invalid={attempted && errors.notes ? true : undefined}
               value={draft.notes}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, notes: event.target.value }));
               }}
             />
+            {attempted && errors.notes ? <FieldError>{errors.notes}</FieldError> : null}
           </Field>
 
           {record?.partyId ? (
@@ -285,7 +301,7 @@ function CompanySheetBody({
           <ACTION_ICONS.cancel data-icon="inline-start" />
           Cancel
         </Button>
-        <Button className="flex-1 sm:flex-none" disabled={save.isPending || nameMissing} onClick={submit}>
+        <Button className="flex-1 sm:flex-none" disabled={save.isPending} onClick={submit}>
           {save.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
           {save.isPending ? 'Saving' : 'Save'}
           <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />

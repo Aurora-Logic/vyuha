@@ -276,40 +276,54 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
    * row under `FOR UPDATE` so two estimates raised together cannot share it.
    */
   async create(header: EstimateHeaderInput, lines: readonly RepositoryLineInput[]): Promise<string> {
-    return this.db.transaction(async (tx) => {
-      const number = await this.nextNumber(tx);
-      const inserted = await tx
-        .insert(salesDocuments)
-        .values({
-          orgId: this.ctx.orgId,
-          docType: this.docType,
-          number,
-          status: header.status ?? 'DRAFT',
-          sourceDocumentId: header.sourceDocumentId ?? null,
-          returnId: header.returnId ?? null,
-          date: header.date,
-          validUntil: header.validUntil,
-          partyId: header.partyId,
-          companyId: header.companyId,
-          dealId: header.dealId,
-          customerName: header.customerName,
-          ownerId: header.ownerId,
-          notes: header.notes,
-          terms: header.terms,
-          customerEmail: header.customerEmail ?? null,
-          customerWhatsapp: header.customerWhatsapp ?? null,
-          placeOfSupply: header.placeOfSupply ?? null,
-          shipTo: header.shipTo ?? null,
-          details: header.details ?? null,
-          createdBy: this.ctx.actorUserId,
-          updatedBy: this.ctx.actorUserId,
-        })
-        .returning({ id: salesDocuments.id });
-      const id = inserted[0]?.id;
-      if (id === undefined) throw new Error('Estimate insert returned no row.');
-      await this.replaceLines(tx, id, lines);
-      return id;
-    });
+    return this.db.transaction((tx) => this.createWithin(tx, header, lines));
+  }
+
+  /**
+   * The same document write, joined to a caller-owned transaction.
+   *
+   * A return's replacement uses this seam so the order and the return's
+   * charge/quantity decision are one database fact (REQ-AK-08/AK-09). A
+   * nested repository transaction would commit the order even if updating
+   * the return failed immediately afterwards.
+   */
+  async createWithin(
+    tx: Transaction,
+    header: EstimateHeaderInput,
+    lines: readonly RepositoryLineInput[],
+  ): Promise<string> {
+    const number = await this.nextNumber(tx);
+    const inserted = await tx
+      .insert(salesDocuments)
+      .values({
+        orgId: this.ctx.orgId,
+        docType: this.docType,
+        number,
+        status: header.status ?? 'DRAFT',
+        sourceDocumentId: header.sourceDocumentId ?? null,
+        returnId: header.returnId ?? null,
+        date: header.date,
+        validUntil: header.validUntil,
+        partyId: header.partyId,
+        companyId: header.companyId,
+        dealId: header.dealId,
+        customerName: header.customerName,
+        ownerId: header.ownerId,
+        notes: header.notes,
+        terms: header.terms,
+        customerEmail: header.customerEmail ?? null,
+        customerWhatsapp: header.customerWhatsapp ?? null,
+        placeOfSupply: header.placeOfSupply ?? null,
+        shipTo: header.shipTo ?? null,
+        details: header.details ?? null,
+        createdBy: this.ctx.actorUserId,
+        updatedBy: this.ctx.actorUserId,
+      })
+      .returning({ id: salesDocuments.id });
+    const id = inserted[0]?.id;
+    if (id === undefined) throw new Error('Estimate insert returned no row.');
+    await this.replaceLines(tx, id, lines);
+    return id;
   }
 
   async updateHeader(id: string, patch: Partial<EstimateHeaderInput>, lines: readonly RepositoryLineInput[] | undefined): Promise<boolean> {

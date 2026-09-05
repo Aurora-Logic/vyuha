@@ -48,6 +48,7 @@ type ClaimedRow = {
   job_name: string;
   payload: unknown;
   attempts: number;
+  claim_generation: number;
 };
 
 @Injectable()
@@ -229,7 +230,8 @@ export class FallbackJobRunner implements OnApplicationShutdown {
   private async claimOne(): Promise<ClaimedRow | null> {
     const rows = await this.db.execute<ClaimedRow>(sql`
       UPDATE fallback_jobs
-         SET state = 'CLAIMED', claimed_by = ${this.instanceId}, claimed_at = now(), attempts = attempts + 1, updated_at = now()
+         SET state = 'CLAIMED', claimed_by = ${this.instanceId}, claimed_at = now(),
+             claim_generation = claim_generation + 1, attempts = attempts + 1, updated_at = now()
        WHERE id = (
          SELECT id FROM fallback_jobs
           WHERE state = 'QUEUED' AND run_after <= now()
@@ -237,7 +239,7 @@ export class FallbackJobRunner implements OnApplicationShutdown {
           LIMIT 1
           FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, job_name, payload, attempts
+       RETURNING id, job_name, payload, attempts, claim_generation
     `);
     return rows.rows[0] ?? null;
   }
@@ -245,7 +247,7 @@ export class FallbackJobRunner implements OnApplicationShutdown {
   private async runClaimed(row: ClaimedRow): Promise<void> {
     const handler = this.registry.get(row.job_name);
     if (handler === null) {
-      await this.markFailed(row.id, `No handler is registered for job "${row.job_name}".`);
+      await this.markFailed(row, `No handler is registered for job "${row.job_name}".`);
       return;
     }
 
@@ -255,7 +257,9 @@ export class FallbackJobRunner implements OnApplicationShutdown {
     // stale sweep is for (H-07).
     const renew = setInterval(() => {
       void this.db
-        .execute(sql`UPDATE fallback_jobs SET claimed_at = now() WHERE id = ${row.id} AND claimed_by = ${this.instanceId} AND state = 'CLAIMED'`)
+        .execute(sql`UPDATE fallback_jobs SET claimed_at = now()
+          WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+            AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'`)
         .catch((error: unknown) => {
           this.logger.warn({ msg: 'Could not renew a fallback job claim', jobId: row.id, reason: describeError(error) });
         });
@@ -266,7 +270,17 @@ export class FallbackJobRunner implements OnApplicationShutdown {
         attempt: row.attempts,
       });
       clearInterval(renew);
-      await this.db.execute(sql`UPDATE fallback_jobs SET state = 'DONE', updated_at = now() WHERE id = ${row.id}`);
+      const completed = await this.db.execute<{ id: string }>(sql`
+        UPDATE fallback_jobs
+           SET state = 'DONE', claimed_by = NULL, claimed_at = NULL, updated_at = now()
+         WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+           AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'
+         RETURNING id
+      `);
+      if (completed.rows.length === 0) {
+        this.logLostLease(row, 'completion');
+        return;
+      }
       this.logger.log({ msg: 'Fallback job completed', jobName: row.job_name, jobId: row.id, ...result });
     } catch (error: unknown) {
       clearInterval(renew);
@@ -277,22 +291,49 @@ export class FallbackJobRunner implements OnApplicationShutdown {
       if (row.attempts < attempts) {
         // BullMQ's own exponential formula: delayMs = 2^(attemptsMade-1) * baseDelay.
         const delayMs = Math.round(2 ** (row.attempts - 1) * baseDelay);
-        await this.db.execute(sql`
-          UPDATE fallback_jobs SET state = 'QUEUED', run_after = now() + (${delayMs} * interval '1 millisecond'), last_error = ${reason.slice(0, 500)}, updated_at = now()
-           WHERE id = ${row.id}
+        const requeued = await this.db.execute<{ id: string }>(sql`
+          UPDATE fallback_jobs
+             SET state = 'QUEUED', run_after = now() + (${delayMs} * interval '1 millisecond'),
+                 claimed_by = NULL, claimed_at = NULL,
+                 last_error = ${reason.slice(0, 500)}, updated_at = now()
+           WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+             AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'
+           RETURNING id
         `);
+        if (requeued.rows.length === 0) {
+          this.logLostLease(row, 'retry');
+          return;
+        }
         this.logger.warn({ msg: 'Fallback job attempt failed; it will be retried.', jobName: row.job_name, jobId: row.id, attempt: row.attempts, of: attempts, reason });
       } else {
-        await this.markFailed(row.id, reason);
-        this.logger.error({ msg: 'Fallback job failed permanently.', jobName: row.job_name, jobId: row.id, attempt: row.attempts, reason });
+        if (await this.markFailed(row, reason)) {
+          this.logger.error({ msg: 'Fallback job failed permanently.', jobName: row.job_name, jobId: row.id, attempt: row.attempts, reason });
+        }
       }
     }
   }
 
-  private async markFailed(id: string, reason: string): Promise<void> {
-    await this.db.execute(sql`
-      UPDATE fallback_jobs SET state = 'FAILED', last_error = ${reason.slice(0, 500)}, updated_at = now() WHERE id = ${id}
+  private async markFailed(row: ClaimedRow, reason: string): Promise<boolean> {
+    const failed = await this.db.execute<{ id: string }>(sql`
+      UPDATE fallback_jobs
+         SET state = 'FAILED', claimed_by = NULL, claimed_at = NULL,
+             last_error = ${reason.slice(0, 500)}, updated_at = now()
+       WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+         AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'
+       RETURNING id
     `);
+    if (failed.rows.length === 0) this.logLostLease(row, 'failure');
+    return failed.rows.length > 0;
+  }
+
+  private logLostLease(row: ClaimedRow, outcome: string): void {
+    this.logger.warn({
+      msg: 'Discarded a stale fallback job outcome after its lease was lost.',
+      jobName: row.job_name,
+      jobId: row.id,
+      claimGeneration: row.claim_generation,
+      outcome,
+    });
   }
 
   /** Abandoned rows aren't swept by a BullMQ-scheduled purge job — that would be circular, since this exists because BullMQ is down. */

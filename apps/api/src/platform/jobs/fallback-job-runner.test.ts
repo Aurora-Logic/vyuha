@@ -37,11 +37,44 @@ class StubHandler implements JobHandler<'purge-expired-files'> {
   }
 }
 
+class BlockingHandler implements JobHandler<'purge-expired-files'> {
+  readonly jobName = 'purge-expired-files';
+  private releaseRun: (() => void) | undefined;
+  private markStarted: () => void = () => undefined;
+  readonly started: Promise<void>;
+
+  constructor() {
+    this.started = new Promise<void>((resolve) => {
+      this.markStarted = resolve;
+    });
+  }
+
+  run(
+    _payload: JobPayloads['purge-expired-files'],
+    _context: JobContext,
+  ): Promise<JobResult> {
+    this.markStarted();
+    return new Promise((resolve) => {
+      this.releaseRun = () => resolve({ ran: true });
+    });
+  }
+
+  release(): void {
+    this.releaseRun?.();
+  }
+}
+
 function newFallback(): { fallback: FallbackJobRunner; stub: StubHandler } {
   const registry = new JobRegistry();
   const stub = new StubHandler();
   registry.register(stub);
   return { fallback: new FallbackJobRunner(db, registry), stub };
+}
+
+function fallbackFor(handler: JobHandler<'purge-expired-files'>): FallbackJobRunner {
+  const registry = new JobRegistry();
+  registry.register(handler);
+  return new FallbackJobRunner(db, registry);
 }
 
 async function rowFor(id: string): Promise<{ state: string; attempts: number; last_error: string | null } | undefined> {
@@ -146,6 +179,40 @@ describe('FallbackJobRunner.enqueue + workerTick', () => {
     const row = await rowFor(id);
     // Requeued, then immediately reclaimed and run by the same tick.
     expect(row?.state).toBe('DONE');
+  });
+
+  it('does not let the old worker overwrite a successor after lease takeover', async () => {
+    const inserted = await db.execute<{ id: string }>(sql`
+      INSERT INTO fallback_jobs (job_name, payload, attempts)
+      VALUES ('purge-expired-files', '{"requestedAt":"2026-01-01T00:00:00.000Z"}'::jsonb, 3)
+      RETURNING id
+    `);
+    const id = inserted.rows[0]?.id;
+    if (id === undefined) throw new Error('seed insert returned no row');
+    insertedJobIds.push(id);
+
+    const firstHandler = new BlockingHandler();
+    const firstTick = fallbackFor(firstHandler).workerTick();
+    await firstHandler.started;
+
+    // The first invocation is still running but has lost a five-minute lease.
+    await db.execute(sql`
+      UPDATE fallback_jobs SET claimed_at = now() - interval '10 minutes' WHERE id = ${id}
+    `);
+
+    const secondHandler = new StubHandler();
+    secondHandler.shouldFail = true;
+    await fallbackFor(secondHandler).workerTick();
+    expect((await rowFor(id))?.state).toBe('FAILED');
+
+    // Its successful result arrives late. Generation 1 must not overwrite the
+    // FAILED outcome written by generation 2.
+    firstHandler.release();
+    await firstTick;
+    const final = await db.execute<{ state: string; attempts: number; claim_generation: number }>(sql`
+      SELECT state, attempts, claim_generation FROM fallback_jobs WHERE id = ${id}
+    `);
+    expect(final.rows[0]).toMatchObject({ state: 'FAILED', attempts: 5, claim_generation: 2 });
   });
 });
 

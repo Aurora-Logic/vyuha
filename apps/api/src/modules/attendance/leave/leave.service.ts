@@ -675,6 +675,7 @@ export class LeaveService {
     orgId: string,
     request: { employeeId: string; leaveTypeName: string; totalDays: number },
     closingAfter: number | null,
+    approvalRequestId?: string,
   ): Promise<void> {
     if (closingAfter === null) return;
 
@@ -686,6 +687,9 @@ export class LeaveService {
       type: NOTIFICATION_EVENTS.LEAVE_BALANCE_LOW,
       audience: { kind: 'employees', employeeIds: [request.employeeId] },
       payload: { leaveType: request.leaveTypeName, remainingDays: closingAfter },
+      ...(approvalRequestId === undefined
+        ? {}
+        : { idempotencyKey: `approval-settlement.${approvalRequestId}.leave-balance-low` }),
     });
   }
 
@@ -812,6 +816,7 @@ export class LeaveService {
             reason: decision.reason,
             leaveRequestId: decision.subjectId,
           },
+          idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-rejected`,
         });
       };
     }
@@ -887,7 +892,7 @@ export class LeaveService {
         orgId: ctx.orgId,
         type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
         audience: { kind: 'employees', employeeIds: [request.employeeId] },
-        payload: {
+          payload: {
           leaveType: request.leaveTypeName,
           fromDate: request.fromDate,
           toDate: request.toDate,
@@ -896,14 +901,71 @@ export class LeaveService {
           // as "your approver" -- better than the email address this used to
           // put in the body of a message the whole team can be copied on.
           approverName: updated.decidedByName,
-          leaveRequestId: decision.subjectId,
-        },
+            leaveRequestId: decision.subjectId,
+          },
+          idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-approved`,
       });
 
       // REQ-K-03's low-balance warning, after the approval it was caused by,
       // and only when this deduction is what crossed the threshold.
-      await this.warnIfBalanceLow(ctx.orgId, request, projected.closing);
+      await this.warnIfBalanceLow(ctx.orgId, request, projected.closing, decision.approvalRequestId);
     };
+  }
+
+  /** Rebuilds idempotent derived work when the approval outbox retries. */
+  async recoverApprovalSettlement(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+  ): Promise<void> {
+    const repository = this.repositoryFor(ctx.orgId, ctx.actorUserId);
+    const request = await repository.findRequest(decision.subjectId);
+    if (request === null) throw AppError.notFound('Leave request', decision.subjectId);
+
+    if (decision.status === 'ESCALATED') return;
+    if (decision.status === 'APPROVED') {
+      await this.recomputeRequestDays(ctx, repository, request.employeeId, decision.subjectId);
+      const leaveYear = await this.leaveYearFor(repository, request.fromDate);
+      const projected = await this.recomputeBalance(
+        repository,
+        request.employeeId,
+        request.leaveTypeId,
+        leaveYear,
+      );
+      await this.notifications.emit({
+        orgId: ctx.orgId,
+        type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
+        audience: { kind: 'employees', employeeIds: [request.employeeId] },
+        payload: {
+          leaveType: request.leaveTypeName,
+          fromDate: request.fromDate,
+          toDate: request.toDate,
+          approverName: request.decidedByName,
+          leaveRequestId: request.id,
+        },
+        idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-approved`,
+      });
+      await this.warnIfBalanceLow(
+        ctx.orgId,
+        request,
+        projected.closing,
+        decision.approvalRequestId,
+      );
+      return;
+    }
+
+    await this.notifications.emit({
+      orgId: ctx.orgId,
+      type: NOTIFICATION_EVENTS.LEAVE_REJECTED,
+      audience: { kind: 'employees', employeeIds: [request.employeeId] },
+      payload: {
+        leaveType: request.leaveTypeName,
+        fromDate: request.fromDate,
+        toDate: request.toDate,
+        reason: decision.reason,
+        leaveRequestId: request.id,
+      },
+      idempotencyKey: `approval-settlement.${decision.approvalRequestId}.leave-rejected`,
+    });
   }
 
   /**

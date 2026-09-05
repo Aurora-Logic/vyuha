@@ -511,17 +511,27 @@ export class DealService {
   async addAttachment(principal: Principal, dealId: string, file: { bytes: Buffer; filename: string }): Promise<DealAttachmentView> {
     const deal = await this.findDeal(principal, dealId);
     const isImage = isAcceptedUpload(sniffType(file.bytes));
-    const stored = isImage
-      ? await this.files.storeImage({ orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, pathSegments: [deal.id] })
-      : await this.files.storeUpload({ orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, filename: file.filename, pathSegments: [deal.id] });
+    const { stored, row } = await this.db.transaction(async (tx) => {
+      const stored = isImage
+        ? await this.files.storeImage(
+            { orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, pathSegments: [deal.id] },
+            { executor: tx, deferFinalization: true },
+          )
+        : await this.files.storeUpload(
+            { orgId: principal.orgId, uploadedBy: principal.userId, purpose: 'CRM_ATTACHMENT', bytes: file.bytes, filename: file.filename, pathSegments: [deal.id] },
+            { executor: tx, deferFinalization: true },
+          );
 
-    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
-      INSERT INTO crm_deal_attachments (org_id, deal_id, file_id, filename, created_by, updated_by)
-      VALUES (${principal.orgId}, ${deal.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
-      RETURNING id, created_at AS "createdAt"
-    `);
-    const row = inserted.rows[0];
-    if (row === undefined) throw new Error('Attachment insert returned no row.');
+      const inserted = await tx.execute<{ id: string; createdAt: string | Date }>(sql`
+        INSERT INTO crm_deal_attachments (org_id, deal_id, file_id, filename, created_by, updated_by)
+        VALUES (${principal.orgId}, ${deal.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+        RETURNING id, created_at AS "createdAt"
+      `);
+      const row = inserted.rows[0];
+      if (row === undefined) throw new Error('Attachment insert returned no row.');
+      return { stored, row };
+    });
+    await this.files.finalizeStoredFiles([stored.id]);
     this.auditContext.record({
       action: 'crm.deal.attachment_added',
       entityType: 'crm_deal',

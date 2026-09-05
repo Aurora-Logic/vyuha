@@ -169,6 +169,23 @@ export class PunchFlagReviewService {
       await this.dayEngine.forOrg(ctx).computeDay(punch.employeeId, punch.attendanceDate, { now: new Date() });
     };
   }
+
+  async recoverApprovalSettlement(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+  ): Promise<void> {
+    if (decision.status !== 'APPROVED' && decision.status !== 'REJECTED') return;
+    const target = await this.db
+      .select({ employeeId: punches.employeeId, attendanceDate: punches.attendanceDate })
+      .from(punches)
+      .where(and(eq(punches.id, decision.subjectId), eq(punches.orgId, ctx.orgId)))
+      .limit(1);
+    const punch = target[0];
+    if (punch === undefined) throw AppError.notFound('Punch', decision.subjectId);
+    await this.dayEngine
+      .forOrg(ctx)
+      .computeDay(punch.employeeId, punch.attendanceDate, { now: new Date() });
+  }
 }
 
 /** The registry entry for `punch`, thin like the regularization one. */
@@ -193,5 +210,9 @@ export class PunchFlagApprovalHandler implements ApprovalSubjectHandler, OnModul
     tx: Database,
   ): Promise<ApprovalSubjectSettlement | null> {
     return this.reviews.applyApprovalDecision(ctx, decision, tx);
+  }
+
+  recoverSettlement(ctx: OrgContext, decision: ApprovalSubjectDecision): Promise<void> {
+    return this.reviews.recoverApprovalSettlement(ctx, decision);
   }
 }

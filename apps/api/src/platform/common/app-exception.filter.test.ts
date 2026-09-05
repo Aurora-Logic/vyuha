@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { AppExceptionFilter } from './app-exception.filter.js';
 import { AppError } from './errors.js';
+import * as monitoring from './error-monitoring.js';
 
 /**
  * Technical design §6. The property that matters most here is negative: an
@@ -63,6 +64,21 @@ afterEach(() => {
 });
 
 describe('AppExceptionFilter', () => {
+  it('captures unexpected handled 500s but not expected client refusals', () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const capture = vi.spyOn(monitoring, 'captureUnexpectedError').mockImplementation(() => undefined);
+    const failure = new Error('internal failure');
+    run(failure);
+    run(new ForbiddenException('not permitted'));
+    expect(capture).toHaveBeenCalledExactlyOnceWith(failure, REQUEST_ID, 500, ERROR_CODES.INTERNAL_ERROR);
+  });
+
+  it('redacts mixed-case credential routes in exception logs', () => {
+    const logger = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    run(new Error('failure'), { url: '/api/v1/AUTH/Password-Resets/secret/confirm?token=secret' });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain('secret');
+  });
   it('reports an unknown error as INTERNAL_ERROR without leaking its message', () => {
     const secret = 'connect ECONNREFUSED postgres://vyuha:hunter2@10.0.0.4:5432';
     const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);

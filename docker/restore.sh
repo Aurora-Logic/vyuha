@@ -39,6 +39,9 @@ elif [[ -n "${3:-}" ]]; then
   usage
 fi
 [[ -n "$DUMP" && -n "$TARGET" ]] || usage
+# Database names enter SQL/shell commands below: accept identifiers, not syntax.
+[[ "$TARGET" =~ ^[a-zA-Z_][a-zA-Z0-9_]{0,62}$ ]] || { echo 'invalid target database identifier' >&2; exit 2; }
+[[ -z "$COMPARE" || "$COMPARE" =~ ^[a-zA-Z_][a-zA-Z0-9_]{0,62}$ ]] || { echo 'invalid comparison database identifier' >&2; exit 2; }
 [[ -f "$DUMP" ]] || { echo "no such dump: $DUMP" >&2; exit 1; }
 
 compose() {

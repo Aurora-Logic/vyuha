@@ -7,7 +7,7 @@ import {
 } from '@vyuha/shared';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { apiRequest, ensureAccessToken, getAccessToken } from '@/lib/api/client';
+import { apiRequest, ensureAccessToken, getAccessToken, refreshAccessToken } from '@/lib/api/client';
 import { useMe } from '@/lib/session/use-session';
 
 import { drainFrames, invalidationsFor, presenceKey, presenceMapOf, retryDelayMs, type PresenceMap } from './realtime-store';
@@ -43,6 +43,37 @@ const RealtimeContext = createContext<RealtimeContextValue>({
 
 const BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:3000/api/v1';
+
+function streamRequest(token: string, signal: AbortSignal): Promise<Response> {
+  return fetch(`${BASE_URL}/realtime/stream`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+    credentials: 'include',
+    signal,
+  });
+}
+
+/**
+ * Opens the stream with the same one-shot refresh rule as ordinary API calls.
+ *
+ * EventSource cannot attach a bearer token, so this stream uses fetch. That
+ * also means the JSON client's automatic 401 handling does not apply unless
+ * it is stated here: before this, an expired in-memory token was retried for
+ * ever and live updates never recovered until another request refreshed it.
+ */
+export async function openRealtimeStream(signal: AbortSignal): Promise<Response> {
+  if (getAccessToken() === null) await ensureAccessToken();
+  const firstToken = getAccessToken();
+  if (firstToken === null) throw new Error('not signed in');
+
+  const first = await streamRequest(firstToken, signal);
+  if (first.status !== 401) return first;
+
+  const outcome = await refreshAccessToken();
+  if (outcome !== 'refreshed') return first;
+  const refreshedToken = getAccessToken();
+  if (refreshedToken === null) return first;
+  return streamRequest(refreshedToken, signal);
+}
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
@@ -82,15 +113,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       // The token lives in memory and is gone after a reload, so the cookie
       // is exchanged first -- otherwise the very first connection after a
       // refresh is a 401 and the user waits out a retry for no reason.
-      if (getAccessToken() === null) await ensureAccessToken();
-      const token = getAccessToken();
-      if (token === null) throw new Error('not signed in');
-
-      const response = await fetch(`${BASE_URL}/realtime/stream`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-        credentials: 'include',
-        signal: abort.signal,
-      });
+      const response = await openRealtimeStream(abort.signal);
       if (!response.ok || response.body === null) throw new Error(`stream refused: ${response.status}`);
 
       attempt = 0;
