@@ -1,6 +1,6 @@
 # Vyuha Software Re-audit Report
 
-> **Latest verification, 6 September:** [The current verification record](docs/audits/VERIFICATION-2026-09-06.md) checks source revision `411a596d`, records fresh local checks and initial test setup failures, and identifies the remaining barriers to a 9/10 assessment. The numerical score below belongs to the older reviewed baseline.
+> **Latest verification, 6 September:** [The current verification record](docs/audits/VERIFICATION-2026-09-06.md) checks source revision `411a596d`, records fresh local checks and initial test setup failures, and identifies the remaining barriers to a 9/10 assessment. The subsequently user-approved npm scan reports zero known vulnerabilities across 1,121 dependencies. The numerical score below belongs to the older reviewed baseline.
 
 > **Working-tree follow-up, 5 September:** This report describes commit `7097a125`, not the subsequent uncommitted remediation. A focused follow-up now passes root lint and typecheck and records additional recovery and verification work as F-01–F-08 in [the action plan](SOFTWARE-IMPROVEMENT-ACTION-PLAN.md#follow-up-review--5-september-2026). The full suite/build were not rerun in that follow-up; the score and test totals below remain historical baseline evidence.
 

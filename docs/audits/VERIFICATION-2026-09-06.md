@@ -25,7 +25,7 @@ The intentional pinch-to-zoom restriction remains in `apps/web/index.html`; no c
 | Production artifact inspection | Passed; 186 emitted files checked |
 | Fresh-browser first-install offline check | 9/9 passed; worker version `bcf3a9226cf0` |
 | Deployment/backup/restore shell syntax | Passed |
-| Fresh npm advisory scan | Blocked by automatic approval review |
+| Fresh npm advisory scan | Passed after explicit user approval; zero known vulnerabilities across 1,121 dependencies |
 
 Across the final package runs, **3,362 tests passed** (2,340 API + 934 web + 73 shared + 15 agent). This is not a claim that the first root invocation was clean. Both completed API runs and the diagnostic rerun removed their disposable databases; the isolated browser was stopped and its temporary profile removed.
 
@@ -66,8 +66,8 @@ The upgrade rehearsal uses a generated disposable database and synthetic existin
 
 These are specific reasons to retain the open action-plan items. No replacement numerical score was calculated.
 
-## Advisory scan limitation
+## Advisory scan — approved follow-up
 
-A fresh `pnpm audit --json` was attempted. **Automatic approval review rejected it** because it would send the project's dependency metadata to npm without specific authorization for that external transfer. It was not retried through another tool or destination. The previously recorded zero-advisory result from 5 September is historical and was not verified again today.
+The initial scan was rejected by automatic approval review because it would send dependency metadata to npm. The user subsequently explicitly approved that transfer. The same `pnpm audit --json` command then completed successfully on 6 September 2026 (exit code 0).
 
-The remaining approval request is limited to sending package/dependency metadata to npm for a fresh advisory check; no production deployment or business-data upload is requested.
+Result: **zero known vulnerabilities** across **1,121 dependencies**: informational 0, low 0, moderate 0, high 0, critical 0. No dependency or lockfile changes were needed. This fresh result supersedes the earlier blocked status and refreshes the 5 September advisory evidence. It does not resolve the separate application-security, recovery, capacity or test-stability gaps above.
