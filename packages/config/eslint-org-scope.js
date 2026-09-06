@@ -93,6 +93,7 @@ export const ORG_SCOPED_TABLES = [
   'mfa_trusted_devices',
   'notification_idempotency',
   'notification_outbox',
+  'request_receipts',
   'pending_bill_allocation_sets',
   'notification_preferences',
   'notifications',

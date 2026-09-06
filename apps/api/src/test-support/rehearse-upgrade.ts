@@ -67,7 +67,9 @@ async function main(): Promise<void> {
     await pool.query(`INSERT INTO notification_outbox (org_id, event_type, audience, payload, state)
       VALUES ($1, 'fixture', '{}', '{"preserve":true}', 'ENQUEUED'),
              ($1, 'fixture', '{}', '{"preserve":true}', 'PENDING')`, [org]);
-    await through(94);
+    await through(95);
+    const receipts = await pool.query('SELECT * FROM request_receipts');
+    assert.equal(receipts.rowCount, 0);
     const outcomes = await pool.query<{ state: string; progress: unknown; payload: unknown }>('SELECT state, progress, payload FROM notification_outbox ORDER BY state');
     assert.deepEqual(outcomes.rows.map((row: { state: string }) => row.state), ['LEGACY_ENQUEUED', 'PENDING']);
     for (const row of outcomes.rows) {
@@ -80,8 +82,8 @@ async function main(): Promise<void> {
     assert.deepEqual(documents.rows, [{ number: 'UPGRADE-1', return_id: returnId }]);
     await assert.rejects(pool.query(`INSERT INTO sales_documents (org_id, doc_type, number, date, customer_name, return_id)
       VALUES ($1, 'SALES_ORDER', 'UPGRADE-DUPLICATE', '2026-09-05', 'Synthetic customer', $2)`, [org, returnId]), /duplicate key/);
-    await through(94);
-    console.log(JSON.stringify({ result: 'passed', baseline: '0090', upgradedThrough: '0094', elapsedMs: Math.round(performance.now() - started), checks: ['duplicate preflight preserves records', 'existing document and running job preserved', 'legacy notification held', 'pending notification retained', 'replacement uniqueness enforced', 'repeat migration is a no-op'] }, null, 2));
+    await through(95);
+    console.log(JSON.stringify({ result: 'passed', baseline: '0090', upgradedThrough: '0095', elapsedMs: Math.round(performance.now() - started), checks: ['duplicate preflight preserves records', 'existing document and running job preserved', 'legacy notification held', 'pending notification retained', 'replacement uniqueness enforced', 'request receipts table installed', 'repeat migration is a no-op'] }, null, 2));
   } finally {
     await pool?.end();
     try {

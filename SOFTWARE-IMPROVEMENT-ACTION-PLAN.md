@@ -2,7 +2,7 @@
 
 Date: 5 September 2026. Baseline: `7097a125` and the [re-audit](SOFTWARE-AUDIT-REPORT.md).
 
-Latest verification: [6 September evidence and remaining gaps](docs/audits/VERIFICATION-2026-09-06.md), covering source revision `411a596d`. Historical pass counts below refer to their dated runs.
+Latest status: [production readiness and concluded release gaps](docs/audits/PRODUCTION-READINESS-2026-09-06.md). Earlier [6 September verification](docs/audits/VERIFICATION-2026-09-06.md) covers source revision `411a596d`; historical pass counts below refer to their dated runs.
 
 ## Scope and scoring
 
@@ -135,3 +135,10 @@ Final verification for this pass: **3,362 package tests passed** (API 2,340 acro
 Source revision `411a596d` was reverified; [the full evidence record](docs/audits/VERIFICATION-2026-09-06.md) is authoritative for this run. Lint, typecheck, production build, bundle inspection, synthetic populated upgrade, eight script tests and a fresh **9/9 offline-browser check** passed. Web/shared/agent tests passed (934/73/15). The first API run had two connection-related setup failures (2,331 passed, nine skipped); the offline-punch diagnostic passed unchanged, and a subsequent API-only full run passed **2,340/2,340**. Therefore all **3,362 package tests** passed across the final runs, while the initial instability remains a follow-up rather than being erased.
 
 The fresh npm advisory scan initially required specific approval for sending dependency metadata to npm. After the owner explicitly approved it, `pnpm audit --json` passed on 6 September: **zero known vulnerabilities across 1,121 dependencies**, with no dependency changes required. Remaining audit/idempotency, upload scanning, authenticated browser, capacity, Node 22 CI and full recovery requirements continue to prevent a verified 9/10 assessment. No product source, assertions, timeouts or pinch-to-zoom settings changed in this verification pass.
+
+
+## Production-readiness pass — 6 September 2026
+
+Task creation now supports organization/actor-scoped request receipts with concurrent retry deduplication and browser retry keys. Task deletion, attachments and all board-configuration mutations commit their audits transactionally. Column completion and task closure updates commit together; application task writes coordinate with configuration changes. Migration 0095 is additive and included in the populated synthetic upgrade rehearsal.
+
+The [production readiness record](docs/audits/PRODUCTION-READINESS-2026-09-06.md) records the exact local checks, compatibility limits, owner roles and acceptance evidence for each residual release gap. Task-specific audit/idempotency findings are narrowed by these changes; broader mutation coverage, upload scanning, authenticated browser flows, representative load, complete recovery and Node 22/staging remain open. Pinch-to-zoom remains off. **Production readiness and 9/10 in every category are not yet verified.**

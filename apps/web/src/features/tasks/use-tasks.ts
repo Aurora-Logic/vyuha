@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import {
   keepPreviousData,
   useMutation,
@@ -182,6 +183,7 @@ export type TaskAnalytics = z.infer<typeof taskAnalyticsSchema>;
 
 export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
   const invalidate = useInvalidateTasks();
+  const pendingCreate = useRef<{ signature: string; key: string } | null>(null);
   return useMutation({
     mutationFn: async (draft: TaskDraft) => {
       const common = {
@@ -208,11 +210,22 @@ export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
         draft.id === undefined
           ? { ...common, columnId: draft.columnId }
           : { ...common, ...(draft.columnId === null ? {} : { columnId: draft.columnId }) };
+      let key: string | undefined;
+      if (draft.id === undefined) {
+        const signature = JSON.stringify(body);
+        if (pendingCreate.current?.signature !== signature) {
+          pendingCreate.current = { signature, key: crypto.randomUUID() };
+        }
+        key = pendingCreate.current.key;
+      }
       const response = await apiRequest<unknown>(draft.id === undefined ? '/tasks' : `/tasks/${draft.id}`, {
         method: draft.id === undefined ? 'POST' : 'PATCH',
         body,
+        ...(key === undefined ? {} : { idempotencyKey: key }),
       });
-      return parseOrThrow(taskSchema, response, 'saved task');
+      const saved = parseOrThrow(taskSchema, response, 'saved task');
+      if (pendingCreate.current?.key === key) pendingCreate.current = null;
+      return saved;
     },
     onSuccess: invalidate,
   });

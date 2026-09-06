@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -198,8 +199,8 @@ export class TaskController {
   @Post()
   @RequirePermission(...VIEW_KEYS)
   @HttpCode(HttpStatus.CREATED)
-  create(@CurrentUser() principal: Principal, @Body() body: CreateTaskDto): Promise<TaskView> {
-    return this.tasksService.create(principal, body);
+  create(@CurrentUser() principal: Principal, @Body() body: CreateTaskDto, @Headers('idempotency-key') key?: string): Promise<TaskView> {
+    return this.tasksService.create(principal, body, key);
   }
 
   @Patch(':id')

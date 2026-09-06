@@ -375,13 +375,14 @@ export class BoardColumnRepository extends ScopedRepository<typeof taskBoardColu
   async listOrCreateDefaults(): Promise<TaskBoardColumnView[]> {
     const existing = await this.listOrdered();
     if (existing.length > 0) return existing;
-    try {
-      await this.insertMany(
-        DEFAULT_BOARD_COLUMNS.map((column, index) => ({ name: column.name, isDone: column.isDone, sortOrder: index })),
-      );
-    } catch {
-      // Lost the race; the winner's rows are read below.
-    }
+    // A uniqueness race must not abort a caller's business transaction.
+    // Other database errors propagate instead of being mistaken for a race.
+    await this.db.insert(taskBoardColumns).values(
+      DEFAULT_BOARD_COLUMNS.map((column, index) => ({
+        name: column.name, isDone: column.isDone, sortOrder: index,
+        orgId: this.ctx.orgId, createdBy: this.ctx.actorUserId, updatedBy: this.ctx.actorUserId,
+      })),
+    ).onConflictDoNothing();
     return this.listOrdered();
   }
 

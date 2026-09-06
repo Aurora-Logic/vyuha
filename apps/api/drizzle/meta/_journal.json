@@ -666,6 +666,13 @@
       "when": 1788542224263,
       "tag": "0094_notification_delivery_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1788630000000,
+      "tag": "0095_request_receipts",
+      "breakpoints": true
     }
   ]
 }

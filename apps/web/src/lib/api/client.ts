@@ -90,6 +90,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 interface RequestOptions {
+  idempotencyKey?: string;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
@@ -107,6 +108,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (options.idempotencyKey !== undefined) headers['Idempotency-Key'] = options.idempotencyKey;
 
   return fetch(`${BASE_URL}${path}`, {
     method: options.method ?? 'GET',

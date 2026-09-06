@@ -382,3 +382,8 @@ The audit reviewed the remediation range and relevant current implementations, t
 Automatic approval review blocked the fresh npm audit because it transmits dependency metadata to a public advisory service. The last successful result and unchanged lockfile are reported transparently instead.
 
 **Final score: 6.4/10, up from 5.8/10. All tests pass; lint and the listed release issues remain.**
+
+
+## Production-readiness follow-up — 6 September 2026
+
+The [current readiness record](docs/audits/PRODUCTION-READINESS-2026-09-06.md) supersedes the earlier task-specific audit/idempotency gaps: task retries now use transactional receipts, and task deletion, attachment and board-configuration audits are atomic. It records fresh verification, compatibility limits and remaining release blockers. The baseline score in this report is historical; neither a new 9/10 rating nor production readiness is established. The intentional pinch-to-zoom restriction remains unchanged.
