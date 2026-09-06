@@ -1,6 +1,6 @@
 # Production readiness — 6 September 2026
 
-Scope: application-owned code on `phase-6a`, following `6dc7e97a`. The external Tally connector is excluded. Pinch-to-zoom remains intentionally disabled. This record supersedes the task-specific open findings in the earlier verification, without erasing its historical results.
+Verified source revision: `08af4e1e` on `phase-6a`, following `6dc7e97a`. Scope: application-owned code. The external Tally connector is excluded. Pinch-to-zoom remains intentionally disabled. This record supersedes the task-specific open findings in the earlier verification, without erasing its historical results.
 
 ## Implemented in this pass
 
