@@ -126,9 +126,11 @@ describe('POST /help/questions (REQ-AJ-05)', () => {
     // this test owns who is addressed, not delivery.
     const emitted: { type: string; audience: unknown; payload?: Record<string, unknown> }[] = [];
     const dispatcher = harness.resolve(NotificationDispatcher);
-    vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
+    const stage = dispatcher.stageInTransaction.bind(dispatcher);
+    vi.spyOn(dispatcher, 'stageInTransaction').mockImplementation(async (event, tx) => {
+      const result = await stage(event, tx);
       emitted.push(event);
-      return Promise.resolve('spied');
+      return result;
     });
 
     const sent = await harness.post('/help/questions', {
@@ -151,4 +153,17 @@ describe('POST /help/questions (REQ-AJ-05)', () => {
     const junk = await harness.post('/help/questions', { token: employeeToken, body: { question: '  ' } });
     expect(junk.status).toBe(400);
   });
+});
+
+
+it('does not acknowledge or retain an unanswered question if durable staging fails', async () => {
+  const fail = vi.spyOn(harness.resolve(NotificationDispatcher), 'stageInTransaction').mockRejectedValue(new Error('Outbox unavailable'));
+  try {
+    const response = await harness.post('/help/questions', { token: employeeToken, body: { question: 'Must not survive failed delivery intent' } });
+    expect(response.status).toBe(500);
+    const rows = await harness.db.execute(sql`SELECT id FROM help_questions WHERE org_id = ${ORG_ID} AND question = 'Must not survive failed delivery intent'`);
+    expect(rows.rows).toHaveLength(0);
+    const audit = await harness.db.execute(sql`SELECT id FROM audit_logs WHERE org_id = ${ORG_ID} AND action = 'help.question_asked' AND "after"->>'question' = 'Must not survive failed delivery intent'`);
+    expect(audit.rows).toHaveLength(0);
+  } finally { fail.mockRestore(); }
 });

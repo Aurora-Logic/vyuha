@@ -12,6 +12,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { SyncWriterService } from './sync-writer.service.js';
 
 /**
  * The agent surface, over real HTTP (REQ-Q-02 … Q-05, 09 §3.4 and §5).
@@ -56,6 +57,7 @@ beforeAll(async () => {
   // and company GUIDs for the next run.
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM sync_cursors WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM pending_bill_allocation_sets WHERE org_id = ${ORG_ID}`);
   // The projection and its mappings must go too, and hard: a previous run's
   // parties would satisfy this run's list assertions with the wrong rows, and
   // its orphaned external_refs (owned by connections the line below buried)
@@ -977,7 +979,7 @@ describe('bill allocations enter the projection (REQ-AJ-02)', () => {
     expect(Number(count.rows[0]?.count)).toBe(2);
   });
 
-  it('an allocation for a voucher that has not arrived is counted out, never thrown', async () => {
+  it('durably defers an allocation until its voucher arrives, without holding the cursor back', async () => {
     const open = await harness.db.execute<{ id: string }>(sql`
       SELECT id FROM sync_jobs
        WHERE connection_id = ${connectionId} AND entity_type = 'bill_allocation' AND state = 'CLAIMED'
@@ -997,11 +999,13 @@ describe('bill allocations enter the projection (REQ-AJ-02)', () => {
     const revised = { ...receiptRow, alterId: 420, amount: '-2500.00' };
     const response = await post(open.rows[0]?.id ?? '', [orphan, revised], true);
     expect(response.status).toBe(200);
-    expect(response.body.written).toBe(1);
-    expect(response.body.skipped).toBe(1);
+    expect(response.body.written).toBe(2);
+    expect(response.body.skipped).toBeUndefined();
+    expect(response.body.lastAlterId).toBe(420);
     expect(response.body.jobState).toBe('DONE');
 
-    // The revision replaced the receipt's set; the orphan left no row.
+    // The revision replaced the receipt's set. The unresolved set is durable,
+    // but cannot enter bill_allocations before its voucher exists.
     const stored = await harness.db.execute<{ bill_name: string; amount: string }>(sql`
       SELECT bill_name, amount FROM bill_allocations
        WHERE org_id = ${ORG_ID} AND voucher_id = ${receiptVoucherId}
@@ -1012,14 +1016,54 @@ describe('bill allocations enter the projection (REQ-AJ-02)', () => {
        WHERE org_id = ${ORG_ID} AND bill_name = 'GHOST-1'
     `);
     expect(Number(ghosts.rows[0]?.count)).toBe(0);
+    const pending = await harness.db.execute<{ source_alter_id: string; rows: unknown }>(sql`
+      SELECT source_alter_id, rows FROM pending_bill_allocation_sets
+       WHERE connection_id = ${connectionId} AND voucher_guid = 'vch-guid-never-pulled'
+    `);
+    expect(Number(pending.rows[0]?.source_alter_id)).toBe(415);
+    expect(pending.rows[0]?.rows).toEqual([orphan]);
 
-    // The journal keeps the skip visible beside the exchange it happened in.
+    // The journal keeps the deferral visible beside the exchange it happened in.
     const journal = await harness.db.execute<{ result: string }>(sql`
       SELECT result FROM sync_journal
        WHERE connection_id = ${connectionId} AND entity_type = 'bill_allocation'
        ORDER BY created_at DESC LIMIT 1
     `);
-    expect(journal.rows[0]?.result).toBe('ok: 1 rows, 1 skipped: voucher not yet pulled');
+    expect(journal.rows[0]?.result).toBe('ok: 2 rows, 1 deferred: voucher not yet pulled');
+
+    // The allocation is not sent again. Projecting only its voucher drains the
+    // staged set in the voucher transaction, which is the eventual-completeness
+    // invariant the old skip lost once cursor 420 committed.
+    const writer = harness.resolve(SyncWriterService);
+    await harness.db.transaction(async (tx) => {
+      await writer.applyRows(tx, { orgId: ORG_ID, connectionId }, {
+        entityType: 'voucher',
+        rows: [{
+          guid: orphan.voucherGuid,
+          alterId: orphan.alterId,
+          date: '2026-08-15',
+          voucherType: 'Sales',
+          voucherNumber: orphan.billName,
+          partyName: orphan.partyName,
+          isCancelled: false,
+          amount: orphan.amount,
+          lines: [],
+        }],
+      });
+    });
+
+    const materialized = await harness.db.execute<{ bill_name: string; amount: string }>(sql`
+      SELECT a.bill_name, a.amount
+        FROM bill_allocations a JOIN external_refs x ON x.internal_id = a.voucher_id
+       WHERE x.connection_id = ${connectionId} AND x.entity_type = 'voucher'
+         AND x.external_guid = ${orphan.voucherGuid}
+    `);
+    expect(materialized.rows).toEqual([{ bill_name: 'GHOST-1', amount: '100.00' }]);
+    const left = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM pending_bill_allocation_sets
+       WHERE connection_id = ${connectionId} AND voucher_guid = ${orphan.voucherGuid}
+    `);
+    expect(Number(left.rows[0]?.count)).toBe(0);
   });
 });
 

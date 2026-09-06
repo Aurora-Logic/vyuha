@@ -805,3 +805,123 @@ describe('the acceptance window (the replay bound)', () => {
     expect(WEBHOOK_MAX_EVENT_AGE_DAYS).toBeLessThan(INBOX_RETENTION_DAYS);
   });
 });
+
+/**
+ * H-10. Name resolution used to live for the life of the process. A miss
+ * pinned a later-arriving party to null, while a hit survived a Tally rename
+ * and kept attaching the old name to that master. These cases intentionally
+ * use the same writer instance across deliveries, exactly as production does.
+ */
+describe('a party that arrives after its first voucher (H-10)', () => {
+  const voucher = (n: number) => ({
+    guid: `vch-guid-zed-${String(n)}`,
+    masterId: `90${String(n)}`,
+    alterId: 900 + n,
+    date: '20260901',
+    voucherType: 'Sales',
+    voucherNumber: `S-Z${String(n)}`,
+    party: 'Zed Traders',
+    narration: '',
+    isCancelled: false,
+    amount: 1000,
+    ledgerEntries: [],
+    inventoryEntries: [],
+  });
+  const partyIdOf = async (voucherNumber: string) => {
+    const rows = await harness.db.execute<{ party_id: string | null }>(
+      sql`SELECT party_id FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = ${voucherNumber}`,
+    );
+    return rows.rows[0]?.party_id;
+  };
+
+  it('resolves the party on the next voucher once the ledger has landed', async () => {
+    const first = await deliver(envelope('evt_zed_v1', 'voucher.created', voucher(1)));
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body.result, JSON.stringify(first.body)).toContain('ok');
+    expect(await partyIdOf('S-Z1')).toBeNull();
+
+    const ledger = await deliver(
+      envelope('evt_zed_led', 'ledger.created', { guid: 'led-guid-zed', masterId: '79', alterId: 310, name: 'Zed Traders', parent: 'Sundry Debtors' }),
+    );
+    expect(ledger.status, JSON.stringify(ledger.body)).toBe(200);
+    const zed = await harness.db.execute<{ id: string }>(sql`SELECT id FROM parties WHERE org_id = ${ORG_ID} AND name = 'Zed Traders'`);
+    const zedId = zed.rows[0]?.id;
+    expect(zedId).toBeDefined();
+
+    const second = await deliver(envelope('evt_zed_v2', 'voucher.created', voucher(2)));
+    expect(second.status, JSON.stringify(second.body)).toBe(200);
+    expect(await partyIdOf('S-Z2')).toBe(zedId);
+  });
+});
+
+describe('master-name caches end with their transaction (H-10)', () => {
+  const voucher = (id: string, party: string, stockItemName?: string) => ({
+    guid: `vch-guid-cache-${id}`,
+    masterId: `cache-${id}`,
+    alterId: 1200 + Number(id),
+    date: '20260902',
+    voucherType: 'Sales',
+    voucherNumber: `CACHE-${id}`,
+    party,
+    narration: '',
+    isCancelled: false,
+    amount: 100,
+    ledgerEntries: [],
+    inventoryEntries: stockItemName === undefined
+      ? []
+      : [{ stockItemName, actualQty: '1 NOS', billedQty: '1 NOS', rate: 100, amount: 100 }],
+  });
+
+  it('does not resolve a party by its old name after the ledger is renamed', async () => {
+    await deliver(envelope('evt_cache_party_create', 'ledger.created', {
+      guid: 'led-guid-cache-party', masterId: 'cache-party', alterId: 1100,
+      name: 'Old Cache Party', parent: 'Sundry Debtors',
+    }));
+    await deliver(envelope('evt_cache_party_prime', 'voucher.created', voucher('1', 'Old Cache Party')));
+
+    const primed = await harness.db.execute<{ party_id: string | null }>(sql`
+      SELECT party_id FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'CACHE-1'
+    `);
+    expect(primed.rows[0]?.party_id).not.toBeNull();
+
+    await deliver(envelope('evt_cache_party_rename', 'ledger.updated', {
+      guid: 'led-guid-cache-party', masterId: 'cache-party', alterId: 1101,
+      name: 'New Cache Party', parent: 'Sundry Debtors',
+    }));
+    await deliver(envelope('evt_cache_party_old', 'voucher.created', voucher('2', 'Old Cache Party')));
+    await deliver(envelope('evt_cache_party_new', 'voucher.created', voucher('3', 'New Cache Party')));
+
+    const resolved = await harness.db.execute<{ voucher_number: string; party_id: string | null }>(sql`
+      SELECT voucher_number, party_id FROM vouchers
+       WHERE org_id = ${ORG_ID} AND voucher_number IN ('CACHE-2', 'CACHE-3')
+       ORDER BY voucher_number
+    `);
+    expect(resolved.rows[0]).toEqual({ voucher_number: 'CACHE-2', party_id: null });
+    expect(resolved.rows[1]?.party_id).toBe(primed.rows[0]?.party_id);
+  });
+
+  it('does not resolve an inventory line by an item’s old name after rename', async () => {
+    const original = { ...CABLE, guid: 'st-guid-cache-item', masterId: 'cache-item', alterId: 1110, name: 'Old Cache Item' };
+    await deliver(envelope('evt_cache_item_create', 'stock.updated', original));
+    await deliver(envelope('evt_cache_item_prime', 'voucher.created', voucher('4', 'New Cache Party', 'Old Cache Item')));
+
+    const primed = await harness.db.execute<{ stock_item_id: string | null }>(sql`
+      SELECT l.stock_item_id FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+       WHERE v.org_id = ${ORG_ID} AND v.voucher_number = 'CACHE-4' AND l.kind = 'inventory'
+    `);
+    expect(primed.rows[0]?.stock_item_id).not.toBeNull();
+
+    await deliver(envelope('evt_cache_item_rename', 'stock.updated', { ...original, alterId: 1111, name: 'New Cache Item' }));
+    await deliver(envelope('evt_cache_item_old', 'voucher.created', voucher('5', 'New Cache Party', 'Old Cache Item')));
+    await deliver(envelope('evt_cache_item_new', 'voucher.created', voucher('6', 'New Cache Party', 'New Cache Item')));
+
+    const resolved = await harness.db.execute<{ voucher_number: string; stock_item_id: string | null }>(sql`
+      SELECT v.voucher_number, l.stock_item_id
+        FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+       WHERE v.org_id = ${ORG_ID} AND v.voucher_number IN ('CACHE-5', 'CACHE-6') AND l.kind = 'inventory'
+       ORDER BY v.voucher_number
+    `);
+    expect(resolved.rows[0]).toEqual({ voucher_number: 'CACHE-5', stock_item_id: null });
+    expect(resolved.rows[1]?.stock_item_id).toBe(primed.rows[0]?.stock_item_id);
+  });
+});

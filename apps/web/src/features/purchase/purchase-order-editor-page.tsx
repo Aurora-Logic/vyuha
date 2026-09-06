@@ -29,6 +29,7 @@ import { newLine, previewLine, previewTotals, type LineDraft } from '@/features/
 import { formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
+import { useMe } from '@/lib/session/use-session';
 import { PARTY_LEDGER_GROUPS, PERMISSIONS, PO_FULFILMENT_LABELS, PURCHASE_ORDER_STATUS_LABELS } from '@vyuha/shared';
 
 import { AllocateDialog } from './allocation-form';
@@ -115,7 +116,8 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
   };
   // Crash insurance for a new document: the unsaved draft mirrors into
   // sessionStorage and comes back if the tab reloads mid-typing.
-  const backup = useDraftBackup('purchase-order', draft, record === null);
+  const { data: me } = useMe();
+  const backup = useDraftBackup('purchase-order', draft, record === null, me?.user.id ?? null);
 
   const [backupOffered, setBackupOffered] = useState(false);
   if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {

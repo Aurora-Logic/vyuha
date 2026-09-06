@@ -68,6 +68,7 @@ async function send(
   path: string,
   form: FormData,
   extraHeaders: Readonly<Record<string, string>>,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
   const token = getAccessToken();
@@ -81,8 +82,10 @@ async function send(
       headers,
       credentials: 'include',
       body: form,
+      ...(signal === undefined ? {} : { signal }),
     });
   } catch (cause) {
+    if (signal?.aborted === true) throw cause;
     // fetch only rejects when the request never completed, so this is a dead
     // server or a dropped connection - not an API error. Callers depend on this
     // code to tell "nobody heard me, keep the punch" from "the server heard me
@@ -101,6 +104,7 @@ export async function postMultipart<T>(
   form: FormData,
   parse: (body: unknown) => T,
   extraHeaders: Readonly<Record<string, string>> = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   // A drain on a document restored by the service worker starts with no token
   // in memory, so this asks for one before sending rather than sending a
@@ -110,7 +114,7 @@ export async function postMultipart<T>(
   // same rotating cookie twice and revoking the family (REQ-B-05).
   const refreshedBeforeSending = getAccessToken() === null ? await ensureAccessToken() : false;
 
-  let response = await send(path, form, extraHeaders);
+  let response = await send(path, form, extraHeaders, signal);
 
   if (
     response.status === 401 &&
@@ -120,7 +124,7 @@ export async function postMultipart<T>(
     // Once, not in a loop: the server rotates refresh tokens and treats a
     // replayed one as theft (REQ-B-05). The FormData is re-readable, so the
     // same body — and the same idempotency key — goes out again.
-    response = await send(path, form, extraHeaders);
+    response = await send(path, form, extraHeaders, signal);
   }
 
   if (!response.ok) throw await toApiError(response);

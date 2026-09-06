@@ -7,6 +7,7 @@ import { env } from '../../platform/common/env.js';
 import type { OrgContext } from '../../platform/db/scoped-repository.js';
 import { notifications } from '../../platform/db/schema/index.js';
 import { JobRunner } from '../../platform/jobs/job-runner.service.js';
+import { NotificationDispatcher } from '../../platform/notifications/notification.dispatcher.js';
 import { QUEUES } from '../../platform/jobs/queue.registry.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { ApprovalService } from '../../platform/approvals/approval.service.js';
@@ -50,6 +51,7 @@ async function bellFor(userId: string) {
 
 /** See `punch-notification-jobs.test.ts`: `delayed` never reaches zero. */
 async function drainNotifications(): Promise<void> {
+  await harness.resolve(NotificationDispatcher).drainOutbox();
   const queue = runner.queueFor(QUEUES.NOTIFICATION);
   const deadline = Date.now() + 20_000;
   for (;;) {

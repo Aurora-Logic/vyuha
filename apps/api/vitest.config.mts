@@ -3,6 +3,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
+    // This suite boots real Postgres/Redis/object-store integrations. Vitest's
+    // 5s unit-test default intermittently interrupts otherwise correct burst
+    // and month-recompute checks on busy hosts. Latency contracts belong in
+    // the explicit benchmark budgets; correctness assertions stay unchanged.
+    testTimeout: 15_000,
     include: ['src/**/*.test.ts', 'seed/**/*.test.ts'],
     // The integration suite writes to the shared development database. Running
     // files concurrently would let one file's cleanup delete rows another file
@@ -48,6 +53,6 @@ export default defineConfig({
     // dependency to make the job fail - watched a job complete instead,
     // because the API's unmocked worker had run it. Nothing in the test could
     // see that; it just reported "expected failed, got completed".
-    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false', JOBS_QUEUE_PREFIX: 'vyuha-test' },
+    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false', JOBS_QUEUE_PREFIX: process.env.JOBS_QUEUE_PREFIX ?? 'vyuha-test' },
   },
 });

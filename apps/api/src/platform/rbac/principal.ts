@@ -38,6 +38,26 @@ export function hasAnyPermission(
   return keys.some((key) => principal.permissions.has(key));
 }
 
+/**
+ * Whether `principal` could already do everything an account holding
+ * `target` can.
+ *
+ * The question behind resetting somebody's password or second factor. Both
+ * are gated on `employee.manage`, a people key -- and an account that can
+ * reset any account can reset the one that granted it the key, and is then
+ * that account. So this is the rule that keeps a reset from being a way up:
+ * you may only reset an account that holds nothing you lack. The system roles
+ * nest (Employee within Operations within HR within Admin), so HR reaches
+ * every employee, Admin reaches everyone, and neither can be climbed.
+ */
+export function holdsEveryPermissionOf(
+  principal: Principal,
+  target: ReadonlySet<PermissionKey>,
+): boolean {
+  for (const key of target) if (!principal.permissions.has(key)) return false;
+  return true;
+}
+
 /** The context a `ScopedRepository` needs, derived rather than reassembled. */
 export function orgContextOf(principal: Principal): OrgContext {
   return { orgId: principal.orgId, actorUserId: principal.userId };

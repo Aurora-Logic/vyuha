@@ -167,7 +167,10 @@ describe('a cold document asks for a token before it asks for data', () => {
       );
     });
 
-    await expect(apiRequest('/me/today')).resolves.toEqual({ ok: true });
+    await expect(apiRequest('/me/today', { method: 'POST', body: {}, idempotencyKey: 'retry-123' })).resolves.toEqual({ ok: true });
+    for (const call of [fetchMock.mock.calls[0], fetchMock.mock.calls[2]]) {
+      expect(new Headers((call?.[1] as RequestInit).headers).get('Idempotency-Key')).toBe('retry-123');
+    }
     expect(requestedPaths()).toEqual([
       '/api/v1/me/today',
       '/api/v1/auth/refresh',

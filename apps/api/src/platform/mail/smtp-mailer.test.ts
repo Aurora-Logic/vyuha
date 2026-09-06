@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { waitForMessage } from '../../test-support/mailpit.js';
 import { env } from '../common/env.js';
 import { LogMailer } from './mailer.js';
-import { SmtpMailer } from './smtp-mailer.js';
+import { SmtpMailer, smtpRequiresTls } from './smtp-mailer.js';
 
 /**
  * Sends real mail over a real socket and reads it back out of the receiving
@@ -19,6 +19,12 @@ import { SmtpMailer } from './smtp-mailer.js';
  */
 
 describe('SMTP mailer against Mailpit', () => {
+  it('requires TLS for remote SMTP and all production delivery', () => {
+    expect(smtpRequiresTls('smtp.example.test', 'development')).toBe(true);
+    expect(smtpRequiresTls('localhost', 'production')).toBe(true);
+    expect(smtpRequiresTls('127.0.0.1', 'test')).toBe(false);
+    expect(smtpRequiresTls('localhost', 'development')).toBe(false);
+  });
   let mailer: SmtpMailer;
 
   beforeAll(() => {

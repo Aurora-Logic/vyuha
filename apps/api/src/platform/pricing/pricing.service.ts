@@ -371,6 +371,14 @@ export class PricingService {
     return null;
   }
 
+  /** Price-list settlements only enrich the request audit context. */
+  recoverApprovalSettlement(
+    _ctx: OrgContext,
+    _decision: ApprovalSubjectDecision,
+  ): Promise<void> {
+    return Promise.resolve();
+  }
+
   // --------------------------------------------------------------- private
 
   /**

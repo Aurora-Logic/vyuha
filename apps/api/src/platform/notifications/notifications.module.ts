@@ -3,6 +3,7 @@ import { Global, Module } from '@nestjs/common';
 import { EmailChannel } from './channels/email.channel.js';
 import { InAppChannel } from './channels/in-app.channel.js';
 import { SendNotificationHandler } from './handlers/send-notification.handler.js';
+import { DrainNotificationOutboxHandler } from './handlers/drain-notification-outbox.handler.js';
 import { ChannelRegistry } from './notification-channel.js';
 import { NotificationPreferencesService } from './notification-preferences.service.js';
 import { NotificationDispatcher } from './notification.dispatcher.js';
@@ -38,6 +39,7 @@ import { RecipientResolver } from './recipient-resolver.service.js';
     InAppChannel,
     EmailChannel,
     SendNotificationHandler,
+    DrainNotificationOutboxHandler,
   ],
   exports: [NotificationDispatcher],
 })

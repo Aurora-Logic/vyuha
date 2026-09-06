@@ -91,6 +91,9 @@ export const salesDocuments = pgTable(
     index('sales_documents_org_company_idx').on(t.orgId, t.companyId).where(ALIVE),
     index('sales_documents_org_deal_idx').on(t.orgId, t.dealId).where(ALIVE),
     index('sales_documents_org_owner_idx').on(t.orgId, t.ownerId).where(ALIVE),
+    // One replacement order per return, decided by the database rather than
+    // by a read that two callers can both pass (H-08).
+    uniqueIndex('sales_documents_one_replacement_per_return_uq').on(t.returnId).where(sql`return_id IS NOT NULL AND deleted_at IS NULL`),
   ],
 );
 

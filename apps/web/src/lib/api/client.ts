@@ -90,6 +90,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 interface RequestOptions {
+  idempotencyKey?: string;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
@@ -107,6 +108,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (options.idempotencyKey !== undefined) headers['Idempotency-Key'] = options.idempotencyKey;
 
   return fetch(`${BASE_URL}${path}`, {
     method: options.method ?? 'GET',
@@ -125,6 +127,18 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
  */
 export type RefreshOutcome = 'refreshed' | 'unauthenticated' | 'network-error';
 
+/**
+ * What a non-2xx answer to /auth/refresh means. Only the server saying "you
+ * are not signed in" -- 401, or 403 for a suspended account -- is
+ * 'unauthenticated'. A 500, a 502 from the proxy, a 429 from the limiter
+ * are no answer about the session at all, and are reported as such, so the
+ * gate keeps the last known identity instead of rendering sign-in during
+ * an outage (H-14).
+ */
+export function refreshOutcomeForFailure(status: number): Exclude<RefreshOutcome, 'refreshed'> {
+  return status === 401 || status === 403 ? 'unauthenticated' : 'network-error';
+}
+
 async function performRefresh(): Promise<RefreshOutcome> {
   let response: Response;
   try {
@@ -135,11 +149,28 @@ async function performRefresh(): Promise<RefreshOutcome> {
     return 'network-error';
   }
   if (!response.ok) {
-    setAccessToken(null);
-    return 'unauthenticated';
+    const outcome = refreshOutcomeForFailure(response.status);
+    if (outcome === 'unauthenticated') setAccessToken(null);
+    return outcome;
   }
-  const body = (await response.json()) as { accessToken?: unknown };
-  if (typeof body.accessToken !== 'string') return 'unauthenticated';
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    // A 2xx without the refresh contract is not evidence that the cookie was
+    // refused. Treat it like any other temporary/protocol failure so an
+    // already-rendered session is not erased over a broken proxy response.
+    return 'network-error';
+  }
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('accessToken' in body) ||
+    typeof body.accessToken !== 'string' ||
+    body.accessToken.length === 0
+  ) {
+    return 'network-error';
+  }
   setAccessToken(body.accessToken);
   return 'refreshed';
 }
@@ -410,8 +441,20 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   // 401 is the server's verdict on the request rather than an expired token,
   // and exchanging the cookie again would only rotate it for nothing.
   if (response.status === 401 && !options.skipRefresh && !refreshedBeforeSending) {
-    if ((await refreshAccessToken()) === 'refreshed') {
+    const refreshOutcome = await refreshAccessToken();
+    if (refreshOutcome === 'refreshed') {
       return apiRequest<T>(path, { ...options, skipRefresh: true });
+    }
+    if (refreshOutcome === 'network-error') {
+      // The 401 only says the in-memory access token expired. A temporary
+      // failure exchanging the refresh cookie says nothing about whether the
+      // session still exists, so do not surface the original 401 to callers
+      // that correctly interpret it as a definitive sign-out (H-14).
+      throw new ApiError({
+        code: 'NETWORK_ERROR',
+        message: 'The session could not be refreshed because the server is temporarily unavailable.',
+        status: 0,
+      });
     }
   }
 

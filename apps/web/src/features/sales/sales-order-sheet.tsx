@@ -436,7 +436,12 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           </Button>
         ) : null}
         {!isNew && draft.status === 'PENDING_APPROVAL' && !canApproveDiscount ? (
-          <Button variant="outline" disabled={busy} render={<Link to="/approvals" />}>
+          <Button
+            variant="outline"
+            disabled={busy}
+            nativeButton={false}
+            render={<Link to="/approvals" />}
+          >
             Open approvals
           </Button>
         ) : null}

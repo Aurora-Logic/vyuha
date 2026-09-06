@@ -1,7 +1,8 @@
 import { PERMISSIONS, SYSTEM_ROLES, type TaskAttachmentView, type TaskView } from '@vyuha/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { AuditService } from '../audit/audit.service.js';
 
 /**
  * REQ-V-12: documents and photographs on a task.
@@ -43,6 +44,19 @@ const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 );
+
+it('rolls back attachment additions and removals when their audit cannot persist', async () => {
+  const task = await makeTask(selfToken, 'Audited attachments');
+  const added = await upload(task.id, selfToken, PDF, 'keep.pdf', 'application/pdf');
+  expect(added.status).toBe(201);
+  const fail = vi.spyOn(harness.resolve(AuditService), 'writeInTransaction').mockRejectedValue(new Error('Audit unavailable'));
+  try {
+    expect((await upload(task.id, selfToken, PDF, 'rollback.pdf', 'application/pdf')).status).toBe(500);
+    expect((await harness.del(`/tasks/${task.id}/attachments/${String(added.body?.id)}`, { token: selfToken })).status).toBe(500);
+    const listed = await harness.get<TaskAttachmentView[]>(`/tasks/${task.id}/attachments`, { token: selfToken });
+    expect(listed.body.map((row) => row.id)).toEqual([added.body?.id]);
+  } finally { fail.mockRestore(); }
+});
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Task Attachments Fixture Org');

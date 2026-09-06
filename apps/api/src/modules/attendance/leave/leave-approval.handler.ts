@@ -65,4 +65,8 @@ export class LeaveApprovalHandler implements ApprovalSubjectHandler, OnModuleIni
   ): Promise<ApprovalSubjectSettlement | null> {
     return this.leave.applyApprovalDecision(ctx, decision, tx);
   }
+
+  recoverSettlement(ctx: OrgContext, decision: ApprovalSubjectDecision): Promise<void> {
+    return this.leave.recoverApprovalSettlement(ctx, decision);
+  }
 }

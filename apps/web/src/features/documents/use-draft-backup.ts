@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 /**
  * A dropped connection or an accidental swipe-back must not lose a document
@@ -29,10 +29,19 @@ interface StoredDraft<T> {
   readonly draft: T;
 }
 
-export function useDraftBackup<T>(key: string, draft: T, enabled: boolean): { restored: T | null; clear: () => void } {
-  const storageKey = `vyuha.draft-backup.${key}`;
-  const [restored] = useState<T | null>(() => {
-    if (!enabled) return null;
+export function useDraftBackup<T>(
+  key: string,
+  draft: T,
+  enabled: boolean,
+  ownerUserId: string | null,
+): { restored: T | null; clear: () => void } {
+  // One tab can sign out and into another account without reloading. The user
+  // id is therefore part of the key, not merely metadata inside a document-
+  // scoped blob that the next account could accidentally restore (M-01).
+  const storageKey =
+    ownerUserId === null ? null : `vyuha.draft-backup.${ownerUserId}.${key}`;
+  const restored = useMemo<T | null>(() => {
+    if (!enabled || storageKey === null) return null;
     try {
       const raw = window.sessionStorage.getItem(storageKey);
       if (raw === null) return null;
@@ -46,11 +55,11 @@ export function useDraftBackup<T>(key: string, draft: T, enabled: boolean): { re
     } catch {
       return null;
     }
-  });
+  }, [enabled, storageKey]);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled || storageKey === null) return undefined;
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       try {
@@ -67,6 +76,7 @@ export function useDraftBackup<T>(key: string, draft: T, enabled: boolean): { re
   return {
     restored,
     clear: () => {
+      if (storageKey === null) return;
       try {
         window.sessionStorage.removeItem(storageKey);
       } catch {

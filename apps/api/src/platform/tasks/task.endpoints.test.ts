@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { AuditService } from '../audit/audit.service.js';
 import { JobRegistry } from '../jobs/job-handler.js';
 import { NotificationDispatcher, type NotificationEvent } from '../notifications/notification.dispatcher.js';
 
@@ -47,6 +48,13 @@ beforeAll(async () => {
   vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
     emitted.push(event);
     return Promise.resolve('spied');
+  });
+
+  const stage = dispatcher.stageInTransaction.bind(dispatcher);
+  vi.spyOn(dispatcher, 'stageInTransaction').mockImplementation(async (event, tx) => {
+    const result = await stage(event, tx);
+    emitted.push(event);
+    return result;
   });
 
   const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
@@ -451,7 +459,7 @@ describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', (
     const dispatcher = harness.resolve(NotificationDispatcher);
     const failing = vi.spyOn(dispatcher, 'emit').mockRejectedValue(
       new Error('Background work could not be queued just now. Try again shortly.'),
-    );
+    ).mockClear();
     try {
       const created = await harness.post<TaskView>('/tasks', {
         token: adminToken,
@@ -460,7 +468,9 @@ describe('a courtesy notice must not lose the work (found live, 31 Aug 2026)', (
       expect(created.status, JSON.stringify(created.body)).toBe(201);
       expect(created.body.title).toBe('Ohmnova tech - Dispatch Via Courier');
       expect(created.body.assigneeId).toBe(meeraId);
-      expect(failing, 'the notice was genuinely attempted').toHaveBeenCalled();
+      expect(failing, 'queue hand-off belongs to the durable drain').not.toHaveBeenCalled();
+      const intent = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND payload->>'taskId' = ${created.body.id}`);
+      expect(intent.rows).toHaveLength(1);
 
       // And on a reassignment, which notifies the same way.
       const moved = await harness.patch<TaskView>(`/tasks/${created.body.id}`, {
@@ -501,4 +511,117 @@ describe('Operations can hand work to anybody (owner, 31 Aug 2026)', () => {
     expect(assigned.status, JSON.stringify(assigned.body)).toBe(201);
     expect(assigned.body.assigneeId).toBe(outsiderId);
   });
+});
+
+
+describe('transactional task assignment', () => {
+  it('rolls back creation and reassignment when durable notification staging fails', async () => {
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const created = await harness.post<TaskView>('/tasks', {
+      token: adminToken, body: { title: 'Assignment rollback fixture', assigneeId: meeraId, priority: 'HIGH' },
+    });
+    expect(created.status).toBe(201);
+    const fail = vi.spyOn(dispatcher, 'stageInTransaction').mockRejectedValue(new Error('Outbox unavailable'));
+    try {
+      const refused = await harness.post('/tasks', {
+        token: adminToken, body: { title: 'Must roll back entirely', assigneeId: meeraId, priority: 'HIGH' },
+      });
+      expect(refused.status).toBe(500);
+      const absent = await harness.db.execute(sql`SELECT id FROM tasks WHERE org_id = ${ORG_ID} AND title = 'Must roll back entirely'`);
+      expect(absent.rows).toHaveLength(0);
+      const reassigned = await harness.patch(`/tasks/${created.body.id}`, { token: adminToken, body: { assigneeId: raviId, title: 'Must not persist' } });
+      expect(reassigned.status).toBe(500);
+      const unchanged = await harness.get<TaskView>(`/tasks/${created.body.id}`, { token: adminToken });
+      expect(unchanged.body.assigneeId).toBe(meeraId);
+      expect(unchanged.body.title).toBe('Assignment rollback fixture');
+    } finally { fail.mockRestore(); }
+  });
+});
+
+
+it('commits one attributed audit entry with the task and rolls back on audit failure', async () => {
+  const created = await harness.post<TaskView>('/tasks', { token: adminToken, body: { title: 'Durable audit fixture', priority: 'HIGH' } });
+  expect(created.status).toBe(201);
+  const trail = await harness.db.execute<{ request_id: string; action: string }>(sql`SELECT request_id, action FROM audit_logs WHERE org_id = ${ORG_ID} AND entity_id = ${created.body.id}`);
+  expect(trail.rows).toHaveLength(1);
+  expect(trail.rows[0]?.action).toBe('task.created');
+  expect(trail.rows[0]?.request_id).toBeTruthy();
+  const fail = vi.spyOn(harness.resolve(AuditService), 'writeInTransaction').mockRejectedValueOnce(new Error('Audit unavailable'));
+  try {
+    const refused = await harness.post('/tasks', { token: adminToken, body: { title: 'No unaudited task', assigneeId: meeraId, priority: 'HIGH' } });
+    expect(refused.status).toBe(500);
+    const rows = await harness.db.execute(sql`SELECT id FROM tasks WHERE org_id = ${ORG_ID} AND title = 'No unaudited task'`);
+    expect(rows.rows).toHaveLength(0);
+    const notices = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND payload->>'title' = 'No unaudited task'`);
+    expect(notices.rows).toHaveLength(0);
+  } finally { fail.mockRestore(); }
+});
+
+it('deduplicates concurrent create retries and rejects changed payloads for a used key', async () => {
+  const headers = { 'Idempotency-Key': 'task-retry-fixture' };
+  const body = { title: 'Retry-safe task', assigneeId: meeraId, priority: 'HIGH' };
+  const results = await Promise.all(Array.from({ length: 4 }, () => harness.post<TaskView>('/tasks', { token: adminToken, headers, body })));
+  expect(results.map((result) => result.status)).toEqual([201, 201, 201, 201]);
+  expect(new Set(results.map((result) => result.body.id)).size).toBe(1);
+  const id = results[0]?.body.id ?? '';
+  const notices = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND payload->>'taskId' = ${id}`);
+  expect(notices.rows).toHaveLength(1);
+  const audit = await harness.db.execute(sql`SELECT id FROM audit_logs WHERE org_id = ${ORG_ID} AND entity_id = ${id} AND action = 'task.created'`);
+  expect(audit.rows).toHaveLength(1);
+  const conflict = await harness.post('/tasks', { token: adminToken, headers, body: { ...body, title: 'Different payload' } });
+  expect(conflict.status).toBe(409);
+  const otherUser = await harness.post<TaskView>('/tasks', { token: raviToken, headers, body });
+  expect(otherUser.status).toBe(201);
+  expect(otherUser.body.id).not.toBe(id);
+  const invalid = await harness.post('/tasks', { token: adminToken, headers: { 'Idempotency-Key': 'invalid:key' }, body });
+  expect(invalid.status).toBe(400);
+});
+
+it('rolls back deletion if its required audit fails', async () => {
+  const created = await harness.post<TaskView>('/tasks', { token: adminToken, body: { title: 'Keep if unauditable', priority: 'HIGH' } });
+  expect(created.status).toBe(201);
+  const fail = vi.spyOn(harness.resolve(AuditService), 'writeInTransaction').mockRejectedValueOnce(new Error('Audit unavailable'));
+  try {
+    const deleted = await harness.request('DELETE', `/tasks/${created.body.id}`, { token: adminToken });
+    expect(deleted.status).toBe(500);
+    const retained = await harness.get(`/tasks/${created.body.id}`, { token: adminToken });
+    expect(retained.status).toBe(200);
+  } finally { fail.mockRestore(); }
+});
+
+it('allows the same create key to succeed after an audit rollback', async () => {
+  const headers = { 'Idempotency-Key': 'audit-rollback-retry' };
+  const body = { title: 'Retry after rollback', priority: 'HIGH' };
+  const fail = vi.spyOn(harness.resolve(AuditService), 'writeInTransaction').mockRejectedValueOnce(new Error('Audit unavailable'));
+  try {
+    expect((await harness.post('/tasks', { token: adminToken, headers, body })).status).toBe(500);
+  } finally { fail.mockRestore(); }
+  const receipts = await harness.db.execute(sql`SELECT entity_id FROM request_receipts WHERE org_id = ${ORG_ID} AND request_key = 'audit-rollback-retry'`);
+  expect(receipts.rows).toHaveLength(0);
+  const retried = await harness.post<TaskView>('/tasks', { token: adminToken, headers, body });
+  expect(retried.status).toBe(201);
+  const replayed = await harness.post<TaskView>('/tasks', { token: adminToken, headers, body });
+  expect(replayed.body.id).toBe(retried.body.id);
+});
+
+it('rolls back column configuration and task closure when auditing fails', async () => {
+  const column = await harness.post<TaskBoardColumnView>('/tasks/columns', { token: adminToken, body: { name: 'Atomic column' } });
+  expect(column.status).toBe(201);
+  const empty = await harness.post<TaskBoardColumnView>('/tasks/columns', { token: adminToken, body: { name: 'Keep empty column' } });
+  const before = await harness.get<TaskBoardColumnView[]>('/tasks/columns', { token: adminToken });
+  const task = await harness.post<TaskView>('/tasks', { token: adminToken, body: { title: 'Column rollback task', priority: 'HIGH', columnId: column.body.id } });
+  const fail = vi.spyOn(harness.resolve(AuditService), 'writeInTransaction').mockRejectedValue(new Error('Audit unavailable'));
+  try {
+    expect((await harness.patch(`/tasks/columns/${column.body.id}`, { token: adminToken, body: { isDone: true, name: 'Must not persist' } })).status).toBe(500);
+    expect((await harness.post('/tasks/columns', { token: adminToken, body: { name: 'Unaudited column' } })).status).toBe(500);
+    expect((await harness.del(`/tasks/columns/${empty.body.id}`, { token: adminToken })).status).toBe(500);
+    expect((await harness.put('/tasks/columns/order', { token: adminToken, body: { columnIds: before.body.map((row) => row.id).reverse() } })).status).toBe(500);
+    const all = await harness.get<TaskBoardColumnView[]>('/tasks/columns', { token: adminToken });
+    expect(all.body).toEqual(before.body);
+    expect(all.body.find((row) => row.id === column.body.id)).toMatchObject({ name: 'Atomic column', isDone: false });
+    expect(all.body.some((row) => row.name === 'Unaudited column')).toBe(false);
+    const unchanged = await harness.get<TaskView>(`/tasks/${task.body.id}`, { token: adminToken });
+    expect(unchanged.body.closedAt).toBeNull();
+    expect(unchanged.body.isClosed).toBe(false);
+  } finally { fail.mockRestore(); }
 });

@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 
 import { FallbackJobRunner } from './fallback-job-runner.service.js';
 import { PurgeExpiredFilesHandler } from './handlers/purge-expired-files.handler.js';
+import { CleanupFileObjectsHandler } from './handlers/cleanup-file-objects.handler.js';
 import { JobRegistry } from './job-handler.js';
 import { JobMonitorService } from './job-monitor.service.js';
 import { JobRunner } from './job-runner.service.js';
@@ -21,7 +22,14 @@ import { JobsController } from './jobs.controller.js';
 @Global()
 @Module({
   controllers: [JobsController],
-  providers: [JobRegistry, JobRunner, FallbackJobRunner, JobMonitorService, PurgeExpiredFilesHandler],
+  providers: [
+    JobRegistry,
+    JobRunner,
+    FallbackJobRunner,
+    JobMonitorService,
+    PurgeExpiredFilesHandler,
+    CleanupFileObjectsHandler,
+  ],
   exports: [JobRegistry, JobRunner],
 })
 export class JobsModule {}

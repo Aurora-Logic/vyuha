@@ -31,6 +31,7 @@ import { type StockItem } from '@/features/masters/use-stock-items';
 import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
+import { useMe } from '@/lib/session/use-session';
 import { ESTIMATE_TRANSITIONS, PARTY_LEDGER_GROUPS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { ItemHistoryAffordance } from './item-history-popover';
@@ -127,6 +128,7 @@ export function EstimateEditorPage() {
 
 function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft; record: Estimate | null; settings: NonNullable<ReturnType<typeof useDesignDraft>> }) {
   const navigate = useNavigate();
+  const { data: me } = useMe();
   const [draft, setDraft] = useState<EstimateDraft>(initial);
   // What the server last confirmed; dirty is measured against this, not the prop the page mounted with.
   const [base, setBase] = useState<EstimateDraft>(initial);
@@ -136,7 +138,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   };
   // Crash insurance for a new document: the unsaved draft mirrors into
   // sessionStorage and comes back if the tab reloads mid-typing.
-  const backup = useDraftBackup('estimate', draft, record === null);
+  const backup = useDraftBackup('estimate', draft, record === null, me?.user.id ?? null);
 
   const [backupOffered, setBackupOffered] = useState(false);
   if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {

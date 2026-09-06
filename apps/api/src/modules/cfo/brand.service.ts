@@ -89,7 +89,9 @@ export class BrandService {
              sum(net) FILTER (WHERE date BETWEEN ${from} AND ${to} AND pocket_margin IS NOT NULL)::numeric(16,2)::text AS "costedNet"
       FROM fact_sales_daily
       WHERE org_id = ${principal.orgId} AND (date BETWEEN ${from} AND ${to} OR date BETWEEN ${lyFrom} AND ${lyTo})
-      GROUP BY 1 ORDER BY 2 DESC NULLS LAST
+      -- Ordered by the money, not by its text: ORDER BY 2 sorted the ::text
+      -- column above, which puts 9,000.00 ahead of 60,000.00 (CFO-1).
+      GROUP BY 1 ORDER BY sum(net) FILTER (WHERE date BETWEEN ${from} AND ${to}) DESC NULLS LAST
     `);
     const categories = await this.db.execute<{ brand: string; category: string; net: string }>(sql`
       SELECT brand, (${sql.raw(CATEGORY_CASE_SQL)}) AS category, sum(net)::numeric(16,2)::text AS net

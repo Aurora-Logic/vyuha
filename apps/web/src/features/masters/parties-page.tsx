@@ -83,7 +83,7 @@ const COLUMNS: RecordColumn<Party>[] = [
     key: 'closingBalance',
     header: 'Closing balance',
     sortField: 'closingBalance',
-    cell: (row) => formatMoney(row.closingBalance),
+    cell: (row) => formatMoney(row.closingBalance, { absolute: true }),
     numeric: true,
   },
   { key: 'manager', header: 'Relationship manager', cell: (row) => row.manager?.name ?? EMPTY_VALUE, secondary: true },

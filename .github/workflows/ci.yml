@@ -1,57 +1,133 @@
-name: Deploy
+name: CI
 
 on:
+  pull_request:
   push:
     branches:
       - main
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
+# Public upstream tag hashes verified on 5 September 2026. Updates require review.
 jobs:
-  deploy:
-    name: Build & Deploy to Server
+  checks:
+    name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
-
+    timeout-minutes: 40
     steps:
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          host: ${{ secrets.SSH_IP }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          persist-credentials: false
 
-            export PNPM_HOME="$HOME/.local/share/pnpm"
-            export PATH="$PNPM_HOME:$PATH"
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
-            if ! command -v pnpm &> /dev/null; then
-              corepack enable 2>/dev/null || npm install -g pnpm 2>/dev/null || true
-            fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
 
-            echo "## 1. Navigating to project directory"
-            cd "${{ secrets.SSH_DIR }}" || exit 1
+      - name: Install (frozen)
+        run: pnpm install --frozen-lockfile
 
-            echo "## 2. Pulling latest changes"
-            git pull origin main || exit 1
+      # The same stack the developer runs, on the same ports .env.example
+      # names, rather than a second description of it in this file.
+      - name: Start Postgres, Redis and MinIO
+        run: docker compose -f docker/docker-compose.yml up -d --wait
 
-            echo "## 3. Installing dependencies"
-            pnpm install || exit 1
+      # Where the API's test setup reads it: its own directory, before the
+      # workspace-root dotenv has run.
+      - name: Environment
+        run: |
+          cp .env.example apps/api/.env
+          # The schema refuses the example's placeholder secrets on purpose.
+          sed -i -E "s|^JWT_ACCESS_SECRET=.*|JWT_ACCESS_SECRET=$(openssl rand -base64 48)|" apps/api/.env
+          sed -i -E "s|^JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$(openssl rand -base64 48)|" apps/api/.env
 
-            echo "## 4. Running database migrations"
-            cd apps/api || exit 1
-            pnpm db:migrate || exit 1
-            cd "${{ secrets.SSH_DIR }}" || exit 1
+      - name: Build shared
+        run: pnpm --filter @vyuha/shared build
 
-            echo "## 5. Building applications"
-            VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" NODE_ENV=production pnpm build || exit 1
+      - name: Typecheck
+        run: pnpm typecheck
 
-            echo "## 6. Restarting service"
-            sudo systemctl restart "${{ secrets.SERVICE_NAME }}" || exit 1
+      - name: Lint
+        run: pnpm lint
 
-            echo "Deployed Successfully!"
+      - name: Validate deployment scripts
+        run: |
+          bash -n scripts/deploy-systemd.sh docker/backup.sh docker/restore.sh
+          node --check scripts/verify-release.mjs
+          node --test scripts/verify-release.test.mjs
+          node --test scripts/benchmark-api.test.mjs
+
+      - name: Migrate the test database
+        run: pnpm --filter @vyuha/api db:migrate
+
+      - name: Rehearse populated local schema upgrade
+        run: pnpm --filter @vyuha/api test:upgrade
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        env:
+          VITE_API_BASE_URL: https://ci.invalid
+          NODE_ENV: production
+        run: pnpm build
+
+      - name: Verify production bundle and first-install offline startup
+        run: |
+          set -euo pipefail
+          node apps/web/scripts/check-production-bundle.mjs
+          browser_binary=$(command -v google-chrome || command -v chromium)
+          browser_profile=$(mktemp -d)
+          "$browser_binary" --headless=new --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir="$browser_profile" --no-first-run about:blank > /tmp/vyuha-browser.log 2>&1 &
+          browser_pid=$!
+          trap 'kill "$browser_pid" 2>/dev/null || true; wait "$browser_pid" 2>/dev/null || true; rm -rf "$browser_profile"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9222/json/version > /dev/null; then break; fi
+            sleep 1
+          done
+          node apps/web/scripts/verify-offline.mjs
+
+  deploy:
+    name: Deploy to server
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Deploy the checked revision with verified SSH host identity
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SOURCE_DIR: ${{ secrets.SSH_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVICE_NAME }}
+          CURRENT_LINK: ${{ secrets.CURRENT_RELEASE_LINK }}
+          HEALTH_ORIGIN: ${{ secrets.HEALTH_ORIGIN }}
+          BACKUP_SCRIPT: ${{ secrets.BACKUP_SCRIPT }}
+          WEB_API: ${{ secrets.VITE_API_BASE_URL }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          : "${SSH_KNOWN_HOSTS:?Configure independently verified host keys}"
+          : "${CURRENT_LINK:?Prepare the release symlink first}"
+          task_ssh_dir=$(mktemp -d)
+          trap 'rm -f "$task_ssh_dir/key" "$task_ssh_dir/known_hosts"; rmdir "$task_ssh_dir"' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$task_ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$task_ssh_dir/known_hosts"
+          printf -v remote 'bash -l -s -- %q %q %q %q %q %q %q' "$SOURCE_DIR" "$DEPLOY_SHA" "$SERVICE_NAME" "$CURRENT_LINK" "$HEALTH_ORIGIN" "$BACKUP_SCRIPT" "$WEB_API"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$task_ssh_dir/known_hosts" -i "$task_ssh_dir/key" -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "$remote" < scripts/deploy-systemd.sh

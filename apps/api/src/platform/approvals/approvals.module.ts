@@ -5,6 +5,7 @@ import { ApprovalSubjectRegistry } from './approval-subject.registry.js';
 import { ApprovalController } from './approval.controller.js';
 import { ApprovalService } from './approval.service.js';
 import { EscalateStaleApprovalsHandler } from './escalate-stale-approvals.handler.js';
+import { SettleApprovalOutboxHandler } from './settle-approval-outbox.handler.js';
 
 /**
  * The generic approval framework (REQ-I-01 to REQ-I-05).
@@ -37,6 +38,7 @@ import { EscalateStaleApprovalsHandler } from './escalate-stale-approvals.handle
     ApprovalRoutingService,
     ApprovalSubjectRegistry,
     EscalateStaleApprovalsHandler,
+    SettleApprovalOutboxHandler,
   ],
   exports: [ApprovalService, ApprovalRoutingService, ApprovalSubjectRegistry],
 })

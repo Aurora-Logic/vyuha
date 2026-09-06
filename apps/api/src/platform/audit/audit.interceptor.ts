@@ -56,6 +56,11 @@ export class AuditInterceptor implements NestInterceptor {
     // and do not depend on the context still being current when they run.
     const store = this.context.current();
     if (store === null) return next.handle();
+    store.requestMetadata = {
+      ip: request.ip ?? null,
+      userAgent: request.headers['user-agent'] ?? null,
+      requestId: requestIdOf(request),
+    };
 
     const route = this.routeOf(context);
     const response = context.switchToHttp().getResponse<Response>();
@@ -110,6 +115,7 @@ export class AuditInterceptor implements NestInterceptor {
     const entries: AuditEntry[] = store.entries.length > 0 ? store.entries : [{}];
 
     for (const entry of entries) {
+      if (entry.persisted === true) continue;
       await this.audit.write({
         ...shared,
         orgId: entry.orgId ?? shared.orgId,

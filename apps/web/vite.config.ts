@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
+import { splitPrecache } from "./src/lib/offline/precache-split"
+
 /**
  * What is running, stamped into the bundle.
  *
@@ -27,7 +29,6 @@ const APP_BUILT_AT = process.env.BUILT_AT ?? ""
 const SW_SOURCE = path.resolve(import.meta.dirname, "./src/lib/offline/service-worker.js")
 const SW_VERSION_TOKEN = "__SW_VERSION__"
 const SW_CRITICAL_TOKEN = "__SW_BUILD_CRITICAL__"
-const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
 
 /**
  * Serves `src/lib/offline/service-worker.js` at `/sw.js`, with its version
@@ -51,40 +52,22 @@ const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
  * would be wrong the first time anybody edited a component, and wrong
  * silently.
  *
- * Critical is code and stylesheet: without them the document paints an empty
- * `<div id="root">` and nothing else, which is exactly the blank screen a
- * first install used to give at a gate. Everything else the build emits -
- * font subsets - is optional: missing one costs a fallback typeface, and
- * failing the whole install over it would cost offline punching.
+ * Critical is the shell/Punch static dependency closure plus styles: without
+ * it the document paints an empty `<div id="root">`. Every other emitted
+ * asset is cached when its route first asks for it, so installing the worker
+ * does not download the complete lazy application.
  */
-function buildPrecache(bundle: Record<string, { type: string }>): {
-  critical: string[]
-  optional: string[]
-} {
-  const critical: string[] = []
-  const optional: string[] = []
-
-  for (const fileName of Object.keys(bundle).sort()) {
-    if (fileName === "index.html" || fileName === "sw.js") continue
-    const url = `/${fileName}`
-    if (fileName.endsWith(".js") || fileName.endsWith(".css")) critical.push(url)
-    else optional.push(url)
-  }
-
-  return { critical, optional }
-}
 
 function serviceWorker(): Plugin {
   const read = (): string => readFileSync(SW_SOURCE, "utf8")
 
   const render = (
     version: string,
-    precache: { critical: string[]; optional: string[] } = { critical: [], optional: [] },
+    critical: readonly string[] = [],
   ): string =>
     read()
       .replaceAll(SW_VERSION_TOKEN, version)
-      .replaceAll(SW_CRITICAL_TOKEN, JSON.stringify(precache.critical))
-      .replaceAll(SW_OPTIONAL_TOKEN, JSON.stringify(precache.optional))
+      .replaceAll(SW_CRITICAL_TOKEN, JSON.stringify(critical))
 
   // In development the version is a hash of the worker's own source. Stable
   // across reloads and across dev-server restarts, so nothing is reinstalled
@@ -119,15 +102,18 @@ function serviceWorker(): Plugin {
       // each. Two builds of identical source produce the same version and no
       // pointless reinstall; a single changed byte anywhere changes a chunk
       // name, and so changes this.
+      const critical = splitPrecache(bundle).critical
       const version = createHash("sha256")
         .update(Object.keys(bundle).sort().join("\n"))
+        .update(read())
+        .update(JSON.stringify(critical))
         .digest("hex")
         .slice(0, 12)
 
       this.emitFile({
         type: "asset",
         fileName: "sw.js",
-        source: render(version, buildPrecache(bundle)),
+        source: render(version, critical),
       })
     },
   }

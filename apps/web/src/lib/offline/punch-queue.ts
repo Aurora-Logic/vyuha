@@ -7,7 +7,7 @@ import {
 } from '@vyuha/shared';
 import { z } from 'zod';
 
-import { idbAdd, idbDelete, idbGetAll, idbPut, inTransaction, openDatabase } from './idb';
+import { idbAdd, idbDelete, idbGet, idbGetAll, idbPut, inTransaction, openDatabase } from './idb';
 
 /**
  * The offline punch queue (REQ-D-10, technical design section 8).
@@ -75,7 +75,19 @@ export const queuedPunchSchema = z.object({
   lastAttemptAt: z.string().nullable(),
   /** Set when the server looked at this entry and said no. Never retried after. */
   refusal: refusalSchema.nullable(),
+  /**
+   * The account that queued it. Rows written before this field existed carry
+   * null, and a null owner is nobody's: never drained, counted as locked,
+   * because attributing it to whoever signs in next is the defect this field
+   * closes (C-01).
+   */
+  owner: z.object({ userId: z.string(), employeeId: z.string().nullable() }).nullable().default(null),
 });
+
+export interface QueueOwner {
+  readonly userId: string;
+  readonly employeeId: string | null;
+}
 
 export type QueuedPunch = z.infer<typeof queuedPunchSchema>;
 
@@ -89,6 +101,7 @@ export interface NewQueuedPunch {
   reason: string | null;
   /** REQ-M-03: see `queuedPunchSchema`. */
   consentAccepted: boolean;
+  owner: QueueOwner;
 }
 
 let database: Promise<IDBDatabase> | null = null;
@@ -149,19 +162,38 @@ export interface QueueContents {
    * may still be somebody's punch; counted, because a silent one is worse.
    */
   readonly unreadable: number;
+  /** Ownerless rows from an older build. Counted without exposing their details. */
+  readonly legacy: number;
+  /** Rows queued by another account: kept for that account, never drained here. */
+  readonly locked: number;
 }
 
-export async function readQueue(): Promise<QueueContents> {
-  const rows = await withStore('readonly', idbGetAll);
-
+/**
+ * Only the rows the signed-in person queued are theirs to send. Another
+ * account's row stays on the device for that person. An ownerless row from an
+ * older build cannot safely be assigned to anybody, so it is separated into
+ * a recovery list rather than described as something that will later sync.
+ */
+export function partitionQueue(rows: readonly unknown[], owner: QueueOwner | null): QueueContents {
   const waiting: QueuedPunch[] = [];
   const refused: QueuedPunch[] = [];
+  let legacy = 0;
   let unreadable = 0;
+
+  let locked = 0;
 
   for (const row of rows) {
     const parsed = queuedPunchSchema.safeParse(row);
     if (!parsed.success) {
       unreadable += 1;
+      continue;
+    }
+    if (parsed.data.owner === null) {
+      legacy += 1;
+      continue;
+    }
+    if (owner === null || parsed.data.owner.userId !== owner.userId) {
+      locked += 1;
       continue;
     }
     (parsed.data.refusal === null ? waiting : refused).push(parsed.data);
@@ -174,7 +206,13 @@ export async function readQueue(): Promise<QueueContents> {
     waiting: waiting.sort(byQueuedAt),
     refused: refused.sort(byQueuedAt),
     unreadable,
+    legacy,
+    locked,
   };
+}
+
+export async function readQueue(owner: QueueOwner | null): Promise<QueueContents> {
+  return partitionQueue(await withStore('readonly', idbGetAll), owner);
 }
 
 export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> {
@@ -191,6 +229,7 @@ export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> 
     halfDayPart: draft.halfDay,
     reason: draft.reason,
     consentAccepted: draft.consentAccepted,
+    owner: draft.owner,
     attempts: 0,
     lastAttemptAt: null,
     refusal: null,
@@ -204,12 +243,40 @@ export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> 
   return parsed;
 }
 
-export async function removeQueued(idempotencyKey: string): Promise<void> {
-  await withStore('readwrite', (store) => idbDelete(store, idempotencyKey));
+async function ownedEntry(
+  store: IDBObjectStore,
+  idempotencyKey: string,
+  owner: QueueOwner,
+): Promise<QueuedPunch | null> {
+  const parsed = queuedPunchSchema.safeParse(await idbGet(store, idempotencyKey));
+  if (!parsed.success || parsed.data.owner?.userId !== owner.userId) return null;
+  return parsed.data;
 }
 
-export async function updateQueued(entry: QueuedPunch): Promise<void> {
-  await withStore('readwrite', (store) => idbPut(store, entry));
+/** Deletes only after ownership is re-read in the same transaction. */
+export async function removeOwnedQueued(
+  idempotencyKey: string,
+  owner: QueueOwner,
+  refusalRequired = false,
+): Promise<boolean> {
+  return withStore('readwrite', async (store) => {
+    const entry = await ownedEntry(store, idempotencyKey, owner);
+    if (entry === null || (refusalRequired && entry.refusal === null)) return false;
+    await idbDelete(store, idempotencyKey);
+    return true;
+  });
+}
+
+/** Updates only while the stored row still belongs to the captured account. */
+export async function updateOwnedQueued(
+  entry: QueuedPunch,
+  owner: QueueOwner,
+): Promise<boolean> {
+  return withStore('readwrite', async (store) => {
+    if ((await ownedEntry(store, entry.idempotencyKey, owner)) === null) return false;
+    await idbPut(store, entry);
+    return true;
+  });
 }
 
 /** Hours this entry has been waiting, against the server's 48-hour limit. */

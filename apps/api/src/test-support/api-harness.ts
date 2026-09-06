@@ -17,6 +17,9 @@ import { AppModule } from '../app.module.js';
 import { loginRateLimitKey } from '../platform/auth/login-rate-limit.service.js';
 import { passwordResetIpKey } from '../platform/auth/password-reset-rate-limit.service.js';
 import { hashPassword } from '../platform/auth/password.js';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+
+import { registerBodyParsers } from '../platform/common/body-parsers.js';
 import { API_PREFIX_PATH } from '../platform/common/constants.js';
 import { env } from '../platform/common/env.js';
 import { DRIZZLE, type Database } from '../platform/db/db.provider.js';
@@ -182,8 +185,9 @@ export class ApiHarness {
       .compile();
 
     // VYUHA_TEST_LOGS=1 surfaces the errors a 500 hides; silent otherwise so a run reads clean.
-    const app = moduleRef.createNestApplication({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
+    const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
+    registerBodyParsers(app);
     await app.listen(0);
 
     const url = (await app.getUrl()).replace('[::1]', '127.0.0.1');
@@ -216,8 +220,9 @@ export class ApiHarness {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
     // VYUHA_TEST_LOGS=1 surfaces the errors a 500 hides; silent otherwise so a run reads clean.
-    const app = moduleRef.createNestApplication({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
+    const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
+    registerBodyParsers(app);
     await app.listen(0);
 
     const url = (await app.getUrl()).replace('[::1]', '127.0.0.1');

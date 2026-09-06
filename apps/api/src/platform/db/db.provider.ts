@@ -35,6 +35,9 @@ export const pgPoolProvider: Provider = {
       keepAlive: true,
       keepAliveInitialDelayMillis: 10_000,
       application_name: 'vyuha-api',
+      // Sent in the startup packet before the pool lends the connection.
+      // Async connect-event queries race with its first application query.
+      options: '-c idle_in_transaction_session_timeout=30000 -c statement_timeout=120000',
     });
 
     // node-postgres emits 'error' on the pool when an *idle* client dies --
@@ -58,8 +61,6 @@ export const pgPoolProvider: Provider = {
           err: { name: err.name, message: err.message },
         });
       });
-      client.query("SET idle_in_transaction_session_timeout = '30000'").catch(() => {});
-      client.query("SET statement_timeout = '120000'").catch(() => {});
     });
 
     return pool;

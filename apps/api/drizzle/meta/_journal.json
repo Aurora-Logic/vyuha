@@ -638,6 +638,48 @@
       "when": 1788328176221,
       "tag": "0090_sync_inbox_prune_index",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1788542224260,
+      "tag": "0091_one_replacement_per_return",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788542224261,
+      "tag": "0092_pending_bill_allocation_sets",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1788542224262,
+      "tag": "0093_durable_work_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1788542224263,
+      "tag": "0094_notification_delivery_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1788630000000,
+      "tag": "0095_request_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1788700000000,
+      "tag": "0096_link_vouchers_and_parties",
+      "breakpoints": true
     }
   ]
 }

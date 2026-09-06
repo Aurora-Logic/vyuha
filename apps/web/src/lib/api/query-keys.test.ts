@@ -62,7 +62,7 @@ const PRODUCTION_SOURCES = Object.entries(SOURCES).filter(([file]) => !/\.test\.
 // reason `invalidateQueries` does; it was absent only because nothing used it
 // yet, and its absence reported the session key as registered twice.
 const EXEMPT =
-  /invalidateQueries|refetchQueries|setQueryData|getQueryData|removeQueries|cancelQueries/;
+  /invalidateQueries|refetchQueries|resetQueries|setQueryData|getQueryData|removeQueries|cancelQueries/;
 
 /** Reads a bracketed run from `text[open]`, returning the index just past its close. */
 function endOfBracket(text: string, open: number): number {

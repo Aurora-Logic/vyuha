@@ -18,6 +18,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   CONFLICT: 409,
   INTERNAL_ERROR: 500,
   RATE_LIMITED: 429,
+  PAYLOAD_TOO_LARGE: 413,
   // 503 rather than 500 or 429: nothing about the caller was wrong and nothing
   // about the server is broken, so the honest answer is "not now, try again",
   // and a proxy or an offline outbox already knows what to do with it.
@@ -57,6 +58,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   PUNCH_MOCK_LOCATION: 422,
   PUNCH_IP_NOT_ALLOWED: 403,
   PUNCH_REASON_REQUIRED: 422,
+  PUNCH_OWNER_MISMATCH: 403,
   PUNCH_PHOTO_REQUIRED: 422,
   PUNCH_PHOTO_INVALID: 422,
   PUNCH_DEVICE_NOT_BOUND: 403,

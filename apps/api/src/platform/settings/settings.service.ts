@@ -222,7 +222,14 @@ export class SettingsService {
       bytes,
     });
 
-    await repository.write({ profile: { logoKey: stored.id }, values: new Map() });
+    try {
+      await repository.write({ profile: { logoKey: stored.id }, values: new Map() });
+    } catch (error) {
+      // The logo never became the organisation's logo. Durable discard keeps
+      // an object-store outage from turning that failed write into a leak.
+      await this.files.discardUnreferenced(principal.orgId, [stored.id]);
+      throw error;
+    }
 
     // The object the organisation has just stopped pointing at. Handed to the
     // retention sweep rather than deleted inline: an unreferenced object in a

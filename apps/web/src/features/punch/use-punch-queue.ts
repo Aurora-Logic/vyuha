@@ -32,7 +32,7 @@ export interface PunchQueueView extends OutboxSnapshot {
   /** Forgets a punch the server refused, after the person has read why. */
   dismiss: (idempotencyKey: string) => void;
   /** Stores a punch that could not be sent. Resolves once it is durable. */
-  queue: (draft: NewQueuedPunch) => Promise<QueuedPunch>;
+  queue: (draft: Omit<NewQueuedPunch, 'owner'>) => Promise<QueuedPunch>;
 }
 
 export function usePunchQueue(): PunchQueueView {

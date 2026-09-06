@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -43,6 +44,7 @@ export const notifications = pgTable(
     title: text('title').notNull(),
     body: text('body').notNull(),
     payload: jsonb('payload'),
+    deliveryKey: text('delivery_key'),
 
     readAt: timestamp('read_at', { withTimezone: true }),
     channelsSent: text('channels_sent')
@@ -59,6 +61,7 @@ export const notifications = pgTable(
       .on(t.userId, t.createdAt.desc())
       .where(sql`read_at IS NULL AND deleted_at IS NULL`),
     index('notifications_user_idx').on(t.orgId, t.userId, t.createdAt.desc()),
+    uniqueIndex('notifications_delivery_key_uq').on(t.orgId, t.deliveryKey),
   ],
 );
 
@@ -111,4 +114,38 @@ export const notificationIdempotency = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.key] }), index('notification_idempotency_age_idx').on(t.createdAt)],
+);
+
+/**
+ * Durable hand-off between committed application work and the queue.
+ * `notification_idempotency` says an event was accepted; this row preserves
+ * the envelope until BullMQ/the Postgres fallback has durably accepted it.
+ */
+export const notificationOutbox = pgTable(
+  'notification_outbox',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    audience: jsonb('audience').notNull(),
+    payload: jsonb('payload').notNull(),
+    idempotencyKey: text('idempotency_key'),
+    state: text('state').notNull().default('PENDING'), // PENDING | ENQUEUED
+    attempts: integer('attempts').notNull().default(0),
+    runAfter: timestamp('run_after', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    enqueuedAt: timestamp('enqueued_at', { withTimezone: true }),
+    progress: jsonb('progress').notNull().default(sql`'{}'::jsonb`),
+    claimToken: uuid('claim_token'),
+    claimUntil: timestamp('claim_until', { withTimezone: true }),
+    ...standardColumns(),
+  },
+  (t) => [
+    index('notification_outbox_pending_idx').on(t.state, t.runAfter),
+    uniqueIndex('notification_outbox_idempotency_uq')
+      .on(t.orgId, t.idempotencyKey)
+      .where(sql`idempotency_key IS NOT NULL`),
+  ],
 );

@@ -105,6 +105,9 @@ export async function inTransaction<T>(
 export const idbGetAll = (store: IDBObjectStore): Promise<unknown[]> =>
   promisify<unknown[]>(store.getAll());
 
+export const idbGet = (store: IDBObjectStore, key: IDBValidKey): Promise<unknown> =>
+  promisify<unknown>(store.get(key));
+
 /** `add` rather than `put`: a duplicate key must fail loudly, not overwrite. */
 export const idbAdd = (store: IDBObjectStore, value: unknown): Promise<IDBValidKey> =>
   promisify(store.add(value));

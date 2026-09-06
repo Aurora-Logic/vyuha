@@ -32,4 +32,8 @@ export class PurchaseOrderApprovalHandler implements ApprovalSubjectHandler, OnM
   applyDecision(ctx: OrgContext, decision: ApprovalSubjectDecision, tx: Database): Promise<ApprovalSubjectSettlement | null> {
     return this.orders.applyApprovalDecision(ctx, decision, tx);
   }
+
+  recoverSettlement(ctx: OrgContext, decision: ApprovalSubjectDecision): Promise<void> {
+    return this.orders.recoverApprovalSettlement(ctx, decision);
+  }
 }

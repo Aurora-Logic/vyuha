@@ -52,8 +52,8 @@ import {
 import { Toaster, toast } from '@/components/ui/toast';
 import { CalculatorButton, CalculatorPanel, useCalculatorStore } from '@/features/calculator';
 import { GuideOverlay } from '@/features/guide';
-import { NotificationBell } from '@/features/notifications';
-import { hasUnread } from '@/features/updates';
+import { NotificationBell } from '@/features/notifications/notification-bell';
+import { hasUnread } from '@/features/updates/changelog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useGuideStore } from '@/lib/guide-store';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
@@ -558,6 +558,7 @@ export function AppShell() {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Go to a screen or report"
                 data-guide="header.goto"
                 className="text-muted-foreground max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:px-0 max-sm:shadow-none gap-2 font-normal"
                 onClick={toggleGoto}

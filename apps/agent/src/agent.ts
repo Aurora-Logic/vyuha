@@ -228,7 +228,7 @@ export class VyuhaAgent {
   }
 }
 
-export const AGENT_VERSION = '0.1.0';
+export const AGENT_VERSION = '1.0.0';
 
 function isPullable(entityType: string): entityType is SyncEntityType {
   return (SYNC_ENTITY_TYPES as readonly string[]).includes(entityType);

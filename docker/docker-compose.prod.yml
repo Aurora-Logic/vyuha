@@ -64,6 +64,10 @@ services:
       - caddy-config:/config
 
   api:
+    # Complements pre-parser admission. Tune from measured peak heap/CPU in staging.
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
     build:
       context: ..
       dockerfile: docker/api.Dockerfile

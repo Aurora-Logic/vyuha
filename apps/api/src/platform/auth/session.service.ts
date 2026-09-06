@@ -13,6 +13,7 @@ import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { sessions } from '../db/schema/index.js';
 import { InjectRedis } from '../redis/redis.provider.js';
 import { generateOpaqueToken, hashOpaqueToken, TOKEN_PURPOSES } from './opaque-token.js';
+import { openSecret, sealSecret } from './secret-box.js';
 
 /**
  * REQ-B-05: "Sessions: short-lived access token + rotating refresh token.
@@ -346,12 +347,18 @@ export class SessionService {
     }
     if (raw === null) return null;
 
-    const parsed = replayEntrySchema.safeParse(JSON.parse(raw));
-    // A shape this build does not recognise is treated as absent rather than
-    // trusted. It can only have been written by another version of this file.
-    if (!parsed.success) return null;
-
-    return { ...parsed.data, expiresAt: new Date(parsed.data.expiresAt) };
+    try {
+      // Bind ciphertext to the presented token's keyed hash: Redis read
+      // exposure yields no live token, and swapping cache entries cannot
+      // substitute another account's replacement. No plaintext fallback.
+      const plain = openSecret(raw, env.JWT_REFRESH_SECRET, this.replayKey(presentedToken));
+      const parsed = replayEntrySchema.safeParse(JSON.parse(plain));
+      if (!parsed.success) return null;
+      return { ...parsed.data, expiresAt: new Date(parsed.data.expiresAt) };
+    } catch {
+      this.logger.warn({ msg: 'Unreadable or legacy refresh replay entry ignored; strict rotation applies.' });
+      return null;
+    }
   }
 
   /**
@@ -373,7 +380,11 @@ export class SessionService {
     try {
       await this.redis.set(
         this.replayKey(presentedToken),
-        JSON.stringify({ ...session, expiresAt: session.expiresAt.toISOString() }),
+        sealSecret(
+          JSON.stringify({ ...session, expiresAt: session.expiresAt.toISOString() }),
+          env.JWT_REFRESH_SECRET,
+          this.replayKey(presentedToken),
+        ),
         'PX',
         seconds * 1000,
       );

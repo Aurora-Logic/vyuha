@@ -63,8 +63,9 @@ export class ObjectStore implements OnApplicationShutdown {
 
   private diskPathFor(bucket: BucketName, key: string): string {
     const safeKey = key.replace(/^\/+/u, '');
-    const resolved = path.resolve(this.diskBaseDir, bucket, safeKey);
-    if (!resolved.startsWith(this.diskBaseDir)) {
+    const bucketRoot = path.resolve(this.diskBaseDir, bucket);
+    const resolved = path.resolve(bucketRoot, safeKey);
+    if (!resolved.startsWith(`${bucketRoot}${path.sep}`)) {
       throw new Error(`Path traversal attempt detected in storage key: ${key}`);
     }
     return resolved;

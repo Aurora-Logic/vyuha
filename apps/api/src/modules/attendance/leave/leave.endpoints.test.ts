@@ -14,11 +14,12 @@ import {
   type Paginated,
 } from '@vyuha/shared';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { employees, settings } from '../../../platform/db/schema/index.js';
+import { employees, settings, notificationOutbox } from '../../../platform/db/schema/index.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 import { ApprovalService } from '../../../platform/approvals/approval.service.js';
+import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import {
   holidayCalendars,
@@ -580,6 +581,53 @@ describe('applying (REQ-G-06, REQ-G-07, REQ-G-08)', () => {
       { token: employeeToken, body: { reason: 'Clearing the fixture' } },
     );
     expect(cancelled.status, cancelled.text).toBe(201);
+  });
+
+  it('records the request even when the notice cannot be queued (H-06)', async () => {
+    // The request was committed and then `emit` was awaited; a Redis blip
+    // there surfaced as "applying failed" about a request that exists, and
+    // the obvious retry made a second one.
+    await grantDays(employeeBId, casualTypeId, 1);
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const spy = vi.spyOn(dispatcher, 'emit').mockRejectedValue(new Error('Redis blipped'));
+    const callsBefore = spy.mock.calls.length;
+    try {
+      const response = await harness.post<LeaveRequestDetail & ErrorBody>('/leave/requests', {
+        token: otherToken,
+        body: { leaveTypeId: casualTypeId, fromDate: addDays(MONDAY, 14), toDate: addDays(MONDAY, 14), reason: 'While the queue is down' },
+      });
+      expect(response.status, response.text).toBe(201);
+      expect(response.body.status).toBe('PENDING');
+      expect(spy.mock.calls.length - callsBefore, 'request must not depend on a post-commit emit').toBe(0);
+      const intents = await harness.db.select().from(notificationOutbox).where(eq(notificationOutbox.idempotencyKey, `leave-applied.${response.body.id}`));
+      expect(intents).toHaveLength(1);
+      expect(intents[0]?.state).toBe('PENDING');
+      const cancelled = await harness.post<LeaveRequestDetail>(`/leave/requests/${response.body.id}/cancel`, { token: otherToken, body: { reason: 'Clearing the fixture' } });
+      expect(cancelled.status, cancelled.text).toBe(201);
+    } finally {
+      spy.mockRestore();
+      await grantDays(employeeBId, casualTypeId, -1);
+    }
+  });
+
+  it('rolls back approval withdrawal and leave cancellation when staging fails', async () => {
+    const date = addDays(MONDAY, 21);
+    const created = await harness.post<LeaveRequestDetail>('/leave/requests', {
+      token: otherToken, body: { leaveTypeId: casualTypeId, fromDate: date, toDate: date, reason: 'Cancellation rollback fixture' },
+    });
+    expect(created.status, created.text).toBe(201);
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const fail = vi.spyOn(dispatcher, 'stageInTransaction').mockRejectedValueOnce(new Error('Outbox unavailable'));
+    try {
+      const refused = await harness.post(`/leave/requests/${created.body.id}/cancel`, { token: otherToken, body: { reason: 'Fail atomically' } });
+      expect(refused.status).toBe(500);
+      const retained = await harness.get<LeaveRequestDetail>(`/leave/requests/${created.body.id}`, { token: otherToken });
+      expect(retained.body.status).toBe('PENDING');
+      const approval = await harness.db.execute<{ status: string }>(sql`SELECT status FROM approval_requests WHERE org_id = ${ORG_ID} AND subject_id = ${created.body.id}`);
+      expect(approval.rows[0]?.status).toBe('PENDING');
+    } finally { fail.mockRestore(); }
+    const cleared = await harness.post(`/leave/requests/${created.body.id}/cancel`, { token: otherToken, body: { reason: 'Clear fixture' } });
+    expect(cleared.status).toBe(201);
   });
 
   it('stores the skipped days uncounted so the day engine can read them', async () => {

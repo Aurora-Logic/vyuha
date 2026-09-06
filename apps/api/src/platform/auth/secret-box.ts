@@ -1,12 +1,12 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 
 /**
- * Sealing for the one credential Vyuha must be able to read back: an OpsTally
- * webhook signing secret. Every other credential in this codebase is stored
+ * Sealing for credentials Vyuha must be able to read back: webhook/TOTP
+ * secrets and short-lived refresh replay entries. Other credentials are stored
  * as a keyed hash because the *client* presents it and Vyuha only compares
  * (`opaque-token.ts`). A webhook is the other way round — OpsTally presents
  * an HMAC over the body, and Vyuha must recompute it, which needs the secret
- * itself. So this is reversible, on purpose, and only this.
+ * itself. Purpose-separated sealing is deliberately reversible where needed.
  *
  * AES-256-GCM under a key derived with HKDF from the app's refresh secret —
  * the same root the opaque-token HMACs already trust — with a purpose string

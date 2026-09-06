@@ -409,7 +409,7 @@ export interface AgentResultsAck {
    * Rows the writer counted out rather than wrote — an allocation whose
    * voucher has not arrived yet. Present only when something was skipped.
    */
-  readonly skipped?: number;
+  readonly skipped?: number | undefined;
   /** The cursor after this chunk committed — what the next pull filters above. */
   readonly lastAlterId: number;
   readonly jobState: 'CLAIMED' | 'DONE';
@@ -503,3 +503,42 @@ export interface IssuedAgentToken {
    */
   readonly token: string;
 }
+
+/**
+ * What the agent accepts as an answer from the server. Typed against the
+ * interfaces above, so a field added to one must be added to the other. The
+ * agent used to cast the parsed body to the type and trust it, so a proxy
+ * error page or a half-deployed server reached the loop as a claim (H-11).
+ */
+export const agentHeartbeatAckSchema: z.ZodType<AgentHeartbeatAck> = z.object({
+  connectionId: z.string(),
+  companyGuid: z.string().nullable(),
+  condition: z.enum(AGENT_CONDITIONS),
+  leaseTakeoverMinutes: z.number(),
+});
+
+export const claimedSyncJobSchema: z.ZodType<ClaimedSyncJob> = z.object({
+  id: z.string(),
+  direction: z.enum(['PULL', 'PUSH']),
+  entityType: z.string(),
+  payload: z.unknown(),
+  attempts: z.number(),
+  fromAlterId: z.number(),
+});
+
+export const agentClaimResponseSchema: z.ZodType<AgentClaimResponse> = z.object({
+  job: claimedSyncJobSchema.nullable(),
+});
+
+export const agentResultsAckSchema: z.ZodType<AgentResultsAck> = z.object({
+  jobId: z.string(),
+  written: z.number(),
+  skipped: z.number().optional(),
+  lastAlterId: z.number(),
+  jobState: z.enum(['CLAIMED', 'DONE']),
+});
+
+export const agentErrorAckSchema: z.ZodType<AgentErrorAck> = z.object({
+  exceptionId: z.string(),
+  jobFailed: z.boolean(),
+});

@@ -12,6 +12,8 @@ import { ZodError } from 'zod';
 
 import { checkViolationConstraint, constraintMessage, isCheckViolation, isPoolConnectionTimeout } from '../db/pg-error.js';
 import { AppError, describeError, toErrorBody } from './errors.js';
+import { captureUnexpectedError } from './error-monitoring.js';
+import { redactUrl } from './redact-url.js';
 import { REQUEST_ID_HEADER, requestIdOf } from './request-id.js';
 
 /**
@@ -118,6 +120,9 @@ export class AppExceptionFilter implements ExceptionFilter {
 
     const resolved = this.resolve(exception);
     this.log(exception, resolved, req);
+    if (!resolved.expected && resolved.status >= SERVER_ERROR_FLOOR) {
+      captureUnexpectedError(exception, requestId, resolved.status, resolved.code);
+    }
 
     if (res.headersSent) {
       // Express has already flushed a status line; writing a second body would
@@ -192,6 +197,19 @@ export class AppExceptionFilter implements ExceptionFilter {
       };
     }
 
+    if (isEntityTooLarge(exception)) {
+      // body-parser's refusal, thrown before any guard or handler runs. It
+      // is not a Nest HttpException, so it used to fall through to a 500 --
+      // which also means the old 15 MB limit was never hit in a test (H-02).
+      return {
+        status: 413,
+        code: ERROR_CODES.PAYLOAD_TOO_LARGE,
+        message: 'The request body is larger than this route accepts.',
+        details: undefined,
+        expected: true,
+      };
+    }
+
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       // A 5xx HttpException is still a server fault, so it is treated like an
@@ -230,7 +248,7 @@ export class AppExceptionFilter implements ExceptionFilter {
    * message would be swallowed and the log line would arrive empty.
    */
   private log(exception: unknown, resolved: Resolved, req: Request): void {
-    const where = `${req.method ?? 'UNKNOWN'} ${req.originalUrl ?? req.url ?? ''}`;
+    const where = `${req.method ?? 'UNKNOWN'} ${redactUrl(req.originalUrl ?? req.url ?? '')}`;
     // No `requestId` here: pino-http already binds it to the request's child
     // logger, and repeating it emits the key twice in one JSON object.
     const base = { status: resolved.status, code: resolved.code, where };
@@ -278,4 +296,9 @@ function safeStringify(value: unknown): string {
     // that exists to report other failures.
     return '[unserialisable]';
   }
+}
+
+/** body-parser marks the oversize case by `type`; the status alone is not enough to know it was ours. */
+function isEntityTooLarge(exception: unknown): boolean {
+  return typeof exception === 'object' && exception !== null && (exception as { type?: unknown }).type === 'entity.too.large';
 }

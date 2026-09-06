@@ -94,7 +94,7 @@ const HolidaysPage = lazy(() => import('@/features/holidays').then((m) => ({ def
 const LeaveTypesPage = lazy(() => import('@/features/leave').then((m) => ({ default: m.LeaveTypesPage })));
 const MyLeavePage = lazy(() => import('@/features/leave').then((m) => ({ default: m.MyLeavePage })));
 const TeamLeavePage = lazy(() => import('@/features/leave').then((m) => ({ default: m.TeamLeavePage })));
-const PatternsPage = lazy(() => import('@/features/patterns/patterns-page').then((m) => ({ default: m.PatternsPage })));
+const PatternsPage = import.meta.env.DEV ? lazy(() => import('@/features/patterns/patterns-page').then((m) => ({ default: m.PatternsPage }))) : () => null;
 const PunchPage = lazy(() => import('@/features/punch').then((m) => ({ default: m.PunchPage })));
 const RegularizationsPage = lazy(() => import('@/features/regularization').then((m) => ({ default: m.RegularizationsPage })));
 const ShiftsPage = lazy(() => import('@/features/shifts').then((m) => ({ default: m.ShiftsPage })));
@@ -135,7 +135,7 @@ const InterestOverridesPage = lazy(() => import('@/features/interest/overrides-p
 const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
 const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
 const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
-const NotificationsPage = lazy(() => import('@/features/notifications').then((m) => ({ default: m.NotificationsPage })));
+const NotificationsPage = lazy(() => import('@/features/notifications/notifications-page').then((m) => ({ default: m.NotificationsPage })));
 const CompaniesPage = lazy(() => import('@/features/crm/companies-page').then((m) => ({ default: m.CompaniesPage })));
 const ContactsPage = lazy(() => import('@/features/crm/contacts-page').then((m) => ({ default: m.ContactsPage })));
 const TasksDashboardPage = lazy(() => import('@/features/tasks/tasks-dashboard-page').then((m) => ({ default: m.TasksDashboardPage })));
@@ -175,7 +175,7 @@ const VoucherPaperPage = lazy(() => import('@/features/masters/voucher-paper-pag
 const PlaceholderPage = lazy(() => import('@/features/placeholder/placeholder-page').then((m) => ({ default: m.PlaceholderPage })));
 const OrgMastersPage = lazy(() => import('@/features/org-masters').then((m) => ({ default: m.OrgMastersPage })));
 const ProfilePage = lazy(() => import('@/features/profile/profile-page').then((m) => ({ default: m.ProfilePage })));
-const UpdatesPage = lazy(() => import('@/features/updates').then((m) => ({ default: m.UpdatesPage })));
+const UpdatesPage = lazy(() => import('@/features/updates/updates-page').then((m) => ({ default: m.UpdatesPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: {

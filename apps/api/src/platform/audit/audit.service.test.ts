@@ -19,6 +19,13 @@ import { AuditService, diffJson, redact } from './audit.service.js';
 
 const ORG_ID = '01900000-0000-7000-8000-0000000000a3';
 
+it('redacts credential aliases across casing and separators in nested audit data', () => {
+  for (const key of ['PASSWORD', 'Refresh_Token', 'access-token', 'API_KEY', 'Set-Cookie', 'ClientSecret', 'recovery_codes', 'BackupCodes']) {
+    expect(redact({ nested: [{ [key]: 'sensitive-value', label: 'retained' }] }))
+      .toEqual({ nested: [{ [key]: '[redacted]', label: 'retained' }] });
+  }
+});
+
 let pool: Pool;
 let db: Database;
 let audit: AuditService;

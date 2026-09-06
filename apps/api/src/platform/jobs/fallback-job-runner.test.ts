@@ -37,11 +37,44 @@ class StubHandler implements JobHandler<'purge-expired-files'> {
   }
 }
 
+class BlockingHandler implements JobHandler<'purge-expired-files'> {
+  readonly jobName = 'purge-expired-files';
+  private releaseRun: (() => void) | undefined;
+  private markStarted: () => void = () => undefined;
+  readonly started: Promise<void>;
+
+  constructor() {
+    this.started = new Promise<void>((resolve) => {
+      this.markStarted = resolve;
+    });
+  }
+
+  run(
+    _payload: JobPayloads['purge-expired-files'],
+    _context: JobContext,
+  ): Promise<JobResult> {
+    this.markStarted();
+    return new Promise((resolve) => {
+      this.releaseRun = () => resolve({ ran: true });
+    });
+  }
+
+  release(): void {
+    this.releaseRun?.();
+  }
+}
+
 function newFallback(): { fallback: FallbackJobRunner; stub: StubHandler } {
   const registry = new JobRegistry();
   const stub = new StubHandler();
   registry.register(stub);
   return { fallback: new FallbackJobRunner(db, registry), stub };
+}
+
+function fallbackFor(handler: JobHandler<'purge-expired-files'>): FallbackJobRunner {
+  const registry = new JobRegistry();
+  registry.register(handler);
+  return new FallbackJobRunner(db, registry);
 }
 
 async function rowFor(id: string): Promise<{ state: string; attempts: number; last_error: string | null } | undefined> {
@@ -147,6 +180,40 @@ describe('FallbackJobRunner.enqueue + workerTick', () => {
     // Requeued, then immediately reclaimed and run by the same tick.
     expect(row?.state).toBe('DONE');
   });
+
+  it('does not let the old worker overwrite a successor after lease takeover', async () => {
+    const inserted = await db.execute<{ id: string }>(sql`
+      INSERT INTO fallback_jobs (job_name, payload, attempts)
+      VALUES ('purge-expired-files', '{"requestedAt":"2026-01-01T00:00:00.000Z"}'::jsonb, 3)
+      RETURNING id
+    `);
+    const id = inserted.rows[0]?.id;
+    if (id === undefined) throw new Error('seed insert returned no row');
+    insertedJobIds.push(id);
+
+    const firstHandler = new BlockingHandler();
+    const firstTick = fallbackFor(firstHandler).workerTick();
+    await firstHandler.started;
+
+    // The first invocation is still running but has lost a five-minute lease.
+    await db.execute(sql`
+      UPDATE fallback_jobs SET claimed_at = now() - interval '10 minutes' WHERE id = ${id}
+    `);
+
+    const secondHandler = new StubHandler();
+    secondHandler.shouldFail = true;
+    await fallbackFor(secondHandler).workerTick();
+    expect((await rowFor(id))?.state).toBe('FAILED');
+
+    // Its successful result arrives late. Generation 1 must not overwrite the
+    // FAILED outcome written by generation 2.
+    firstHandler.release();
+    await firstTick;
+    const final = await db.execute<{ state: string; attempts: number; claim_generation: number }>(sql`
+      SELECT state, attempts, claim_generation FROM fallback_jobs WHERE id = ${id}
+    `);
+    expect(final.rows[0]).toMatchObject({ state: 'FAILED', attempts: 5, claim_generation: 2 });
+  });
 });
 
 describe('FallbackJobRunner.activate', () => {
@@ -200,5 +267,52 @@ describe('FallbackJobRunner.activate', () => {
     } finally {
       fallback.onApplicationShutdown();
     }
+  });
+});
+
+/**
+ * H-07. Two API processes each run the scheduler; a due schedule must fire
+ * once. As read-then-insert-then-advance it fired once per process -- but
+ * only when the other process fell into the sub-millisecond gap between the
+ * read and the insert, which two ticks fired together never did in this
+ * harness. So the gap is forced: the first tick runs inside a transaction
+ * that is held open, the second must wait on the row and then find it no
+ * longer due. With the three statements back in, the second's read sees the
+ * old row and two jobs land.
+ */
+describe('FallbackJobRunner.schedulerTick under two instances', () => {
+  it('fires a due schedule exactly once when the second tick arrives while the first still holds it', async () => {
+    const first = SCHEDULED_JOBS[0];
+    expect(first).toBeDefined();
+    const jobName = first?.jobName ?? '';
+    await db.execute(sql`DELETE FROM fallback_job_schedules`);
+    await db.execute(sql`
+      INSERT INTO fallback_job_schedules (scheduler_id, next_run_at) VALUES (${first?.schedulerId ?? ''}, now() - interval '1 hour')
+    `);
+    const before = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM fallback_jobs WHERE job_name = ${jobName}`);
+
+    const clientA = await pool.connect();
+    const clientB = await pool.connect();
+    try {
+      await clientA.query('BEGIN');
+      await clientB.query('BEGIN');
+      const a = newFallback().fallback;
+      const b = newFallback().fallback;
+      await a.schedulerTick(drizzle(clientA));
+      // B blocks on A's row until A commits, then re-reads it.
+      const second = b.schedulerTick(drizzle(clientB));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await clientA.query('COMMIT');
+      await second;
+      await clientB.query('COMMIT');
+    } finally {
+      clientA.release();
+      clientB.release();
+    }
+
+    const after = await db.execute<{ id: string }>(sql`SELECT id FROM fallback_jobs WHERE job_name = ${jobName} ORDER BY created_at DESC`);
+    const added = after.rows.length - (before.rows[0]?.n ?? 0);
+    insertedJobIds.push(...after.rows.slice(0, Math.max(0, added)).map((r) => r.id));
+    expect(added).toBe(1);
   });
 });

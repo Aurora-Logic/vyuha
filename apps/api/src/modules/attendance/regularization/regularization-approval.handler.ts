@@ -73,6 +73,10 @@ export class RegularizationApprovalHandler implements ApprovalSubjectHandler, On
   ): Promise<ApprovalSubjectSettlement | null> {
     return this.regularization.applyApprovalDecision(ctx, decision, tx);
   }
+
+  recoverSettlement(ctx: OrgContext, decision: ApprovalSubjectDecision): Promise<void> {
+    return this.regularization.recoverApprovalSettlement(ctx, decision);
+  }
 }
 
 @Injectable()
@@ -97,5 +101,10 @@ export class OnDutyApprovalHandler implements ApprovalSubjectHandler, OnModuleIn
     tx: Database,
   ): Promise<ApprovalSubjectSettlement | null> {
     return this.regularization.applyOnDutyDecision(ctx, decision, tx);
+  }
+
+
+  recoverSettlement(ctx: OrgContext, decision: ApprovalSubjectDecision): Promise<void> {
+    return this.regularization.recoverOnDutySettlement(ctx, decision);
   }
 }

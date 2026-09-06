@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { NotificationChannel as NotificationChannelKey } from '@vyuha/shared';
-import { sql } from 'drizzle-orm';
+import { uuidv7, type NotificationChannel as NotificationChannelKey } from '@vyuha/shared';
+import { and, asc, eq, lte, sql } from 'drizzle-orm';
 
 import { AuditService } from '../audit/audit.service.js';
-import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
+import { notificationIdempotency, notificationOutbox } from '../db/schema/index.js';
 import { env } from '../common/env.js';
 import { describeError } from '../common/errors.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
@@ -15,6 +16,7 @@ import {
   type NotificationPayload,
 } from './notification-events.js';
 import { NotificationPreferencesService } from './notification-preferences.service.js';
+import { DeliveryProgress } from './delivery-progress.js';
 import { RecipientResolver } from './recipient-resolver.service.js';
 
 /**
@@ -65,11 +67,22 @@ function assertUsableAsJobId(key: string): string {
   return key;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export interface DeliveryReport {
   readonly recipients: number;
   readonly delivered: number;
   readonly failed: number;
   readonly suppressed: number;
+}
+
+const OUTBOX_BATCH_SIZE = 200;
+
+interface StagedNotification {
+  readonly id: string;
+  readonly jobId: string;
 }
 
 @Injectable()
@@ -106,98 +119,193 @@ export class NotificationDispatcher {
   }
 
   /**
-   * Hands the event to the `notification` queue and returns.
+   * Persists the envelope, then hands it to the notification queue.
    *
-   * An idempotency key is claimed in the database first. It used to be
-   * BullMQ's own job id and nothing else, which suppresses a duplicate only
-   * while the completed job still exists -- and `DEFAULT_JOB_OPTIONS` keeps
-   * two hundred of them, so on a busy day the key meant to stop a repeat for
-   * ever was evicted and the sweep told everybody a second time about a punch
-   * they had already been told about. Nothing failed; the notice simply went
-   * out again.
-   *
-   * The job id is still passed. It costs nothing and it catches the narrower
-   * case the row cannot: two emits racing before either has committed.
+   * The outbox and idempotency claim are one database transaction. A process
+   * dying after that commit leaves a PENDING row for the drain job, while a
+   * process dying after queue acceptance retries with the same BullMQ job id.
+   * Queue failure is therefore not released/discarded and is not a reason to
+   * fail already-committed business work.
    */
   async emit(event: NotificationEvent): Promise<string> {
-    if (event.idempotencyKey !== undefined) {
-      // The same id a duplicate has always returned -- BullMQ answered with
-      // the existing job's id rather than enqueuing a second, and callers
-      // that keep the id must go on getting it. Only the enqueue is skipped.
-      const jobId = `notify-${assertUsableAsJobId(event.idempotencyKey)}`;
-      if (!(await this.claimIdempotencyKey(event.orgId, event.idempotencyKey))) return jobId;
+    const staged = await this.stage(event);
+    if (staged === null) {
+      // Historical idempotency rows may predate the outbox. They name an event
+      // that was already accepted, so preserve the old stable return value.
+      const key = event.idempotencyKey;
+      if (key === undefined) throw new Error('A notification without an idempotency key was not staged.');
+      return `notify-${assertUsableAsJobId(key)}`;
     }
-    return this.jobs.enqueue(
-      'send-notification',
-      {
+
+    await this.enqueueOutbox(staged);
+    return staged.jobId;
+  }
+
+  private stage(event: NotificationEvent): Promise<StagedNotification | null> {
+    return this.db.transaction((tx) => this.stageInTransaction(event, tx));
+  }
+
+  /** Persist intent with the business mutation. The periodic drain owns hand-off. */
+  async stageInTransaction(
+    event: NotificationEvent,
+    tx: Database | Transaction,
+  ): Promise<StagedNotification | null> {
+    const key = event.idempotencyKey;
+    if (key !== undefined) assertUsableAsJobId(key);
+
+    if (key !== undefined) {
+      const claimed = await tx
+        .insert(notificationIdempotency)
+        .values({ orgId: event.orgId, key })
+        .onConflictDoNothing()
+        .returning({ key: notificationIdempotency.key });
+
+      if (claimed.length === 0) {
+        const existing = await tx
+          .select({ id: notificationOutbox.id })
+          .from(notificationOutbox)
+          .where(
+            and(
+              eq(notificationOutbox.orgId, event.orgId),
+              eq(notificationOutbox.idempotencyKey, key),
+            ),
+          )
+          .limit(1);
+        return existing[0] === undefined ? null : { id: existing[0].id, jobId: `notify-outbox-${existing[0].id}` };
+      }
+    }
+
+    const inserted = await tx
+      .insert(notificationOutbox)
+      .values({
         orgId: event.orgId,
         eventType: event.type,
         audience: event.audience,
         payload: { ...(event.payload ?? {}) },
-      },
-      event.idempotencyKey === undefined
-        ? {}
-        : { jobId: `notify-${assertUsableAsJobId(event.idempotencyKey)}` },
-    );
+        idempotencyKey: key ?? null,
+      })
+      .returning({ id: notificationOutbox.id });
+    const id = inserted[0]?.id;
+    if (id === undefined) throw new Error('Notification outbox insert returned no row.');
+    return { id, jobId: `notify-outbox-${id}` };
   }
 
   /**
-   * The same emit, for callers whose work is already committed.
-   *
-   * Found live, 31 Aug 2026: a task saved, its audit row was written, and
-   * then the notification enqueue timed out against a Redis blip -- so the
-   * screen said "Saving the task failed" about a task that exists, and the
-   * obvious retry made a second one. A notice is a courtesy; the record is
-   * the point. Once the record is committed, a failure to tell somebody is
-   * logged and swallowed, because the alternative is losing the work or
-   * lying about it.
-   *
-   * Not the behaviour of `emit` itself: a caller inside a job wants the
-   * throw, so its retry can carry the notice.
+   * Attempts one durable hand-off. False means the PENDING row remains for a
+   * scheduled retry; callers do not need to turn that into their own retry.
    */
-  async emitAfterCommit(event: NotificationEvent): Promise<void> {
+  private async enqueueOutbox(staged: StagedNotification): Promise<boolean> {
     try {
-      await this.emit(event);
-    } catch (error) {
+      const rows = await this.db
+        .select({
+          orgId: notificationOutbox.orgId,
+          eventType: notificationOutbox.eventType,
+          audience: notificationOutbox.audience,
+          payload: notificationOutbox.payload,
+        })
+        .from(notificationOutbox)
+        .where(and(eq(notificationOutbox.id, staged.id), sql`${notificationOutbox.state} IN ('PENDING', 'ENQUEUED')`))
+        .limit(1);
+      const row = rows[0];
+      if (row === undefined) return true;
+
+      await this.jobs.enqueue(
+        'send-notification',
+        {
+          outboxId: staged.id,
+          orgId: row.orgId,
+          eventType: row.eventType,
+          audience: row.audience,
+          payload: isRecord(row.payload) ? row.payload : {},
+        },
+        { jobId: staged.jobId },
+      );
+
+      await this.db
+        .update(notificationOutbox)
+        .set({ state: 'ENQUEUED', enqueuedAt: new Date(), runAfter: new Date(Date.now() + 300_000), lastError: null, updatedAt: new Date() })
+        .where(and(eq(notificationOutbox.id, staged.id), sql`${notificationOutbox.state} IN ('PENDING', 'ENQUEUED')`));
+      return true;
+    } catch (error: unknown) {
+      try {
+        await this.db
+          .update(notificationOutbox)
+          .set({
+            attempts: sql`${notificationOutbox.attempts} + 1`,
+            runAfter: new Date(Date.now() + 30_000),
+            lastError: describeError(error).slice(0, 500),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(notificationOutbox.id, staged.id), sql`${notificationOutbox.state} IN ('PENDING', 'ENQUEUED')`));
+      } catch (recordError: unknown) {
+        this.logger.error({
+          msg: 'Notification outbox could not record a failed queue hand-off.',
+          outboxId: staged.id,
+          enqueueError: describeError(error),
+          recordError: describeError(recordError),
+        });
+      }
       this.logger.warn({
-        msg: 'Notification could not be queued; the work it describes is committed',
-        eventType: event.type,
-        orgId: event.orgId,
+        msg: 'Notification remains pending in the outbox after queue hand-off failed.',
+        outboxId: staged.id,
         error: describeError(error),
       });
+      return false;
     }
   }
 
-  /** True the first time this organisation claims this key, false after. */
-  private async claimIdempotencyKey(orgId: string, key: string): Promise<boolean> {
-    const claimed = await this.db.execute<{ key: string }>(sql`
-      INSERT INTO notification_idempotency (org_id, key) VALUES (${orgId}, ${key})
-      ON CONFLICT (org_id, key) DO NOTHING
-      RETURNING key
-    `);
-    return claimed.rows.length > 0;
+  /** Drained by a recurring maintenance job and callable directly in tests. */
+  async drainOutbox(now: Date = new Date()): Promise<{
+    scanned: number;
+    enqueued: number;
+    failed: number;
+    remaining: number;
+  }> {
+    const pending = await this.db
+      .select({ id: notificationOutbox.id, idempotencyKey: notificationOutbox.idempotencyKey })
+      .from(notificationOutbox)
+      .where(and(sql`${notificationOutbox.state} IN ('PENDING', 'ENQUEUED')`, lte(notificationOutbox.runAfter, now)))
+      .orderBy(asc(notificationOutbox.runAfter))
+      .limit(OUTBOX_BATCH_SIZE);
+
+    let enqueued = 0;
+    for (const row of pending) {
+      const jobId = `notify-outbox-${row.id}`;
+      if (await this.enqueueOutbox({ id: row.id, jobId: `${jobId}-retry-${uuidv7()}` })) enqueued += 1;
+    }
+
+    const remainingRows = await this.db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(notificationOutbox)
+      .where(sql`${notificationOutbox.state} IN ('PENDING', 'ENQUEUED')`);
+    return {
+      scanned: pending.length,
+      enqueued,
+      failed: pending.length - enqueued,
+      remaining: remainingRows[0]?.value ?? 0,
+    };
   }
 
   /**
    * Resolve, render, filter by preference, fan out.
    *
-   * Failure policy, stated because the alternative is tempting and wrong: a
-   * per-channel failure is counted and logged, and the dispatch still
-   * completes. Throwing would make BullMQ retry the whole event, and the
-   * recipients who *did* get their bell notification would get a second one.
-   * A duplicated notification is worse than a missed one that is visible in
-   * the job's result and in the log.
-   *
-   * A failure to resolve or render does throw: nothing was delivered, so a
-   * retry is safe and is exactly what should happen.
+   * Outbox-backed events persist per-channel progress. Failed sends are
+   * retried by the drain, acknowledged sends are skipped, and an interrupted
+   * external send is held for reconciliation. Legacy direct calls retain
+   * their best-effort behavior; they have no durable event identity.
    */
-  async deliver(event: NotificationEvent): Promise<DeliveryReport> {
+  async deliver(event: NotificationEvent, outboxId?: string): Promise<DeliveryReport> {
+    const progress = outboxId === undefined ? null : await DeliveryProgress.claim(this.db, event.orgId, outboxId);
+    if (outboxId !== undefined && progress === null) {
+      return { recipients: 0, delivered: 0, failed: 0, suppressed: 0 };
+    }
     const template = NOTIFICATION_TEMPLATES[event.type];
     const payload = event.payload ?? {};
 
     const audience = await this.recipients.resolve(event.orgId, event.audience);
     if (audience.length === 0) {
       this.logger.log({ msg: 'Notification had no reachable recipients', eventType: event.type });
+      await progress?.finish(0);
       return { recipients: 0, delivered: 0, failed: 0, suppressed: 0 };
     }
 
@@ -233,14 +341,32 @@ export class NotificationDispatcher {
       const succeeded: NotificationChannelKey[] = [];
 
       for (const channel of wanted) {
-        try {
-          // The record-keeping channel sorts last (see `ChannelRegistry.all`),
-          // so by the time it runs `succeeded` is what genuinely went out.
-          await channel.send(recipient, message, { channels: [...succeeded, channel.key] });
+        const key = `${recipient.userId}.${channel.key}`;
+        const previous = progress?.outcome(key);
+        if (previous === 'SENT') {
           succeeded.push(channel.key);
-          delivered += 1;
+          if (outboxId !== undefined) {
+            await channel.reconcileReceipt?.(recipient, `${outboxId}.${key}`, succeeded);
+          }
+          continue;
+        }
+        // A dead worker may have reached SMTP before it could acknowledge.
+        // Only the record channel has a durable idempotency key. Never guess
+        // that an ambiguous external send failed and silently duplicate it.
+        if (previous === 'UNCERTAIN' || (previous === 'SENDING' && !channel.persistsRecord)) {
+          await progress?.record(key, 'UNCERTAIN');
+          this.logger.error({ msg: 'Notification delivery requires reconciliation', outboxId, key });
+          continue;
+        }
+        await progress?.record(key, 'SENDING');
+        try {
+          await channel.send(recipient, message, {
+            channels: [...succeeded, channel.key],
+            ...(outboxId === undefined ? {} : { deliveryKey: `${outboxId}.${key}` }),
+          });
         } catch (error: unknown) {
           failed += 1;
+          await progress?.record(key, 'FAILED');
           this.logger.error({
             msg: 'Notification channel failed for one recipient.',
             eventType: event.type,
@@ -248,14 +374,20 @@ export class NotificationDispatcher {
             userId: recipient.userId,
             reason: describeError(error),
           });
+          continue;
         }
+        // Outside the send catch: an acknowledgement DB failure is ambiguous,
+        // not proof that the external transport rejected the message.
+        await progress?.record(key, 'SENT');
+        succeeded.push(channel.key);
+        delivered += 1;
       }
     }
 
     // REQ-M-01. One row for the event, not one per recipient per channel:
     // a dispatch to a department would otherwise put a hundred rows into the
     // trail for a single approval.
-    await this.audit.write({
+    const audited = await this.audit.write({
       orgId: event.orgId,
       actorUserId: null,
       action: 'notification.dispatched',
@@ -270,6 +402,10 @@ export class NotificationDispatcher {
       },
     });
 
+    if (progress !== null) {
+      if (!audited) throw new Error('Notification audit pending; recorded deliveries will not repeat.');
+      await progress.finish(failed);
+    }
     return { recipients: audience.length, delivered, failed, suppressed };
   }
 }

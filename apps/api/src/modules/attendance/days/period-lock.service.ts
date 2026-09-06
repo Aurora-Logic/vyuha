@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ERROR_CODES, PERMISSIONS } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
@@ -70,15 +71,21 @@ export class PeriodLockService {
   }
 
   async lock(principal: Principal, input: LockPeriodInput): Promise<PeriodLockRow> {
-    const repository = this.repository(principal);
+    return this.db.transaction((tx) => this.lockInTransaction(principal, input, tx));
+  }
+
+  private async lockInTransaction(principal: Principal, input: LockPeriodInput, executor: Database): Promise<PeriodLockRow> {
+    const repository = new PeriodLockRepository(executor, orgContextOf(principal));
     const locationId = input.locationId ?? null;
 
     if (locationId !== null) {
-      const exists = await new ScopedRepository(this.db, locations, orgContextOf(principal)).exists(
+      const exists = await new ScopedRepository(executor, locations, orgContextOf(principal)).exists(
         locationId,
       );
       if (!exists) throw AppError.notFound('Location', locationId);
     }
+
+    await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${principal.orgId} || '.period.' || ${String(input.year)} || '.' || ${String(input.month)}, 0))`);
 
     const already = await repository.findLive(locationId, input.year, input.month);
     if (already !== null) {
@@ -104,7 +111,9 @@ export class PeriodLockService {
 
     const row = await this.readBack(repository, id);
 
-    this.auditContext.record({
+    await this.auditContext.recordInTransaction({
+      orgId: principal.orgId,
+      actorUserId: principal.userId,
       action: 'attendance.period.locked',
       entityType: 'attendance_period_lock',
       entityId: id,
@@ -116,28 +125,34 @@ export class PeriodLockService {
         reason: input.reason,
         attendanceDaysMarked: daysMarked,
       },
-    });
+    }, executor);
 
     // REQ-K-03. Everyone who can close or reopen a month, which is the set
     // whose exports and corrections the lock has just changed. Named by
     // permission rather than by role (PRD §2), and it deliberately includes
     // whoever pressed the button: a second administrator watching the same
     // month must not learn about it later than the first.
-    await this.notifications.emitAfterCommit({
+    await this.notifications.stageInTransaction({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.PERIOD_LOCKED,
       audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_LOCK },
       payload: { period: periodLabel(input.year, input.month), actorName: principal.email },
-    });
+    }, executor);
 
     return row;
   }
 
   async unlock(principal: Principal, id: string, reason: string): Promise<PeriodLockRow> {
-    const repository = this.repository(principal);
+    return this.db.transaction((tx) => this.unlockInTransaction(principal, id, reason, tx));
+  }
+
+  private async unlockInTransaction(principal: Principal, id: string, reason: string, executor: Database): Promise<PeriodLockRow> {
+    const repository = new PeriodLockRepository(executor, orgContextOf(principal));
 
     const existing = await repository.findById(id);
     if (existing === null) throw AppError.notFound('Period lock', id);
+
+    await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${principal.orgId} || '.period.' || ${String(existing.year)} || '.' || ${String(existing.month)}, 0))`);
 
     if (existing.unlockedAt !== null) {
       throw new AppError(
@@ -163,7 +178,9 @@ export class PeriodLockService {
     const daysMarked = await repository.syncDaysLocked(existing.year, existing.month, now);
     const row = await this.readBack(repository, id);
 
-    this.auditContext.record({
+    await this.auditContext.recordInTransaction({
+      orgId: principal.orgId,
+      actorUserId: principal.userId,
       action: 'attendance.period.unlocked',
       entityType: 'attendance_period_lock',
       entityId: id,
@@ -175,13 +192,13 @@ export class PeriodLockService {
         reason,
         attendanceDaysMarked: daysMarked,
       },
-    });
+    }, executor);
 
     // The reason travels with it. Reopening a closed month is the action most
     // likely to surprise somebody who has already exported it, and "unlocked"
     // with no explanation is the version of this notification that generates a
     // phone call rather than saving one.
-    await this.notifications.emitAfterCommit({
+    await this.notifications.stageInTransaction({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.PERIOD_UNLOCKED,
       audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_LOCK },
@@ -190,7 +207,7 @@ export class PeriodLockService {
         actorName: principal.email,
         reason,
       },
-    });
+    }, executor);
 
     return row;
   }

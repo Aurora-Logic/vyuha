@@ -48,6 +48,7 @@ type ClaimedRow = {
   job_name: string;
   payload: unknown;
   attempts: number;
+  claim_generation: number;
 };
 
 @Injectable()
@@ -185,24 +186,26 @@ export class FallbackJobRunner implements OnApplicationShutdown {
    * than waiting `SCHEDULER_TICK_MS` for the timer to fire — the same reason
    * `JobRunner.startWorkers()` is public.
    */
-  async schedulerTick(): Promise<void> {
+  /** `executor` lets a test run the claim inside an explicit transaction; production passes nothing. */
+  async schedulerTick(executor: Pick<Database, 'execute'> = this.db): Promise<void> {
     const now = await this.dbNow();
 
     for (const scheduled of SCHEDULED_JOBS) {
-      const rows = await this.db.execute<{ next_run_at: Date | string }>(sql`
-        SELECT next_run_at FROM fallback_job_schedules WHERE scheduler_id = ${scheduled.schedulerId} AND next_run_at <= now()
-      `);
-      if (rows.rows.length === 0) continue;
-
-      // Same literal payload `installSchedules()` uses for every scheduled
-      // job today, regardless of what that job's own TS payload declares.
-      await this.db.execute(sql`
-        INSERT INTO fallback_jobs (job_name, payload) VALUES (${scheduled.jobName}, ${JSON.stringify({ requestedAt: now.toISOString() })}::jsonb)
-      `);
-
       const nextRunAt = CronExpressionParser.parse(scheduled.pattern, { currentDate: now }).next().toDate();
-      await this.db.execute(sql`
-        UPDATE fallback_job_schedules SET next_run_at = ${nextRunAt}, last_run_at = now() WHERE scheduler_id = ${scheduled.schedulerId}
+      // One statement: advancing the schedule is the claim, and the job is
+      // inserted only for the instance whose UPDATE moved it. As three
+      // statements -- read, insert, advance -- two API processes that both
+      // read "due" both inserted, and a sweep ran twice (H-07). Same literal
+      // payload installSchedules() uses for every scheduled job today.
+      await executor.execute(sql`
+        WITH due AS (
+          UPDATE fallback_job_schedules
+             SET next_run_at = ${nextRunAt}, last_run_at = now()
+           WHERE scheduler_id = ${scheduled.schedulerId} AND next_run_at <= now()
+           RETURNING scheduler_id
+        )
+        INSERT INTO fallback_jobs (job_name, payload)
+        SELECT ${scheduled.jobName}, ${JSON.stringify({ requestedAt: now.toISOString() })}::jsonb FROM due
       `);
     }
   }
@@ -227,7 +230,8 @@ export class FallbackJobRunner implements OnApplicationShutdown {
   private async claimOne(): Promise<ClaimedRow | null> {
     const rows = await this.db.execute<ClaimedRow>(sql`
       UPDATE fallback_jobs
-         SET state = 'CLAIMED', claimed_by = ${this.instanceId}, claimed_at = now(), attempts = attempts + 1, updated_at = now()
+         SET state = 'CLAIMED', claimed_by = ${this.instanceId}, claimed_at = now(),
+             claim_generation = claim_generation + 1, attempts = attempts + 1, updated_at = now()
        WHERE id = (
          SELECT id FROM fallback_jobs
           WHERE state = 'QUEUED' AND run_after <= now()
@@ -235,7 +239,7 @@ export class FallbackJobRunner implements OnApplicationShutdown {
           LIMIT 1
           FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, job_name, payload, attempts
+       RETURNING id, job_name, payload, attempts, claim_generation
     `);
     return rows.rows[0] ?? null;
   }
@@ -243,18 +247,43 @@ export class FallbackJobRunner implements OnApplicationShutdown {
   private async runClaimed(row: ClaimedRow): Promise<void> {
     const handler = this.registry.get(row.job_name);
     if (handler === null) {
-      await this.markFailed(row.id, `No handler is registered for job "${row.job_name}".`);
+      await this.markFailed(row, `No handler is registered for job "${row.job_name}".`);
       return;
     }
 
+    // A job that legitimately outlives STALE_CLAIM_MS used to be handed back
+    // to the queue while still running, and ran twice. Renew the claim while
+    // the handler runs; a process that dies stops renewing, which is what the
+    // stale sweep is for (H-07).
+    const renew = setInterval(() => {
+      void this.db
+        .execute(sql`UPDATE fallback_jobs SET claimed_at = now()
+          WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+            AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'`)
+        .catch((error: unknown) => {
+          this.logger.warn({ msg: 'Could not renew a fallback job claim', jobId: row.id, reason: describeError(error) });
+        });
+    }, Math.floor(STALE_CLAIM_MS / 3));
     try {
       const result = await handler.run(row.payload as JobPayloads[JobName], {
         jobId: row.id,
         attempt: row.attempts,
       });
-      await this.db.execute(sql`UPDATE fallback_jobs SET state = 'DONE', updated_at = now() WHERE id = ${row.id}`);
+      clearInterval(renew);
+      const completed = await this.db.execute<{ id: string }>(sql`
+        UPDATE fallback_jobs
+           SET state = 'DONE', claimed_by = NULL, claimed_at = NULL, updated_at = now()
+         WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+           AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'
+         RETURNING id
+      `);
+      if (completed.rows.length === 0) {
+        this.logLostLease(row, 'completion');
+        return;
+      }
       this.logger.log({ msg: 'Fallback job completed', jobName: row.job_name, jobId: row.id, ...result });
     } catch (error: unknown) {
+      clearInterval(renew);
       const reason = describeError(error);
       const attempts = DEFAULT_JOB_OPTIONS.attempts ?? 5;
       const baseDelay = typeof DEFAULT_JOB_OPTIONS.backoff === 'object' ? (DEFAULT_JOB_OPTIONS.backoff.delay ?? 2000) : 2000;
@@ -262,22 +291,49 @@ export class FallbackJobRunner implements OnApplicationShutdown {
       if (row.attempts < attempts) {
         // BullMQ's own exponential formula: delayMs = 2^(attemptsMade-1) * baseDelay.
         const delayMs = Math.round(2 ** (row.attempts - 1) * baseDelay);
-        await this.db.execute(sql`
-          UPDATE fallback_jobs SET state = 'QUEUED', run_after = now() + (${delayMs} * interval '1 millisecond'), last_error = ${reason.slice(0, 500)}, updated_at = now()
-           WHERE id = ${row.id}
+        const requeued = await this.db.execute<{ id: string }>(sql`
+          UPDATE fallback_jobs
+             SET state = 'QUEUED', run_after = now() + (${delayMs} * interval '1 millisecond'),
+                 claimed_by = NULL, claimed_at = NULL,
+                 last_error = ${reason.slice(0, 500)}, updated_at = now()
+           WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+             AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'
+           RETURNING id
         `);
+        if (requeued.rows.length === 0) {
+          this.logLostLease(row, 'retry');
+          return;
+        }
         this.logger.warn({ msg: 'Fallback job attempt failed; it will be retried.', jobName: row.job_name, jobId: row.id, attempt: row.attempts, of: attempts, reason });
       } else {
-        await this.markFailed(row.id, reason);
-        this.logger.error({ msg: 'Fallback job failed permanently.', jobName: row.job_name, jobId: row.id, attempt: row.attempts, reason });
+        if (await this.markFailed(row, reason)) {
+          this.logger.error({ msg: 'Fallback job failed permanently.', jobName: row.job_name, jobId: row.id, attempt: row.attempts, reason });
+        }
       }
     }
   }
 
-  private async markFailed(id: string, reason: string): Promise<void> {
-    await this.db.execute(sql`
-      UPDATE fallback_jobs SET state = 'FAILED', last_error = ${reason.slice(0, 500)}, updated_at = now() WHERE id = ${id}
+  private async markFailed(row: ClaimedRow, reason: string): Promise<boolean> {
+    const failed = await this.db.execute<{ id: string }>(sql`
+      UPDATE fallback_jobs
+         SET state = 'FAILED', claimed_by = NULL, claimed_at = NULL,
+             last_error = ${reason.slice(0, 500)}, updated_at = now()
+       WHERE id = ${row.id} AND claimed_by = ${this.instanceId}
+         AND claim_generation = ${row.claim_generation} AND state = 'CLAIMED'
+       RETURNING id
     `);
+    if (failed.rows.length === 0) this.logLostLease(row, 'failure');
+    return failed.rows.length > 0;
+  }
+
+  private logLostLease(row: ClaimedRow, outcome: string): void {
+    this.logger.warn({
+      msg: 'Discarded a stale fallback job outcome after its lease was lost.',
+      jobName: row.job_name,
+      jobId: row.id,
+      claimGeneration: row.claim_generation,
+      outcome,
+    });
   }
 
   /** Abandoned rows aren't swept by a BullMQ-scheduled purge job — that would be circular, since this exists because BullMQ is down. */

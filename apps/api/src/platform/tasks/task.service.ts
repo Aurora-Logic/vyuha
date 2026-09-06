@@ -28,6 +28,7 @@ import {
 } from '@vyuha/shared';
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
+import { idempotentCreate } from '../db/idempotent-create.js';
 import { AuditContext } from '../audit/audit-context.js';
 import { FileService } from '../files/file.service.js';
 import { isAcceptedUpload, sniffType } from '../files/magic-bytes.js';
@@ -171,17 +172,9 @@ export class TaskService {
 
   // ----------------------------------------------------------------- writes
 
-  async create(principal: Principal, input: CreateTaskInput): Promise<TaskView> {
-    const repository = this.tasks(principal);
-    const columns = this.columns(principal);
-
+  async create(principal: Principal, input: CreateTaskInput, key?: string): Promise<TaskView> {
     const assigneeId = await this.resolveAssignee(principal, input.assigneeId);
     const subject = await this.resolveSubject(principal, input.subjectType, input.subjectId);
-    const column =
-      input.columnId === undefined || input.columnId === null
-        ? await columns.firstOpen()
-        : await columns.find(input.columnId);
-    if (column === null) throw AppError.validation('The board column was not found.', { columnId: input.columnId ?? null });
 
     // Resolved before the insert, so a task naming a party that does not
     // exist fails without leaving half of itself behind.
@@ -189,41 +182,60 @@ export class TaskService {
     const vendor = await this.resolveParty(principal, input.vendorId, 'vendor');
     const items = await this.resolveItems(principal, input.items);
 
-    const created = await repository.insert({
-      title: input.title,
-      description: input.description ?? null,
-      subjectType: subject?.type ?? null,
-      subjectId: subject?.id ?? null,
-      subjectLabel: subject?.label ?? null,
-      assigneeId,
-      ownerId: principal.employeeId,
-      partyId: party?.id ?? null,
-      partyName: party?.name ?? null,
-      vendorId: vendor?.id ?? null,
-      vendorName: vendor?.name ?? null,
-      dueDate: input.dueDate ?? null,
-      priority: input.priority,
-      columnId: column.id,
-      closedAt: column.isDone ? new Date() : null,
+    const task = await this.db.transaction(async (tx) => {
+      const id = await idempotentCreate(tx, {
+        orgId: principal.orgId, userId: principal.userId, operation: 'task.create', input,
+        ...(key === undefined ? {} : { key }),
+      }, async () => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${principal.orgId + ':task-columns'}, 0))`);
+        const columns = new BoardColumnRepository(tx, orgContextOf(principal));
+        const column =
+          input.columnId === undefined || input.columnId === null
+            ? await columns.firstOpen()
+            : await columns.find(input.columnId);
+        if (column === null) throw AppError.validation('The board column was not found.', { columnId: input.columnId ?? null });
+        const repository = new TaskRepository(tx, orgContextOf(principal));
+        const created = await repository.insert({
+          title: input.title,
+          description: input.description ?? null,
+          subjectType: subject?.type ?? null,
+          subjectId: subject?.id ?? null,
+          subjectLabel: subject?.label ?? null,
+          assigneeId,
+          ownerId: principal.employeeId,
+          partyId: party?.id ?? null,
+          partyName: party?.name ?? null,
+          vendorId: vendor?.id ?? null,
+          vendorName: vendor?.name ?? null,
+          dueDate: input.dueDate ?? null,
+          priority: input.priority,
+          columnId: column.id,
+          closedAt: column.isDone ? new Date() : null,
+        });
+        if (items !== null) await repository.setItems(created.id, items);
+        const task = await repository.view(SQL_TRUE, created.id);
+        if (task === null) throw new Error(`Task ${created.id} vanished between insert and read-back.`);
+        await this.notifyAssigned(principal, task, null, tx);
+        await this.auditContext.recordInTransaction({
+          orgId: principal.orgId, actorUserId: principal.userId,
+          action: 'task.created',
+          entityType: 'task',
+          entityId: task.id,
+          before: null,
+          after: taskAuditView(task),
+        }, tx);
+        return task.id;
+      });
+      const task = await new TaskRepository(tx, orgContextOf(principal)).view(this.scope(principal), id);
+      if (task === null) throw AppError.notFound('Task', id);
+      return task;
     });
-    if (items !== null) await repository.setItems(created.id, items);
-    const task = await repository.view(SQL_TRUE, created.id);
-    if (task === null) throw new Error(`Task ${created.id} vanished between insert and read-back.`);
 
-    this.auditContext.record({
-      action: 'task.created',
-      entityType: 'task',
-      entityId: task.id,
-      before: null,
-      after: taskAuditView(task),
-    });
     this.announce(principal, 'created', task.id);
-    await this.notifyAssigned(principal, task, null);
     return task;
   }
 
   async update(principal: Principal, id: string, input: UpdateTaskInput): Promise<TaskView> {
-    const repository = this.tasks(principal);
     const existing = await this.find(principal, id);
 
     const patch: Parameters<TaskRepository['update']>[1] = {};
@@ -255,62 +267,80 @@ export class TaskService {
       patch.vendorName = vendor?.name ?? null;
     }
 
-    let moved: { from: string; to: TaskBoardColumnView } | null = null;
-    if (input.columnId !== undefined && input.columnId !== existing.columnId) {
-      const column = await this.columns(principal).find(input.columnId);
-      if (column === null) throw AppError.validation('The board column was not found.', { columnId: input.columnId });
-      patch.columnId = column.id;
-      // Closing is entering a done column; reopening is leaving one. A move
-      // between two open columns, or two done columns, changes neither.
-      if (column.isDone && !existing.isClosed) patch.closedAt = new Date();
-      if (!column.isDone && existing.isClosed) patch.closedAt = null;
-      moved = { from: existing.columnName, to: column };
-    }
-
     // Resolved before the write for the same reason as on create.
     const items = await this.resolveItems(principal, input.items);
 
-    const updated = await repository.update(id, patch);
-    if (updated === null) throw AppError.notFound('Task', id);
-    if (items !== null) await repository.setItems(id, items);
-    const task = await repository.view(SQL_TRUE, id);
-    if (task === null) throw AppError.notFound('Task', id);
+    const task = await this.db.transaction(async (tx) => {
+      const repository = new TaskRepository(tx, orgContextOf(principal));
+      await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${principal.orgId + ':task-columns'}, 0))`);
+      await tx.execute(sql`SELECT id FROM tasks WHERE org_id = ${principal.orgId} AND id = ${id} AND deleted_at IS NULL FOR UPDATE`);
+      const existing = await repository.view(this.scope(principal), id);
+      if (existing === null) throw AppError.notFound('Task', id);
+      if (input.assigneeId !== undefined) {
+        patch.assigneeId = await this.resolveAssignee(principal, input.assigneeId, { allowNull: true, currentAssigneeId: existing.assigneeId }, tx);
+      }
+      let moved: { from: string; to: TaskBoardColumnView } | null = null;
+      if (input.columnId !== undefined && input.columnId !== existing.columnId) {
+        const column = await new BoardColumnRepository(tx, orgContextOf(principal)).find(input.columnId);
+        if (column === null) throw AppError.validation('The board column was not found.', { columnId: input.columnId });
+        patch.columnId = column.id;
+        // Closing is entering a done column; reopening is leaving one. A move
+        // between two open columns, or two done columns, changes neither.
+        if (column.isDone && !existing.isClosed) patch.closedAt = new Date();
+        if (!column.isDone && existing.isClosed) patch.closedAt = null;
+        moved = { from: existing.columnName, to: column };
+      }
 
-    // One entry per write, named for what the write was: a drag is `moved`
-    // (REQ-V-06), a drag into Done is `closed`, anything else `updated`.
-    const action =
-      moved === null
-        ? 'task.updated'
-        : moved.to.isDone && !existing.isClosed
-          ? 'task.closed'
-          : !moved.to.isDone && existing.isClosed
-            ? 'task.reopened'
-            : 'task.moved';
-    this.auditContext.record({
-      action,
-      entityType: 'task',
-      entityId: id,
-      before: taskAuditView(existing),
-      after: taskAuditView(task),
+      const updated = await repository.update(id, patch);
+      if (updated === null) throw AppError.notFound('Task', id);
+      if (items !== null) await repository.setItems(id, items);
+      const task = await repository.view(SQL_TRUE, id);
+      if (task === null) throw AppError.notFound('Task', id);
+      if (patch.assigneeId !== undefined) {
+        await this.notifyAssigned(principal, task, existing.assigneeId, tx);
+      }
+      // One entry per write, named for what the write was: a drag is `moved`
+      // (REQ-V-06), a drag into Done is `closed`, anything else `updated`.
+      const action =
+        moved === null
+          ? 'task.updated'
+          : moved.to.isDone && !existing.isClosed
+            ? 'task.closed'
+            : !moved.to.isDone && existing.isClosed
+              ? 'task.reopened'
+              : 'task.moved';
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action,
+        entityType: 'task',
+        entityId: id,
+        before: taskAuditView(existing),
+        after: taskAuditView(task),
+      }, tx);
+      return task;
     });
+
     this.announce(principal, 'updated', id);
 
-    if (patch.assigneeId !== undefined && task.assigneeId !== null) {
-      await this.notifyAssigned(principal, task, existing.assigneeId);
-    }
     return task;
   }
 
   async remove(principal: Principal, id: string): Promise<void> {
-    const existing = await this.find(principal, id);
-    const deleted = await this.tasks(principal).softDelete(id);
-    if (!deleted) throw AppError.notFound('Task', id);
-    this.auditContext.record({
-      action: 'task.deleted',
-      entityType: 'task',
-      entityId: id,
-      before: taskAuditView(existing),
-      after: null,
+    await this.db.transaction(async (tx) => {
+      const repository = new TaskRepository(tx, orgContextOf(principal));
+      await tx.execute(sql`SELECT id FROM tasks WHERE org_id = ${principal.orgId} AND id = ${id} AND deleted_at IS NULL FOR UPDATE`);
+      const existing = await repository.view(this.scope(principal), id);
+      if (existing === null) throw AppError.notFound('Task', id);
+      const deleted = await repository.softDelete(id);
+      if (!deleted) throw AppError.notFound('Task', id);
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.deleted',
+        entityType: 'task',
+        entityId: id,
+        before: taskAuditView(existing),
+        after: null,
+      }, tx);
     });
     this.announce(principal, 'deleted', id);
   }
@@ -318,127 +348,133 @@ export class TaskService {
   // ---------------------------------------------------------------- columns
 
   async createColumn(principal: Principal, input: CreateBoardColumnInput): Promise<TaskBoardColumnView> {
-    const repository = this.columns(principal);
-    const existing = await repository.listOrCreateDefaults();
-    if ((await repository.findByName(input.name)) !== null) {
-      throw AppError.conflict(`A column called ${input.name} already exists.`);
-    }
-    const created = await repository.insert({
-      name: input.name,
-      isDone: input.isDone,
-      sortOrder: existing.length,
-    });
-    const view = { id: created.id, name: created.name, sortOrder: created.sortOrder, isDone: created.isDone };
-    this.auditContext.record({
-      action: 'task.column.created',
-      entityType: 'task_board_column',
-      entityId: view.id,
-      before: null,
-      after: { ...view },
+    const view = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${principal.orgId + ':task-columns'}, 0))`);
+      const repository = new BoardColumnRepository(tx, orgContextOf(principal));
+      const existing = await repository.listOrCreateDefaults();
+      if ((await repository.findByName(input.name)) !== null) {
+        throw AppError.conflict(`A column called ${input.name} already exists.`);
+      }
+      const created = await repository.insert({
+        name: input.name,
+        isDone: input.isDone,
+        sortOrder: existing.length,
+      });
+      const view = { id: created.id, name: created.name, sortOrder: created.sortOrder, isDone: created.isDone };
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.column.created',
+        entityType: 'task_board_column',
+        entityId: view.id,
+        before: null,
+        after: { ...view },
+      }, tx);
+      return view;
     });
     this.announce(principal, 'updated', null);
     return view;
   }
 
   async updateColumn(principal: Principal, id: string, input: UpdateBoardColumnInput): Promise<TaskBoardColumnView> {
-    const repository = this.columns(principal);
-    const existing = await repository.find(id);
-    if (existing === null) throw AppError.notFound('Board column', id);
-    if (input.name !== undefined && (await repository.findByName(input.name, id)) !== null) {
-      throw AppError.conflict(`A column called ${input.name} already exists.`);
-    }
-    // The last open column cannot become a done column: a new task would
-    // have nowhere to start.
-    if (input.isDone === true && !existing.isDone && !(await repository.anyOpenColumn(id))) {
-      throw AppError.conflict('At least one column must be open, or a new task has nowhere to start.');
-    }
-    const patch: Parameters<BoardColumnRepository['update']>[1] = {};
-    if (input.name !== undefined) patch.name = input.name;
-    if (input.isDone !== undefined) patch.isDone = input.isDone;
-    const updated = await repository.update(id, patch);
-    if (updated === null) throw AppError.notFound('Board column', id);
-    const view = { id: updated.id, name: updated.name, sortOrder: updated.sortOrder, isDone: updated.isDone };
+    const view = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${principal.orgId + ':task-columns'}, 0))`);
+      const repository = new BoardColumnRepository(tx, orgContextOf(principal));
+      const existing = await repository.find(id);
+      if (existing === null) throw AppError.notFound('Board column', id);
+      if (input.name !== undefined && (await repository.findByName(input.name, id)) !== null) {
+        throw AppError.conflict(`A column called ${input.name} already exists.`);
+      }
+      // The last open column cannot become a done column: a new task would
+      // have nowhere to start.
+      if (input.isDone === true && !existing.isDone && !(await repository.anyOpenColumn(id))) {
+        throw AppError.conflict('At least one column must be open, or a new task has nowhere to start.');
+      }
+      const patch: Parameters<BoardColumnRepository['update']>[1] = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.isDone !== undefined) patch.isDone = input.isDone;
+      const updated = await repository.update(id, patch);
+      if (updated === null) throw AppError.notFound('Board column', id);
+      const view = { id: updated.id, name: updated.name, sortOrder: updated.sortOrder, isDone: updated.isDone };
 
-    // Flipping is_done re-labels every task in the column: they were open and
-    // are now closed, or the reverse. Their closed_at follows, in one statement.
-    if (input.isDone !== undefined && input.isDone !== existing.isDone) {
-      await this.db
-        .update(tasks)
-        .set({ closedAt: input.isDone ? new Date() : null, updatedAt: new Date() })
-        .where(and(eq(tasks.orgId, principal.orgId), eq(tasks.columnId, id), isNull(tasks.deletedAt)));
-    }
+      // Flipping is_done re-labels every task in the column: they were open and
+      // are now closed, or the reverse. Their closed_at follows, in one statement.
+      if (input.isDone !== undefined && input.isDone !== existing.isDone) {
+        await tx
+          .update(tasks)
+          .set({ closedAt: input.isDone ? new Date() : null, updatedAt: new Date() })
+          .where(and(eq(tasks.orgId, principal.orgId), eq(tasks.columnId, id), isNull(tasks.deletedAt)));
+      }
 
-    this.auditContext.record({
-      action: 'task.column.updated',
-      entityType: 'task_board_column',
-      entityId: id,
-      before: { ...existing },
-      after: { ...view },
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.column.updated',
+        entityType: 'task_board_column',
+        entityId: id,
+        before: { ...existing },
+        after: { ...view },
+      }, tx);
+      return view;
     });
     this.announce(principal, 'updated', null);
     return view;
   }
 
   async reorderColumns(principal: Principal, input: ReorderBoardColumnsInput): Promise<TaskBoardColumnView[]> {
-    const repository = this.columns(principal);
-    if (!(await repository.isCompleteSet(input.columnIds))) {
-      throw AppError.validation('The order must name every column exactly once.', { columnIds: input.columnIds });
-    }
-    const before = await repository.listOrdered();
-    await repository.reorder(input.columnIds);
-    const after = await repository.listOrdered();
-    this.auditContext.record({
-      action: 'task.column.reordered',
-      entityType: 'task_board_column',
-      entityId: principal.orgId,
-      before: { order: before.map((c) => c.id) },
-      after: { order: after.map((c) => c.id) },
+    const after = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${principal.orgId + ':task-columns'}, 0))`);
+      const repository = new BoardColumnRepository(tx, orgContextOf(principal));
+      if (!(await repository.isCompleteSet(input.columnIds))) {
+        throw AppError.validation('The order must name every column exactly once.', { columnIds: input.columnIds });
+      }
+      const before = await repository.listOrdered();
+      await repository.reorder(input.columnIds);
+      const after = await repository.listOrdered();
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.column.reordered',
+        entityType: 'task_board_column',
+        entityId: principal.orgId,
+        before: { order: before.map((c) => c.id) },
+        after: { order: after.map((c) => c.id) },
+      }, tx);
+      return after;
     });
     this.announce(principal, 'updated', null);
     return after;
   }
 
   async deleteColumn(principal: Principal, id: string): Promise<void> {
-    const repository = this.columns(principal);
-    const existing = await repository.find(id);
-    if (existing === null) throw AppError.notFound('Board column', id);
-    const inColumn = await this.tasks(principal).countInColumn(id);
-    if (inColumn > 0) {
-      throw AppError.conflict(
-        `${existing.name} still holds ${inColumn} task${inColumn === 1 ? '' : 's'}. Move them first.`,
-        { taskCount: inColumn },
-      );
-    }
-    if (!existing.isDone && !(await repository.anyOpenColumn(id))) {
-      throw AppError.conflict('At least one column must be open, or a new task has nowhere to start.');
-    }
-    /*
-     * The count above is for the message; the emptiness is asserted by the
-     * write itself. Read and then written as two statements, a task dragged
-     * into this column between them was left pointing at a column the board
-     * no longer lists -- invisible on every lane, and reachable only from
-     * the register.
-     *
-     * One statement closes the gap the two left. It does not close it
-     * absolutely: a move committing after this statement's snapshot is a
-     * phantom no predicate can see, and only a foreign key or a trigger
-     * would refuse that. It is worth the constraint if a column is ever
-     * deleted while the board is busy.
-     */
-    // The open-column invariant travels into the statement with it; the
-    // read above stays for the message it gives.
-    const deleted = await repository.softDeleteIfEmpty(id, !existing.isDone);
-    if (!deleted) {
-      throw AppError.conflict(
-        `${existing.name} took on a task while it was being deleted. Move it and try again.`,
-      );
-    }
-    this.auditContext.record({
-      action: 'task.column.deleted',
-      entityType: 'task_board_column',
-      entityId: id,
-      before: { ...existing },
-      after: null,
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${principal.orgId + ':task-columns'}, 0))`);
+      const repository = new BoardColumnRepository(tx, orgContextOf(principal));
+      const existing = await repository.find(id);
+      if (existing === null) throw AppError.notFound('Board column', id);
+      const inColumn = await new TaskRepository(tx, orgContextOf(principal)).countInColumn(id);
+      if (inColumn > 0) {
+        throw AppError.conflict(
+          `${existing.name} still holds ${inColumn} task${inColumn === 1 ? '' : 's'}. Move them first.`,
+          { taskCount: inColumn },
+        );
+      }
+      if (!existing.isDone && !(await repository.anyOpenColumn(id))) {
+        throw AppError.conflict('At least one column must be open, or a new task has nowhere to start.');
+      }
+      // Configuration writers hold the exclusive board lock; task creates
+      // and moves hold its shared counterpart through their commit.
+      const deleted = await repository.softDeleteIfEmpty(id, !existing.isDone);
+      if (!deleted) {
+        throw AppError.conflict(
+          `${existing.name} took on a task while it was being deleted. Move it and try again.`,
+        );
+      }
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.column.deleted',
+        entityType: 'task_board_column',
+        entityId: id,
+        before: { ...existing },
+        after: null,
+      }, tx);
     });
     this.announce(principal, 'updated', null);
   }
@@ -463,6 +499,7 @@ export class TaskService {
     principal: Principal,
     requested: string | null | undefined,
     options: { allowNull?: boolean; currentAssigneeId?: string | null } = {},
+    executor: Database = this.db,
   ): Promise<string | null> {
     const existingAssigneeId = options.currentAssigneeId ?? null;
     const mayAssignOthers =
@@ -495,7 +532,7 @@ export class TaskService {
     if (!mayAssignOthers) {
       throw AppError.forbidden('Assigning a task to somebody else needs crm.task.manage.');
     }
-    const rows = await this.db
+    const rows = await executor
       .select({ id: employees.id })
       .from(employees)
       .where(and(eq(employees.orgId, principal.orgId), eq(employees.id, requested), isNull(employees.deletedAt)))
@@ -523,10 +560,10 @@ export class TaskService {
   }
 
   /** REQ-V-08: the assignee hears about it, unless they assigned it to themselves. */
-  private async notifyAssigned(principal: Principal, task: TaskView, previousAssigneeId: string | null): Promise<void> {
+  private async notifyAssigned(principal: Principal, task: TaskView, previousAssigneeId: string | null, executor: Database): Promise<void> {
     if (task.assigneeId === null || task.assigneeId === previousAssigneeId) return;
     if (task.assigneeId === principal.employeeId) return;
-    await this.notifications.emitAfterCommit({
+    await this.notifications.stageInTransaction({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.TASK_ASSIGNED,
       audience: { kind: 'employees', employeeIds: [task.assigneeId] },
@@ -535,9 +572,9 @@ export class TaskService {
         title: task.title,
         dueDate: task.dueDate ?? '',
         subjectLabel: task.subjectLabel ?? '',
-        assignedBy: await this.actorName(principal),
+        assignedBy: await this.actorName(principal, executor),
       },
-    });
+    }, executor);
   }
 
   // ------------------------------------------------------------ attachments
@@ -559,37 +596,48 @@ export class TaskService {
   ): Promise<TaskAttachmentView> {
     const task = await this.find(principal, taskId);
     const isImage = isAcceptedUpload(sniffType(file.bytes));
-    const stored = isImage
-      ? await this.files.storeImage({
-          orgId: principal.orgId,
-          uploadedBy: principal.userId,
-          purpose: 'TASK_ATTACHMENT',
-          bytes: file.bytes,
-          pathSegments: [task.id],
-        })
-      : await this.files.storeUpload({
-          orgId: principal.orgId,
-          uploadedBy: principal.userId,
-          purpose: 'TASK_ATTACHMENT',
-          bytes: file.bytes,
-          filename: file.filename,
-          pathSegments: [task.id],
-        });
+    const { stored, row } = await this.db.transaction(async (tx) => {
+      const stored = isImage
+        ? await this.files.storeImage(
+            {
+              orgId: principal.orgId,
+              uploadedBy: principal.userId,
+              purpose: 'TASK_ATTACHMENT',
+              bytes: file.bytes,
+              pathSegments: [task.id],
+            },
+            { executor: tx, deferFinalization: true },
+          )
+        : await this.files.storeUpload(
+            {
+              orgId: principal.orgId,
+              uploadedBy: principal.userId,
+              purpose: 'TASK_ATTACHMENT',
+              bytes: file.bytes,
+              filename: file.filename,
+              pathSegments: [task.id],
+            },
+            { executor: tx, deferFinalization: true },
+          );
 
-    const inserted = await this.db.execute<{ id: string; createdAt: string | Date }>(sql`
-      INSERT INTO task_attachments (org_id, task_id, file_id, filename, created_by, updated_by)
-      VALUES (${principal.orgId}, ${task.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
-      RETURNING id, created_at AS "createdAt"
-    `);
-    const row = inserted.rows[0];
-    if (row === undefined) throw new Error('Attachment insert returned no row.');
-
-    this.auditContext.record({
-      action: 'task.attachment_added',
-      entityType: 'task',
-      entityId: task.id,
-      after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
+      const inserted = await tx.execute<{ id: string; createdAt: string | Date }>(sql`
+        INSERT INTO task_attachments (org_id, task_id, file_id, filename, created_by, updated_by)
+        VALUES (${principal.orgId}, ${task.id}, ${stored.id}, ${file.filename}, ${principal.userId}, ${principal.userId})
+        RETURNING id, created_at AS "createdAt"
+      `);
+      const row = inserted.rows[0];
+      if (row === undefined) throw new Error('Attachment insert returned no row.');
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.attachment_added',
+        entityType: 'task',
+        entityId: task.id,
+        after: { filename: file.filename, bytes: stored.bytes, mime: stored.mime },
+      }, tx);
+      return { stored, row };
     });
+    await this.files.finalizeStoredFiles([stored.id]);
+
     this.announce(principal, 'updated', task.id);
     return {
       id: row.id,
@@ -673,16 +721,21 @@ export class TaskService {
     const found = await this.findAttachment(principal, taskId, attachmentId);
     // Soft, like every other record here: the file itself stays, because the
     // trail names it and a purge is the recycle bin's job, not a delete key's.
-    await this.db.execute(sql`
-      UPDATE task_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
-      WHERE org_id = ${principal.orgId} AND task_id = ${taskId} AND id = ${attachmentId}
-        AND deleted_at IS NULL
-    `);
-    this.auditContext.record({
-      action: 'task.attachment_removed',
-      entityType: 'task',
-      entityId: taskId,
-      before: { filename: found.filename },
+    await this.db.transaction(async (tx) => {
+      const removed = await tx.execute(sql`
+        UPDATE task_attachments SET deleted_at = now(), updated_by = ${principal.userId}, updated_at = now()
+        WHERE org_id = ${principal.orgId} AND task_id = ${taskId} AND id = ${attachmentId}
+          AND deleted_at IS NULL
+        RETURNING id
+      `);
+      if (removed.rows.length === 0) throw AppError.notFound('Attachment', attachmentId);
+      await this.auditContext.recordInTransaction({
+        orgId: principal.orgId, actorUserId: principal.userId,
+        action: 'task.attachment_removed',
+        entityType: 'task',
+        entityId: taskId,
+        before: { filename: found.filename },
+      }, tx);
     });
     this.announce(principal, 'updated', taskId);
   }
@@ -823,12 +876,12 @@ export class TaskService {
   }
 
   /** The actor as the assignee will read it: their employee name, or their email when they have no record. */
-  private async actorName(principal: Principal): Promise<string> {
+  private async actorName(principal: Principal, executor: Database = this.db): Promise<string> {
     if (principal.employeeId === null) return principal.email;
-    const rows = await this.db
+    const rows = await executor
       .select({ firstName: employees.firstName, lastName: employees.lastName })
       .from(employees)
-      .where(eq(employees.id, principal.employeeId))
+      .where(and(eq(employees.orgId, principal.orgId), eq(employees.id, principal.employeeId)))
       .limit(1);
     const row = rows[0];
     return row === undefined ? principal.email : [row.firstName, row.lastName].filter((p) => p !== null && p !== '').join(' ');

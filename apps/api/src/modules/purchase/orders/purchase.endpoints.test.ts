@@ -35,6 +35,13 @@ const emitted: NotificationEvent[] = [];
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Procurement Fixture Org');
+  const dispatcher = harness.resolve(NotificationDispatcher);
+  const stage = dispatcher.stageInTransaction.bind(dispatcher);
+  vi.spyOn(dispatcher, 'stageInTransaction').mockImplementation(async (event, tx) => {
+    const result = await stage(event, tx);
+    emitted.push(event);
+    return result;
+  });
   vi.spyOn(harness.resolve(NotificationDispatcher), 'emit').mockImplementation((event) => {
     emitted.push(event);
     return Promise.resolve('spied');
@@ -598,11 +605,22 @@ describe('the two ceilings on an allocation (audits 11, 12)', () => {
     expect(refused.body.error.message).toContain('waiting for only');
 
     // One is taken, which is all it was waiting for.
+    // H-06: the notice fails to queue, and the allocation still stands. The
+    // emit used to run inside the transaction, so a Redis blip here rolled
+    // back an allocation that was fine and answered 500 for it.
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    const spy = vi.spyOn(dispatcher, 'emit').mockRejectedValueOnce(new Error('Redis blipped'));
+    const callsBefore = spy.mock.calls.length;
     const allowed = await harness.post<GrnView>(`/purchase/grns/${grn.id}/allocate`, {
       token: adminToken,
       body: { allocations: [{ requirementId: waiting?.requirementId, quantity: '1' }] },
     });
-    expect(allowed.status).toBe(200);
+    expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
+    expect(spy.mock.calls.length - callsBefore, 'delivery is deferred until after durable staging').toBe(0);
+    const intent = await harness.db.execute(sql`SELECT id FROM notification_outbox WHERE org_id = ${ORG_ID} AND event_type = 'procurement.stock_arrived'`);
+    expect(intent.rows.length).toBeGreaterThan(0);
+    const settled = await lastGrn();
+    expect(Number(settled.pendingAllocations[0]?.unallocatedQty ?? 0)).toBe(Number(pending?.unallocatedQty) - 1);
   });
 });
 
@@ -995,5 +1013,36 @@ describe('who may confirm a PO that needs approval', () => {
       sql`SELECT status FROM approval_requests WHERE subject_id = ${po.body.id} ORDER BY created_at DESC LIMIT 1`,
     );
     expect(request.rows[0]?.status).toBe('PENDING');
+  });
+
+  it('serialises a real cancellation/approval race into one consistent winner', async () => {
+    const po = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: adminToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4400' }] },
+    });
+    expect(po.status).toBe(201);
+    const submitted = await harness.post<PurchaseOrderView>(`/purchase/orders/${po.body.id}/confirm`, {
+      token: adminToken,
+    });
+    expect(submitted.status, JSON.stringify(submitted.body)).toBe(200);
+    expect(submitted.body.status).toBe('PENDING_APPROVAL');
+
+    const [cancelled, approved] = await Promise.all([
+      harness.post<PurchaseOrderView | ErrorBody>(`/purchase/orders/${po.body.id}/cancel`, { token: adminToken }),
+      harness.post<PurchaseOrderView | ErrorBody>(`/purchase/orders/${po.body.id}/approve`, { token: secondApproverToken }),
+    ]);
+    expect([cancelled, approved].filter((response) => response.status < 300)).toHaveLength(1);
+    expect([cancelled, approved].filter((response) => response.status === 409)).toHaveLength(1);
+
+    const state = await harness.db.execute<{ document_status: string; approval_status: string }>(sql`
+      SELECT p.status AS document_status, a.status AS approval_status
+        FROM purchase_orders p JOIN approval_requests a ON a.id = p.approval_request_id OR a.subject_id = p.id
+       WHERE p.id = ${po.body.id}
+       ORDER BY a.created_at DESC LIMIT 1
+    `);
+    expect([
+      { document_status: 'CANCELLED', approval_status: 'CANCELLED' },
+      { document_status: 'CONFIRMED', approval_status: 'APPROVED' },
+    ]).toContainEqual(state.rows[0]);
   });
 });

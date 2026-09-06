@@ -447,3 +447,152 @@ describe('Area AK: sales returns', () => {
     expect(refused.body.error.message).toContain('credit note');
   });
 });
+
+/**
+ * H-08 (audit, 4 Sep 2026). Two things that used to be decided by a read
+ * two callers could both pass. The receipts are fired together, not in
+ * sequence: the point is what happens when neither has committed when the
+ * other checks. Its own order, so the balances above stay as hand-worked.
+ */
+describe('two receipts at once (H-08)', () => {
+  let lineId = '';
+  let raceOrderId = '';
+
+  beforeAll(async () => {
+    const created = await harness.post<OrderView>('/sales/orders', { token: adminToken, body: { partyId, lines: [{ stockItemId: itemId, quantity: '10', rate: '4000' }] } });
+    raceOrderId = created.body.id;
+    lineId = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${raceOrderId}/confirm`, { token: adminToken });
+    await harness.post(`/sales/orders/${raceOrderId}/picks`, { token: adminToken, body: { lines: [{ lineId, quantity: '10' }] } });
+    await harness.post(`/sales/orders/${raceOrderId}/packs`, { token: adminToken, body: { lines: [{ lineId, quantity: '10' }] } });
+    await harness.db.execute(sql`UPDATE sales_document_lines SET invoiced_qty = 10, dispatched_qty = 10 WHERE id = ${lineId}`);
+  });
+
+  it('lets exactly one of three simultaneous receipts through when together they exceed what was sent', async () => {
+    const receipt = () =>
+      multipart<SalesReturnView | ErrorBody>('/sales/returns', adminToken, {
+        customerName: 'Asha Traders',
+        partyId,
+        sourceDocumentId: raceOrderId,
+        lines: [{ lineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '6', reason: 'Wrong item', condition: 'sealed', disposition: 'restock' }],
+      });
+    const results = await Promise.all([receipt(), receipt(), receipt()]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 400, 400]);
+
+    const returned = await harness.db.execute<{ total: string }>(sql`
+      SELECT COALESCE(sum(rl.quantity), 0)::text AS total FROM sales_return_lines rl
+        JOIN sales_returns r ON r.id = rl.return_id AND r.state <> 'cancelled' AND r.deleted_at IS NULL
+       WHERE rl.source_line_id = ${lineId} AND rl.deleted_at IS NULL
+    `);
+    expect(Number(returned.rows[0]?.total)).toBe(6);
+  });
+
+  it('raises exactly one replacement order for three simultaneous decisions', async () => {
+    const taken = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      sourceDocumentId: raceOrderId,
+      lines: [{ lineId, stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '2', reason: 'Warranty', condition: 'damaged', disposition: 'scrap' }],
+    });
+    expect(taken.status, JSON.stringify(taken.body)).toBe(201);
+
+    const decide = () => harness.post<SalesReturnView | ErrorBody>(`/sales/returns/${taken.body.id}/replacement`, { token: adminToken, body: { charge: 'free' } });
+    const results = await Promise.all([decide(), decide(), decide()]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409]);
+
+    const orders = await harness.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM sales_documents WHERE return_id = ${taken.body.id} AND deleted_at IS NULL
+    `);
+    expect(orders.rows[0]?.n).toBe(1);
+
+    // The one winning order and the return-side decision are one commit. A
+    // loser must not increment the line before its duplicate order rolls back.
+    const decision = await harness.db.execute<{ replacement_charge: string | null; replaced_qty: string }>(sql`
+      SELECT r.replacement_charge, l.replaced_qty::text
+        FROM sales_returns r JOIN sales_return_lines l ON l.return_id = r.id
+       WHERE r.id = ${taken.body.id} AND l.id = ${taken.body.lines[0]?.id ?? ''}
+    `);
+    expect(decision.rows[0]).toEqual({ replacement_charge: 'free', replaced_qty: '2.000' });
+  });
+
+  it('serialises cancellation and replacement into one consistent winner', async () => {
+    const taken = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '1', reason: 'Warranty', condition: 'damaged', disposition: 'scrap' }],
+    });
+    expect(taken.status, JSON.stringify(taken.body)).toBe(201);
+
+    const [cancelled, replaced] = await Promise.all([
+      harness.post<SalesReturnView | ErrorBody>(`/sales/returns/${taken.body.id}/cancel`, {
+        token: adminToken,
+        body: { reason: 'Receipt raised in error' },
+      }),
+      harness.post<SalesReturnView | ErrorBody>(`/sales/returns/${taken.body.id}/replacement`, {
+        token: adminToken,
+        body: { charge: 'free' },
+      }),
+    ]);
+    expect([cancelled, replaced].filter((response) => response.status < 300)).toHaveLength(1);
+    expect([cancelled, replaced].filter((response) => response.status === 409)).toHaveLength(1);
+
+    const final = await harness.db.execute<{ state: string; replacement_charge: string | null; orders: number }>(sql`
+      SELECT r.state, r.replacement_charge,
+             (SELECT count(*)::int FROM sales_documents d WHERE d.return_id = r.id AND d.deleted_at IS NULL) AS orders
+        FROM sales_returns r WHERE r.id = ${taken.body.id}
+    `);
+    expect([
+      { state: 'cancelled', replacement_charge: null, orders: 0 },
+      { state: 'awaiting_credit_note', replacement_charge: 'free', orders: 1 },
+    ]).toContainEqual(final.rows[0]);
+  });
+
+  it('rolls the return decision back when the replacement order cannot be inserted', async () => {
+    const taken = await multipart<SalesReturnView>('/sales/returns', adminToken, {
+      customerName: 'Asha Traders',
+      partyId,
+      lines: [{ stockItemId: itemId, description: 'Cat6 cable 305m', quantity: '1', reason: 'Warranty', condition: 'damaged', disposition: 'scrap' }],
+    });
+    expect(taken.status, JSON.stringify(taken.body)).toBe(201);
+
+    const sequence = await harness.db.execute<{ last_number: number }>(sql`
+      SELECT last_number FROM sales_document_sequences
+       WHERE org_id = ${ORG_ID} AND doc_type = 'SALES_ORDER'
+    `);
+    const originalLastNumber = sequence.rows[0]?.last_number ?? 0;
+    const existing = await harness.db.execute<{ number: string }>(sql`
+      SELECT number FROM sales_documents
+       WHERE org_id = ${ORG_ID} AND doc_type = 'SALES_ORDER' AND deleted_at IS NULL
+       ORDER BY number LIMIT 1
+    `);
+    const collisionNumber = Number(existing.rows[0]?.number.replace(/^SO-/u, '') ?? '1');
+
+    // Force nextNumber() to issue an existing number. The unique violation is
+    // after the return has been claimed, so this proves the outer transaction
+    // rolls that earlier write back too.
+    await harness.db.execute(sql`
+      UPDATE sales_document_sequences SET last_number = ${collisionNumber - 1}
+       WHERE org_id = ${ORG_ID} AND doc_type = 'SALES_ORDER'
+    `);
+    try {
+      const failed = await harness.post<ErrorBody>(`/sales/returns/${taken.body.id}/replacement`, {
+        token: adminToken,
+        body: { charge: 'free' },
+      });
+      expect(failed.status).toBeGreaterThanOrEqual(400);
+    } finally {
+      await harness.db.execute(sql`
+        UPDATE sales_document_sequences SET last_number = ${originalLastNumber}
+         WHERE org_id = ${ORG_ID} AND doc_type = 'SALES_ORDER'
+      `);
+    }
+
+    const after = await harness.db.execute<{ replacement_charge: string | null; replaced_qty: string; orders: number }>(sql`
+      SELECT r.replacement_charge, l.replaced_qty::text,
+             (SELECT count(*)::int FROM sales_documents d WHERE d.return_id = r.id AND d.deleted_at IS NULL) AS orders
+        FROM sales_returns r JOIN sales_return_lines l ON l.return_id = r.id
+       WHERE r.id = ${taken.body.id}
+    `);
+    expect(after.rows[0]).toEqual({ replacement_charge: null, replaced_qty: '0.000', orders: 0 });
+  });
+});

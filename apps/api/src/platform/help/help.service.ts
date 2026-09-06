@@ -3,7 +3,7 @@ import { NOTIFICATION_EVENTS, PERMISSIONS } from '@vyuha/shared';
 import type { HelpCardsResponse } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
-import { AuditService } from '../audit/audit.service.js';
+import { AuditContext } from '../audit/audit-context.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 import { hasPermission, type Principal } from '../rbac/principal.js';
@@ -30,7 +30,7 @@ import { HELP_CARDS } from './help.cards.js';
 export class HelpService {
   constructor(
     @InjectDatabase() private readonly db: Database,
-    private readonly audit: AuditService,
+    private readonly audit: AuditContext,
     private readonly notifications: NotificationDispatcher,
   ) {}
 
@@ -49,24 +49,26 @@ export class HelpService {
    * the record behind it, and the trail knows who asked what and when.
    */
   async ask(principal: Principal, question: string): Promise<void> {
-    await this.db.execute(sql`
-      INSERT INTO help_questions (org_id, user_id, question)
-      VALUES (${principal.orgId}, ${principal.userId}, ${question})
-    `);
-    await this.audit.write({
-      orgId: principal.orgId,
-      actorUserId: principal.userId,
-      action: 'help.question_asked',
-      entityType: 'help_question',
-      entityId: principal.userId,
-      before: null,
-      after: { question },
-    });
-    await this.notifications.emitAfterCommit({
-      orgId: principal.orgId,
-      type: NOTIFICATION_EVENTS.HELP_QUESTION_ASKED,
-      audience: { kind: 'permission', key: PERMISSIONS.SETTINGS_MANAGE },
-      payload: { askedBy: principal.email, question: question.slice(0, 200) },
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`
+        INSERT INTO help_questions (org_id, user_id, question)
+        VALUES (${principal.orgId}, ${principal.userId}, ${question})
+      `);
+      await this.audit.recordInTransaction({
+        orgId: principal.orgId,
+        actorUserId: principal.userId,
+        action: 'help.question_asked',
+        entityType: 'help_question',
+        entityId: principal.userId,
+        before: null,
+        after: { question },
+      }, tx);
+      await this.notifications.stageInTransaction({
+        orgId: principal.orgId,
+        type: NOTIFICATION_EVENTS.HELP_QUESTION_ASKED,
+        audience: { kind: 'permission', key: PERMISSIONS.SETTINGS_MANAGE },
+        payload: { askedBy: principal.email, question: question.slice(0, 200) },
+      }, tx);
     });
   }
 }

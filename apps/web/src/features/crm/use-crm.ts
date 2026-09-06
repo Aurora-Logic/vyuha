@@ -30,6 +30,7 @@ import {
   type ContactDuplicate,
   type ContactsResponse,
 } from './types';
+import { companyInputOf } from './company-validation';
 
 /**
  * Contacts and companies (REQ-U-01, REQ-U-02, REQ-U-08). Both caches hang
@@ -195,15 +196,7 @@ export function useSaveCompany(): UseMutationResult<Company, Error, CompanyDraft
   const invalidate = useInvalidateCrm();
   return useMutation({
     mutationFn: async (draft: CompanyDraft) => {
-      const body: CreateCompanyInput | UpdateCompanyInput = {
-        name: draft.name.trim(),
-        phone: blank(draft.phone),
-        email: blank(draft.email),
-        website: blank(draft.website),
-        city: blank(draft.city),
-        ownerId: draft.ownerId,
-        notes: blank(draft.notes),
-      };
+      const body: CreateCompanyInput | UpdateCompanyInput = companyInputOf(draft);
       const response = await apiRequest<unknown>(
         draft.id === undefined ? '/crm/companies' : `/crm/companies/${draft.id}`,
         { method: draft.id === undefined ? 'POST' : 'PATCH', body },

@@ -54,6 +54,7 @@ export interface RenderedNotification {
  */
 export interface DeliveryContext {
   readonly channels: readonly NotificationChannelKey[];
+  readonly deliveryKey?: string;
 }
 
 export interface NotificationChannel {
@@ -64,6 +65,7 @@ export interface NotificationChannel {
    * succeeded rather than which ones were merely attempted.
    */
   readonly persistsRecord: boolean;
+  reconcileReceipt?(to: Recipient, deliveryKey: string, channels: readonly NotificationChannelKey[]): Promise<void>;
   send(
     to: Recipient,
     message: RenderedNotification,

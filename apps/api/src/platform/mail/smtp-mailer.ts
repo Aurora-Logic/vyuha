@@ -28,6 +28,11 @@ const CONNECTION_TIMEOUT_MS = 10_000;
 const GREETING_TIMEOUT_MS = 10_000;
 const SOCKET_TIMEOUT_MS = 20_000;
 
+/** Local development mail sinks may be plaintext; remote delivery must not downgrade. */
+export function smtpRequiresTls(host: string, nodeEnv: string): boolean {
+  return nodeEnv === 'production' || !['localhost', '127.0.0.1', '::1', '[::1]'].includes(host.toLowerCase());
+}
+
 @Injectable()
 export class SmtpMailer extends Mailer implements OnApplicationShutdown {
   private readonly logger = new Logger('Mailer');
@@ -44,6 +49,8 @@ export class SmtpMailer extends Mailer implements OnApplicationShutdown {
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
+      requireTLS: smtpRequiresTls(env.SMTP_HOST, env.NODE_ENV),
+      tls: { minVersion: 'TLSv1.2' },
       // Mailpit accepts unauthenticated mail. Passing an `auth` object with an
       // empty user makes nodemailer attempt AUTH anyway, which Mailpit refuses.
       ...(env.SMTP_USER === undefined

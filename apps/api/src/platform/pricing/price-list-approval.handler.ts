@@ -33,4 +33,8 @@ export class PriceListApprovalHandler implements ApprovalSubjectHandler, OnModul
   applyDecision(ctx: OrgContext, decision: ApprovalSubjectDecision, tx: Database): Promise<ApprovalSubjectSettlement | null> {
     return this.pricing.applyApprovalDecision(ctx, decision, tx);
   }
+
+  recoverSettlement(ctx: OrgContext, decision: ApprovalSubjectDecision): Promise<void> {
+    return this.pricing.recoverApprovalSettlement(ctx, decision);
+  }
 }

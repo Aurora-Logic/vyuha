@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Fails when a static file the document or the manifest references is not in
- * the service worker's precache.
+ * the service worker's offline cache policy.
  *
  * The failure this exists to stop is quiet. A file left out is fetched from the
  * network like anything else, so online it is invisible; offline it is a
@@ -53,10 +53,10 @@ function referenced() {
   return found;
 }
 
-/** Every string literal inside the two PRECACHE_* arrays. */
-function precached() {
+/** Every explicit non-hashed path the worker installs or caches on demand. */
+function cacheCandidates() {
   const listed = new Set();
-  for (const name of ['PRECACHE_CRITICAL', 'PRECACHE_OPTIONAL']) {
+  for (const name of ['PRECACHE_CRITICAL', 'RUNTIME_OPTIONAL']) {
     const block = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`, 'u').exec(worker);
     if (!block) {
       console.error(`check-precache: could not find ${name} in service-worker.js.`);
@@ -68,7 +68,7 @@ function precached() {
 }
 
 const wanted = referenced();
-const listed = precached();
+const listed = cacheCandidates();
 
 const missing = [...wanted].filter(([path]) => !listed.has(path));
 
@@ -90,7 +90,7 @@ if (missing.length > 0 || absent.length > 0) {
     console.error(
       `  ${path} is referenced by ${where} but is not precached.\n` +
         '    Every offline load will log net::ERR_FAILED for it.\n' +
-        '    Add it to PRECACHE_OPTIONAL in src/lib/offline/service-worker.js.\n',
+        '    Add it to RUNTIME_OPTIONAL in src/lib/offline/service-worker.js.\n',
     );
   }
   for (const path of absent) {
@@ -103,6 +103,6 @@ if (missing.length > 0 || absent.length > 0) {
 }
 
 console.log(
-  `check-precache: ${String(wanted.size)} referenced static file(s), all precached; ` +
+  `check-precache: ${String(wanted.size)} referenced static file(s), all cacheable offline; ` +
     `${String(listed.size)} entries listed, all present.`,
 );

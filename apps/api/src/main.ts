@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
+import { registerBodyParsers } from './platform/common/body-parsers.js';
 import { assertDecoratorMetadataIsEmitted } from './platform/common/decorator-metadata.js';
 import { EnvValidationError } from './platform/common/env.schema.js';
 import { StartupError } from './platform/common/startup-error.js';
@@ -36,7 +37,8 @@ async function bootstrap(): Promise<void> {
   // failures after this line are captured too.
   if (env.SENTRY_DSN !== undefined && env.SENTRY_DSN !== '') {
     const Sentry = await import('@sentry/node');
-    Sentry.init({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
+    const { sanitizeMonitoringEvent } = await import('./platform/common/error-monitoring.js');
+    Sentry.init({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV, sendDefaultPii: false, beforeSend: sanitizeMonitoringEvent });
   }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, rawBody: true });
@@ -46,7 +48,7 @@ async function bootstrap(): Promise<void> {
   // calls, but a 500-record OpsTally stock.snapshot/voucher.snapshot chunk
   // (full resync) blows past that easily. Respects the rawBody option above,
   // so the OpsTally webhook's HMAC verification is unaffected.
-  app.useBodyParser('json', { limit: '15mb' });
+  registerBodyParsers(app);
 
   // OPEN-QUESTIONS P0-11. Behind a reverse proxy, `req.ip` is the proxy's
   // socket address until Express is told how many hops to trust -- and then

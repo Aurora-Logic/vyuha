@@ -1,13 +1,11 @@
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { AgentApiClient } from './api-client.js';
 import { AGENT_VERSION, VyuhaAgent } from './agent.js';
 import { loadConfig } from './config.js';
 import { FixtureTransport } from './transport.js';
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Entry point (REQ-Q-01, REQ-Q-07).
@@ -44,8 +42,18 @@ async function main(): Promise<void> {
   const config = loadConfig(configPath);
 
   // The transport seam: TallyHttpTransport lands with the XML fixtures.
-  const fixturePath =
-    process.env['VYUHA_AGENT_FIXTURE'] ?? join(currentDir, '../fixtures/demo.json');
+  // Until then this build runs only against a fixture, and says so rather
+  // than reading demo data into a real connection (C-02).
+  const fixturePath = process.env['VYUHA_AGENT_FIXTURE'] ?? config.fixture;
+  if (fixturePath === undefined) {
+    log(
+      'error',
+      'No Tally transport exists in this build (10 §8, D-05); it runs only against a fixture file. ' +
+        'Set "fixture" in the config, or VYUHA_AGENT_FIXTURE, to run it. Not starting.',
+    );
+    process.exitCode = 1;
+    return;
+  }
   const transport = new FixtureTransport(fixturePath);
 
   const api = new AgentApiClient(config.serverUrl, config.agentToken);
@@ -58,9 +66,11 @@ async function main(): Promise<void> {
   log('info', `Vyuha agent ${AGENT_VERSION} as ${config.instanceId} → ${config.serverUrl}`);
 
   let running = true;
+  let wake: () => void = () => undefined;
   const stop = (): void => {
     log('info', 'Stopping after the current tick.');
     running = false;
+    wake();
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
@@ -73,7 +83,14 @@ async function main(): Promise<void> {
         `Tick: completed=${String(report.jobsCompleted)} failed=${String(report.jobsFailed)}`,
       );
     }
-    await new Promise((resolve) => setTimeout(resolve, config.heartbeatSeconds * 1000));
+    // Interruptible: a SIGTERM during the wait ends it now, not a minute on.
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, config.heartbeatSeconds * 1000);
+      wake = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
   }
 }
 

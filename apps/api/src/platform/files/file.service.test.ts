@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
 
 import { PERMISSIONS, uuidv7 } from '@vyuha/shared';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import sharp from 'sharp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { principalFixture } from '../../test-support/principal-fixture.js';
 import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
-import { files } from '../db/schema/index.js';
+import { fileCleanupTasks, files } from '../db/schema/index.js';
+import { ObjectStore } from '../storage/object-store.js';
 import { FileService } from './file.service.js';
 
 /**
@@ -73,6 +74,35 @@ afterAll(async () => {
 });
 
 describe('storing an image', () => {
+  it('moves 500 poison cleanup tasks behind newer removable objects (F-03)', async () => {
+    const prefix = `cleanup-fairness-${uuidv7()}`;
+    const now = new Date();
+    await harness.db.insert(fileCleanupTasks).values(
+      Array.from({ length: 501 }, (_, index) => ({
+        orgId: ORG_ID,
+        purpose: 'PUNCH_PHOTO' as const,
+        storageKey: `${prefix}/${index}`,
+        runAfter: new Date(now.getTime() - 10_000 + index),
+      })),
+    );
+    const objects = harness.resolve(ObjectStore);
+    const deletion = vi.spyOn(objects, 'delete').mockImplementation((_bucket, key) => key === `${prefix}/500`
+      ? Promise.resolve()
+      : Promise.reject(new Error('persistent object failure')));
+    try {
+      expect(await service.cleanupPendingObjects(now)).toMatchObject({ failed: 500 });
+      expect(await service.cleanupPendingObjects(now)).toMatchObject({ removed: 1, failed: 0 });
+      const rows = await harness.db.select().from(fileCleanupTasks)
+        .where(sql`${fileCleanupTasks.storageKey} LIKE ${`${prefix}/%`}`);
+      expect(rows).toHaveLength(500);
+      expect(rows.every((row) => row.runAfter > now && row.attempts === 1)).toBe(true);
+    } finally {
+      deletion.mockRestore();
+      await harness.db.delete(fileCleanupTasks)
+        .where(sql`${fileCleanupTasks.storageKey} LIKE ${`${prefix}/%`}`);
+    }
+  });
+
   it('refuses a payload whose bytes are not an image, whatever it is called', async () => {
     const disguised = Buffer.concat([
       Buffer.from('%PDF-1.7\n%\xE2\xE3\xCF\xD3\n', 'binary'),
@@ -177,6 +207,107 @@ describe('storing an image', () => {
     // that would catch a service that hashed the input and stored the output.
     expect(createHash('sha256').update(fetched).digest('hex')).toBe(row?.checksum);
     expect(fetched.length).toBe(row?.bytes);
+  });
+
+  it('takes the object back out of the bucket when its row cannot be written (H-09)', async () => {
+    // The bytes were put first and the row second, with nothing between
+    // them: a row that failed left an object no row named, which no sweep
+    // could ever find. An organisation that does not exist makes the row
+    // fail for real, on its foreign key, after the put has happened.
+    const objects = harness.resolve(ObjectStore);
+    const put = vi.spyOn(objects, 'put');
+    const removed = vi.spyOn(objects, 'delete');
+    try {
+      await expect(
+        service.storeImage({ orgId: uuidv7(), uploadedBy: uploaderId, purpose: 'PUNCH_PHOTO', bytes: await photoWithExif() }),
+      ).rejects.toThrow();
+      expect(put).toHaveBeenCalledTimes(1);
+      const [bucket, key] = put.mock.calls[0] ?? [];
+      expect(removed).toHaveBeenCalledWith(bucket, key);
+    } finally {
+      put.mockRestore();
+      removed.mockRestore();
+    }
+  });
+
+  it.each([
+    [
+      'uploaded document',
+      (orgId: string) =>
+        service.storeUpload({
+          orgId,
+          uploadedBy: uploaderId,
+          purpose: 'CRM_ATTACHMENT',
+          bytes: Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(32, 0x20)]),
+          filename: 'quote.pdf',
+        }),
+    ],
+    [
+      'generated document',
+      (orgId: string) =>
+        service.storeDocument({
+          orgId,
+          createdBy: uploaderId,
+          purpose: 'EXPORT',
+          bytes: Buffer.from('generated export'),
+          mime: 'text/csv',
+          extension: 'csv',
+        }),
+    ],
+  ])('compensates a %s whose metadata row cannot be written', async (_label, write) => {
+    const objects = harness.resolve(ObjectStore);
+    const put = vi.spyOn(objects, 'put');
+    const removed = vi.spyOn(objects, 'delete');
+    try {
+      await expect(write(uuidv7())).rejects.toThrow();
+      expect(put).toHaveBeenCalledTimes(1);
+      const [bucket, key] = put.mock.calls[0] ?? [];
+      expect(removed).toHaveBeenCalledWith(bucket, key);
+    } finally {
+      put.mockRestore();
+      removed.mockRestore();
+    }
+  });
+
+  it('retains and retries a cleanup task when object deletion is unavailable', async () => {
+    const stored = await store('PUNCH_PHOTO', await photoWithExif());
+    const objects = harness.resolve(ObjectStore);
+    const row = await harness.db
+      .select({ storageKey: files.storageKey })
+      .from(files)
+      .where(eq(files.id, stored.id));
+    const storageKey = row[0]?.storageKey;
+    if (storageKey === undefined) throw new Error('stored file row is missing');
+
+    const unavailable = vi
+      .spyOn(objects, 'delete')
+      .mockRejectedValueOnce(new Error('object store unavailable'));
+    try {
+      await expect(service.discardUnreferenced(ORG_ID, [stored.id])).resolves.toBe(1);
+    } finally {
+      unavailable.mockRestore();
+    }
+
+    const pending = await harness.db
+      .select({ attempts: fileCleanupTasks.attempts })
+      .from(fileCleanupTasks)
+      .where(
+        and(
+          eq(fileCleanupTasks.purpose, stored.purpose),
+          eq(fileCleanupTasks.storageKey, storageKey),
+        ),
+      );
+    expect(pending[0]?.attempts).toBe(1);
+    expect(await objects.exists('photos', storageKey)).toBe(true);
+
+    const cleanup = await service.cleanupPendingObjects(new Date(Date.now() + 60_000));
+    expect(cleanup.removed).toBeGreaterThanOrEqual(1);
+    expect(await objects.exists('photos', storageKey)).toBe(false);
+    const left = await harness.db
+      .select({ id: fileCleanupTasks.id })
+      .from(fileCleanupTasks)
+      .where(eq(fileCleanupTasks.storageKey, storageKey));
+    expect(left).toHaveLength(0);
   });
 
   it('never stores the bytes the client supplied, and strips EXIF doing it', async () => {

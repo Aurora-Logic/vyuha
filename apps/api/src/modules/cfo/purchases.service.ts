@@ -99,7 +99,8 @@ export class PurchasesService {
         AND v.party_id IS NOT NULL
       GROUP BY 1, 2
       HAVING sum(v.amount) FILTER (WHERE v.voucher_date BETWEEN ${from} AND ${to}) IS NOT NULL
-      ORDER BY 3 DESC
+      ORDER BY coalesce(sum(CASE WHEN v.voucher_type = 'Purchase' THEN v.amount ELSE -v.amount END)
+          FILTER (WHERE v.voucher_date BETWEEN ${from} AND ${to}), 0) DESC
       LIMIT 15
     `);
 
@@ -129,10 +130,32 @@ export class PurchasesService {
         CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
              WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
              ELSE 0 END), 0)) <> 0
-      ORDER BY 3 DESC
+      ORDER BY (coalesce(p.opening_balance, 0) + coalesce(sum(
+        CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
+             WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
+             ELSE 0 END), 0)) DESC
       LIMIT 25
     `);
-    const payablesTotal = payables.rows.reduce((sum, r) => sum + Number(r.payable), 0);
+
+    // The book, not the list. The 25 rows above are the display; DPO and the
+    // cash cycle were computed from their sum, so an organisation with 26
+    // creditors had a payable book missing its smallest vendor -- and, until
+    // the ORDER BY above stopped sorting text, missing whichever vendors sort
+    // low as strings rather than as money (CFO-2).
+    const book = await this.db.execute<{ total: string | null }>(sql`
+      SELECT sum(payable)::numeric(16,2)::text AS total FROM (
+        SELECT coalesce(p.opening_balance, 0) + coalesce(sum(
+          CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
+               WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
+               ELSE 0 END), 0) AS payable
+        FROM parties p
+        LEFT JOIN vouchers v ON v.party_id = p.id AND v.is_cancelled = false
+          AND v.voucher_type IN ('Purchase', 'Payment', 'Debit Note')
+        WHERE p.org_id = ${principal.orgId} AND lower(p.parent_group) LIKE 'sundry creditors%'
+        GROUP BY p.id
+      ) creditors
+    `);
+    const payablesTotal = Number(book.rows[0]?.total ?? 0);
 
     // DPO: today's payable book over a year of purchases per day.
     const year = await this.db.execute<{ net: string | null }>(sql`
