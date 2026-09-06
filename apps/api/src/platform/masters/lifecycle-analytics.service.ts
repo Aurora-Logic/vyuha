@@ -417,7 +417,7 @@ export class LifecycleAnalyticsService {
   // ----------------------------------------------------------------- party
 
   async party(principal: Principal, partyId: string, query: LifecycleAnalyticsQuery): Promise<PartyAnalytics> {
-    await this.masters.findParty(principal, partyId);
+    const party = await this.masters.findParty(principal, partyId);
     const orgId = principal.orgId;
     const sales = this.salesScope(principal);
     const purchase = principal.permissions.has(PERMISSIONS.PURCHASE_DOCUMENT_VIEW);
@@ -425,7 +425,7 @@ export class LifecycleAnalyticsService {
     const period: Range = { from: query.from, to: query.to };
     const comparison: Range | null = query.compareFrom !== undefined && query.compareTo !== undefined ? { from: query.compareFrom, to: query.compareTo } : null;
 
-    const [current, previous, now, monthly, monthlyComparison, itemsBought, itemsSupplied, heatBought, heatSupplied] = await Promise.all([
+    const [current, previous, now, monthly, monthlyComparison, itemsBought, itemsSupplied, heatBought, heatSupplied, balances] = await Promise.all([
       this.partyRange(orgId, partyId, period, sales, purchase, vouchers),
       comparison === null ? Promise.resolve(null) : this.partyRange(orgId, partyId, comparison, sales, purchase, vouchers),
       this.partyNow(orgId, partyId, sales, purchase),
@@ -435,6 +435,9 @@ export class LifecycleAnalyticsService {
       !purchase ? Promise.resolve([]) : this.partyItemsSupplied(orgId, partyId, period),
       sales === null ? Promise.resolve([]) : this.partyHeat(orgId, partyId, period, 'customer', sales),
       !purchase ? Promise.resolve([]) : this.partyHeat(orgId, partyId, period, 'vendor', sales),
+      !vouchers
+        ? Promise.resolve({ opening: null, closing: null })
+        : this.partyBalances(orgId, partyId, party.openingBalance, period),
     ]);
 
     const prev = (read: (r: PartyRangeFigures) => number): number | null => (previous === null ? null : read(previous));
@@ -455,7 +458,10 @@ export class LifecycleAnalyticsService {
             orderedValue: kpi(current.orderedValue, prev((r) => r.orderedValue)),
             orderedQty: kpi(current.orderedQty, prev((r) => r.orderedQty)),
             dispatchedQty: kpi(current.dispatchedQty, prev((r) => r.dispatchedQty)),
-            fulfilmentPct: kpi(pct(current.dispatchedQty, current.orderedQty), prev((r) => pct(r.dispatchedQty, r.orderedQty))),
+            fulfilmentPct: kpi(
+              current.orderedQty > 0 ? pct(current.dispatchedQty, current.orderedQty) : current.invoices > 0 ? 100 : 0,
+              prev((r) => (r.orderedQty > 0 ? pct(r.dispatchedQty, r.orderedQty) : r.invoices > 0 ? 100 : 0)),
+            ),
             partialShipmentPct: kpi(pct(current.partialOrders, current.dispatchedOrders), prev((r) => pct(r.partialOrders, r.dispatchedOrders))),
             leadTimeMedianDays: kpi(current.leadMedian ?? 0, prev((r) => r.leadMedian ?? 0)),
             leadTimeP90Days: kpi(current.leadP90 ?? 0, prev((r) => r.leadP90 ?? 0)),
@@ -486,6 +492,8 @@ export class LifecycleAnalyticsService {
     return {
       period,
       comparison,
+      openingBalance: balances.opening,
+      closingBalance: balances.closing,
       customer,
       vendor,
       monthly,
@@ -495,6 +503,60 @@ export class LifecycleAnalyticsService {
       heat: heatBought.length > 0 ? heatBought : heatSupplied,
       absent,
     };
+  }
+
+  private async partyBalances(orgId: string, partyId: string, openingBalance: string | null, period: Range): Promise<{ opening: number | null; closing: number | null }> {
+    const r = await this.db
+      .execute<{ prior_delta: string; period_delta: string }>(sql`
+        SELECT 
+          coalesce(sum(CASE 
+            WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN -abs(v.amount)
+            WHEN v.voucher_type ILIKE '%debit note%' THEN -abs(v.amount)
+            WHEN v.voucher_type ILIKE '%receipt%' THEN abs(v.amount)
+            WHEN v.voucher_type ILIKE '%credit note%' THEN abs(v.amount)
+            WHEN (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount)
+            WHEN v.voucher_type ILIKE '%payment%' THEN -abs(v.amount)
+            WHEN v.voucher_type ILIKE '%journal%' THEN (
+              COALESCE((
+                SELECT CASE WHEN vl.is_deemed_positive = false THEN abs(v.amount) ELSE -abs(v.amount) END
+                FROM voucher_lines vl
+                WHERE vl.voucher_id = v.id 
+                  AND (vl.ledger_name = v.party_name OR lower(trim(vl.ledger_name)) = lower(trim(v.party_name)))
+                LIMIT 1
+              ), v.amount)
+            )
+            ELSE 0 
+          END) FILTER (WHERE v.voucher_date < ${period.from}), 0)::text AS prior_delta,
+          coalesce(sum(CASE 
+            WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN -abs(v.amount)
+            WHEN v.voucher_type ILIKE '%debit note%' THEN -abs(v.amount)
+            WHEN v.voucher_type ILIKE '%receipt%' THEN abs(v.amount)
+            WHEN v.voucher_type ILIKE '%credit note%' THEN abs(v.amount)
+            WHEN (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount)
+            WHEN v.voucher_type ILIKE '%payment%' THEN -abs(v.amount)
+            WHEN v.voucher_type ILIKE '%journal%' THEN (
+              COALESCE((
+                SELECT CASE WHEN vl.is_deemed_positive = false THEN abs(v.amount) ELSE -abs(v.amount) END
+                FROM voucher_lines vl
+                WHERE vl.voucher_id = v.id 
+                  AND (vl.ledger_name = v.party_name OR lower(trim(vl.ledger_name)) = lower(trim(v.party_name)))
+                LIMIT 1
+              ), v.amount)
+            )
+            ELSE 0 
+          END) FILTER (WHERE v.voucher_date BETWEEN ${period.from} AND ${period.to}), 0)::text AS period_delta
+        FROM vouchers v
+        WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+      `)
+      .then((res) => res.rows[0]);
+
+    if (!r && openingBalance === null) return { opening: null, closing: null };
+    const masterOpening = num(openingBalance);
+    const priorDelta = num(r?.prior_delta);
+    const periodDelta = num(r?.period_delta);
+    const opening = round(masterOpening + priorDelta, 2);
+    const closing = round(opening + periodDelta, 2);
+    return { opening, closing };
   }
 
   private async partyRange(orgId: string, partyId: string, range: Range, sales: SQL | null, purchase: boolean, vouchers: boolean): Promise<PartyRangeFigures> {
@@ -512,22 +574,58 @@ export class LifecycleAnalyticsService {
               lead_median: string | null;
               lead_p90: string | null;
             }>(sql`
-              WITH orders AS (
+              WITH vy_orders AS (
                 SELECT d.id, d.date, d.grand_total, d.short_closed_at,
                        (SELECT count(*) FROM dispatches x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS dispatches,
                        (SELECT min(x.dispatched_at) FROM dispatches x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS first_dispatch
                   FROM sales_documents d
                  WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                    AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
+              ), tally_so AS (
+                SELECT v.id, v.voucher_date AS date, abs(v.amount) AS amount
+                  FROM vouchers v
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND (v.voucher_type ILIKE '%sales%order%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%'))
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+              ), tally_so_lines AS (
+                SELECT vl.voucher_id,
+                       coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS qty
+                  FROM voucher_lines vl
+                  JOIN vouchers v ON v.id = vl.voucher_id
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND (v.voucher_type ILIKE '%sales%order%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%'))
+                   AND vl.kind = 'inventory'
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+              ), tally_inv_lines AS (
+                SELECT vl.voucher_id,
+                       coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS qty
+                  FROM voucher_lines vl
+                  JOIN vouchers v ON v.id = vl.voucher_id
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%')
+                   AND vl.kind = 'inventory'
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+              ), lead_times AS (
+                SELECT extract(epoch FROM (first_dispatch - date::timestamptz)) / 86400 AS days
+                  FROM vy_orders
+                 WHERE first_dispatch IS NOT NULL
+                UNION ALL
+                SELECT extract(epoch FROM (v.voucher_date::timestamptz - v.buyer_order_date::timestamptz)) / 86400 AS days
+                  FROM vouchers v
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%')
+                   AND v.buyer_order_date IS NOT NULL
+                   AND v.buyer_order_date <= v.voucher_date
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               )
-              SELECT (SELECT count(*) FROM orders)::int AS orders,
-                     coalesce((SELECT sum(grand_total) FROM orders), 0)::text AS ordered_value,
-                     coalesce((SELECT sum(l.quantity) FROM sales_document_lines l WHERE l.document_id IN (SELECT id FROM orders)), 0)::text AS ordered_qty,
-                     coalesce((SELECT sum(l.dispatched_qty) FROM sales_document_lines l WHERE l.document_id IN (SELECT id FROM orders)), 0)::text AS dispatched_qty,
-                     (SELECT count(*) FROM orders WHERE dispatches > 0)::int AS dispatched_orders,
-                     (SELECT count(*) FROM orders WHERE dispatches >= 2 OR (dispatches > 0 AND short_closed_at IS NOT NULL))::int AS partial_orders,
-                     (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (first_dispatch - date::timestamptz)) / 86400) FROM orders WHERE first_dispatch IS NOT NULL)::text AS lead_median,
-                     (SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM (first_dispatch - date::timestamptz)) / 86400) FROM orders WHERE first_dispatch IS NOT NULL)::text AS lead_p90
+              SELECT ((SELECT count(*) FROM vy_orders) + (SELECT count(*) FROM tally_so))::int AS orders,
+                     (coalesce((SELECT sum(grand_total) FROM vy_orders), 0) + coalesce((SELECT sum(amount) FROM tally_so), 0))::text AS ordered_value,
+                     (coalesce((SELECT sum(l.quantity) FROM sales_document_lines l WHERE l.document_id IN (SELECT id FROM vy_orders)), 0) + coalesce((SELECT sum(qty) FROM tally_so_lines), 0))::text AS ordered_qty,
+                     (coalesce((SELECT sum(l.dispatched_qty) FROM sales_document_lines l WHERE l.document_id IN (SELECT id FROM vy_orders)), 0) + coalesce((SELECT sum(qty) FROM tally_inv_lines), 0))::text AS dispatched_qty,
+                     ((SELECT count(*) FROM vy_orders WHERE dispatches > 0) + (SELECT count(*) FROM tally_so))::int AS dispatched_orders,
+                     (SELECT count(*) FROM vy_orders WHERE dispatches >= 2 OR (dispatches > 0 AND short_closed_at IS NOT NULL))::int AS partial_orders,
+                     (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY days) FROM lead_times WHERE days IS NOT NULL AND days >= 0)::text AS lead_median,
+                     (SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY days) FROM lead_times WHERE days IS NOT NULL AND days >= 0)::text AS lead_p90
             `)
             .then((r) => r.rows[0] ?? null),
       !vouchers
@@ -618,7 +716,7 @@ export class LifecycleAnalyticsService {
                      (SELECT max(d)::text FROM (
                         SELECT max(d2.date)::text AS d FROM sales_documents d2 WHERE d2.org_id = ${orgId} AND d2.party_id = ${partyId} AND d2.doc_type = 'SALES_ORDER' AND ${live('d2')} AND d2.deleted_at IS NULL AND ${sales}
                         UNION ALL
-                        SELECT max(v2.voucher_date)::text AS d FROM vouchers v2 WHERE v2.org_id = ${orgId} AND v2.party_id = ${partyId} AND v2.is_cancelled = false AND (v2.voucher_type ILIKE '%sales%' AND v2.voucher_type NOT ILIKE '%order%')
+                        SELECT max(v2.voucher_date)::text AS d FROM vouchers v2 WHERE v2.org_id = ${orgId} AND v2.party_id = ${partyId} AND v2.is_cancelled = false AND (v2.voucher_type ILIKE '%sales%' OR (v2.voucher_type ILIKE '%order%' AND v2.voucher_type NOT ILIKE '%purchase%'))
                      ) sub) AS last_order_at
                 FROM sales_documents d
                WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
@@ -633,7 +731,7 @@ export class LifecycleAnalyticsService {
                  WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
                 UNION ALL
                 SELECT v.voucher_date::text AS date FROM vouchers v
-                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%')
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false AND (v.voucher_type ILIKE '%sales%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%'))
               ) sub
               ORDER BY 1
             `)
@@ -679,10 +777,19 @@ export class LifecycleAnalyticsService {
         ? Promise.resolve([])
         : this.db
             .execute<{ month: string; orders: number; value: string }>(sql`
-              SELECT to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, count(*)::int AS orders, sum(d.grand_total)::text AS value
-                FROM sales_documents d
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
-                 AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
+              SELECT to_char(date_trunc('month', d), 'YYYY-MM') AS month, count(*)::int AS orders, sum(val)::text AS value
+                FROM (
+                  SELECT d.date AS d, d.grand_total AS val
+                    FROM sales_documents d
+                   WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
+                     AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
+                  UNION ALL
+                  SELECT v.voucher_date AS d, abs(v.amount) AS val
+                    FROM vouchers v
+                   WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                     AND (v.voucher_type ILIKE '%sales%order%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%'))
+                     AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+                ) sub
                GROUP BY 1
             `)
             .then((r) => r.rows),

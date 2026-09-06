@@ -62,9 +62,9 @@ export function currencySymbol(): string {
  * long rupee figure is not exact, and this runs on totals. Only the fraction
  * needs the big arithmetic, so the carry is a single add.
  */
-export function formatAmount(value: string | null): string {
+export function formatAmount(value: string | null, options?: { absolute?: boolean }): string {
   if (value === null) return EMPTY_VALUE;
-  const negative = value.startsWith('-');
+  const negative = options?.absolute ? false : value.startsWith('-');
   const magnitude = value.replace(/^-/u, '');
   const [whole = '0', fraction] = magnitude.split('.');
   let rupees = whole === '' ? '0' : whole;
@@ -92,11 +92,11 @@ export function formatAmount(value: string | null): string {
  * an amount of money calls this one, so the symbol is never a string a screen
  * pastes in front of a number itself.
  */
-export function formatMoney(value: string | number | null | undefined): string {
+export function formatMoney(value: string | number | null | undefined, options?: { absolute?: boolean }): string {
   if (value === null || value === undefined) return EMPTY_VALUE;
-  const text = typeof value === 'number' ? (Number.isFinite(value) ? value.toFixed(2) : null) : value;
+  const text = typeof value === 'number' ? (Number.isFinite(value) ? (options?.absolute ? Math.abs(value).toFixed(2) : value.toFixed(2)) : null) : value;
   if (text === null) return EMPTY_VALUE;
-  const amount = formatAmount(text);
+  const amount = formatAmount(text, options);
   if (amount === EMPTY_VALUE) return EMPTY_VALUE;
   // The minus goes outside the symbol -- "−₹1,200.00" is what a ledger writes,
   // not "₹−1,200.00".

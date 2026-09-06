@@ -69,6 +69,12 @@ describe('money', () => {
     expect(formatMoney('-1234.56')).toBe('−₹1,234.56');
   });
 
+  it('formats absolute values when absolute option is requested', () => {
+    expect(formatMoney('-1234.56', { absolute: true })).toBe('₹1,234.56');
+    expect(formatMoney(-1234.56, { absolute: true })).toBe('₹1,234.56');
+    expect(formatAmount('-1234.56', { absolute: true })).toBe('1,234.56');
+  });
+
   it('has an empty value rather than a bare symbol', () => {
     expect(formatMoney(null)).toBe('—');
     expect(formatMoney(undefined)).toBe('—');

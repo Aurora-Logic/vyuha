@@ -278,10 +278,26 @@ export function PartyPage() {
             {party.creditLimit ? formatMoney(party.creditLimit) : EMPTY_VALUE}
             {party.creditDays !== null ? ` · ${String(party.creditDays)} days` : ''}
           </dd>
-          <dt className="text-muted-foreground">Opening balance</dt>
-          <dd className="tabular-nums">{party.openingBalance ? formatMoney(party.openingBalance) : EMPTY_VALUE}</dd>
-          <dt className="text-muted-foreground">Closing balance</dt>
-          <dd className="tabular-nums">{party.closingBalance ? formatMoney(party.closingBalance) : EMPTY_VALUE}</dd>
+          <dt className="text-muted-foreground">
+            Opening balance {period.query.from ? `(${formatDate(period.query.from)})` : ''}
+          </dt>
+          <dd className="tabular-nums">
+            {a?.openingBalance !== null && a?.openingBalance !== undefined
+              ? formatMoney(a.openingBalance, { absolute: true })
+              : party.openingBalance
+                ? formatMoney(party.openingBalance, { absolute: true })
+                : EMPTY_VALUE}
+          </dd>
+          <dt className="text-muted-foreground">
+            Closing balance {period.query.to ? `(${formatDate(period.query.to)})` : ''}
+          </dt>
+          <dd className="tabular-nums">
+            {a?.closingBalance !== null && a?.closingBalance !== undefined
+              ? formatMoney(a.closingBalance, { absolute: true })
+              : party.closingBalance
+                ? formatMoney(party.closingBalance, { absolute: true })
+                : EMPTY_VALUE}
+          </dd>
         </dl>
       </section>
 

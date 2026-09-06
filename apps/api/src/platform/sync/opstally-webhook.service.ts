@@ -363,8 +363,10 @@ export class OpsTallyWebhookService {
      * integration over a date format would break the exchange for a bound
      * the format had already defeated.
      */
+    const isSnapshot = event.event.endsWith('.snapshot');
     const createdAtMs = Date.parse(event.created_at);
     if (
+      !isSnapshot &&
       Number.isFinite(createdAtMs) &&
       Date.now() - createdAtMs > WEBHOOK_MAX_EVENT_AGE_DAYS * 86_400_000
     ) {

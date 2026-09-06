@@ -246,6 +246,8 @@ export interface PartyItemRow {
 export interface PartyAnalytics {
   readonly period: DateRangeView;
   readonly comparison: DateRangeView | null;
+  readonly openingBalance?: number | null;
+  readonly closingBalance?: number | null;
   readonly customer: {
     readonly revenue: Kpi;
     readonly invoices: Kpi;

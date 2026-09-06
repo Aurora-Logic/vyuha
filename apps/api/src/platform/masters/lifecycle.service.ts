@@ -175,22 +175,25 @@ export class LifecycleService {
                   FROM sales_documents d
                  WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.deleted_at IS NULL AND ${sales}
               ), tally_sales AS (
-                SELECT count(*)::int AS invoices,
+                SELECT count(*) FILTER (WHERE (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%credit note%')::int AS invoices,
+                       count(*) FILTER (WHERE v.voucher_type ILIKE '%sales%order%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%'))::int AS orders,
                        coalesce(sum(CASE WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount)
                                          WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(v.amount)
                                          ELSE 0 END), 0)::numeric AS invoiced_value,
+                       coalesce(sum(CASE WHEN v.voucher_type ILIKE '%sales%order%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%') THEN abs(v.amount)
+                                         ELSE 0 END), 0)::numeric AS ordered_value,
                        max(v.voucher_date)::text AS last_sales_at
                   FROM vouchers v
                  WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                   AND ((v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%credit note%')
+                   AND ((v.voucher_type ILIKE '%sales%') OR v.voucher_type ILIKE '%credit note%' OR (v.voucher_type ILIKE '%order%' AND v.voucher_type NOT ILIKE '%purchase%'))
               )
               SELECT s.estimates,
-                     s.orders,
+                     (s.orders + coalesce(t.orders, 0))::int AS orders,
                      s.open_orders,
                      s.dispatches,
                      s.delivered,
                      (s.invoices + coalesce(t.invoices, 0))::int AS invoices,
-                     s.ordered_value::text AS ordered_value,
+                     (s.ordered_value + coalesce(t.ordered_value, 0))::text AS ordered_value,
                      (s.invoiced_value + coalesce(t.invoiced_value, 0))::text AS invoiced_value,
                      coalesce(s.last_order_at, t.last_sales_at) AS last_order_at
                 FROM s_docs s CROSS JOIN tally_sales t
