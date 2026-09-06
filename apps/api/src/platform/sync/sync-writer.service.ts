@@ -597,6 +597,13 @@ export class SyncWriterService {
                updated_at = now()
          WHERE id = ${mapping.internalId}
       `);
+      await tx.execute(sql`
+        UPDATE vouchers
+           SET party_id = ${mapping.internalId}
+         WHERE connection_id = ${agent.connectionId}
+           AND party_id IS NULL
+           AND (party_name = ${row.name} OR lower(trim(party_name)) = lower(trim(${row.name})))
+      `);
       await this.touchMapping(tx, agent, 'party', row.guid, row.alterId);
       return;
     }
@@ -617,6 +624,13 @@ export class SyncWriterService {
     `);
     const partyId = inserted.rows[0]?.id;
     if (partyId === undefined) throw new Error('Party insert returned no row.');
+    await tx.execute(sql`
+      UPDATE vouchers
+         SET party_id = ${partyId}
+       WHERE connection_id = ${agent.connectionId}
+         AND party_id IS NULL
+         AND (party_name = ${row.name} OR lower(trim(party_name)) = lower(trim(${row.name})))
+    `);
     await this.insertMapping(tx, agent, 'party', row.guid, row.alterId, partyId);
   }
 
@@ -657,6 +671,15 @@ export class SyncWriterService {
                updated_at = now()
          WHERE id = ${mapping.internalId}
       `);
+      await tx.execute(sql`
+        UPDATE voucher_lines
+           SET stock_item_id = ${mapping.internalId}
+          FROM vouchers v
+         WHERE voucher_lines.voucher_id = v.id
+           AND v.connection_id = ${agent.connectionId}
+           AND voucher_lines.stock_item_id IS NULL
+           AND (voucher_lines.stock_item_name = ${row.name} OR lower(trim(voucher_lines.stock_item_name)) = lower(trim(${row.name})))
+      `);
       await this.touchMapping(tx, agent, 'stock_item', row.guid, row.alterId);
       return;
     }
@@ -673,6 +696,15 @@ export class SyncWriterService {
     `);
     const itemId = inserted.rows[0]?.id;
     if (itemId === undefined) throw new Error('Stock item insert returned no row.');
+    await tx.execute(sql`
+      UPDATE voucher_lines
+         SET stock_item_id = ${itemId}
+        FROM vouchers v
+       WHERE voucher_lines.voucher_id = v.id
+         AND v.connection_id = ${agent.connectionId}
+         AND voucher_lines.stock_item_id IS NULL
+         AND (voucher_lines.stock_item_name = ${row.name} OR lower(trim(voucher_lines.stock_item_name)) = lower(trim(${row.name})))
+    `);
     await this.insertMapping(tx, agent, 'stock_item', row.guid, row.alterId, itemId);
   }
 
@@ -849,7 +881,8 @@ export class SyncWriterService {
     if (cached !== undefined) return cached;
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM parties
-       WHERE connection_id = ${agent.connectionId} AND name = ${name}
+       WHERE connection_id = ${agent.connectionId}
+         AND (name = ${name} OR lower(trim(name)) = lower(trim(${name})))
        LIMIT 1
     `);
     const id = rows.rows[0]?.id ?? null;
@@ -865,7 +898,8 @@ export class SyncWriterService {
     if (cached !== undefined) return cached;
     const rows = await tx.execute<{ id: string }>(sql`
       SELECT id FROM stock_items
-       WHERE connection_id = ${agent.connectionId} AND name = ${name}
+       WHERE connection_id = ${agent.connectionId}
+         AND (name = ${name} OR lower(trim(name)) = lower(trim(${name})))
        LIMIT 1
     `);
     const id = rows.rows[0]?.id ?? null;

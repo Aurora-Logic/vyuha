@@ -161,18 +161,39 @@ export class LifecycleService {
         ? Promise.resolve(null)
         : this.db
             .execute<{ estimates: number; orders: number; open_orders: number; dispatches: number; delivered: number; invoices: number; ordered_value: string; invoiced_value: string; last_order_at: string | null }>(sql`
-              SELECT count(*) FILTER (WHERE d.doc_type = 'ESTIMATE' AND ${live('d')})::int AS estimates,
-                     count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')})::int AS orders,
-                     count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.short_closed_at IS NULL
-                                        AND EXISTS (SELECT 1 FROM sales_document_lines l WHERE l.document_id = d.id AND l.dispatched_qty < l.quantity))::int AS open_orders,
-                     (SELECT count(*)::int FROM dispatches x JOIN sales_documents o ON o.id = x.document_id WHERE o.org_id = ${orgId} AND o.party_id = ${partyId} AND x.deleted_at IS NULL) AS dispatches,
-                     (SELECT count(*)::int FROM dispatches x JOIN sales_documents o ON o.id = x.document_id WHERE o.org_id = ${orgId} AND o.party_id = ${partyId} AND x.deleted_at IS NULL AND x.delivered_at IS NOT NULL) AS delivered,
-                     count(*) FILTER (WHERE d.doc_type = 'INVOICE' AND ${live('d')})::int AS invoices,
-                     coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')}), 0)::text AS ordered_value,
-                     coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'INVOICE' AND ${live('d')}), 0)::text AS invoiced_value,
-                     max(d.date) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')})::text AS last_order_at
-                FROM sales_documents d
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.deleted_at IS NULL AND ${sales}
+              WITH s_docs AS (
+                SELECT count(*) FILTER (WHERE d.doc_type = 'ESTIMATE' AND ${live('d')})::int AS estimates,
+                       count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')})::int AS orders,
+                       count(*) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.short_closed_at IS NULL
+                                          AND EXISTS (SELECT 1 FROM sales_document_lines l WHERE l.document_id = d.id AND l.dispatched_qty < l.quantity))::int AS open_orders,
+                       (SELECT count(*)::int FROM dispatches x JOIN sales_documents o ON o.id = x.document_id WHERE o.org_id = ${orgId} AND o.party_id = ${partyId} AND x.deleted_at IS NULL) AS dispatches,
+                       (SELECT count(*)::int FROM dispatches x JOIN sales_documents o ON o.id = x.document_id WHERE o.org_id = ${orgId} AND o.party_id = ${partyId} AND x.deleted_at IS NULL AND x.delivered_at IS NOT NULL) AS delivered,
+                       count(*) FILTER (WHERE d.doc_type = 'INVOICE' AND ${live('d')})::int AS invoices,
+                       coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')}), 0)::numeric AS ordered_value,
+                       coalesce(sum(d.grand_total) FILTER (WHERE d.doc_type = 'INVOICE' AND ${live('d')}), 0)::numeric AS invoiced_value,
+                       max(d.date) FILTER (WHERE d.doc_type = 'SALES_ORDER' AND ${live('d')})::text AS last_order_at
+                  FROM sales_documents d
+                 WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.deleted_at IS NULL AND ${sales}
+              ), tally_sales AS (
+                SELECT count(*)::int AS invoices,
+                       coalesce(sum(CASE WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount)
+                                         WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(v.amount)
+                                         ELSE 0 END), 0)::numeric AS invoiced_value,
+                       max(v.voucher_date)::text AS last_sales_at
+                  FROM vouchers v
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND ((v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%credit note%')
+              )
+              SELECT s.estimates,
+                     s.orders,
+                     s.open_orders,
+                     s.dispatches,
+                     s.delivered,
+                     (s.invoices + coalesce(t.invoices, 0))::int AS invoices,
+                     s.ordered_value::text AS ordered_value,
+                     (s.invoiced_value + coalesce(t.invoiced_value, 0))::text AS invoiced_value,
+                     coalesce(s.last_order_at, t.last_sales_at) AS last_order_at
+                FROM s_docs s CROSS JOIN tally_sales t
             `)
             .then((r) => r.rows[0] ?? null),
       !purchase
@@ -184,12 +205,12 @@ export class LifecycleService {
                  WHERE p.org_id = ${orgId} AND p.party_id = ${partyId} AND ${live('p')} AND p.deleted_at IS NULL
               ), tally_vch AS (
                 SELECT v.id, v.voucher_date,
-                       CASE WHEN v.voucher_type IN ('Purchase', 'GST PURCHASE') THEN abs(v.amount)
-                            WHEN v.voucher_type = 'Debit Note' THEN -abs(v.amount)
+                       CASE WHEN (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount)
+                            WHEN v.voucher_type ILIKE '%debit note%' THEN -abs(v.amount)
                             ELSE 0 END AS amount
                   FROM vouchers v
                  WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE', 'Debit Note')
+                   AND ((v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%debit note%')
               )
               SELECT ((SELECT count(*) FROM pos) + (SELECT count(*) FROM tally_vch WHERE amount > 0))::int AS purchase_orders,
                      ((SELECT count(*)::int FROM grns g JOIN purchase_orders q ON q.id = g.purchase_order_id WHERE q.org_id = ${orgId} AND q.party_id = ${partyId} AND g.deleted_at IS NULL) + (SELECT count(*) FROM tally_vch WHERE amount > 0))::int AS receipts,
@@ -345,7 +366,12 @@ export class LifecycleService {
         SELECT 'voucher' AS kind, v.id, v.id AS doc_id, v.voucher_date::timestamptz AS at,
                v.voucher_type || ' ' || coalesce(v.voucher_number, '') AS title, v.narration AS detail,
                NULL AS quantity, v.amount::text AS amount, CASE WHEN v.is_cancelled THEN 'Cancelled' ELSE NULL END AS state
-          FROM vouchers v WHERE v.org_id = ${orgId} AND v.party_id = ${partyId}`);
+          FROM vouchers v
+         WHERE v.org_id = ${orgId}
+           AND (v.party_id = ${partyId}
+                OR (v.connection_id = (SELECT connection_id FROM parties WHERE id = ${partyId})
+                    AND (v.party_name = (SELECT name FROM parties WHERE id = ${partyId})
+                         OR lower(trim(v.party_name)) = (SELECT lower(trim(name)) FROM parties WHERE id = ${partyId}))))`);
     }
     return this.runEvents(parts, null);
   }

@@ -190,12 +190,13 @@ export class LifecycleAnalyticsService {
         ? Promise.resolve(null)
         : this.db
             .execute<{ revenue: string; billed_qty: string }>(sql`
-              SELECT coalesce(sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(vl.amount) ELSE abs(vl.amount) END), 0)::text AS revenue,
-                     coalesce(sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(coalesce(substring(vl.billed_qty FROM '^\\s*-?[0-9]+\\.?[0-9]*')::numeric, 0)) ELSE abs(coalesce(substring(vl.billed_qty FROM '^\\s*-?[0-9]+\\.?[0-9]*')::numeric, 0)) END), 0)::text AS billed_qty
+              SELECT coalesce(sum(CASE WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(vl.amount) ELSE abs(vl.amount) END), 0)::text AS revenue,
+                     coalesce(sum(CASE WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(coalesce(substring(vl.billed_qty FROM '^\\s*-?[0-9]+\\.?[0-9]*')::numeric, 0)) ELSE abs(coalesce(substring(vl.billed_qty FROM '^\\s*-?[0-9]+\\.?[0-9]*')::numeric, 0)) END), 0)::text AS billed_qty
                 -- billed_qty is Tally's text ("2 BOX"); its numeric head is the quantity.
                 FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
                WHERE v.org_id = ${orgId} AND vl.stock_item_id = ${itemId} AND v.is_cancelled = false
-                 AND v.voucher_type IN ('Sales', 'Credit Note') AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+                 AND ((v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%credit note%')
+                 AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
             `)
             .then((r) => r.rows[0] ?? null),
       !purchase
@@ -248,9 +249,12 @@ export class LifecycleAnalyticsService {
       !purchase
         ? Promise.resolve(null)
         : this.db
-            .execute<{ last_at: string | null; last_rate: string | null }>(sql`
-              SELECT max(p.date)::text AS last_at, (array_agg(l.rate ORDER BY p.date DESC, p.created_at DESC))[1]::text AS last_rate
+            .execute<{ last_received_at: string | null; last_rate: string | null }>(sql`
+              SELECT max(g.received_at)::text AS last_received_at,
+                     (array_agg(l.rate ORDER BY p.date DESC, p.created_at DESC))[1]::text AS last_rate
                 FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
+                LEFT JOIN grn_lines gl ON gl.purchase_order_line_id = l.id
+                LEFT JOIN grns g ON g.id = gl.grn_id
                WHERE p.org_id = ${orgId} AND l.stock_item_id = ${itemId} AND ${live('p')} AND p.deleted_at IS NULL
             `)
             .then((r) => r.rows[0] ?? null),
@@ -259,7 +263,7 @@ export class LifecycleAnalyticsService {
       openOrders: s?.open_orders ?? 0,
       lastSoldAt: s?.last_sold_at ?? null,
       lastSoldRate: nullable(s?.last_rate),
-      lastPurchasedAt: p?.last_at ?? null,
+      lastPurchasedAt: p?.last_received_at ?? null,
       lastPurchaseRate: nullable(p?.last_rate),
     };
   }
@@ -288,10 +292,11 @@ export class LifecycleAnalyticsService {
         : this.db
             .execute<{ month: string; revenue: string }>(sql`
               SELECT to_char(date_trunc('month', v.voucher_date), 'YYYY-MM') AS month,
-                     sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(vl.amount) ELSE abs(vl.amount) END)::text AS revenue
+                     sum(CASE WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(vl.amount) ELSE abs(vl.amount) END)::text AS revenue
                 FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
                WHERE v.org_id = ${orgId} AND vl.stock_item_id = ${itemId} AND v.is_cancelled = false
-                 AND v.voucher_type IN ('Sales', 'Credit Note') AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+                 AND ((v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%credit note%')
+                 AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
                GROUP BY 1
             `)
             .then((r) => r.rows),
@@ -529,10 +534,10 @@ export class LifecycleAnalyticsService {
         ? Promise.resolve(null)
         : this.db
             .execute<{ revenue: string; invoices: number; collected: string; org_revenue: string }>(sql`
-              SELECT coalesce(sum(CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) WHEN v.voucher_type = 'Credit Note' THEN -abs(v.amount) ELSE 0 END) FILTER (WHERE v.party_id = ${partyId}), 0)::text AS revenue,
-                     count(*) FILTER (WHERE v.party_id = ${partyId} AND v.voucher_type = 'Sales')::int AS invoices,
-                     coalesce(sum(abs(v.amount)) FILTER (WHERE v.party_id = ${partyId} AND v.voucher_type = 'Receipt'), 0)::text AS collected,
-                     coalesce(sum(CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) WHEN v.voucher_type = 'Credit Note' THEN -abs(v.amount) ELSE 0 END), 0)::text AS org_revenue
+              SELECT coalesce(sum(CASE WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount) WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(v.amount) ELSE 0 END) FILTER (WHERE v.party_id = ${partyId}), 0)::text AS revenue,
+                     count(*) FILTER (WHERE v.party_id = ${partyId} AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%'))::int AS invoices,
+                     coalesce(sum(abs(v.amount)) FILTER (WHERE v.party_id = ${partyId} AND v.voucher_type ILIKE '%receipt%'), 0)::text AS collected,
+                     coalesce(sum(CASE WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount) WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(v.amount) ELSE 0 END), 0)::text AS org_revenue
                 FROM vouchers v
                WHERE v.org_id = ${orgId} AND v.is_cancelled = false AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
             `)
@@ -549,12 +554,12 @@ export class LifecycleAnalyticsService {
                    AND p.date BETWEEN ${range.from} AND ${range.to}
               ), tally_vch AS (
                 SELECT v.id, v.voucher_date,
-                       CASE WHEN v.voucher_type IN ('Purchase', 'GST PURCHASE') THEN abs(v.amount)
-                            WHEN v.voucher_type = 'Debit Note' THEN -abs(v.amount)
+                       CASE WHEN (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount)
+                            WHEN v.voucher_type ILIKE '%debit note%' THEN -abs(v.amount)
                             ELSE 0 END AS amount
                   FROM vouchers v
                  WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE', 'Debit Note')
+                   AND ((v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%debit note%')
                    AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               ), tally_lines AS (
                 SELECT vl.voucher_id,
@@ -562,7 +567,7 @@ export class LifecycleAnalyticsService {
                   FROM voucher_lines vl
                   JOIN vouchers v ON v.id = vl.voucher_id
                  WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE')
+                   AND (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%')
                    AND vl.kind = 'inventory'
                    AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               )
@@ -610,7 +615,11 @@ export class LifecycleAnalyticsService {
             .execute<{ open_orders: number; last_order_at: string | null }>(sql`
               SELECT count(*) FILTER (WHERE d.short_closed_at IS NULL
                        AND EXISTS (SELECT 1 FROM sales_document_lines l WHERE l.document_id = d.id AND l.dispatched_qty < l.quantity))::int AS open_orders,
-                     max(d.date)::text AS last_order_at
+                     (SELECT max(d)::text FROM (
+                        SELECT max(d2.date)::text AS d FROM sales_documents d2 WHERE d2.org_id = ${orgId} AND d2.party_id = ${partyId} AND d2.doc_type = 'SALES_ORDER' AND ${live('d2')} AND d2.deleted_at IS NULL AND ${sales}
+                        UNION ALL
+                        SELECT max(v2.voucher_date)::text AS d FROM vouchers v2 WHERE v2.org_id = ${orgId} AND v2.party_id = ${partyId} AND v2.is_cancelled = false AND (v2.voucher_type ILIKE '%sales%' AND v2.voucher_type NOT ILIKE '%order%')
+                     ) sub) AS last_order_at
                 FROM sales_documents d
                WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
             `)
@@ -619,11 +628,17 @@ export class LifecycleAnalyticsService {
         ? Promise.resolve([])
         : this.db
             .execute<{ date: string }>(sql`
-              SELECT DISTINCT d.date::text AS date FROM sales_documents d
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
-               ORDER BY 1
+              SELECT DISTINCT sub.date::text AS date FROM (
+                SELECT d.date::text AS date FROM sales_documents d
+                 WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')} AND d.deleted_at IS NULL AND ${sales}
+                UNION ALL
+                SELECT v.voucher_date::text AS date FROM vouchers v
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%')
+              ) sub
+              ORDER BY 1
             `)
-            .then((r) => r.rows.map((row) => row.date)),      !purchase
+            .then((r) => r.rows.map((row) => row.date)),
+      !purchase
         ? Promise.resolve(null)
         : this.db
             .execute<{ open_pos: number; last_at: string | null; promised_days: string | null }>(sql`
@@ -632,7 +647,7 @@ export class LifecycleAnalyticsService {
                      (SELECT max(d)::text FROM (
                         SELECT p2.date::text AS d FROM purchase_orders p2 WHERE p2.org_id = ${orgId} AND p2.party_id = ${partyId} AND ${live('p2')} AND p2.deleted_at IS NULL
                         UNION ALL
-                        SELECT v2.voucher_date::text AS d FROM vouchers v2 WHERE v2.org_id = ${orgId} AND v2.party_id = ${partyId} AND v2.is_cancelled = false AND v2.voucher_type IN ('Purchase', 'GST PURCHASE')
+                        SELECT v2.voucher_date::text AS d FROM vouchers v2 WHERE v2.org_id = ${orgId} AND v2.party_id = ${partyId} AND v2.is_cancelled = false AND ((v2.voucher_type ILIKE '%purchase%' AND v2.voucher_type NOT ILIKE '%order%') OR v2.voucher_type ILIKE '%debit note%')
                      ) sub) AS last_at,
                      (SELECT avg(iv.lead_time_days) FROM item_vendors iv WHERE iv.org_id = ${orgId} AND iv.party_id = ${partyId} AND iv.deleted_at IS NULL AND iv.lead_time_days IS NOT NULL)::text AS promised_days
                 FROM purchase_orders p
@@ -676,8 +691,8 @@ export class LifecycleAnalyticsService {
         : this.db
             .execute<{ month: string; revenue: string; collected: string }>(sql`
               SELECT to_char(date_trunc('month', v.voucher_date), 'YYYY-MM') AS month,
-                     sum(CASE WHEN v.voucher_type = 'Sales' THEN abs(v.amount) WHEN v.voucher_type = 'Credit Note' THEN -abs(v.amount) ELSE 0 END)::text AS revenue,
-                     sum(CASE WHEN v.voucher_type = 'Receipt' THEN abs(v.amount) ELSE 0 END)::text AS collected
+                     sum(CASE WHEN (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount) WHEN v.voucher_type ILIKE '%credit note%' THEN -abs(v.amount) ELSE 0 END)::text AS revenue,
+                     sum(CASE WHEN v.voucher_type ILIKE '%receipt%' THEN abs(v.amount) ELSE 0 END)::text AS collected
                 FROM vouchers v
                WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
                GROUP BY 1
@@ -696,15 +711,16 @@ export class LifecycleAnalyticsService {
                      AND p.date BETWEEN ${range.from} AND ${range.to}
                   UNION ALL
                   SELECT v.voucher_date AS d,
-                         CASE WHEN v.voucher_type IN ('Purchase', 'GST PURCHASE') THEN abs(v.amount) WHEN v.voucher_type = 'Debit Note' THEN -abs(v.amount) ELSE 0 END AS val,
+                         CASE WHEN (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') THEN abs(v.amount) WHEN v.voucher_type ILIKE '%debit note%' THEN -abs(v.amount) ELSE 0 END AS val,
                          coalesce((SELECT sum(coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0)) FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.kind = 'inventory'), 0) AS rec
                     FROM vouchers v
                    WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                     AND v.voucher_type IN ('Purchase', 'GST PURCHASE', 'Debit Note')
+                     AND ((v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') OR v.voucher_type ILIKE '%debit note%')
                      AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
                 ) sub
                GROUP BY 1
-            `)            .then((r) => r.rows),
+            `)
+            .then((r) => r.rows),
     ]);
     for (const row of s) {
       const e = at(row.month);
@@ -730,12 +746,29 @@ export class LifecycleAnalyticsService {
   private async partyItemsBought(orgId: string, partyId: string, range: Range, sales: SQL): Promise<PartyItemRow[]> {
     const rows = await this.db
       .execute<{ id: string | null; name: string; unit: string | null; quantity: string; value: string; documents: number; last_at: string; last_rate: string | null }>(sql`
-        SELECT l.stock_item_id AS id, l.description AS name, l.unit, sum(l.quantity)::text AS quantity, sum(l.amount)::text AS value,
-               count(DISTINCT d.id)::int AS documents, max(d.date)::text AS last_at, (array_agg(l.rate ORDER BY d.date DESC))[1]::text AS last_rate
-          FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-         WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
-           AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
-         GROUP BY l.stock_item_id, l.description, l.unit ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
+        WITH bought AS (
+          SELECT l.stock_item_id AS id, l.description AS name, l.unit, l.quantity, l.amount,
+                 d.id AS doc_id, d.date, l.rate
+            FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
+           WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
+             AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales}
+          UNION ALL
+          SELECT vl.stock_item_id AS id, coalesce(si.name, vl.stock_item_name, 'Unknown') AS name, si.unit,
+                 coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS quantity,
+                 abs(vl.amount) AS amount,
+                 v.id AS doc_id, v.voucher_date AS date, vl.rate
+            FROM voucher_lines vl
+            JOIN vouchers v ON v.id = vl.voucher_id
+            LEFT JOIN stock_items si ON si.id = vl.stock_item_id
+           WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+             AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%')
+             AND vl.kind = 'inventory'
+             AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+        )
+        SELECT b.id, b.name, b.unit, sum(b.quantity)::text AS quantity, sum(b.amount)::text AS value,
+               count(DISTINCT b.doc_id)::int AS documents, max(b.date)::text AS last_at, (array_agg(b.rate ORDER BY b.date DESC))[1]::text AS last_rate
+          FROM bought b
+         GROUP BY b.id, b.name, b.unit ORDER BY sum(b.amount) DESC LIMIT ${ROW_CAP}
       `)
       .then((r) => r.rows);
     return rows.map((r) => ({ id: r.id, name: r.name, unit: r.unit, quantity: round(num(r.quantity), 3), value: round(num(r.value)), documents: r.documents, lastAt: r.last_at, lastRate: nullable(r.last_rate), variancePct: null }));
@@ -759,7 +792,7 @@ export class LifecycleAnalyticsService {
             JOIN vouchers v ON v.id = vl.voucher_id
             LEFT JOIN stock_items si ON si.id = vl.stock_item_id
            WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-             AND v.voucher_type IN ('Purchase', 'GST PURCHASE')
+             AND (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%')
              AND vl.kind = 'inventory'
              AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
         )
@@ -774,7 +807,7 @@ export class LifecycleAnalyticsService {
                       UNION ALL
                       SELECT v2.party_id, vl2.rate, v2.voucher_date AS date FROM voucher_lines vl2 JOIN vouchers v2 ON v2.id = vl2.voucher_id
                        WHERE v2.org_id = ${orgId} AND vl2.stock_item_id = s.id AND v2.is_cancelled = false
-                         AND v2.voucher_type IN ('Purchase', 'GST PURCHASE') AND vl2.kind = 'inventory' AND vl2.rate > 0
+                         AND (v2.voucher_type ILIKE '%purchase%' AND v2.voucher_type NOT ILIKE '%order%') AND vl2.kind = 'inventory' AND vl2.rate > 0
                     ) rates
                    ORDER BY rates.party_id, rates.date DESC) r)::text AS best_rate
           FROM supplied s
@@ -804,16 +837,34 @@ export class LifecycleAnalyticsService {
         ? await this.db
             .execute<{ row_id: string | null; row: string; month: string; value: string }>(sql`
               WITH top AS (
-                SELECT l.description AS key FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
+                SELECT description AS key FROM (
+                  SELECT l.description, l.amount FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
+                   WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
+                     AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales ?? sql`TRUE`}
+                  UNION ALL
+                  SELECT coalesce(si.name, vl.stock_item_name, 'Unknown') AS description, abs(vl.amount) AS amount
+                    FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id LEFT JOIN stock_items si ON si.id = vl.stock_item_id
+                   WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                     AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') AND vl.kind = 'inventory'
+                     AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
+                ) all_lines
+                GROUP BY 1 ORDER BY sum(amount) DESC LIMIT ${ROW_CAP}
+              ), combined AS (
+                SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, l.quantity AS value
+                  FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
                  WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
                    AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales ?? sql`TRUE`}
-                 GROUP BY 1 ORDER BY sum(l.amount) DESC LIMIT ${ROW_CAP}
+                UNION ALL
+                SELECT vl.stock_item_id AS row_id, coalesce(si.name, vl.stock_item_name, 'Unknown') AS row, to_char(date_trunc('month', v.voucher_date), 'YYYY-MM') AS month,
+                       coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS value
+                  FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id LEFT JOIN stock_items si ON si.id = vl.stock_item_id
+                 WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
+                   AND (v.voucher_type ILIKE '%sales%' AND v.voucher_type NOT ILIKE '%order%') AND vl.kind = 'inventory'
+                   AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               )
-              SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', d.date), 'YYYY-MM') AS month, sum(l.quantity)::text AS value
-                FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
-               WHERE d.org_id = ${orgId} AND d.party_id = ${partyId} AND d.doc_type = 'SALES_ORDER' AND ${live('d')}
-                 AND d.deleted_at IS NULL AND d.date BETWEEN ${range.from} AND ${range.to} AND ${sales ?? sql`TRUE`}
-                 AND l.description IN (SELECT key FROM top)
+              SELECT row_id, row, month, sum(value)::text AS value
+                FROM combined
+               WHERE row IN (SELECT key FROM top)
                GROUP BY 1, 2, 3
             `)
             .then((r) => r.rows)
@@ -829,10 +880,10 @@ export class LifecycleAnalyticsService {
                     SELECT coalesce(si.name, vl.stock_item_name) AS description, abs(vl.amount) AS amount
                       FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id LEFT JOIN stock_items si ON si.id = vl.stock_item_id
                      WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                       AND v.voucher_type IN ('Purchase', 'GST PURCHASE') AND vl.kind = 'inventory'
+                       AND (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') AND vl.kind = 'inventory'
                        AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
                   ) all_lines
-                 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT ${ROW_CAP}
+                  GROUP BY 1 ORDER BY sum(amount) DESC LIMIT ${ROW_CAP}
               ), combined AS (
                 SELECT l.stock_item_id AS row_id, l.description AS row, to_char(date_trunc('month', p.date), 'YYYY-MM') AS month, l.quantity AS value
                   FROM purchase_order_lines l JOIN purchase_orders p ON p.id = l.purchase_order_id
@@ -843,7 +894,7 @@ export class LifecycleAnalyticsService {
                        coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0) AS value
                   FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id LEFT JOIN stock_items si ON si.id = vl.stock_item_id
                  WHERE v.org_id = ${orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-                   AND v.voucher_type IN ('Purchase', 'GST PURCHASE') AND vl.kind = 'inventory'
+                   AND (v.voucher_type ILIKE '%purchase%' AND v.voucher_type NOT ILIKE '%order%') AND vl.kind = 'inventory'
                    AND v.voucher_date BETWEEN ${range.from} AND ${range.to}
               )
               SELECT row_id, row, month, sum(value)::text AS value
