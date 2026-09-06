@@ -2,6 +2,8 @@
 
 Date: 5 September 2026. Baseline: `7097a125` and the [re-audit](SOFTWARE-AUDIT-REPORT.md).
 
+Latest verification: [6 September evidence and remaining gaps](docs/audits/VERIFICATION-2026-09-06.md), covering source revision `411a596d`. Historical pass counts below refer to their dated runs.
+
 ## Scope and scoring
 
 Target: independently verifiable software quality above 9/10. A target is not a result: completed code, regression tests and operational evidence determine the final assessment.
@@ -126,3 +128,10 @@ F-01, F-04 and F-06 have further implementation/evidence but retain their broade
 
 
 Final verification for this pass: **3,362 package tests passed** (API 2,340 across 159 files; web 934 across 117; shared 73 across 9; agent 15 across 4). Eight release/benchmark script tests passed. Root lint, typecheck, production build and production bundle inspection passed. After final connection/audit wiring corrections, affected task (21), help (7) and isolation (7) tests passed again; the API typecheck/lint/build were also checked. The synthetic populated upgrade rehearsal passed. No new frontend changes were made, and the previous 9/9 offline-browser evidence was not rerun or relabelled as a new browser result. Large bundle and PostgreSQL concurrent-query warnings remain; Node 22 hosted CI, representative load, full restoration and the other outstanding engineering items remain open.
+
+
+## Verification — 6 September 2026
+
+Source revision `411a596d` was reverified; [the full evidence record](docs/audits/VERIFICATION-2026-09-06.md) is authoritative for this run. Lint, typecheck, production build, bundle inspection, synthetic populated upgrade, eight script tests and a fresh **9/9 offline-browser check** passed. Web/shared/agent tests passed (934/73/15). The first API run had two connection-related setup failures (2,331 passed, nine skipped); the offline-punch diagnostic passed unchanged, and a subsequent API-only full run passed **2,340/2,340**. Therefore all **3,362 package tests** passed across the final runs, while the initial instability remains a follow-up rather than being erased.
+
+The fresh npm advisory scan was rejected by automatic approval review because it sends dependency metadata to npm; specific approval for that transfer is still required. The 5 September zero-advisory result was not refreshed today. Remaining audit/idempotency, upload scanning, authenticated browser, capacity, Node 22 CI and full recovery requirements continue to prevent a verified 9/10 assessment. No product source, assertions, timeouts or pinch-to-zoom settings changed in this verification pass.

@@ -1,5 +1,7 @@
 # Vyuha Software Re-audit Report
 
+> **Latest verification, 6 September:** [The current verification record](docs/audits/VERIFICATION-2026-09-06.md) checks source revision `411a596d`, records fresh local checks and initial test setup failures, and identifies the remaining barriers to a 9/10 assessment. The numerical score below belongs to the older reviewed baseline.
+
 > **Working-tree follow-up, 5 September:** This report describes commit `7097a125`, not the subsequent uncommitted remediation. A focused follow-up now passes root lint and typecheck and records additional recovery and verification work as F-01–F-08 in [the action plan](SOFTWARE-IMPROVEMENT-ACTION-PLAN.md#follow-up-review--5-september-2026). The full suite/build were not rerun in that follow-up; the score and test totals below remain historical baseline evidence.
 
 > **Later pre-push verification:** The action plan now records 3,338 passing package tests, six passing release-script tests, a passing production build and a fresh lint pass after two integration corrections. Remaining bundle/pg warnings and missing Node 22, browser/load and staging evidence are documented there. This does not replace the historical scorecard below.
@@ -13,8 +15,8 @@
 **Comparison baseline:** `497eda9a`, before the 16 remediation commits\
 **Changes reviewed:** 66 files, 1,694 insertions, 180 deletions\
 **Previous score:** 5.8/10\
-**Current score:** **6.4/10**\
-**Release verdict:** **Not yet ready for unrestricted production**
+**Historical score at reviewed baseline:** **6.4/10**\
+**Historical release verdict:** **Not yet ready for unrestricted production**
 
 The [4 September audit](docs/audits/SOFTWARE-AUDIT-2026-09-04.md) is preserved for comparison. This report supersedes its current-status claims. References below point to the reviewed commit; line numbers can move after further edits.
 
