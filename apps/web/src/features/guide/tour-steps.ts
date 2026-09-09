@@ -456,6 +456,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'What was bought and from whom, the payable book on its stated basis, and the cash cycle when every leg is real.',
   },
   {
+    id: 'screen.reports-stock-interest',
+    route: '/reports/stock-interest',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.INTEREST_VIEW,
+    title: 'Stock interest',
+    body: 'Granular item-by-item holding and advance transit interest calculations, with aging buckets and export.',
+  },
+  {
     id: 'screen.reports-close-pack',
     route: '/reports/close-pack',
     anchor: ANCHORS.screenHeader,

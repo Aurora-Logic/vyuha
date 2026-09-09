@@ -208,14 +208,14 @@ describe('guided tour length', () => {
     Employee: { desktop: 14, phone: 13 },
     Operations: { desktop: 23, phone: 22 },
     HR: { desktop: 28, phone: 27 },
-    Admin: { desktop: 80, phone: 79 },
+    Admin: { desktop: 81, phone: 80 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
     Sales: { desktop: 36, phone: 35 },
     'Sales manager': { desktop: 50, phone: 49 },
     'Relationship manager': { desktop: 36, phone: 35 },
     Purchase: { desktop: 16, phone: 15 },
-    Accounts: { desktop: 47, phone: 46 },
+    Accounts: { desktop: 48, phone: 47 },
     Warehouse: { desktop: 14, phone: 13 },
   };
 

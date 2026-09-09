@@ -75,7 +75,12 @@ function OverviewMetricCard({ metric, index }: { metric: Metric; index: number }
     <Card className="min-w-0" data-metric={metric.key}>
       <CardHeader>
         <CardTitle className="truncate text-sm font-medium">{metric.label}</CardTitle>
-        <CardAction>
+        <CardAction className="flex items-center gap-2">
+          {metric.key === 'stock-exposure' ? (
+            <Button variant="ghost" size="xs" nativeButton={false} render={<Link to="/reports/stock-interest" />}>
+              Details
+            </Button>
+          ) : null}
           <span className="text-sm font-semibold tabular-nums">{formatHeadline(metric.unit, metric.headline)}</span>
         </CardAction>
       </CardHeader>

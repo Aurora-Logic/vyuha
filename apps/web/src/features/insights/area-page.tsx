@@ -1,5 +1,5 @@
-import { ArrowsClockwiseIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { ArrowRightIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react';
+import { Link, useSearchParams } from 'react-router';
 import { type InsightArea, type WidgetKind } from '@vyuha/shared';
 
 import { Button } from '@/components/ui/button';
@@ -84,7 +84,19 @@ export function AreaPage({ area }: { area: InsightArea }) {
           <div className="grid min-w-0 gap-4 lg:grid-cols-2">
             {query.data.metrics.map((metric, index) => (
               <div key={metric.key} className={config.wide.includes(metric.key) ? 'min-w-0 lg:col-span-2' : 'min-w-0'}>
-                <MetricCard metric={metric} kind={kindFor(config, metric.key)} colourIndex={index} />
+                <MetricCard
+                  metric={metric}
+                  kind={kindFor(config, metric.key)}
+                  colourIndex={index}
+                  action={
+                    metric.key === 'stock-exposure' ? (
+                      <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/reports/stock-interest" />}>
+                        Detailed Report
+                        <ArrowRightIcon data-icon="inline-end" />
+                      </Button>
+                    ) : undefined
+                  }
+                />
               </div>
             ))}
           </div>

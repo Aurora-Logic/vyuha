@@ -1105,6 +1105,15 @@ export const MODULES: ModuleDef[] = [
             reqs: 'CFO brief W-series',
           },
           {
+            to: '/reports/stock-interest',
+            label: 'Stock interest',
+            shortLabel: 'Stock int.',
+            icon: PercentIcon,
+            permission: PERMISSIONS.INTEREST_VIEW,
+            phase: 6,
+            reqs: 'D-22 Stock Interest',
+          },
+          {
             to: '/reports/close-pack',
             label: 'Close pack',
             shortLabel: 'Close pack',
