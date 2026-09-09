@@ -687,6 +687,13 @@
       "when": 1788893703248,
       "tag": "0097_milky_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1788984360296,
+      "tag": "0098_empty_silver_sable",
+      "breakpoints": true
     }
   ]
 }
