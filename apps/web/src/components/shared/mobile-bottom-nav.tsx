@@ -230,7 +230,9 @@ export function MobileBottomNav() {
                         void navigate(next.home);
                       }}
                     >
-                      <TabsList activateOnFocus={false}>
+                      {/* The current module in the accent (owner, 9 Sep 2026), the
+                          way the bar below marks the destination you are on. */}
+                      <TabsList activateOnFocus={false} variant="accent">
                         {visibleModules.map((m) => (
                           <TabsTrigger
                             key={m.id}
