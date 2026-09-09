@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
@@ -94,12 +94,14 @@ describe('VouchersPage', () => {
     renderRegister();
     await screen.findByText('INV-0042');
 
-    await user.click(screen.getByRole('button', { name: /Amount/u }));
+    // The header's own button, not the phone chip that names the same column once sorted.
+    const header = () => within(screen.getByRole('table')).getByRole('button', { name: /Amount/u });
+    await user.click(header());
     await waitFor(() => {
       expect(lastListRequest()).toContain('sort=amount');
     });
 
-    await user.click(screen.getByRole('button', { name: /Amount/u }));
+    await user.click(header());
     await waitFor(() => {
       expect(lastListRequest()).toContain('sort=-amount');
     });
@@ -192,13 +194,21 @@ describe('VouchersPage', () => {
     renderRegister();
     await screen.findByText('INV-0042');
 
-    await user.click(screen.getByRole('combobox', { name: 'Sort by' }));
-    await user.click(await screen.findByRole('option', { name: 'Amount' }));
+    // The chip opens a sheet of the sortable columns; a first tap orders ascending, the same as a header press.
+    await user.click(screen.getByRole('button', { name: /^Sort/u }));
+    const sheet = await screen.findByRole('dialog', { name: 'Sort' });
+    await user.click(within(sheet).getByRole('button', { name: 'Amount' }));
     await waitFor(() => {
       expect(lastListRequest()).toContain('sort=amount');
     });
+    expect(screen.getByRole('button', { name: /^Sort: Amount/u })).toBeDefined();
 
-    await user.click(screen.getByRole('button', { name: 'Sort descending' }));
+    // Tapping the chosen column again flips it.
+    await user.click(screen.getByRole('button', { name: /^Sort: Amount/u }));
+    const again = await screen.findByRole('dialog', { name: 'Sort' });
+    const chosen = within(again).getByRole('button', { name: /^Amount/u });
+    expect(chosen.getAttribute('aria-pressed')).toBe('true');
+    await user.click(chosen);
     await waitFor(() => {
       expect(lastListRequest()).toContain('sort=-amount');
     });

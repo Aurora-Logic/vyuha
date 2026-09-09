@@ -10,6 +10,7 @@ import { CardFieldsMenu } from './card-fields-menu';
 import { useTaskCardFields, type TaskCardField } from './card-fields';
 import { EMPTY_VALUE } from '@/lib/format';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { MobileSortChip } from '@/components/shared/mobile-sort';
 import { PersonChip } from '@/components/shared/person';
 import { CollapsibleSearch } from '@/components/shared/collapsible-search';
 import { SearchField } from '@/components/shared/search-field';
@@ -621,6 +622,7 @@ export function TasksPage() {
               )}
             </ToggleGroup>
           </div>
+          <MobileSortChip columns={columns} sort={activeSort} onSortChange={onSortChange} className="ml-auto" />
         </div>
 
         <FilterChips chips={activeFilters} />

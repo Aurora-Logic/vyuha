@@ -149,3 +149,49 @@ export function useParty(id: string | null): UseQueryResult<Party, Error> {
     staleTime: 60_000,
   });
 }
+
+const ledgerSideSchema = z.enum(['Dr', 'Cr']);
+const ledgerBalanceSchema = z.object({ amount: z.string(), side: ledgerSideSchema });
+
+/** `GET /masters/parties/:id/statement` (report 48): the party's account over a period, walked from Tally's vouchers. */
+export const partyStatementSchema = z.object({
+  party: partySchema,
+  from: z.string(),
+  to: z.string(),
+  opening: ledgerBalanceSchema,
+  closing: ledgerBalanceSchema,
+  entries: z.array(
+    z.object({
+      voucherId: z.string(),
+      date: z.string(),
+      voucherType: z.string(),
+      voucherNumber: z.string(),
+      narration: z.string(),
+      side: ledgerSideSchema.nullable(),
+      sideSource: z.enum(['line', 'type', 'none']),
+      amount: z.string(),
+      balance: z.string(),
+      balanceSide: ledgerSideSchema,
+    }),
+  ),
+  totals: z.object({ debit: z.string(), credit: z.string() }),
+  unplaced: z.number(),
+  tallyClosing: z.string().nullable(),
+  earliestVoucherDate: z.string().nullable(),
+  generatedAt: z.string(),
+});
+
+export type PartyStatement = z.infer<typeof partyStatementSchema>;
+
+export function usePartyStatement(id: string | null, from: string, to: string): UseQueryResult<PartyStatement, Error> {
+  return useQuery({
+    enabled: id !== null && from !== '' && to !== '',
+    // Under the party's own key, so whatever refreshes the party refreshes its statement.
+    queryKey: ['masters', 'party', id, 'statement', from, to],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/masters/parties/${id ?? ''}/statement?${new URLSearchParams({ from, to }).toString()}`, { signal });
+      return parseOrThrow(partyStatementSchema, body, 'party statement');
+    },
+    staleTime: 60_000,
+  });
+}

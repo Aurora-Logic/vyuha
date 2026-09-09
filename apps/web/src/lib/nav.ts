@@ -1274,6 +1274,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },
   { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/parties\/[^/]+\/statement$/u, parent: '/masters/parties', label: 'Statement' },
   { pattern: /^\/masters\/price-lists\/new$/u, parent: '/masters/price-lists', label: 'New price list' },
   { pattern: /^\/masters\/price-lists\/[^/]+$/u, parent: '/masters/price-lists', label: 'Price list' },
   { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },

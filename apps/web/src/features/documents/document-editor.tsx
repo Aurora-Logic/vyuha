@@ -139,7 +139,14 @@ export function DocumentEditor(props: DocumentEditorProps) {
 
   return (
     <>
-      <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100dvh-3.5rem)] flex-col md:-mx-6 md:-mt-6 md:-mb-6">
+      <div
+        // On a phone the column ends where the fixed bottom bar begins (its
+        // min-h-14 plus the safe-area inset it pads itself with), so the
+        // footer below is drawn above the bar, not under it. Measured at 360:
+        // the statement's period picker showed 38px of its 44 above the bar,
+        // and an editor's Save row none of it.
+        className="-mx-4 -mt-4 -mb-24 flex h-[calc(100dvh-7rem-env(safe-area-inset-bottom))] flex-col md:-mx-6 md:-mt-6 md:-mb-6 md:h-[calc(100dvh-3.5rem)]"
+      >
         <div
           // The guide's anchor for every document screen. This toolbar is the
           // one thing all seven of them share — four editors and three paper
@@ -253,7 +260,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
         </div>
 
         {isMobile && actions !== undefined && actions !== null ? (
-          <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
+          <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-3 py-2 backdrop-blur md:hidden">
             {actions}
           </div>
         ) : null}

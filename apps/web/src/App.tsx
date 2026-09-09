@@ -166,6 +166,7 @@ const PriceListsPage = lazy(() => import('@/features/pricing/price-lists-page').
 const StockItemsPage = lazy(() => import('@/features/masters/stock-items-page').then((m) => ({ default: m.StockItemsPage })));
 const StockItemPage = lazy(() => import('@/features/masters/item-page').then((m) => ({ default: m.StockItemPage })));
 const PartyPage = lazy(() => import('@/features/masters/party-page').then((m) => ({ default: m.PartyPage })));
+const PartyStatementPage = lazy(() => import('@/features/masters/party-statement-page').then((m) => ({ default: m.PartyStatementPage })));
 const ReturnsPage = lazy(() => import('@/features/returns/returns-page').then((m) => ({ default: m.ReturnsPage })));
 const PortalLinksPage = lazy(() => import('@/features/portal/portal-links-page').then((m) => ({ default: m.PortalLinksPage })));
 const CollectionsPage = lazy(() => import('@/features/collections/collections-page').then((m) => ({ default: m.CollectionsPage })));
@@ -254,6 +255,7 @@ export default function App() {
 
               <Route path="masters/parties" element={<PartiesPage />} />
               <Route path="masters/parties/:id" element={<PartyPage />} />
+              <Route path="masters/parties/:id/statement" element={<PartyStatementPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
               <Route path="masters/items/:id" element={<StockItemPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />

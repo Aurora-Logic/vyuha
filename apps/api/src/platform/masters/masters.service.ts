@@ -20,7 +20,7 @@ import {
   type VoucherLineView,
   type VoucherListQuery,
   type VoucherTypeFacet,
-  type VoucherView, type DuplicateFlag } from '@vyuha/shared';
+  type VoucherView, type DuplicateFlag, type PartyStatementView, type PartyStatementEntry, type LedgerSide } from '@vyuha/shared';
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { type PgColumn } from 'drizzle-orm/pg-core';
 
@@ -98,6 +98,88 @@ export class MastersService {
     if (row === undefined) throw AppError.notFound('Party', id);
     const flagged = (await this.attachPartyFlags(principal.orgId, [toView(row)]))[0] ?? toView(row);
     return (await this.attachManagers(principal.orgId, [flagged]))[0] ?? flagged;
+  }
+
+  /**
+   * Report 48 (doc 18): the party's ledger between two dates, as a statement
+   * for sending.
+   *
+   * The balance is kept in Tally's own sign -- negative is a debit balance,
+   * positive a credit balance -- because that is how the opening and closing
+   * figures arrive from the pull, and only turned into "12,345.00 Dr" at the
+   * edge. Each voucher's side comes from the party's own line in it when the
+   * pull carried one; otherwise from the voucher type, which is the same rule
+   * whatever the party's group: Sales, Debit Note and Payment debit the
+   * party, Purchase, Receipt and Credit Note credit it. A Journal or anything
+   * else with no line is shown, counted as unplaced, and does not move the
+   * balance -- a statement that guessed would be worse than one that says it
+   * cannot tell. The opening at `from` is the pulled opening plus every
+   * earlier voucher held, so the statement also says how far back it can see.
+   */
+  async partyStatement(principal: Principal, id: string, from: string, to: string): Promise<PartyStatementView> {
+    const party = await this.findParty(principal, id);
+    const rows = await this.db.execute<{
+      id: string; voucher_date: string; voucher_type: string; voucher_number: string; narration: string; amount: string; line_side: boolean | null;
+    }>(sql`
+      SELECT v.id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_number, v.narration, v.amount::text AS amount,
+             (SELECT vl.is_deemed_positive FROM voucher_lines vl
+               WHERE vl.voucher_id = v.id AND vl.kind = 'ledger' AND vl.ledger_name = ${party.name}
+               ORDER BY vl.line_no LIMIT 1) AS line_side
+        FROM vouchers v
+       WHERE v.org_id = ${principal.orgId} AND v.party_id = ${id} AND v.is_cancelled = false AND v.voucher_date <= ${to}
+       ORDER BY v.voucher_date, v.voucher_number, v.id
+    `);
+
+    let balance = toPaise(party.openingBalance ?? '0');
+    let earliest: string | null = null;
+    let debit = 0n;
+    let credit = 0n;
+    let unplaced = 0;
+    const entries: PartyStatementEntry[] = [];
+    for (const row of rows.rows) {
+      earliest ??= row.voucher_date;
+      const magnitude = absPaise(toPaise(row.amount));
+      const side: LedgerSide | null = row.line_side === true ? 'Dr' : row.line_side === false ? 'Cr' : sideByType(row.voucher_type);
+      const inPeriod = row.voucher_date >= from;
+      if (side === 'Dr') balance -= magnitude;
+      else if (side === 'Cr') balance += magnitude;
+      if (!inPeriod) continue;
+      if (side === null) unplaced += 1;
+      else if (side === 'Dr') debit += magnitude;
+      else credit += magnitude;
+      entries.push({
+        voucherId: row.id,
+        date: row.voucher_date,
+        voucherType: row.voucher_type,
+        voucherNumber: row.voucher_number,
+        narration: row.narration,
+        side,
+        sideSource: row.line_side === null ? (side === null ? 'none' : 'type') : 'line',
+        amount: fromPaise(magnitude),
+        balance: fromPaise(absPaise(balance)),
+        balanceSide: sideOf(balance),
+      });
+    }
+    // The opening at `from` is the balance before the first in-period entry:
+    // rebuilt by walking back from the closing, so the two are one arithmetic.
+    let opening = balance;
+    for (const entry of entries) {
+      if (entry.side === 'Dr') opening += toPaise(entry.amount);
+      else if (entry.side === 'Cr') opening -= toPaise(entry.amount);
+    }
+    return {
+      party,
+      from,
+      to,
+      opening: { amount: fromPaise(absPaise(opening)), side: sideOf(opening) },
+      closing: { amount: fromPaise(absPaise(balance)), side: sideOf(balance) },
+      entries,
+      totals: { debit: fromPaise(debit), credit: fromPaise(credit) },
+      unplaced,
+      tallyClosing: party.closingBalance === null ? null : fromPaise(toPaise(party.closingBalance)),
+      earliestVoucherDate: earliest,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   /** The relationship manager on each party, in one query, so a page is one round trip. */
@@ -517,4 +599,46 @@ function toVoucherView(row: typeof vouchers.$inferSelect): VoucherView {
     consigneePincode: row.consigneePincode ?? null,
     consigneeGstin: row.consigneeGstin ?? null,
   };
+}
+
+// ------------------------------------------------------------ ledger maths
+
+/** Tally's rule per voucher type, the same whatever the party's group. */
+function sideByType(voucherType: string): LedgerSide | null {
+  switch (voucherType.trim().toLowerCase()) {
+    case 'sales':
+    case 'debit note':
+    case 'payment':
+      return 'Dr';
+    case 'purchase':
+    case 'receipt':
+    case 'credit note':
+      return 'Cr';
+    default:
+      return null;
+  }
+}
+
+/** Negative is a debit balance, Tally's convention; zero reads as Cr, as Tally prints it. */
+function sideOf(balance: bigint): LedgerSide {
+  return balance < 0n ? 'Dr' : 'Cr';
+}
+
+function absPaise(value: bigint): bigint {
+  return value < 0n ? -value : value;
+}
+
+/** Exact decimal text to integer paise; anything beyond two places is truncated, which Tally never sends. */
+function toPaise(text: string): bigint {
+  const trimmed = text.trim();
+  const negative = trimmed.startsWith('-');
+  const [whole = '0', fraction = ''] = trimmed.replace(/^[-+]/u, '').split('.');
+  const paise = BigInt((whole === '' ? '0' : whole) + (fraction + '00').slice(0, 2));
+  return negative ? -paise : paise;
+}
+
+function fromPaise(paise: bigint): string {
+  const negative = paise < 0n;
+  const magnitude = (negative ? -paise : paise).toString().padStart(3, '0');
+  return `${negative ? '-' : ''}${magnitude.slice(0, -2)}.${magnitude.slice(-2)}`;
 }

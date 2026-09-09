@@ -7,6 +7,8 @@ import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { MobileSortChip } from '@/components/shared/mobile-sort';
+import { StockBadge } from '@/components/shared/stock-badge';
 import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
@@ -52,12 +54,8 @@ const COLUMNS: RecordColumn<StockItem>[] = [
     // unit beside it, because "18" and "18 Mtr" are different facts.
     key: 'stock',
     header: 'In stock',
-    cell: (row) =>
-      row.closingQty == null || row.closingQty === ''
-        ? EMPTY_VALUE
-        : `${Number(row.closingQty).toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${row.unit}`,
+    cell: (row) => (row.closingQty == null || row.closingQty === '' ? EMPTY_VALUE : <StockBadge quantity={row.closingQty} unit={row.unit} />),
     numeric: true,
-    className: 'tabular-nums',
   },
   { key: 'unit', header: 'Unit', cell: (row) => row.unit },
   {
@@ -159,6 +157,7 @@ export function StockItemsPage() {
             onValueChange={setDraft}
             placeholder="Name or alias"
           />
+          <MobileSortChip columns={COLUMNS} sort={activeSort} onSortChange={onSortChange} className="ml-auto" />
         </div>
 
         {query.isPending ? <ListSkeleton rows={4} label="Loading stock items" /> : null}
@@ -209,17 +208,12 @@ export function StockItemsPage() {
               }
               // The stock first on a phone card too: it is what the row is
               // being read for, and it was not on the card at all.
-              mobileSupporting={(row) =>
-                [
-                  row.closingQty == null || row.closingQty === ''
-                    ? null
-                    : `${Number(row.closingQty).toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${row.unit} in stock`,
-                  row.parentGroup,
-                  row.gstRate === null ? null : `GST ${row.gstRate}%`,
-                ]
-                  .filter((part) => part !== null)
-                  .join(' · ')
-              }
+              mobileSupporting={(row) => (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <StockBadge quantity={row.closingQty} unit={row.unit} />
+                  <span className="min-w-0 truncate">{[row.parentGroup, row.gstRate === null ? null : `GST ${row.gstRate}%`].filter((part) => part !== null).join(' · ')}</span>
+                </span>
+              )}
             />
             {meta !== null && meta.total > meta.pageSize ? (
               <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} />
