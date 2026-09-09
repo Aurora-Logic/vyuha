@@ -680,6 +680,13 @@
       "when": 1788700000000,
       "tag": "0096_link_vouchers_and_parties",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1788893703248,
+      "tag": "0097_milky_fabian_cortez",
+      "breakpoints": true
     }
   ]
 }
