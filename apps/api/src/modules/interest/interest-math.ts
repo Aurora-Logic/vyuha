@@ -47,6 +47,12 @@ export interface StockEvent {
   readonly rate?: number;
   /** Inward only: the vendor's credit days for this layer's funding clock. */
   readonly creditDays?: number;
+  /** Inward only: the free inventory holding period in days (defaults to 90). */
+  readonly holdingPeriodDays?: number;
+  /** Inward only: advance amount paid prior to inward. */
+  readonly advanceAmount?: number;
+  /** Inward only: date advance payment or PO was made. */
+  readonly advanceDate?: string;
 }
 
 export interface StockDay {
@@ -59,18 +65,20 @@ export interface StockDay {
 interface StockLayer {
   readonly day: number;
   readonly creditDays: number;
+  readonly holdingPeriodDays: number;
+  readonly rate: number;
+  readonly advanceAmount: number;
+  readonly advanceDays: number;
   remaining: number;
 }
 
 /**
  * The daily stock series for one item. Closing value is quantity on hand at
  * the running weighted-average purchase rate. Funded value implements the
- * D-22 clock: each day's funded value is the value of stock whose age since
- * its inward exceeds that inward's vendor credit days — until then the
- * vendor's money is holding the shelf, not ours. Layers age individually
- * and outward movement consumes the oldest layer first, so a fresh delivery
- * cannot reset the clock on old stock; returns to vendor are outward events
- * on the return's own date and reduce the series from there forward.
+ * holding clock: each day's funded value is the value of stock whose age since
+ * its inward exceeds its holding grace days (e.g. 90 days) and vendor credit days.
+ * Layers age individually and outward movement consumes the oldest layer first (FIFO),
+ * stopping interest accumulation on sold units immediately from the sale date.
  */
 export function buildStockDailySeries(input: {
   readonly seriesStart: string;
@@ -98,8 +106,23 @@ export function buildStockDailySeries(input: {
     for (const event of eventsByDay.get(day) ?? []) {
       if (event.kind === 'inward') {
         quantity += event.quantity;
-        value += event.quantity * (event.rate ?? 0);
-        layers.push({ day, creditDays: event.creditDays ?? 0, remaining: event.quantity });
+        const rate = event.rate ?? 0;
+        value += event.quantity * rate;
+        const creditDays = event.creditDays ?? 0;
+        const holdingPeriodDays = event.holdingPeriodDays ?? 0;
+        const advanceAmount = event.advanceAmount ?? 0;
+        const advanceDays =
+          event.advanceDate !== undefined ? Math.max(0, day - epochDay(event.advanceDate)) : 0;
+
+        layers.push({
+          day,
+          creditDays,
+          holdingPeriodDays,
+          rate,
+          advanceAmount,
+          advanceDays,
+          remaining: event.quantity,
+        });
       } else {
         const rate = quantity > 0 ? value / quantity : 0;
         quantity -= event.quantity;
@@ -118,7 +141,8 @@ export function buildStockDailySeries(input: {
     let fundedQty = 0;
     for (const layer of layers) {
       if (layer.remaining <= 0) continue;
-      if (day - layer.day > layer.creditDays) fundedQty += layer.remaining;
+      const graceDays = Math.max(layer.creditDays, layer.holdingPeriodDays);
+      if (day - layer.day > graceDays) fundedQty += layer.remaining;
     }
     series.push({
       date: isoOfEpochDay(day),
@@ -131,6 +155,29 @@ export function buildStockDailySeries(input: {
 }
 
 /**
+ * Calculates interest on advance payment during transit/waiting period before delivery.
+ */
+export function calculateAdvanceTransitInterest(
+  advanceAmount: number,
+  transitDays: number,
+  annualRatePct: number,
+  dayBasis: InterestDayBasis,
+): number {
+  return (advanceAmount * transitDays * annualRatePct) / 100 / dayBasis;
+}
+
+/**
+ * Calculates holding interest on funded rupee-days after the 90-day grace period.
+ */
+export function calculateHoldingInterest(
+  fundedRupeeDays: number,
+  annualRatePct: number,
+  dayBasis: InterestDayBasis,
+): number {
+  return (fundedRupeeDays * annualRatePct) / 100 / dayBasis;
+}
+
+/**
  * Non-moving (D-22): zero outward movement for the threshold. An item whose
  * last outward was exactly N days ago has had N movement-free days and is
  * flagged; one at N-1 is not. Null means no outward in the whole series,
@@ -139,3 +186,4 @@ export function buildStockDailySeries(input: {
 export function isNonMoving(daysSinceOutward: number | null, thresholdDays: number): boolean {
   return daysSinceOutward === null || daysSinceOutward >= thresholdDays;
 }
+

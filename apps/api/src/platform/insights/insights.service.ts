@@ -532,7 +532,7 @@ export class InsightsService {
       `);
       const stockItemsTop = await this.db.execute<{ item: string; closingValue: string; fundedValue: string }>(sql`
         WITH latest AS (
-          SELECT max(date) AS d FROM interest_daily_stock WHERE org_id = ${principal.orgId}
+          SELECT max(date) AS d FROM interest_daily_stock WHERE org_id = ${principal.orgId} AND date <= ${q.to}
         )
         SELECT coalesce(s.name, 'Unknown item') AS item,
                i.closing_value::text AS "closingValue",
