@@ -178,9 +178,14 @@ function isEmpty(metric: Metric): boolean {
   return metric.points.every((point) => metric.series.every((s) => Number(point[s.key] ?? 0) === 0));
 }
 
-/** "12 Aug" for a day axis; an ageing bucket prints itself. */
-function xTick(metric: Metric, value: string): string {
-  if (metric.xKind === 'category') return value;
+/** "12 Aug" for a day axis; an ageing bucket prints itself. Category labels can truncate gracefully. */
+function xTick(metric: Metric, value: string, maxLen = 22): string {
+  if (metric.xKind === 'category') {
+    if (value && value.length > maxLen) {
+      return `${value.slice(0, maxLen - 1)}…`;
+    }
+    return value;
+  }
   return formatDate(value).replace(/\s\d{4}$/u, '');
 }
 
@@ -547,12 +552,12 @@ export function MetricChart({
           <YAxis
             dataKey="t"
             type="category"
-            width={76}
+            width={category ? 150 : 76}
             tickLine={false}
             axisLine={false}
             tick={{ fontSize: 11 }}
             interval={0}
-            tickFormatter={(value: string) => xTick(metric, value)}
+            tickFormatter={(value: string) => xTick(metric, String(value), 22)}
           />
           {tooltip}
           {series.map((s) => (

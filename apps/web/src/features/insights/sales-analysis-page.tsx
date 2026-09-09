@@ -331,16 +331,18 @@ export function SalesAnalysisPage() {
                             <CardTitle className="text-sm font-medium">Top {formatCount(Math.min(15, b.rows.length))} by net sales</CardTitle>
                           </CardHeader>
                           <CardContent>
-                            <MetricChart
-                              metric={rankMetric(b.label.toLowerCase(), b.rows)}
-                              kind="barh"
-                              options={{ legend: false, dataLabels: true, xOrder: 'natural' }}
-                              className={b.rows.length > 8 ? 'h-96' : 'h-64'}
-                              onActivate={(label) => {
-                                const row = b.rows.find((r) => r.label === label);
-                                if (row) drill(b.level as ScopeKey, row.key);
-                              }}
-                            />
+                            <div style={{ height: `${Math.max(220, Math.min(15, b.rows.length) * 34 + 36)}px` }}>
+                              <MetricChart
+                                metric={rankMetric(b.label.toLowerCase(), b.rows)}
+                                kind="barh"
+                                options={{ legend: false, dataLabels: true, xOrder: 'natural' }}
+                                className="h-full w-full"
+                                onActivate={(label) => {
+                                  const row = b.rows.find((r) => r.label === label);
+                                  if (row) drill(b.level as ScopeKey, row.key);
+                                }}
+                              />
+                            </div>
                           </CardContent>
                         </Card>
                         {/* The full table, always (R3), and the badge that says it ties. */}

@@ -30,7 +30,7 @@ import { type Principal } from '../rbac/principal.js';
  * rule custom-report widgets inherit by calling these endpoints).
  */
 
-const MAX_RANGE_DAYS = 400;
+const MAX_RANGE_DAYS = 1100;
 
 // A type alias, not an interface: db.execute's generic wants an implicit
 // index signature, which object-literal types carry and interfaces do not.
@@ -343,7 +343,7 @@ export class InsightsService {
       `);
       const exposureParties = await this.db.execute<{ party: string; closing: string; overdue: string }>(sql`
         WITH latest AS (
-          SELECT max(date) AS d FROM interest_daily_party WHERE org_id = ${principal.orgId}
+          SELECT max(date) AS d FROM interest_daily_party WHERE org_id = ${principal.orgId} AND date <= ${q.to}
         )
         SELECT coalesce(p.name, 'Unknown party') AS party, i.closing::text AS closing, i.overdue::text AS overdue
         FROM interest_daily_party i
