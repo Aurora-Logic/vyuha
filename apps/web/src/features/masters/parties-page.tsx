@@ -7,6 +7,7 @@ import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { MobileSortChip } from '@/components/shared/mobile-sort';
 import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
@@ -236,6 +237,7 @@ export function PartiesPage() {
             <UserFocusIcon data-icon="inline-start" />
             My customers
           </Button>
+          <MobileSortChip columns={COLUMNS} sort={activeSort} onSortChange={onSortChange} className="ml-auto" />
         </div>
 
         {query.isPending ? <ListSkeleton rows={4} label="Loading parties" /> : null}

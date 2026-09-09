@@ -7,7 +7,8 @@ import type { DateRange } from 'react-day-picker';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
-import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { RecordTable, type RecordColumn, type RecordSort } from '@/components/shared/record-table';
+import { MobileSortChip } from '@/components/shared/mobile-sort';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -281,6 +282,12 @@ export function VouchersPage() {
     );
   }
 
+  const applySort = (next: RecordSort) => {
+    setParams((params) => {
+      params.set('sort', next.descending ? `-${next.field}` : next.field);
+    });
+  };
+
   return (
     <>
       <PageHeader
@@ -414,6 +421,7 @@ export function VouchersPage() {
               Clear filters
             </Button>
           ) : null}
+          <MobileSortChip columns={COLUMNS} sort={activeSort} onSortChange={applySort} className="ml-auto" />
         </div>
 
         {query.isPending ? <ListSkeleton rows={5} label="Loading vouchers" /> : null}
@@ -449,11 +457,7 @@ export function VouchersPage() {
             <RecordTable
               columns={COLUMNS}
               sort={activeSort}
-              onSortChange={(next) => {
-                setParams((params) => {
-                  params.set('sort', next.descending ? `-${next.field}` : next.field);
-                });
-              }}
+              onSortChange={applySort}
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => `${row.voucherType} ${row.voucherNumber}`.trim()}
