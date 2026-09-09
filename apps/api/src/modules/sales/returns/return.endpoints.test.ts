@@ -51,8 +51,8 @@ async function multipart<T>(path: string, token: string, payload: unknown, photo
 /** A Credit Note as the pull would leave it. */
 async function creditNote(number: string, amount: number, narration: string, party = partyId): Promise<string> {
   const rows = await harness.db.execute<{ id: string }>(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, '2026-08-21', 'Credit Note', ${number}, 'Asha Traders', ${party}, ${narration}, false, ${amount}, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, '2026-08-21', 'Credit Note', 'Credit Note', ${number}, 'Asha Traders', ${party}, ${narration}, false, ${amount}, now())
     RETURNING id
   `);
   return rows.rows[0]?.id ?? '';

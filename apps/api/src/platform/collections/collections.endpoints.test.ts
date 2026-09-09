@@ -30,8 +30,8 @@ interface ErrorBody {
 
 async function raiseBill(partyId: string, partyName: string, billName: string, amount: number, billDate: string, dueDate: string): Promise<void> {
   const voucher = await harness.db.execute<{ id: string }>(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, ${billDate}, 'Sales', ${billName}, ${partyName}, ${partyId}, '', false, ${amount}, now()) RETURNING id
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, ${billDate}, 'Sales', 'Sales', ${billName}, ${partyName}, ${partyId}, '', false, ${amount}, now()) RETURNING id
   `);
   await harness.db.execute(sql`
     INSERT INTO bill_allocations (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type, bill_date, due_date, amount, last_pulled_at)
@@ -42,8 +42,8 @@ async function raiseBill(partyId: string, partyName: string, billName: string, a
 /** A receipt against a named bill, as Tally sends it: an `against` row, negative. */
 async function receive(partyId: string, partyName: string, billName: string, amount: number, on: string): Promise<void> {
   const voucher = await harness.db.execute<{ id: string }>(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, ${on}, 'Receipt', ${`RCT-${billName}`}, ${partyName}, ${partyId}, '', false, ${amount}, now()) RETURNING id
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, ${on}, 'Receipt', 'Receipt', ${`RCT-${billName}`}, ${partyName}, ${partyId}, '', false, ${amount}, now()) RETURNING id
   `);
   await harness.db.execute(sql`
     INSERT INTO bill_allocations (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type, bill_date, due_date, amount, last_pulled_at)

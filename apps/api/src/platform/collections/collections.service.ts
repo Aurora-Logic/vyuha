@@ -361,7 +361,7 @@ export class CollectionsService {
         : this.db
             .execute<{ value: string }>(sql`
               SELECT coalesce(sum(v.amount), 0)::text AS value FROM vouchers v
-               WHERE v.org_id = ${orgId} AND v.voucher_type = 'Receipt' AND NOT v.is_cancelled AND v.voucher_date BETWEEN ${from}::date AND ${to}::date
+               WHERE v.org_id = ${orgId} AND v.voucher_kind = 'Receipt' AND NOT v.is_cancelled AND v.voucher_date BETWEEN ${from}::date AND ${to}::date
                  AND v.party_id IN (${sql.join(partyIds.map((id) => sql`${id}::uuid`), sql`, `)})
             `)
             .then((r) => r.rows[0]?.value ?? '0'),

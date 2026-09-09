@@ -805,7 +805,7 @@ export class PurchaseOrderService implements OnModuleInit {
     const vouchers = await this.db.execute<{ date: string; number: string; vendor: string; qty: string | null; rate: string | null; amount: string | null }>(sql`
       SELECT v.voucher_date AS date, v.voucher_number AS number, v.party_name AS vendor, l.billed_qty AS qty, l.rate::text AS rate, l.amount::text AS amount
         FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
-       WHERE l.org_id = ${orgId} AND l.stock_item_id = ${query.stockItemId} AND v.voucher_type = 'Purchase' AND NOT v.is_cancelled
+       WHERE l.org_id = ${orgId} AND l.stock_item_id = ${query.stockItemId} AND v.voucher_kind = 'Purchase' AND NOT v.is_cancelled
          ${query.partyId === undefined ? sql`` : sql`AND v.party_id = ${query.partyId}`}
        ORDER BY v.voucher_date DESC LIMIT ${query.limit}
     `);

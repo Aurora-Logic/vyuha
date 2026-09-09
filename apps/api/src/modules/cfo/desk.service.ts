@@ -426,9 +426,9 @@ export class DeskService {
   > {
     const value = await this.db.execute<{ partyId: string; net: string }>(sql`
       SELECT party_id AS "partyId",
-             sum(CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
+             sum(CASE WHEN voucher_kind = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
       FROM vouchers WHERE org_id = ${principal.orgId} AND is_cancelled = false AND party_id IS NOT NULL
-        AND voucher_type IN ('Sales', 'Credit Note') AND voucher_date > (${today}::date - 365)
+        AND voucher_kind IN ('Sales', 'Credit Note') AND voucher_date > (${today}::date - 365)
       GROUP BY 1
     `);
     const overdue = await this.db.execute<{ partyId: string; days: number; outstanding: string; creditLimit: string | null }>(sql`
@@ -441,7 +441,7 @@ export class DeskService {
     `);
     const gaps = await this.db.execute<{ partyId: string; days: string[] }>(sql`
       SELECT party_id AS "partyId", array_agg(voucher_date::text ORDER BY voucher_date) AS days
-      FROM vouchers WHERE org_id = ${principal.orgId} AND voucher_type = 'Sales' AND is_cancelled = false
+      FROM vouchers WHERE org_id = ${principal.orgId} AND voucher_kind = 'Sales' AND is_cancelled = false
         AND party_id IN ${ids} AND voucher_date > (${today}::date - 365)
       GROUP BY 1
     `);
@@ -496,7 +496,7 @@ export class DeskService {
     const today = istDateOf(new Date().toISOString());
     const party = await this.db.execute<{ id: string; name: string; creditLimit: string | null; since: string | null }>(sql`
       SELECT p.id, p.name, p.credit_limit::text AS "creditLimit",
-             (SELECT min(voucher_date)::text FROM vouchers v WHERE v.org_id = p.org_id AND v.party_id = p.id AND v.voucher_type = 'Sales') AS since
+             (SELECT min(voucher_date)::text FROM vouchers v WHERE v.org_id = p.org_id AND v.party_id = p.id AND v.voucher_kind = 'Sales') AS since
       FROM parties p WHERE p.org_id = ${principal.orgId} AND p.id = ${partyId} LIMIT 1
     `);
     const p = party.rows[0];
@@ -520,9 +520,9 @@ export class DeskService {
     const lyEnd = `${String(Number(today.slice(0, 4)) - 1)}${today.slice(4)}`;
     const years = await this.db.execute<{ kind: string; net: string }>(sql`
       SELECT CASE WHEN voucher_date >= ${fyStart} THEN 'ty' ELSE 'ly' END AS kind,
-             sum(CASE WHEN voucher_type = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
+             sum(CASE WHEN voucher_kind = 'Sales' THEN abs(amount) ELSE -abs(amount) END)::numeric(16,2)::text AS net
       FROM vouchers WHERE org_id = ${principal.orgId} AND party_id = ${partyId} AND is_cancelled = false
-        AND voucher_type IN ('Sales', 'Credit Note')
+        AND voucher_kind IN ('Sales', 'Credit Note')
         AND (voucher_date BETWEEN ${fyStart} AND ${today} OR voucher_date BETWEEN ${lyStart} AND ${lyEnd})
       GROUP BY 1
     `);
@@ -560,7 +560,7 @@ export class DeskService {
              sum(CASE WHEN v.voucher_date < ${fyStart} THEN abs(l.amount) ELSE 0 END)::numeric(16,2)::text AS ly
       FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id LEFT JOIN stock_items s ON s.id = l.stock_item_id
       WHERE v.org_id = ${principal.orgId} AND v.party_id = ${partyId} AND v.is_cancelled = false
-        AND v.voucher_type = 'Sales' AND l.kind = 'inventory' AND v.voucher_date >= ${lyStart}
+        AND v.voucher_kind = 'Sales' AND l.kind = 'inventory' AND v.voucher_date >= ${lyStart}
       GROUP BY 1
     `);
     const tyTotal = groups.rows.reduce((sum, g) => sum + Number(g.ty), 0);

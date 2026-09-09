@@ -99,7 +99,7 @@ export class PortalRepository {
     const rows = await this.db.execute<{ voucher_number: string; voucher_date: string; amount: string; narration: string | null }>(sql`
       SELECT v.voucher_number, v.voucher_date::text AS voucher_date, v.amount::text AS amount, v.narration
         FROM vouchers v
-       WHERE v.org_id = ${this.orgId} AND v.party_id = ${this.partyId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
+       WHERE v.org_id = ${this.orgId} AND v.party_id = ${this.partyId} AND v.voucher_kind = 'Sales' AND NOT v.is_cancelled
        ORDER BY v.voucher_date DESC, v.voucher_number DESC
        LIMIT 200
     `);
@@ -121,19 +121,19 @@ export class PortalRepository {
              sum(sign * amount) OVER (ORDER BY voucher_date, voucher_number, id)::text AS running
         FROM (
           SELECT v.id, v.voucher_date, v.voucher_type, v.voucher_number, v.narration, abs(v.amount) AS amount,
-                 CASE WHEN v.voucher_type IN ('Receipt', 'Credit Note') THEN -1 ELSE 1 END AS sign
+                 CASE WHEN v.voucher_kind IN ('Receipt', 'Credit Note') THEN -1 ELSE 1 END AS sign
             FROM vouchers v
            WHERE v.org_id = ${this.orgId} AND v.party_id = ${this.partyId} AND NOT v.is_cancelled
-             AND v.voucher_type IN ('Sales', 'Receipt', 'Credit Note', 'Debit Note')
+             AND v.voucher_kind IN ('Sales', 'Receipt', 'Credit Note', 'Debit Note')
         ) t
        ORDER BY voucher_date DESC, voucher_number DESC
        LIMIT 200
     `);
     const total = await this.db.execute<{ outstanding: string }>(sql`
-      SELECT COALESCE(sum(CASE WHEN v.voucher_type IN ('Receipt', 'Credit Note') THEN -abs(v.amount) ELSE abs(v.amount) END), 0)::text AS outstanding
+      SELECT COALESCE(sum(CASE WHEN v.voucher_kind IN ('Receipt', 'Credit Note') THEN -abs(v.amount) ELSE abs(v.amount) END), 0)::text AS outstanding
         FROM vouchers v
        WHERE v.org_id = ${this.orgId} AND v.party_id = ${this.partyId} AND NOT v.is_cancelled
-         AND v.voucher_type IN ('Sales', 'Receipt', 'Credit Note', 'Debit Note')
+         AND v.voucher_kind IN ('Sales', 'Receipt', 'Credit Note', 'Debit Note')
     `);
     return {
       rows: rows.rows.map((r) => ({

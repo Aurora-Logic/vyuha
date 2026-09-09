@@ -403,8 +403,8 @@ describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)',
     const order = await harness.get<SalesDocumentView>(`/sales/orders/${bigId}`, { token: salesToken });
     // The pull brings a Sales voucher whose narration names the order (D-21).
     const voucher = await harness.db.execute<{ id: string }>(sql`
-      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
-      VALUES (${ORG_ID}, ${connectionId}, 'inv-1', 5, '2026-08-19', 'Sales', 'INV-0101', 'Asha Traders', ${partyId}, ${`Against ${order.body.number}`}, '240000.00') RETURNING id
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-1', 5, '2026-08-19', 'Sales', 'Sales', 'INV-0101', 'Asha Traders', ${partyId}, ${`Against ${order.body.number}`}, '240000.00') RETURNING id
     `);
     await harness.db.execute(sql`
       INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, stock_item_id, actual_qty, billed_qty, rate, amount)
@@ -421,8 +421,8 @@ describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)',
 
   it('an invoice naming nobody waits on the unlinked screen with the party’s open orders beside it, and links by hand', async () => {
     const stray = await harness.db.execute<{ id: string }>(sql`
-      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
-      VALUES (${ORG_ID}, ${connectionId}, 'inv-2', 6, '2026-08-19', 'Sales', 'INV-0102', 'Asha Traders', ${partyId}, 'no reference', '10.00') RETURNING id
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-2', 6, '2026-08-19', 'Sales', 'Sales', 'INV-0102', 'Asha Traders', ${partyId}, 'no reference', '10.00') RETURNING id
     `);
     const unlinked = await harness.get<UnlinkedInvoice[]>('/sales/invoices/unlinked', { token: salesToken });
     const entry = unlinked.body.find((u) => u.voucherNumber === 'INV-0102');
@@ -487,8 +487,8 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     await harness.post(`/sales/orders/${orderIdD}/packs`, { token: salesToken, body: { lines: [{ lineId: lineIdD, quantity: '10' }] } });
     // Invoice for 6 of the 10, by narration.
     const voucher = await harness.db.execute<{ id: string }>(sql`
-      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
-      VALUES (${ORG_ID}, ${connectionId}, 'inv-d', 9, '2026-08-19', 'Sales', 'INV-0201', 'Asha Traders', ${partyId}, ${`For ${created.body.number}`}, '600.00') RETURNING id
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-d', 9, '2026-08-19', 'Sales', 'Sales', 'INV-0201', 'Asha Traders', ${partyId}, ${`For ${created.body.number}`}, '600.00') RETURNING id
     `);
     await harness.db.execute(sql`
       INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, stock_item_id, actual_qty, billed_qty, rate, amount)
@@ -713,8 +713,8 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
 
   it('its own voucher, pulled back, attaches to the link and is not a second invoice', async () => {
     const voucher = await harness.db.execute<{ id: string }>(sql`
-      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
-      VALUES (${ORG_ID}, ${connectionId}, 'inv-vyuha-1', 9, '2026-08-19', 'Sales', '77', 'Asha Traders', ${partyId}, 'vyuha:INV-0001', '28320.00') RETURNING id
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-vyuha-1', 9, '2026-08-19', 'Sales', 'Sales', '77', 'Asha Traders', ${partyId}, 'vyuha:INV-0001', '28320.00') RETURNING id
     `);
     const voucherId = voucher.rows[0]?.id ?? '';
     await harness.db.execute(sql`
@@ -833,8 +833,8 @@ describe('the credit block (08 REQ-W-09, REQ-Y-03)', () => {
     // Asha Traders: limit 50,000; the books show 30,000 outstanding.
     await harness.db.execute(sql`UPDATE parties SET credit_limit = '50000' WHERE id = ${partyId}`);
     await harness.db.execute(sql`
-      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
-      VALUES (${ORG_ID}, ${connectionId}, 'inv-credit', 1, '2026-08-01', 'Sales', 'INV-CR-1', 'Asha Traders', ${partyId}, '', '30000.00')
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-credit', 1, '2026-08-01', 'Sales', 'Sales', 'INV-CR-1', 'Asha Traders', ${partyId}, '', '30000.00')
     `);
     const created = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4000' }] } });
     // 47,200 with tax: exposure 30,000 + earlier open orders + this > 50,000.

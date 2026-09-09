@@ -716,8 +716,8 @@ export class SalesOrderService implements OnModuleInit {
     const rows = await this.db.execute<{ id: string; name: string; credit_limit: string | null; credit_days: number | null; exposure: string; open_orders: string }>(sql`
       SELECT p.id, p.name, p.credit_limit::text AS credit_limit, p.credit_days,
              round(COALESCE((
-               SELECT sum(CASE WHEN v.voucher_type IN ('Sales', 'Debit Note', 'Payment') THEN v.amount ELSE 0 END)
-                        - sum(CASE WHEN v.voucher_type IN ('Receipt', 'Credit Note') THEN v.amount ELSE 0 END)
+               SELECT sum(CASE WHEN v.voucher_kind IN ('Sales', 'Debit Note', 'Payment') THEN v.amount ELSE 0 END)
+                        - sum(CASE WHEN v.voucher_kind IN ('Receipt', 'Credit Note') THEN v.amount ELSE 0 END)
                  FROM vouchers v WHERE v.org_id = p.org_id AND v.party_id = p.id AND NOT v.is_cancelled
              ), 0), 2)::text AS exposure,
              round(COALESCE((

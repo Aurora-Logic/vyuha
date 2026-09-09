@@ -73,7 +73,7 @@ export class ExceptionsService {
 
     const duplicates = await this.db.execute<Raw>(sql`
       SELECT ${sel}, count(*) OVER (PARTITION BY v.party_name, v.voucher_date, v.amount)::text AS extra
-      FROM vouchers v WHERE ${base} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
+      FROM vouchers v WHERE ${base} AND v.is_cancelled = false AND v.voucher_kind = 'Sales'
     `);
     const cancelled = await this.db.execute<Raw>(sql`
       SELECT ${sel} FROM vouchers v WHERE ${base} AND v.is_cancelled = true ORDER BY v.voucher_date DESC
@@ -81,12 +81,12 @@ export class ExceptionsService {
     const sameDay = await this.db.execute<Raw>(sql`
       SELECT ${sel}, cn.voucher_number AS extra FROM vouchers v
       JOIN vouchers cn ON cn.org_id = v.org_id AND cn.party_id = v.party_id AND cn.voucher_date = v.voucher_date
-        AND cn.voucher_type = 'Credit Note' AND cn.is_cancelled = false
-      WHERE ${base} AND v.is_cancelled = false AND v.voucher_type = 'Sales' AND v.party_id IS NOT NULL
+        AND cn.voucher_kind = 'Credit Note' AND cn.is_cancelled = false
+      WHERE ${base} AND v.is_cancelled = false AND v.voucher_kind = 'Sales' AND v.party_id IS NOT NULL
     `);
     const noGstin = await this.db.execute<Raw>(sql`
       SELECT ${sel} FROM vouchers v LEFT JOIN parties p ON p.id = v.party_id
-      WHERE ${base} AND v.is_cancelled = false AND v.voucher_type = 'Sales' AND v.amount >= ${NO_GSTIN_THRESHOLD}
+      WHERE ${base} AND v.is_cancelled = false AND v.voucher_kind = 'Sales' AND v.amount >= ${NO_GSTIN_THRESHOLD}
         AND (p.gstin IS NULL OR p.gstin = '')
     `);
     const backdated = await this.db.execute<Raw>(sql`
@@ -97,20 +97,20 @@ export class ExceptionsService {
       WITH months AS (
         SELECT date_trunc('month', voucher_date)::date AS m, sum(amount) AS total,
                sum(amount) FILTER (WHERE voucher_date >= (date_trunc('month', voucher_date) + interval '1 month' - interval '3 days')::date) AS tail
-        FROM vouchers WHERE org_id = ${org} AND is_cancelled = false AND voucher_type = 'Sales' AND voucher_date BETWEEN ${from} AND ${to}
+        FROM vouchers WHERE org_id = ${org} AND is_cancelled = false AND voucher_kind = 'Sales' AND voucher_date BETWEEN ${from} AND ${to}
         GROUP BY 1
       )
       SELECT ${sel}, (mo.tail / nullif(mo.total, 0))::numeric(5,3)::text AS share
       FROM vouchers v JOIN months mo ON mo.m = date_trunc('month', v.voucher_date)::date
-      WHERE ${base} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
+      WHERE ${base} AND v.is_cancelled = false AND v.voucher_kind = 'Sales'
         AND v.voucher_date >= (mo.m + interval '1 month' - interval '3 days')::date
         AND mo.tail / nullif(mo.total, 0) > ${MONTH_END_SHARE}
     `);
     const oneOff = await this.db.execute<Raw>(sql`
       SELECT ${sel} FROM vouchers v
-      WHERE ${base} AND v.is_cancelled = false AND v.voucher_type = 'Sales' AND v.amount >= ${MATERIALITY}
+      WHERE ${base} AND v.is_cancelled = false AND v.voucher_kind = 'Sales' AND v.amount >= ${MATERIALITY}
         AND NOT EXISTS (
-          SELECT 1 FROM vouchers o WHERE o.org_id = v.org_id AND o.voucher_type = 'Sales' AND o.is_cancelled = false
+          SELECT 1 FROM vouchers o WHERE o.org_id = v.org_id AND o.voucher_kind = 'Sales' AND o.is_cancelled = false
             AND o.id <> v.id AND coalesce(o.party_id::text, o.party_name) = coalesce(v.party_id::text, v.party_name)
             AND o.voucher_date > (${today}::date - 365)
         )
@@ -119,17 +119,17 @@ export class ExceptionsService {
       SELECT ${sel}, prev.last::text AS extra FROM vouchers v
       JOIN LATERAL (
         SELECT max(o.voucher_date) AS last FROM vouchers o
-        WHERE o.org_id = v.org_id AND o.voucher_type = 'Sales' AND o.is_cancelled = false
+        WHERE o.org_id = v.org_id AND o.voucher_kind = 'Sales' AND o.is_cancelled = false
           AND o.party_id = v.party_id AND o.voucher_date < v.voucher_date
       ) prev ON true
-      WHERE ${base} AND v.is_cancelled = false AND v.voucher_type = 'Sales' AND v.party_id IS NOT NULL
+      WHERE ${base} AND v.is_cancelled = false AND v.voucher_kind = 'Sales' AND v.party_id IS NOT NULL
         AND prev.last IS NOT NULL AND v.voucher_date - prev.last >= 180
     `);
     const sequence = await this.db.execute<Raw & { previous: string | null }>(sql`
       SELECT * FROM (
         SELECT ${sel},
                lag(v.voucher_number) OVER (PARTITION BY v.voucher_type ORDER BY v.voucher_date, v.voucher_number) AS previous
-        FROM vouchers v WHERE ${base} AND v.voucher_type = 'Sales'
+        FROM vouchers v WHERE ${base} AND v.voucher_kind = 'Sales'
       ) s WHERE previous IS NOT NULL
     `);
 

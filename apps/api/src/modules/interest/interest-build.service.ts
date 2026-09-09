@@ -43,12 +43,20 @@ type PartyRow = {
   opening_balance: string | null;
   credit_days_override: number | null;
 };
-type VoucherRow = { id: string; party_id: string; voucher_date: string; voucher_type: string; amount: string };
+type VoucherRow = {
+  id: string;
+  party_id: string;
+  voucher_date: string;
+  voucher_type: string;
+  voucher_kind: string | null;
+  amount: string;
+};
 type AllocationRow = { voucher_id: string; bill_name: string; ref_type: string; amount: string };
 type LineRow = {
   stock_item_id: string;
   voucher_date: string;
   voucher_type: string;
+  voucher_kind: string | null;
   party_id: string | null;
   qty: string;
   rate: string | null;
@@ -142,10 +150,10 @@ export class InterestBuildService {
 
     const voucherFilter: SQL = partyId === undefined ? sql`` : sql`AND v.party_id = ${partyId}`;
     const vouchers = await this.db.execute<VoucherRow>(sql`
-      SELECT v.id, v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.amount::text AS amount
+      SELECT v.id, v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_kind, v.amount::text AS amount
         FROM vouchers v
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled AND v.party_id IS NOT NULL
-         AND v.voucher_type IN ('Sales', 'Receipt', 'Credit Note', 'Purchase', 'Payment', 'Debit Note')
+         AND v.voucher_kind IN ('Sales', 'Receipt', 'Credit Note', 'Purchase', 'Payment', 'Debit Note')
          ${voucherFilter}
        ORDER BY v.voucher_date, v.created_at
     `);
@@ -189,10 +197,10 @@ export class InterestBuildService {
         const amount = Math.abs(Number(voucher.amount));
         if (amount === 0) continue;
         const marks = allocationsByVoucher.get(voucher.id) ?? [];
-        if (billTypes.has(voucher.voucher_type)) {
+        if (billTypes.has(voucher.voucher_kind ?? '')) {
           const raised = marks.find((mark) => mark.ref_type === 'new');
           bills.push({ date: voucher.voucher_date, amount, ...(raised === undefined ? {} : { key: raised.bill_name }) });
-        } else if (settleTypes.has(voucher.voucher_type)) {
+        } else if (settleTypes.has(voucher.voucher_kind ?? '')) {
           const against = marks.filter((mark) => mark.ref_type === 'against');
           if (against.length === 0) {
             settlements.push({ date: voucher.voucher_date, amount });
@@ -262,14 +270,14 @@ export class InterestBuildService {
   ): Promise<number> {
     const itemFilter: SQL = stockItemId === undefined ? sql`` : sql`AND vl.stock_item_id = ${stockItemId}`;
     const lines = await this.db.execute<LineRow>(sql`
-      SELECT vl.stock_item_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.party_id,
+      SELECT vl.stock_item_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_kind, v.party_id,
              abs(coalesce(substring(coalesce(vl.billed_qty, vl.actual_qty) FROM '^\\s*-?[0-9]+\\.?[0-9]*')::numeric, 0))::text AS qty,
              vl.rate::text AS rate, vl.amount::text AS amount, si.gst_rate::text AS gst_rate
         FROM voucher_lines vl
         JOIN vouchers v ON v.id = vl.voucher_id
         JOIN stock_items si ON si.id = vl.stock_item_id
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled AND vl.kind = 'inventory' AND vl.stock_item_id IS NOT NULL
-         AND v.voucher_type IN ('Purchase', 'Sales', 'Debit Note')
+         AND v.voucher_kind IN ('Purchase', 'Sales', 'Debit Note')
          ${itemFilter}
        ORDER BY v.voucher_date, v.created_at, vl.line_no
     `);
@@ -293,7 +301,7 @@ export class InterestBuildService {
       const quantity = Number(line.qty);
       if (quantity === 0) continue;
       const events = byItem.get(line.stock_item_id) ?? [];
-      if (line.voucher_type === 'Purchase') {
+      if (line.voucher_kind === 'Purchase') {
         const baseRate = line.rate !== null ? Math.abs(Number(line.rate)) : Math.abs(Number(line.amount)) / quantity;
         const gstFactor =
           policy.includeGstInStock && line.gst_rate !== null ? 1 + Number(line.gst_rate) / 100 : 1;

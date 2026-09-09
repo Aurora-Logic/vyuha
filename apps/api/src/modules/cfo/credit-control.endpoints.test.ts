@@ -79,14 +79,14 @@ beforeAll(async () => {
 
   // Credit sales: August 100,000, July 50,000; a receipt for last-payment.
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-05', 'Sales',   'S-A1', 'Asha Traders',  ${ashaId},   '', false, 60000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-12', 'Sales',   'S-B1', 'Bharat Cables', ${bharatId}, '', false, 40000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-07-10', 'Sales',   'S-A0', 'Asha Traders',  ${ashaId},   '', false, 50000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-15', 'Receipt', 'R-A1', 'Asha Traders',  ${ashaId},   '', false, 20000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2025-08-10', 'Sales',   'S-C0', 'Chetan Power',  ${chetanId}, '', false, 30000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2025-08-12', 'Sales',   'S-D0', 'Deva Supply',   ${devaId},   '', false, 20000, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-18', 'Sales',   'S-D1', 'Deva Supply',   ${devaId},   '', false, 15000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-05', 'Sales',   'Sales',   'S-A1', 'Asha Traders',  ${ashaId},   '', false, 60000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-12', 'Sales',   'Sales',   'S-B1', 'Bharat Cables', ${bharatId}, '', false, 40000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-07-10', 'Sales',   'Sales',   'S-A0', 'Asha Traders',  ${ashaId},   '', false, 50000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-15', 'Receipt', 'Receipt', 'R-A1', 'Asha Traders',  ${ashaId},   '', false, 20000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2025-08-10', 'Sales',   'Sales',   'S-C0', 'Chetan Power',  ${chetanId}, '', false, 30000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2025-08-12', 'Sales',   'Sales',   'S-D0', 'Deva Supply',   ${devaId},   '', false, 20000, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-18', 'Sales',   'Sales',   'S-D1', 'Deva Supply',   ${devaId},   '', false, 15000, now())
   `);
 
   // My CFO's book: Asha is the admin's through the CFO owner map.
@@ -880,12 +880,12 @@ describe('purchases and the cash cycle (W-series)', () => {
     `);
     const vendorId = vendor.rows[0]?.id ?? '';
     await harness.db.execute(sql`
-      INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
-        (${ORG_ID}, ${connectionId}, 1, '2026-08-04', 'Purchase',   'P-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 30000, now()),
-        (${ORG_ID}, ${connectionId}, 1, '2026-08-14', 'Purchase',   'P-2', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 20000, now()),
-        (${ORG_ID}, ${connectionId}, 1, '2026-08-18', 'Payment',    'PY-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 30000, now()),
-        (${ORG_ID}, ${connectionId}, 1, '2026-08-20', 'Debit Note', 'DN-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 5000, now()),
-        (${ORG_ID}, ${connectionId}, 1, '2025-08-10', 'Purchase',   'P-0', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 40000, now())
+      INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-04', 'Purchase',   'Purchase',    'P-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 30000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-14', 'Purchase',   'Purchase',    'P-2', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 20000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-18', 'Payment',    'Payment',     'PY-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 30000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2026-08-20', 'Debit Note', 'Debit Note',  'DN-1', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 5000, now()),
+        (${ORG_ID}, ${connectionId}, 1, '2025-08-10', 'Purchase',   'Purchase',    'P-0', 'Vendor Alpha Switchgear', ${vendorId}, '', false, 40000, now())
     `);
 
     const res = await harness.get<{
@@ -1006,8 +1006,8 @@ describe('money sorts as money, and the book is not the list (CFO-1, CFO-2)', ()
         INSERT INTO parties (org_id, connection_id, name, parent_group, opening_balance) VALUES (${ORG_ID}, ${connectionId}, ${name}, 'Sundry Creditors', ${amount}) RETURNING id
       `);
       await harness.db.execute(sql`
-        INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-        VALUES (${ORG_ID}, ${connectionId}, 1, '2026-09-20', 'Purchase', ${'P-' + name.slice(0, 1)}, ${name}, ${row.rows[0]?.id ?? ''}, '', false, ${amount}, now())
+        INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+        VALUES (${ORG_ID}, ${connectionId}, 1, '2026-09-20', 'Purchase', 'Purchase', ${'P-' + name.slice(0, 1)}, ${name}, ${row.rows[0]?.id ?? ''}, '', false, ${amount}, now())
       `);
     }
     for (let i = 1; i <= 26; i += 1) {
