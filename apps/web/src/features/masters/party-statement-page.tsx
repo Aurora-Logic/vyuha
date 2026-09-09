@@ -1,16 +1,19 @@
+import { useState } from 'react';
 import { LockKeyIcon } from '@phosphor-icons/react';
 import { PERMISSIONS } from '@vyuha/shared';
+import type { DateRange } from 'react-day-picker';
 import { useParams, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { DateField } from '@/features/attendance/pickers';
+import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { PaperPage, PaperPageSkeleton } from '@/features/documents/paper-page';
 import { statementAsPaper } from '@/features/documents/paper-record';
 import { fromApiDate, toApiDate } from '@/features/insights/period';
 import { fyStart } from '@/lib/period-compare';
+import { DASHBOARD_PRESETS } from '@/lib/range-presets';
 import { usePermission } from '@/lib/session/permissions';
 
 import { usePartyStatement } from './use-parties';
@@ -30,6 +33,9 @@ export function PartyStatementPage() {
   const today = toApiDate(new Date());
   const from = searchParams.get('from') ?? fyStart(today);
   const to = searchParams.get('to') ?? today;
+  // A range takes two clicks. The URL, and with it the query, move only once
+  // both are in; the half-picked range lives here so the calendar shows it.
+  const [draft, setDraft] = useState<DateRange | null>(null);
   const statement = usePartyStatement(canView && id !== '' ? id : null, from, to);
 
   if (!canView) {
@@ -49,24 +55,30 @@ export function PartyStatementPage() {
     );
   }
 
-  const setPeriod = (next: { from?: string; to?: string }) => {
-    const params = new URLSearchParams(searchParams);
-    params.set('from', next.from ?? from);
-    params.set('to', next.to ?? to);
-    setSearchParams(params, { replace: true });
-  };
-  // The pickers refuse a backwards period at the source; a typed URL still reaches the server's own check.
-  const pickers = (
-    <span className="flex flex-wrap items-center gap-2">
-      <DateField label="Statement from" hint="From" yearsBack={6} value={fromApiDate(from) ?? new Date()} disabled={(date) => toApiDate(date) > to} onValueChange={(date) => { setPeriod({ from: toApiDate(date) }); }} />
-      <DateField label="Statement to" hint="To" yearsBack={6} value={fromApiDate(to) ?? new Date()} disabled={(date) => toApiDate(date) < from} onValueChange={(date) => { setPeriod({ to: toApiDate(date) }); }} />
-    </span>
+  const picker = (
+    <DateRangeField
+      label="Statement period"
+      value={draft ?? { from: fromApiDate(from), to: fromApiDate(to) }}
+      presets={DASHBOARD_PRESETS}
+      className="max-md:w-full"
+      onValueChange={(next) => {
+        if (next.from === undefined || next.to === undefined) {
+          setDraft(next);
+          return;
+        }
+        setDraft(null);
+        const params = new URLSearchParams(searchParams);
+        params.set('from', toApiDate(next.from));
+        params.set('to', toApiDate(next.to));
+        setSearchParams(params, { replace: true });
+      }}
+    />
   );
 
   if (statement.isError) {
     return (
       <>
-        <PageHeader title={TITLE} action={pickers} />
+        <PageHeader title={TITLE} action={picker} />
         <QueryErrorAlert error={statement.error} subject="the statement" onRetry={() => { void statement.refetch(); }} />
       </>
     );
@@ -83,7 +95,7 @@ export function PartyStatementPage() {
       backLabel={party.name}
       title={TITLE}
       badges={<Badge variant="outline">{party.parentGroup}</Badge>}
-      actions={pickers}
+      actions={picker}
       printPath={`/print/statements/${id}?${period}`}
       excel={{ path: `/masters/parties/${id}/statement.xlsx?${period}`, filename: `Statement-${party.name.replace(/[^\w.-]+/gu, '_')}-${from}-to-${to}.xlsx` }}
     />
