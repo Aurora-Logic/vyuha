@@ -98,3 +98,149 @@ function useInvalidating<TInput>(
     },
   });
 }
+
+// ------------------------------------------------------------- stock settings
+
+export const stockInterestSettingSchema = z.object({
+  id: z.string(),
+  targetType: z.enum(['item', 'category', 'group']),
+  targetId: z.string().nullable(),
+  targetName: z.string(),
+  interestRateOverride: z.string().nullable(),
+  holdingPeriodDaysOverride: z.number().nullable(),
+});
+
+export type StockInterestSetting = z.infer<typeof stockInterestSettingSchema>;
+
+const stockListSchema = z.array(stockInterestSettingSchema);
+
+export const STOCK_SETTINGS_KEY = ['interest', 'stock-settings'] as const;
+
+export function useStockInterestSettings(
+  options: { enabled?: boolean } = {},
+): UseQueryResult<StockInterestSetting[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: STOCK_SETTINGS_KEY,
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/interest/stock-settings', { signal });
+      return parseOrThrow(stockListSchema, body, 'stock interest settings');
+    },
+  });
+}
+
+export interface UpsertStockSettingInput {
+  targetType: 'item' | 'category' | 'group';
+  targetId?: string | null;
+  targetName: string;
+  interestRateOverride?: number | null;
+  holdingPeriodDaysOverride?: number | null;
+}
+
+export function useUpsertStockSetting(): UseMutationResult<
+  StockInterestSetting,
+  Error,
+  UpsertStockSettingInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpsertStockSettingInput) => {
+      const body = await apiRequest<unknown>('/interest/stock-settings', {
+        method: 'PUT',
+        body: input,
+      });
+      return parseOrThrow(stockInterestSettingSchema, body, 'saved stock override');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: STOCK_SETTINGS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['interest', 'stock-report'] });
+    },
+  });
+}
+
+export function useRemoveStockSetting(): UseMutationResult<StockInterestSetting, Error, string> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const body = await apiRequest<unknown>(`/interest/stock-settings/${id}`, {
+        method: 'DELETE',
+      });
+      return parseOrThrow(stockInterestSettingSchema, body, 'removed stock override');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: STOCK_SETTINGS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['interest', 'stock-report'] });
+    },
+  });
+}
+
+// ------------------------------------------------------------- stock report
+
+export const stockInterestReportItemSchema = z.object({
+  stockItemId: z.string(),
+  stockItemName: z.string(),
+  category: z.string().nullable(),
+  parentGroup: z.string().nullable(),
+  inwardDate: z.string(),
+  quantity: z.number(),
+  unit: z.string(),
+  purchaseRate: z.string(),
+  closingValue: z.string(),
+  advanceAmount: z.string(),
+  advanceTransitDays: z.number(),
+  transitInterestAmount: z.string(),
+  shelfDays: z.number(),
+  holdingPeriodDays: z.number(),
+  holdingInterestAmount: z.string(),
+  totalInterestAmount: z.string(),
+  isNonMoving: z.boolean(),
+});
+
+export type StockInterestReportItem = z.infer<typeof stockInterestReportItemSchema>;
+
+export const stockInterestReportSummarySchema = z.object({
+  totalStockValue: z.string(),
+  fundedStockValue: z.string(),
+  totalTransitInterest: z.string(),
+  totalHoldingInterest: z.string(),
+  totalAccumulatedInterest: z.string(),
+  nonMovingItemsCount: z.number(),
+  items: z.array(stockInterestReportItemSchema),
+});
+
+export type StockInterestReportSummary = z.infer<typeof stockInterestReportSummarySchema>;
+
+export interface StockReportFilterParams {
+  asOf?: string;
+  category?: string;
+  group?: string;
+  isNonMoving?: boolean;
+  search?: string;
+}
+
+export const STOCK_REPORT_KEY = ['interest', 'stock-report'] as const;
+
+export function useStockInterestReport(
+  params: StockReportFilterParams = {},
+  options: { enabled?: boolean } = {},
+): UseQueryResult<StockInterestReportSummary, Error> {
+  const queryParams = new URLSearchParams();
+  if (params.asOf) queryParams.set('asOf', params.asOf);
+  if (params.category) queryParams.set('category', params.category);
+  if (params.group) queryParams.set('group', params.group);
+  if (params.isNonMoving !== undefined) queryParams.set('isNonMoving', String(params.isNonMoving));
+  if (params.search) queryParams.set('search', params.search);
+
+  const qs = queryParams.toString();
+  const url = `/interest/stock-report${qs ? `?${qs}` : ''}`;
+
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: [...STOCK_REPORT_KEY, params],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(url, { signal });
+      return parseOrThrow(stockInterestReportSummarySchema, body, 'stock interest report');
+    },
+  });
+}
+
