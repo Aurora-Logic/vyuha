@@ -79,11 +79,11 @@ beforeAll(async () => {
   // 1000.50 + 200.25 invoiced on two days; one 300.00 receipt; a cancelled
   // voucher that must count nowhere.
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, narration, is_cancelled, amount, last_pulled_at) VALUES
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-01', 'Sales',   'INS-S1', 'Asha Traders', '', false, 1000.50, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'Sales',   'INS-S2', 'Bharat Cables', '', false, 200.25, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'Receipt', 'INS-R1', 'Asha Traders', '', false, 300.00, now()),
-      (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'Sales',   'INS-X1', 'Asha Traders', '', true,  999.99, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, narration, is_cancelled, amount, last_pulled_at) VALUES
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-01', 'GST SALES', 'Sales',   'INS-S1', 'Asha Traders', '', false, 1000.50, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'GST SALES', 'Sales',   'INS-S2', 'Bharat Cables', '', false, 200.25, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'Receipt',   'Receipt', 'INS-R1', 'Asha Traders', '', false, 300.00, now()),
+      (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'GST SALES', 'Sales',   'INS-X1', 'Asha Traders', '', true,  999.99, now())
   `);
 
   await harness.db.execute(sql`
