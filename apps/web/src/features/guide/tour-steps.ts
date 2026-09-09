@@ -745,6 +745,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: "Tally's figures on this organisation's own design: fit to the screen, PDF through the print dialog, Excel. Nothing here writes back to Tally.",
   },
   {
+    id: 'screen.masters-party-statement',
+    routePattern: '/masters/parties/:id/statement',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.RECEIVABLES_VIEW,
+    title: 'Statement of account',
+    body: "The party's ledger between two dates on this organisation's paper: the opening, each voucher on its side, the closing. Pick the period, then PDF through the print dialog or Excel. Read from Tally's vouchers; nothing here writes back.",
+  },
+  {
     id: 'screen.crm-contacts',
     route: '/crm/contacts',
     anchor: ANCHORS.screenHeader,

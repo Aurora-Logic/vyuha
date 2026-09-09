@@ -105,6 +105,8 @@ export interface PaperModel {
   readonly copyLabel?: string | null;
   /** D-47: what the packing slip knows that other papers do not — set only by the pack record. */
   readonly slip?: PaperSlipFacts;
+  /** Report 48: a statement of account prints a ledger where the goods lines would be. */
+  readonly ledger?: PaperLedger;
 }
 
 export interface PaperSlipFacts {
@@ -113,6 +115,29 @@ export interface PaperSlipFacts {
   readonly packedByName: string | null;
   /** The consignee's phone from the parties master, for the loader and the transporter. */
   readonly phone: string | null;
+}
+
+export interface PaperLedgerEntry {
+  readonly key: string;
+  readonly date: string;
+  readonly particulars: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  /** Null when neither the party's line nor the voucher type says: printed, but on no side. */
+  readonly side: 'Dr' | 'Cr' | null;
+  readonly amount: string;
+  readonly balance: string;
+  readonly balanceSide: 'Dr' | 'Cr';
+}
+
+/** Report 48 (doc 18): a party's account over a period, drawn where the goods lines would be. */
+export interface PaperLedger {
+  readonly opening: { readonly amount: string; readonly side: 'Dr' | 'Cr' };
+  readonly closing: { readonly amount: string; readonly side: 'Dr' | 'Cr' };
+  readonly entries: readonly PaperLedgerEntry[];
+  readonly totals: { readonly debit: string; readonly credit: string };
+  /** What the reader needs to reconcile it: the unplaced count, Tally's own closing, how far back the vouchers go. */
+  readonly notes: readonly string[];
 }
 
 /** What the page hands the paper when it is the editor. Absent = print. */
@@ -240,6 +265,90 @@ export function DocumentPaper(props: DocumentPaperProps) {
 
 const BOX = 'border border-neutral-800';
 
+// ------------------------------------------------------------ ledger body
+
+function balanceText(amount: string, side: 'Dr' | 'Cr'): string {
+  return `${formatMoney(amount)} ${side}`;
+}
+
+/**
+ * The statement's table in place of the goods lines: one row per voucher,
+ * the amount under Debit or Credit, the running balance beside it. Boxed
+ * cells on the Tally paper (`t` null), the template's rules on a letterhead.
+ */
+function LedgerBody({ ledger, t }: { ledger: PaperLedger; t: TemplateStyle | null }) {
+  const head = t === null ? cn(BOX, 'py-1 text-center text-[0.9em]') : t.tableHeadCell;
+  const cell = t === null ? cn(BOX, 'py-1 align-top') : t.cell;
+  const row = cn(t?.row, 'hover:bg-transparent');
+  const num = 'text-right tabular-nums';
+  const right = t === null ? undefined : 'text-right';
+  return (
+    <>
+      <Table className={cn('text-[1em]', t === null && '-mt-px')}>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={cn(head, 'w-[12%]')}>Date</TableHead>
+            <TableHead className={head}>Particulars</TableHead>
+            <TableHead className={cn(head, 'w-[12%]')}>Vch Type</TableHead>
+            <TableHead className={cn(head, 'w-[11%]')}>Vch No.</TableHead>
+            <TableHead className={cn(head, 'w-[13%]', right)}>Debit</TableHead>
+            <TableHead className={cn(head, 'w-[13%]', right)}>Credit</TableHead>
+            <TableHead className={cn(head, 'w-[15%]', right)}>Balance</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow className={row}>
+            <TableCell className={cell} />
+            <TableCell className={cn(cell, 'font-medium')} colSpan={5}>Opening Balance</TableCell>
+            <TableCell className={cn(cell, num, 'font-medium')}>{balanceText(ledger.opening.amount, ledger.opening.side)}</TableCell>
+          </TableRow>
+          {ledger.entries.map((entry) => (
+            <TableRow key={entry.key} className={row}>
+              <TableCell className={cn(cell, 'tabular-nums')}>{formatDate(entry.date)}</TableCell>
+              <TableCell className={cn(cell, 'whitespace-pre-line')}>{entry.particulars}</TableCell>
+              <TableCell className={cell}>{entry.voucherType}</TableCell>
+              <TableCell className={cn(cell, 'tabular-nums')}>{entry.voucherNumber}</TableCell>
+              {entry.side === null ? (
+                <TableCell className={cn(cell, 'text-center text-neutral-500 tabular-nums')} colSpan={2}>{formatMoney(entry.amount)} (side unknown)</TableCell>
+              ) : (
+                <>
+                  <TableCell className={cn(cell, num)}>{entry.side === 'Dr' ? formatMoney(entry.amount) : ''}</TableCell>
+                  <TableCell className={cn(cell, num)}>{entry.side === 'Cr' ? formatMoney(entry.amount) : ''}</TableCell>
+                </>
+              )}
+              <TableCell className={cn(cell, num)}>{balanceText(entry.balance, entry.balanceSide)}</TableCell>
+            </TableRow>
+          ))}
+          {ledger.entries.length === 0 ? (
+            <TableRow className={row}>
+              <TableCell className={cn(cell, 'text-center text-neutral-500')} colSpan={7}>No vouchers in this period.</TableCell>
+            </TableRow>
+          ) : null}
+          <TableRow className={row}>
+            <TableCell className={cell} />
+            <TableCell className={cn(cell, 'font-bold')} colSpan={3}>Total</TableCell>
+            <TableCell className={cn(cell, num, 'font-bold')}>{formatMoney(ledger.totals.debit)}</TableCell>
+            <TableCell className={cn(cell, num, 'font-bold')}>{formatMoney(ledger.totals.credit)}</TableCell>
+            <TableCell className={cell} />
+          </TableRow>
+          <TableRow className={row}>
+            <TableCell className={cell} />
+            <TableCell className={cn(cell, 'font-bold')} colSpan={5}>Closing Balance</TableCell>
+            <TableCell className={cn(cell, num, 'font-bold')}>{balanceText(ledger.closing.amount, ledger.closing.side)}</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+      {ledger.notes.length > 0 ? (
+        <div className={cn('flex flex-col gap-0.5 text-[0.85em] text-neutral-600', t === null ? cn(BOX, '-mt-px px-2 py-1') : 'pt-2')}>
+          {ledger.notes.map((note) => (
+            <p key={note}>{note}</p>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, model, editing }: DocumentPaperProps) {
   const editable = editing !== undefined;
   const enter = useEnterMoves(editing, model.lines);
@@ -352,7 +461,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             </div>
           ) : null}
           <div className="flex-1 px-2 py-1">
-            <div className="text-[0.85em] text-neutral-600">{vendorFacing ? 'Vendor' : 'Buyer (Bill to)'}</div>
+            <div className="text-[0.85em] text-neutral-600">{model.ledger !== undefined ? 'Account of' : vendorFacing ? 'Vendor' : 'Buyer (Bill to)'}</div>
             {editable ? editing.customer : <div className="font-bold">{model.buyer.name || '—'}</div>}
             {model.buyer.address ? <div className="whitespace-pre-line text-[0.95em]">{model.buyer.address}</div> : null}
             {model.buyer.gstin ? <div className="text-[0.95em]">GSTIN/UIN : {model.buyer.gstin}</div> : null}
@@ -372,7 +481,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
         </div>
         <div className="grid grid-cols-2 border-l border-neutral-800 content-start">
           <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
-            <span className="text-[0.85em] text-neutral-600">{paperTitle(model)} No.</span>
+            <span className="text-[0.85em] text-neutral-600">{model.ledger !== undefined ? 'Period' : `${paperTitle(model)} No.`}</span>
             <span className="min-h-[1.4em] text-[0.95em] font-bold">{model.number ?? 'Draft'}</span>
           </div>
           <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
@@ -407,6 +516,8 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
       </div>
 
       {/* The lines. Tax rows sit under the items like Tally prints them; the total row carries the quantity. */}
+      {model.ledger !== undefined ? <LedgerBody ledger={model.ledger} t={null} /> : (
+      <>
       <Table className="-mt-px text-[1em]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -604,6 +715,9 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
           <span className="font-bold">{moneyToIndianWords(model.totals.taxTotal)}</span>
         </div>
       ) : null}
+
+      </>
+      )}
 
       {/* Notes and terms only when they say something; the declaration and the signatory close the box. */}
       {(editable || model.notes.trim() !== '' || (design.showTerms && model.terms.trim() !== '')) ? (
@@ -894,7 +1008,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
           <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1">
-                <div className={t.section}>{vendorFacing ? 'Vendor' : 'Bill to'}</div>
+                <div className={t.section}>{model.ledger !== undefined ? 'Account of' : vendorFacing ? 'Vendor' : 'Bill to'}</div>
                 {editable ? editing.customer : <div className="text-[1.05em] font-semibold">{model.buyer.name || '—'}</div>}
                 {model.buyer.address ? <div className="whitespace-pre-line text-[0.9em] text-neutral-600">{model.buyer.address}</div> : null}
                 <div className="text-[0.9em] text-neutral-600">
@@ -947,7 +1061,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               ) : null}
             </div>
             <div className={cn(t.metaBox, 'min-w-[62mm] self-start text-[0.95em]')}>
-              <span className={t.metaLabel}>Number</span>
+              <span className={t.metaLabel}>{model.ledger !== undefined ? 'Period' : 'Number'}</span>
               <span className="font-medium tabular-nums">{model.number ?? 'Draft'}</span>
               <span className={t.metaLabel}>Date</span>
               <span className="tabular-nums">{editable ? editing.date : formatDate(model.date)}</span>
@@ -971,6 +1085,8 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
             </div>
           </div>
 
+          {model.ledger !== undefined ? <LedgerBody ledger={model.ledger} t={t} /> : (
+          <>
           <Table className="text-[1em]">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -1173,6 +1289,9 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               </TableBody>
             </Table>
           ) : null}
+
+          </>
+          )}
 
           <footer className={cn('mt-auto flex flex-col gap-3', t.footer)}>
             <div className="grid gap-6 sm:grid-cols-[1fr_auto]">

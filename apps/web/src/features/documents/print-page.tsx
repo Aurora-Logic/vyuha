@@ -4,7 +4,9 @@ import { useParams, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { useParty } from '@/features/masters/use-parties';
+import { useParty, usePartyStatement } from '@/features/masters/use-parties';
+import { toApiDate } from '@/features/insights/period';
+import { fyStart } from '@/lib/period-compare';
 import { useGrn, usePurchaseOrder } from '@/features/purchase/use-purchase';
 import type { Estimate } from '@/features/sales/types';
 import { useDispatch } from '@/features/sales/use-dispatches';
@@ -19,7 +21,7 @@ import { SLIP_PAPER_TYPES } from './paper-support';
 import { DocumentPaper } from './paper';
 import { useVoucher } from '@/features/masters/use-vouchers';
 
-import { dispatchAsPaper, grnAsPaper, packAsPaper, paperModelOf, purchaseOrderAsPaper, salesDocumentAsPaper, voucherAsPaper, type PaperRecord } from './paper-record';
+import { dispatchAsPaper, grnAsPaper, packAsPaper, paperModelOf, purchaseOrderAsPaper, salesDocumentAsPaper, statementAsPaper, voucherAsPaper, type PaperRecord } from './paper-record';
 import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings';
 
 /**
@@ -31,7 +33,7 @@ import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings'
  * pages, each named (GST's original, duplicate, triplicate).
  */
 
-const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE', orders: 'SALES_ORDER', invoices: 'INVOICE', dispatches: 'DELIVERY_NOTE', packs: 'PACKING_SLIP', 'purchase-orders': 'PURCHASE_ORDER', grns: 'RECEIPT_NOTE' };
+const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE', orders: 'SALES_ORDER', invoices: 'INVOICE', dispatches: 'DELIVERY_NOTE', packs: 'PACKING_SLIP', 'purchase-orders': 'PURCHASE_ORDER', grns: 'RECEIPT_NOTE', statements: 'STATEMENT' };
 
 export function DocumentPrintPage() {
   const params = useParams<{ kind: string; id: string }>();
@@ -52,11 +54,18 @@ export function DocumentPrintPage() {
   const pack = usePackRecord(!isVoucher && type === 'PACKING_SLIP' ? id : null);
   const purchaseOrder = usePurchaseOrder(!isVoucher && type === 'PURCHASE_ORDER' ? id : null);
   const grn = useGrn(!isVoucher && type === 'RECEIPT_NOTE' ? id : null);
+  // The statement's period rides the URL, the same defaults as its page so a bare link still prints something.
+  const today = toApiDate(new Date());
+  const statement = usePartyStatement(!isVoucher && type === 'STATEMENT' ? id : null, searchParams.get('from') ?? fyStart(today), searchParams.get('to') ?? today);
   const sourceOrder = useSalesOrder(type === 'DELIVERY_NOTE' ? (dispatch.data?.documentId ?? null) : type === 'PACKING_SLIP' ? (pack.data?.documentId ?? null) : null);
   const sourcePo = usePurchaseOrder(type === 'RECEIPT_NOTE' ? (grn.data?.purchaseOrderId ?? null) : null);
-  const query = type === 'SALES_ORDER' ? order : type === 'INVOICE' ? invoice : type === 'DELIVERY_NOTE' ? dispatch : type === 'PACKING_SLIP' ? pack : type === 'PURCHASE_ORDER' ? purchaseOrder : type === 'RECEIPT_NOTE' ? grn : estimate;
+  const query = type === 'STATEMENT' ? statement : type === 'SALES_ORDER' ? order : type === 'INVOICE' ? invoice : type === 'DELIVERY_NOTE' ? dispatch : type === 'PACKING_SLIP' ? pack : type === 'PURCHASE_ORDER' ? purchaseOrder : type === 'RECEIPT_NOTE' ? grn : estimate;
   const record: PaperRecord | undefined = isVoucher
     ? voucherPaperRecord?.record
+    : type === 'STATEMENT'
+    ? statement.data === undefined
+      ? undefined
+      : statementAsPaper(statement.data)
     : type === 'PURCHASE_ORDER'
       ? purchaseOrder.data === undefined
         ? undefined

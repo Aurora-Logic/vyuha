@@ -36,7 +36,7 @@ export const DOCUMENT_FONT_LABELS: Record<DocumentFont, { label: string; note: s
   mono: { label: 'Typewriter', note: 'Monospaced throughout; the dot-matrix voucher.' },
 };
 
-export const PRINTED_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE', 'DELIVERY_NOTE', 'PACKING_SLIP', 'PURCHASE_ORDER', 'RECEIPT_NOTE'] as const;
+export const PRINTED_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE', 'DELIVERY_NOTE', 'PACKING_SLIP', 'PURCHASE_ORDER', 'RECEIPT_NOTE', 'STATEMENT'] as const;
 export type PrintedDocumentType = (typeof PRINTED_DOCUMENT_TYPES)[number];
 export const PRINTED_DOCUMENT_TITLES: Record<PrintedDocumentType, string> = {
   ESTIMATE: 'Estimate',
@@ -46,6 +46,7 @@ export const PRINTED_DOCUMENT_TITLES: Record<PrintedDocumentType, string> = {
   PACKING_SLIP: 'Packing Slip',
   PURCHASE_ORDER: 'Purchase Order',
   RECEIPT_NOTE: 'Goods Receipt Note',
+  STATEMENT: 'Statement of Account',
 };
 /** The papers on which the other party is the vendor rather than the buyer. */
 export const VENDOR_FACING_TYPES: readonly PrintedDocumentType[] = ['PURCHASE_ORDER', 'RECEIPT_NOTE'];
@@ -248,6 +249,9 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
     PACKING_SLIP: { ...GOODS_DESIGN, showHsn: false, showDetailsGrid: false, footerNote: 'This is a Computer Generated Packing Slip', paperSize: 'A5', handlingMarks: ['fragile', 'this_side_up'] },
     PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, showDeclaration: false, footerNote: 'This is a Computer Generated Purchase Order' },
     RECEIPT_NOTE: { ...GOODS_DESIGN, showShipTo: false, footerNote: 'This is a Computer Generated Goods Receipt Note' },
+    // Report 48 (doc 18): a customer statement for sending. A ledger, not a bill:
+    // no rates, taxes, HSN or words, but the bank block for how to settle it.
+    STATEMENT: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, showTax: false, showHsn: false, showUnit: false, showShipTo: false, showDetailsGrid: false, showAmountInWords: false, showBank: true, footerNote: 'This is a Computer Generated Statement of Account' },
   },
 };
 

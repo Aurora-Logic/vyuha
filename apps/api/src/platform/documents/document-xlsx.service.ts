@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PRINTED_DOCUMENT_TITLES, type DocumentProfile, type PrintedDocumentType } from '@vyuha/shared';
+import { PRINTED_DOCUMENT_TITLES, type DocumentProfile, type PrintedDocumentType, type PartyStatementView } from '@vyuha/shared';
 import ExcelJS from 'exceljs';
 
 /**
@@ -29,6 +29,59 @@ export interface DocumentSheetInput {
 
 @Injectable()
 export class DocumentXlsxService {
+  /** Report 48: the party's ledger as a workbook, on the same letterhead as every other paper. */
+  async buildStatement(profile: DocumentProfile, orgName: string, statement: PartyStatementView): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = orgName;
+    const sheet = workbook.addWorksheet('Statement');
+    sheet.columns = [{ width: 12 }, { width: 14 }, { width: 14 }, { width: 44 }, { width: 16 }, { width: 16 }, { width: 18 }];
+    const title = sheet.addRow([PRINTED_DOCUMENT_TITLES.STATEMENT]);
+    title.font = { bold: true, size: 16 };
+    sheet.addRow([profile.legalName || orgName]).font = { bold: true };
+    for (const line of profile.addressLines.split('\n').filter((l) => l.trim() !== '')) sheet.addRow([line]);
+    if (profile.gstin) sheet.addRow([`GSTIN ${profile.gstin}`]);
+    sheet.addRow([]);
+    sheet.addRow(['Party', statement.party.name]).font = { bold: true };
+    if (statement.party.address) sheet.addRow(['', statement.party.address]);
+    if (statement.party.gstin) sheet.addRow(['GSTIN', statement.party.gstin]);
+    sheet.addRow(['Period', `${statement.from} to ${statement.to}`]);
+    sheet.addRow([]);
+    const header = sheet.addRow(['Date', 'Voucher', 'Number', 'Particulars', 'Debit', 'Credit', 'Balance']);
+    header.font = { bold: true };
+    const opening = sheet.addRow([statement.from, '', '', 'Opening balance', '', '', `${statement.opening.amount} ${statement.opening.side}`]);
+    opening.font = { italic: true };
+    for (const entry of statement.entries) {
+      const row = sheet.addRow([
+        entry.date,
+        entry.voucherType,
+        entry.voucherNumber,
+        // The marker rides beside the narration rather than under it, so a row with both still says why its money columns are blank.
+        entry.side === null ? [entry.narration, 'Side not known -- not counted'].filter((part) => part !== '').join(' -- ') : entry.narration,
+        entry.side === 'Dr' ? Number(entry.amount) : '',
+        entry.side === 'Cr' ? Number(entry.amount) : '',
+        `${entry.balance} ${entry.balanceSide}`,
+      ]);
+      for (const col of [5, 6]) row.getCell(col).numFmt = '#,##0.00';
+    }
+    const totals = sheet.addRow(['', '', '', 'Total', Number(statement.totals.debit), Number(statement.totals.credit), '']);
+    totals.font = { bold: true };
+    for (const col of [5, 6]) totals.getCell(col).numFmt = '#,##0.00';
+    const closing = sheet.addRow([statement.to, '', '', 'Closing balance', '', '', `${statement.closing.amount} ${statement.closing.side}`]);
+    closing.font = { bold: true };
+    if (statement.unplaced > 0) {
+      sheet.addRow([]);
+      sheet.addRow(['Note', `${String(statement.unplaced)} voucher(s) carried no side and are shown without moving the balance.`]);
+    }
+    if (statement.tallyClosing !== null) {
+      sheet.addRow(['Note', `Tally's closing balance at the last pull: ${statement.tallyClosing}.`]);
+    }
+    if (statement.earliestVoucherDate !== null) {
+      sheet.addRow(['Note', `Built from vouchers held since ${statement.earliestVoucherDate}.`]);
+    }
+    const written = await workbook.xlsx.writeBuffer();
+    return Buffer.from(written);
+  }
+
   async build(profile: DocumentProfile, orgName: string, doc: DocumentSheetInput): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = orgName;

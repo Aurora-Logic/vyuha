@@ -1,6 +1,7 @@
 import type { PurchaseOrder, Grn } from '@/features/purchase/types';
 import type { Dispatch, Estimate, PackRecord } from '@/features/sales/types';
-import { formatDate } from '@/lib/format';
+import type { PartyStatement } from '@/features/masters/use-parties';
+import { formatDate, formatMoney } from '@/lib/format';
 import {
   DISPATCH_MODE_LABELS,
   PURCHASE_ORDER_STATUS_LABELS,
@@ -13,7 +14,7 @@ import {
   type VoucherDetailView,
 } from '@vyuha/shared';
 
-import type { PaperModel, PaperSlipFacts } from './paper';
+import type { PaperLedger, PaperModel, PaperSlipFacts } from './paper';
 
 /**
  * Every record that prints, read into one shape. The sales documents and
@@ -48,6 +49,8 @@ export interface PaperRecord {
   readonly slip?: Omit<PaperSlipFacts, 'phone'>;
   /** A heading of its own, when the type's will not do (a Tally voucher). */
   readonly title?: string | null;
+  /** Report 48: the statement's ledger, printed where the lines would be. */
+  readonly ledger?: PaperLedger;
 }
 
 interface PartyFacts {
@@ -84,6 +87,7 @@ export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, par
     terms: record.terms ?? '',
     ...(record.title === undefined || record.title === null ? {} : { title: record.title }),
     ...(record.slip === undefined ? {} : { slip: { ...record.slip, phone: party?.phone ?? null } }),
+    ...(record.ledger === undefined ? {} : { ledger: record.ledger }),
   };
 }
 
@@ -292,3 +296,61 @@ export function voucherAsPaper(voucher: VoucherDetailView): { type: PrintedDocum
   };
 }
 
+
+/** Tally stores a party balance negative for Dr and positive for Cr; the paper prints it the way Tally does. */
+function tallyBalanceText(stored: string): string {
+  const negative = stored.trim().startsWith('-');
+  return `${formatMoney(stored.trim().replace(/^-/u, ''))} ${negative ? 'Dr' : 'Cr'}`;
+}
+
+/**
+ * Report 48 (doc 18): the party's account over a period on the statement
+ * paper. The period stands where a number would; the "date" is the day the
+ * account is drawn up to. The notes say how the figures were reached, so a
+ * customer reconciling against their own books knows what to expect.
+ */
+export function statementAsPaper(statement: PartyStatement): PaperRecord {
+  const notes: string[] = [];
+  if (statement.unplaced > 0) {
+    const one = statement.unplaced === 1;
+    notes.push(`${String(statement.unplaced)} ${one ? 'entry is' : 'entries are'} shown without a side: neither the voucher's party line nor its type says whether it debits or credits this account, so the balance carries past ${one ? 'it' : 'them'}.`);
+  }
+  if (statement.tallyClosing !== null) notes.push(`Balance in Tally as last pulled: ${tallyBalanceText(statement.tallyClosing)}.`);
+  if (statement.earliestVoucherDate !== null) notes.push(`Built from the vouchers pulled from Tally, the earliest dated ${formatDate(statement.earliestVoucherDate)}, on the opening balance Tally reported.`);
+  return {
+    number: `${formatDate(statement.from)} to ${formatDate(statement.to)}`,
+    statusLabel: 'Statement',
+    date: statement.to,
+    validUntil: null,
+    partyId: statement.party.id,
+    customerName: statement.party.name,
+    placeOfSupply: null,
+    shipTo: null,
+    details: null,
+    reference: null,
+    lines: [],
+    ...ZERO_TOTALS,
+    notes: null,
+    terms: null,
+    buyerAddress: statement.party.address,
+    partyGstin: statement.party.gstin,
+    ledger: {
+      opening: statement.opening,
+      closing: statement.closing,
+      totals: statement.totals,
+      entries: statement.entries.map((entry) => ({
+        key: entry.voucherId,
+        date: entry.date,
+        // Tally's Particulars column names the counter-ledger; the pull does not carry it, so the narration stands in and the type when there is none.
+        particulars: entry.narration.trim() === '' ? entry.voucherType : entry.narration,
+        voucherType: entry.voucherType,
+        voucherNumber: entry.voucherNumber,
+        side: entry.side,
+        amount: entry.amount,
+        balance: entry.balance,
+        balanceSide: entry.balanceSide,
+      })),
+      notes,
+    },
+  };
+}

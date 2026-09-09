@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PERMISSIONS } from '@vyuha/shared';
 import { usePermission } from '@/lib/session/permissions';
-import { BooksIcon, LightbulbIcon } from '@phosphor-icons/react';
+import { BooksIcon, FileTextIcon, LightbulbIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { HeatmapTable } from '@/components/shared/heatmap-table';
@@ -106,6 +106,8 @@ export function PartyPage() {
   const analytics = usePartyAnalytics(id ?? null, period.query);
   const canSeeClass = usePermission(PERMISSIONS.CFO_SALES_VIEW);
   const canAssignClass = usePermission(PERMISSIONS.CFO_TIER_ASSIGN);
+  // The statement reads the receivable book, so it is gated as the book is (server-side too).
+  const canSeeStatement = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
   const partyClass = usePartyClass(id ?? null, { enabled: canSeeClass });
   const tiers = useTiers({ enabled: canSeeClass });
   const queryClient = useQueryClient();
@@ -188,6 +190,12 @@ export function PartyPage() {
                 }}
               >
                 Set class
+              </Button>
+            ) : null}
+            {canSeeStatement ? (
+              <Button variant="outline" size="sm" nativeButton={false} render={<Link to={`/masters/parties/${id ?? ''}/statement`} />}>
+                <FileTextIcon data-icon="inline-start" />
+                Statement
               </Button>
             ) : null}
             <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/masters/parties" />}>

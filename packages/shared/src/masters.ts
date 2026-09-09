@@ -249,3 +249,54 @@ export const PARTY_LEDGER_GROUPS = {
 } as const;
 
 export type PartyLedgerGroup = (typeof PARTY_LEDGER_GROUPS)[keyof typeof PARTY_LEDGER_GROUPS];
+
+// ---------------------------------------------------------------- statement
+
+/** Report 48 (doc 18): a party's ledger between two dates, for sending. */
+export const partyStatementQuerySchema = z
+  .object({ from: z.iso.date(), to: z.iso.date() })
+  .refine((query) => query.from <= query.to, { message: 'from must not be after to', path: ['to'] });
+export type PartyStatementQuery = z.infer<typeof partyStatementQuerySchema>;
+
+export type LedgerSide = 'Dr' | 'Cr';
+
+export interface PartyStatementEntry {
+  readonly voucherId: string;
+  /** YYYY-MM-DD. */
+  readonly date: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  readonly narration: string;
+  /**
+   * Which side of the party's ledger this voucher sits on. From the party's
+   * own line in the voucher when the pull carried it; from the voucher type
+   * when it did not (Sales, Debit Note and Payment debit the party; Purchase,
+   * Receipt and Credit Note credit it); null when neither says, in which case
+   * the amount is shown but does not move the balance and is counted in
+   * `unplaced`.
+   */
+  readonly side: LedgerSide | null;
+  readonly sideSource: 'line' | 'type' | 'none';
+  /** Magnitude, exact decimal text. */
+  readonly amount: string;
+  /** Running balance after this entry, magnitude and side. */
+  readonly balance: string;
+  readonly balanceSide: LedgerSide;
+}
+
+export interface PartyStatementView {
+  readonly party: PartyView;
+  readonly from: string;
+  readonly to: string;
+  readonly opening: { readonly amount: string; readonly side: LedgerSide };
+  readonly closing: { readonly amount: string; readonly side: LedgerSide };
+  readonly entries: readonly PartyStatementEntry[];
+  readonly totals: { readonly debit: string; readonly credit: string };
+  /** Vouchers whose side neither their party line nor their type could say. */
+  readonly unplaced: number;
+  /** Tally's own closing balance for the party, as last pulled, for the reader to reconcile against. */
+  readonly tallyClosing: string | null;
+  /** When the earliest voucher held for this party is dated: what the statement can and cannot know. */
+  readonly earliestVoucherDate: string | null;
+  readonly generatedAt: string;
+}

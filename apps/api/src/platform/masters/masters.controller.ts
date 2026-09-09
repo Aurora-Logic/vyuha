@@ -28,13 +28,13 @@ import {
   type VoucherTypeFacet,
   type VoucherView,
   type ItemLifecycle,
-  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics, voucherPaper, duplicateClustersQuerySchema, dismissDuplicateSchema, detectDuplicatesSchema, DUPLICATE_ENTITY_TYPES, type DuplicateClusterView, type DuplicateDetectionResult } from '@vyuha/shared';
+  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics, voucherPaper, duplicateClustersQuerySchema, dismissDuplicateSchema, detectDuplicatesSchema, DUPLICATE_ENTITY_TYPES, type DuplicateClusterView, type DuplicateDetectionResult, partyStatementQuerySchema, type PartyStatementView } from '@vyuha/shared';
 
 import type { Response } from 'express';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { sendDocumentXlsx } from '../documents/document-export.js';
+import { sendDocumentXlsx, sendStatementXlsx } from '../documents/document-export.js';
 import { DocumentSettingsService } from '../documents/document-settings.service.js';
 import { DocumentXlsxService } from '../documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
@@ -45,6 +45,7 @@ import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
+class PartyStatementQueryDto extends createZodDto(partyStatementQuerySchema) {}
 class AssignPartyManagerDto extends createZodDto(assignPartyManagerSchema) {}
 class LifecycleAnalyticsQueryDto extends createZodDto(lifecycleAnalyticsQuerySchema) {}
 class DuplicateClustersQueryDto extends createZodDto(duplicateClustersQuerySchema) {}
@@ -134,6 +135,34 @@ export class MastersController {
   }
 
   /** The life of one party, as the customer it is, the vendor it is, or both. */
+  /**
+   * Report 48 (doc 18): the party's ledger between two dates, for sending.
+   * Gated like the voucher paper -- receivables.view -- because it is the
+   * party's books, not its card.
+   */
+  @Get('parties/:id/statement')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  partyStatement(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: PartyStatementQueryDto,
+  ): Promise<PartyStatementView> {
+    return this.masters.partyStatement(principal, id, query.from, query.to);
+  }
+
+  /** The same statement as a workbook on the organisation's own letterhead; the print route draws the same reading. */
+  @Get('parties/:id/statement.xlsx')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  async partyStatementXlsx(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: PartyStatementQueryDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const statement = await this.masters.partyStatement(principal, id, query.from, query.to);
+    await sendStatementXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, statement);
+  }
+
   @Get('parties/:id/lifecycle')
   @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
   partyLifecycle(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PartyLifecycle> {
