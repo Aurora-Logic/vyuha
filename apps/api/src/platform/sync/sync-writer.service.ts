@@ -61,6 +61,21 @@ export interface WriterScope {
   readonly connectionId: string;
 }
 
+function inferVoucherKind(voucherType?: string | null): string | null {
+  if (!voucherType) return null;
+  const vt = voucherType.trim().toLowerCase();
+  if (vt.includes('sales') && vt.includes('order')) return 'Sales Order';
+  if (vt.includes('purchase') && vt.includes('order')) return 'Purchase Order';
+  if (vt.includes('sales') || vt === 'sale') return 'Sales';
+  if (vt.includes('purchase')) return 'Purchase';
+  if (vt.includes('receipt')) return 'Receipt';
+  if (vt.includes('payment')) return 'Payment';
+  if (vt.includes('journal')) return 'Journal';
+  if (vt.includes('credit note')) return 'Credit Note';
+  if (vt.includes('debit note')) return 'Debit Note';
+  return null;
+}
+
 @Injectable()
 export class SyncWriterService {
   private readonly logger = new Logger(SyncWriterService.name);
@@ -724,6 +739,7 @@ export class SyncWriterService {
     row: VoucherPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'voucher', row.guid);
+    const kind = row.voucherKind ?? inferVoucherKind(row.voucherType);
 
     const partyId = await this.resolvePartyId(tx, agent, row.partyName ?? '');
     let voucherId: string;
@@ -734,6 +750,12 @@ export class SyncWriterService {
                alter_id = ${row.alterId},
                voucher_date = ${row.date},
                voucher_type = ${row.voucherType},
+               /*
+                * COALESCEd like the detail fields below: a source that
+                * cannot resolve the voucher's kind (an older Agent, or an
+                * unresolved type) is saying "no opinion", not "clear it".
+                */
+               voucher_kind = COALESCE(${kind ?? null}, voucher_kind),
                voucher_number = ${row.voucherNumber ?? ''},
                party_name = ${row.partyName ?? ''},
                party_id = ${partyId},
@@ -777,7 +799,7 @@ export class SyncWriterService {
     } else {
       const inserted = await tx.execute<{ id: string }>(sql`
         INSERT INTO vouchers
-          (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number,
+          (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number,
            party_name, party_id, narration, is_cancelled, amount,
            reference, reference_date, order_ref, buyer_order_number, buyer_order_date,
            payment_terms, delivery_terms, dispatched_through, dispatch_doc_no, vehicle_number,
@@ -785,7 +807,7 @@ export class SyncWriterService {
            consignee_name, consignee_state, consignee_pincode, consignee_gstin)
         VALUES
           (${agent.orgId}, ${agent.connectionId}, ${row.masterId ?? null}, ${row.alterId}, ${row.date},
-           ${row.voucherType}, ${row.voucherNumber ?? ''}, ${row.partyName ?? ''}, ${partyId},
+           ${row.voucherType}, ${kind ?? null}, ${row.voucherNumber ?? ''}, ${row.partyName ?? ''}, ${partyId},
            ${row.narration ?? ''}, ${row.isCancelled}, ${row.amount},
            ${row.reference ?? null}, ${row.referenceDate ?? null}, ${row.orderRef ?? null},
            ${row.buyerOrderNumber ?? null}, ${row.buyerOrderDate ?? null},
