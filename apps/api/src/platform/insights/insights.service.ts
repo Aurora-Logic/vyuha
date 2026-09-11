@@ -30,7 +30,7 @@ import { type Principal } from '../rbac/principal.js';
  * rule custom-report widgets inherit by calling these endpoints).
  */
 
-const MAX_RANGE_DAYS = 400;
+const MAX_RANGE_DAYS = 1100;
 
 // A type alias, not an interface: db.execute's generic wants an implicit
 // index signature, which object-literal types carry and interfaces do not.
@@ -175,14 +175,16 @@ export class InsightsService {
       SELECT voucher_date::text AS day, 'invoiced' AS key, sum(abs(amount))::text AS value
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
-        AND voucher_type = 'Sales' AND is_cancelled = false
+        AND (voucher_kind = 'Sales' OR (voucher_kind IS NULL AND voucher_type ILIKE '%Sales%' AND voucher_type NOT ILIKE '%Order%'))
+        AND is_cancelled = false
       GROUP BY 1
     `);
     const receipts = await this.db.execute<DayRow>(sql`
       SELECT voucher_date::text AS day, 'received' AS key, sum(abs(amount))::text AS value
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
-        AND voucher_type = 'Receipt' AND is_cancelled = false
+        AND (voucher_kind = 'Receipt' OR (voucher_kind IS NULL AND voucher_type ILIKE '%Receipt%'))
+        AND is_cancelled = false
       GROUP BY 1
     `);
     // Tally's voucher types are per-company configuration, so the mix's series
@@ -205,7 +207,8 @@ export class InsightsService {
       SELECT coalesce(nullif(party_name, ''), 'No party') AS party, count(*)::int AS vouchers, sum(abs(amount))::text AS amount
       FROM vouchers
       WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
-        AND voucher_type = 'Sales' AND is_cancelled = false
+        AND (voucher_kind = 'Sales' OR (voucher_kind IS NULL AND voucher_type ILIKE '%Sales%' AND voucher_type NOT ILIKE '%Order%'))
+        AND is_cancelled = false
       GROUP BY 1 ORDER BY sum(abs(amount)) DESC LIMIT 8
     `);
 
@@ -340,7 +343,7 @@ export class InsightsService {
       `);
       const exposureParties = await this.db.execute<{ party: string; closing: string; overdue: string }>(sql`
         WITH latest AS (
-          SELECT max(date) AS d FROM interest_daily_party WHERE org_id = ${principal.orgId}
+          SELECT max(date) AS d FROM interest_daily_party WHERE org_id = ${principal.orgId} AND date <= ${q.to}
         )
         SELECT coalesce(p.name, 'Unknown party') AS party, i.closing::text AS closing, i.overdue::text AS overdue
         FROM interest_daily_party i
@@ -380,11 +383,18 @@ export class InsightsService {
 
   private async sales(principal: Principal, q: InsightsQuery, days: string[]): Promise<MetricView[]> {
     const orders = await this.db.execute<DayRow>(sql`
-      SELECT date::text AS day, 'orders' AS key, sum(grand_total)::text AS value
-      FROM sales_documents
-      WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
-        AND doc_type = 'SALES_ORDER' AND status <> 'CANCELLED'
-      GROUP BY 1
+      SELECT day, 'orders' AS key, sum(val)::text AS value FROM (
+        SELECT date::text AS day, grand_total AS val
+        FROM sales_documents
+        WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          AND doc_type = 'SALES_ORDER' AND status <> 'CANCELLED'
+        UNION ALL
+        SELECT voucher_date::text AS day, abs(amount) AS val
+        FROM vouchers
+        WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
+          AND (voucher_kind = 'Sales Order' OR (voucher_kind IS NULL AND voucher_type ILIKE '%Sales%Order%'))
+          AND is_cancelled = false
+      ) combined GROUP BY 1
     `);
     const funnel = await this.db.execute<DayRow>(sql`
       SELECT date::text AS day, status AS key, count(*)::int AS value
@@ -393,11 +403,18 @@ export class InsightsService {
       GROUP BY 1, 2
     `);
     const invoices = await this.db.execute<DayRow>(sql`
-      SELECT date::text AS day, 'invoices' AS key, sum(grand_total)::text AS value
-      FROM sales_documents
-      WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
-        AND doc_type = 'INVOICE' AND status <> 'CANCELLED'
-      GROUP BY 1
+      SELECT day, 'invoices' AS key, sum(val)::text AS value FROM (
+        SELECT date::text AS day, grand_total AS val
+        FROM sales_documents
+        WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          AND doc_type = 'INVOICE' AND status <> 'CANCELLED'
+        UNION ALL
+        SELECT voucher_date::text AS day, abs(amount) AS val
+        FROM vouchers
+        WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
+          AND (voucher_kind = 'Sales' OR (voucher_kind IS NULL AND voucher_type ILIKE '%Sales%' AND voucher_type NOT ILIKE '%Order%'))
+          AND is_cancelled = false
+      ) combined GROUP BY 1
     `);
 
     const moneyTotal = (rows: readonly DayRow[]): string => {
@@ -417,7 +434,7 @@ export class InsightsService {
       {
         key: 'orders-value',
         label: 'Sales orders',
-        hint: 'Value of sales orders raised per day, cancelled ones excluded.',
+        hint: 'Value of sales orders raised per day (from Vyuha and Tally), cancelled ones excluded.',
         unit: 'money',
         headline: moneyTotal(orders.rows),
         series: [{ key: 'orders', label: 'Order value' }],
@@ -435,7 +452,7 @@ export class InsightsService {
       {
         key: 'invoices-value',
         label: 'Invoices',
-        hint: 'Value of invoices issued per day, cancelled ones excluded.',
+        hint: 'Value of invoices issued per day (from Vyuha and Tally), cancelled ones excluded.',
         unit: 'money',
         headline: moneyTotal(invoices.rows),
         series: [{ key: 'invoices', label: 'Invoice value' }],
@@ -515,7 +532,7 @@ export class InsightsService {
       `);
       const stockItemsTop = await this.db.execute<{ item: string; closingValue: string; fundedValue: string }>(sql`
         WITH latest AS (
-          SELECT max(date) AS d FROM interest_daily_stock WHERE org_id = ${principal.orgId}
+          SELECT max(date) AS d FROM interest_daily_stock WHERE org_id = ${principal.orgId} AND date <= ${q.to}
         )
         SELECT coalesce(s.name, 'Unknown item') AS item,
                i.closing_value::text AS "closingValue",
@@ -554,10 +571,20 @@ export class InsightsService {
     // may see sales and not purchases gets the page minus this card.
     if (principal.permissions.has(PERMISSIONS.PURCHASE_DOCUMENT_VIEW)) {
       const purchase = await this.db.execute<DayRow>(sql`
-        SELECT date::text AS day, status AS key, count(*)::int AS value
-        FROM purchase_orders
-        WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
-        GROUP BY 1, 2
+        SELECT day, status AS key, count(*)::int AS value FROM (
+          SELECT date::text AS day, status::text AS status
+          FROM purchase_orders
+          WHERE org_id = ${principal.orgId} AND date BETWEEN ${q.from} AND ${q.to}
+          UNION ALL
+          SELECT voucher_date::text AS day,
+                 CASE
+                   WHEN is_cancelled THEN 'CANCELLED'
+                   ELSE 'CONFIRMED'
+                 END AS status
+          FROM vouchers
+          WHERE org_id = ${principal.orgId} AND voucher_date BETWEEN ${q.from} AND ${q.to}
+            AND (voucher_kind IN ('Purchase', 'Purchase Order') OR (voucher_kind IS NULL AND voucher_type ILIKE '%Purchase%'))
+        ) combined GROUP BY 1, 2
       `);
       const poKeys = ['DRAFT', 'PENDING_APPROVAL', 'CONFIRMED', 'CANCELLED'].filter((k) =>
         purchase.rows.some((r) => r.key === k),
@@ -565,7 +592,7 @@ export class InsightsService {
       metrics.push({
         key: 'purchase-orders',
         label: 'Purchase orders',
-        hint: 'Purchase orders raised per day, by their current state.',
+        hint: 'Purchase orders raised per day (from Vyuha and Tally), by their current state.',
         unit: 'count',
         headline: String(purchase.rows.reduce((sum, r) => sum + Number(r.value), 0)),
         series: poKeys.map((k) => ({ key: k, label: label(k) })),
@@ -580,11 +607,19 @@ export class InsightsService {
 
   private async sync(principal: Principal, q: InsightsQuery, days: string[]): Promise<MetricView[]> {
     const jobs = await this.db.execute<DayRow>(sql`
-      SELECT (created_at AT TIME ZONE 'UTC')::date::text AS day, state AS key, count(*)::int AS value
-      FROM sync_jobs
-      WHERE org_id = ${principal.orgId}
-        AND (created_at AT TIME ZONE 'UTC')::date BETWEEN ${q.from} AND ${q.to}
-        AND state IN ('DONE', 'FAILED')
+      SELECT day, state AS key, count(*)::int AS value FROM (
+        SELECT (created_at AT TIME ZONE 'UTC')::date::text AS day, state::text AS state
+        FROM sync_jobs
+        WHERE org_id = ${principal.orgId}
+          AND (created_at AT TIME ZONE 'UTC')::date BETWEEN ${q.from} AND ${q.to}
+          AND state IN ('DONE', 'FAILED')
+        UNION ALL
+        SELECT (received_at AT TIME ZONE 'UTC')::date::text AS day,
+               CASE WHEN result ILIKE 'ok%' OR result = 'accepted' THEN 'DONE' ELSE 'FAILED' END AS state
+        FROM sync_inbox
+        WHERE org_id = ${principal.orgId}
+          AND (received_at AT TIME ZONE 'UTC')::date BETWEEN ${q.from} AND ${q.to}
+      ) all_jobs
       GROUP BY 1, 2
     `);
     const exceptions = await this.db.execute<DayRow>(sql`
@@ -599,15 +634,25 @@ export class InsightsService {
       WHERE org_id = ${principal.orgId} AND state = 'OPEN'
     `);
     const lastPull = await this.db.execute<{ minutes: number | null }>(sql`
-      SELECT floor(extract(epoch FROM (now() - max(created_at))) / 60)::int AS minutes
-      FROM sync_jobs
-      WHERE org_id = ${principal.orgId} AND direction = 'PULL' AND state = 'DONE'
+      SELECT floor(extract(epoch FROM (now() - greatest(
+        (SELECT coalesce(max(last_heartbeat_at), '1970-01-01'::timestamptz) FROM integration_connections WHERE org_id = ${principal.orgId}),
+        (SELECT coalesce(max(received_at), '1970-01-01'::timestamptz) FROM sync_inbox WHERE org_id = ${principal.orgId}),
+        (SELECT coalesce(max(created_at), '1970-01-01'::timestamptz) FROM sync_jobs WHERE org_id = ${principal.orgId} AND direction = 'PULL' AND state = 'DONE'),
+        (SELECT coalesce(max(last_pulled_at), '1970-01-01'::timestamptz) FROM vouchers WHERE org_id = ${principal.orgId})
+      ))) / 60)::int AS minutes
     `);
     const failures = await this.db.execute<{ entity: string; attempts: number; day: string }>(sql`
-      SELECT coalesce(entity_type, 'unknown') AS entity, attempts, (created_at AT TIME ZONE 'UTC')::date::text AS day
-      FROM sync_jobs
-      WHERE org_id = ${principal.orgId} AND state = 'FAILED'
-        AND (created_at AT TIME ZONE 'UTC')::date BETWEEN ${q.from} AND ${q.to}
+      SELECT entity, attempts, day FROM (
+        SELECT coalesce(entity_type, 'unknown') AS entity, attempts, (created_at AT TIME ZONE 'UTC')::date::text AS day, created_at
+        FROM sync_jobs
+        WHERE org_id = ${principal.orgId} AND state = 'FAILED'
+          AND (created_at AT TIME ZONE 'UTC')::date BETWEEN ${q.from} AND ${q.to}
+        UNION ALL
+        SELECT coalesce(event_type, 'unknown') AS entity, 1 AS attempts, (received_at AT TIME ZONE 'UTC')::date::text AS day, received_at AS created_at
+        FROM sync_inbox
+        WHERE org_id = ${principal.orgId} AND NOT (result ILIKE 'ok%' OR result = 'accepted')
+          AND (received_at AT TIME ZONE 'UTC')::date BETWEEN ${q.from} AND ${q.to}
+      ) all_failures
       ORDER BY created_at DESC LIMIT 8
     `);
 

@@ -78,7 +78,7 @@ export class AnalyticsService {
                CASE WHEN l.billed_qty ~ '^\\s*-?[0-9]' THEN (regexp_match(l.billed_qty, '-?[0-9]+\\.?[0-9]*'))[1]::numeric ELSE 0 END AS qty,
                abs(l.amount) AS amount
         FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
-        WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
+        WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_kind = 'Sales'
           AND l.kind = 'inventory' AND l.stock_item_id IS NOT NULL AND l.rate IS NOT NULL
           AND v.voucher_date BETWEEN ${from} AND ${to}
       ), bands AS (
@@ -156,7 +156,7 @@ export class AnalyticsService {
     const rows = await this.db.execute<{ partyId: string; months: string[] }>(sql`
       SELECT party_id AS "partyId", array_agg(DISTINCT to_char(voucher_date, 'YYYY-MM')) AS months
       FROM vouchers
-      WHERE org_id = ${principal.orgId} AND voucher_type = 'Sales' AND is_cancelled = false AND party_id IS NOT NULL
+      WHERE org_id = ${principal.orgId} AND voucher_kind = 'Sales' AND is_cancelled = false AND party_id IS NOT NULL
       GROUP BY 1
     `);
     const monthIndex = (m: string): number => Number(m.slice(0, 4)) * 12 + Number(m.slice(5)) - 1;

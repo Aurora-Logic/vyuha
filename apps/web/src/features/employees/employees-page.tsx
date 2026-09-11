@@ -11,6 +11,7 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { MobileSortChip } from '@/components/shared/mobile-sort';
 import { RowActions } from '@/components/shared/row-actions';
 import { useUrlSort } from '@/components/shared/use-url-sort';
 import { SearchField } from '@/components/shared/search-field';
@@ -454,6 +455,7 @@ export function EmployeesPage() {
               Clear filters
             </Button>
           ) : null}
+          <MobileSortChip columns={columns} sort={activeSort} onSortChange={onSortChange} className="ml-auto" />
         </div>
 
         {query.isPending ? <EmployeesSkeleton /> : null}

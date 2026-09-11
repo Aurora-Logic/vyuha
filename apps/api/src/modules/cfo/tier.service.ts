@@ -279,7 +279,7 @@ export class TierService {
     `);
     const orders = await this.db.execute<{ partyId: string; days: string[] }>(sql`
       SELECT party_id AS "partyId", array_agg(voucher_date::text ORDER BY voucher_date) AS days
-      FROM vouchers WHERE org_id = ${orgId} AND voucher_type = 'Sales' AND is_cancelled = false
+      FROM vouchers WHERE org_id = ${orgId} AND voucher_kind = 'Sales' AND is_cancelled = false
         AND party_id IN ${ids} AND voucher_date > (${today}::date - 365)
       GROUP BY 1
     `);
@@ -536,7 +536,7 @@ export class TierService {
       touch AS (
         SELECT party_id, max(d) AS last FROM (
           SELECT party_id, max(voucher_date)::text AS d FROM vouchers
-          WHERE org_id = ${principal.orgId} AND voucher_type = 'Sales' AND is_cancelled = false AND party_id IS NOT NULL
+          WHERE org_id = ${principal.orgId} AND voucher_kind = 'Sales' AND is_cancelled = false AND party_id IS NOT NULL
           GROUP BY 1
           UNION ALL
           SELECT party_id, max(logged_on::date)::text FROM cfo_desk_outcomes WHERE org_id = ${principal.orgId} GROUP BY 1

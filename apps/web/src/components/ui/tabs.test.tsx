@@ -40,4 +40,21 @@ describe('Tabs indicator', () => {
     const indicator = screen.getByRole('tablist').querySelector('[data-slot="tabs-indicator"]');
     expect(indicator?.className).toContain('group-data-[variant=line]/tabs-list:hidden');
   });
+
+  it('paints the accent variant: the travelling pill in the primary colour, the current label reversed out of it', () => {
+    render(
+      <Tabs defaultValue="a">
+        <TabsList variant="accent">
+          <TabsTrigger value="a">First</TabsTrigger>
+          <TabsTrigger value="b">Second</TabsTrigger>
+        </TabsList>
+        <TabsContent value="a">A</TabsContent>
+      </Tabs>,
+    );
+    const list = screen.getByRole('tablist');
+    expect(list.getAttribute('data-variant')).toBe('accent');
+    const indicator = list.querySelector('[data-slot="tabs-indicator"]');
+    expect(indicator?.className).toContain('group-data-[variant=accent]/tabs-list:bg-primary');
+    expect(screen.getByRole('tab', { name: 'First' }).className).toContain('group-data-[variant=accent]/tabs-list:data-active:text-primary-foreground');
+  });
 });

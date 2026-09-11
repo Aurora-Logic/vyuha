@@ -64,7 +64,9 @@ const BUILT_ROUTES = new Set([
   '/reports/export-centre',
   '/reports/close-pack',
   '/reports/purchases',
+  '/reports/stock-interest',
   '/reports/desk',
+
   '/reports/data-quality',
   '/reports/penetration',
   '/reports/class-grade',
@@ -132,6 +134,8 @@ const RecycleBinPage = lazy(() => import('@/features/recycle-bin').then((m) => (
 const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then((m) => ({ default: m.DashboardPage })));
 const LandingPage = lazy(() => import('@/features/dashboard/landing').then((m) => ({ default: m.LandingPage })));
 const InterestOverridesPage = lazy(() => import('@/features/interest/overrides-page').then((m) => ({ default: m.InterestOverridesPage })));
+const StockInterestPage = lazy(() => import('@/features/interest/stock-interest-page').then((m) => ({ default: m.StockInterestPage })));
+
 const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
 const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
 const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
@@ -166,6 +170,7 @@ const PriceListsPage = lazy(() => import('@/features/pricing/price-lists-page').
 const StockItemsPage = lazy(() => import('@/features/masters/stock-items-page').then((m) => ({ default: m.StockItemsPage })));
 const StockItemPage = lazy(() => import('@/features/masters/item-page').then((m) => ({ default: m.StockItemPage })));
 const PartyPage = lazy(() => import('@/features/masters/party-page').then((m) => ({ default: m.PartyPage })));
+const PartyStatementPage = lazy(() => import('@/features/masters/party-statement-page').then((m) => ({ default: m.PartyStatementPage })));
 const ReturnsPage = lazy(() => import('@/features/returns/returns-page').then((m) => ({ default: m.ReturnsPage })));
 const PortalLinksPage = lazy(() => import('@/features/portal/portal-links-page').then((m) => ({ default: m.PortalLinksPage })));
 const CollectionsPage = lazy(() => import('@/features/collections/collections-page').then((m) => ({ default: m.CollectionsPage })));
@@ -254,6 +259,7 @@ export default function App() {
 
               <Route path="masters/parties" element={<PartiesPage />} />
               <Route path="masters/parties/:id" element={<PartyPage />} />
+              <Route path="masters/parties/:id/statement" element={<PartyStatementPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
               <Route path="masters/items/:id" element={<StockItemPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
@@ -311,7 +317,9 @@ export default function App() {
               <Route path="reports/export-centre" element={<ExportCentrePage />} />
               <Route path="reports/close-pack" element={<ClosePackPage />} />
               <Route path="reports/purchases" element={<PurchasesPage />} />
+              <Route path="reports/stock-interest" element={<StockInterestPage />} />
               <Route path="reports/desk" element={<DeskPage />} />
+
               <Route path="reports/data-quality" element={<DataQualityPage />} />
               <Route path="reports/penetration" element={<PenetrationPage />} />
               <Route path="reports/class-grade" element={<ClassGradePage />} />

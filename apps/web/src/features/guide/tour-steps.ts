@@ -456,6 +456,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'What was bought and from whom, the payable book on its stated basis, and the cash cycle when every leg is real.',
   },
   {
+    id: 'screen.reports-stock-interest',
+    route: '/reports/stock-interest',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.INTEREST_VIEW,
+    title: 'Stock interest',
+    body: 'Granular item-by-item holding and advance transit interest calculations, with aging buckets and export.',
+  },
+  {
     id: 'screen.reports-close-pack',
     route: '/reports/close-pack',
     anchor: ANCHORS.screenHeader,
@@ -743,6 +751,14 @@ const TRADING_INTROS: GuideStep[] = [
     permission: PERMISSIONS.RECEIVABLES_VIEW,
     title: 'The voucher on paper',
     body: "Tally's figures on this organisation's own design: fit to the screen, PDF through the print dialog, Excel. Nothing here writes back to Tally.",
+  },
+  {
+    id: 'screen.masters-party-statement',
+    routePattern: '/masters/parties/:id/statement',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.RECEIVABLES_VIEW,
+    title: 'Statement of account',
+    body: "The party's ledger between two dates on this organisation's paper: the opening, each voucher on its side, the closing. Pick the period, then PDF through the print dialog or Excel. Read from Tally's vouchers; nothing here writes back.",
   },
   {
     id: 'screen.crm-contacts',

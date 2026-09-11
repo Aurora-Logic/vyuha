@@ -1105,6 +1105,15 @@ export const MODULES: ModuleDef[] = [
             reqs: 'CFO brief W-series',
           },
           {
+            to: '/reports/stock-interest',
+            label: 'Stock interest',
+            shortLabel: 'Stock int.',
+            icon: PercentIcon,
+            permission: PERMISSIONS.INTEREST_VIEW,
+            phase: 6,
+            reqs: 'D-22 Stock Interest',
+          },
+          {
             to: '/reports/close-pack',
             label: 'Close pack',
             shortLabel: 'Close pack',
@@ -1274,6 +1283,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },
   { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/parties\/[^/]+\/statement$/u, parent: '/masters/parties', label: 'Statement' },
   { pattern: /^\/masters\/price-lists\/new$/u, parent: '/masters/price-lists', label: 'New price list' },
   { pattern: /^\/masters\/price-lists\/[^/]+$/u, parent: '/masters/price-lists', label: 'Price list' },
   { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },

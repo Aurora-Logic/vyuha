@@ -108,6 +108,8 @@ export { INTEREST_DAY_BASES };
 
 export const interestPolicySchema = z.object({
   annualRatePct: z.number(),
+  stockAnnualRatePct: z.number().default(12),
+  stockHoldingPeriodDays: z.number().int().default(90),
   dayBasis: z.union([z.literal(365), z.literal(360)]),
   rateSource: z.string(),
   receivableBase: z.enum(INTEREST_RECEIVABLE_BASES),

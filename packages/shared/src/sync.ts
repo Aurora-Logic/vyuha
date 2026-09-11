@@ -261,6 +261,13 @@ export const voucherPullRowSchema = z.object({
   /** ISO date (YYYY-MM-DD). Sources convert from Tally's YYYYMMDD. */
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   voucherType: z.string().min(1).max(120),
+  /**
+   * The voucher's resolved primary type (e.g. "Sales", "Receipt") — portable
+   * across companies, unlike `voucherType`'s free-text name. Optional: a
+   * source that cannot resolve it (an older Agent, or an unresolved type)
+   * omits it, and the writer holds what it already has rather than blanking it.
+   */
+  voucherKind: z.string().min(1).max(120).optional(),
   voucherNumber: z.string().max(120).optional(),
   partyName: z.string().max(200).optional(),
   narration: z.string().max(4000).optional(),

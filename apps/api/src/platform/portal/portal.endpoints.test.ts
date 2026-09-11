@@ -81,17 +81,17 @@ beforeAll(async () => {
   await harness.post(`/sales/orders/${order.body.id}/confirm`, { token: adminToken });
   // A bill and a receipt, so the statement has both sides.
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'Sales', 'INV-9001', 'Asha Traders', ${ashaId}, '', false, 24000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, 1, '2026-08-02', 'Sales', 'Sales', 'INV-9001', 'Asha Traders', ${ashaId}, '', false, 24000, now())
   `);
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, 2, '2026-08-12', 'Receipt', 'RCT-9001', 'Asha Traders', ${ashaId}, '', false, 9000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, 2, '2026-08-12', 'Receipt', 'Receipt', 'RCT-9001', 'Asha Traders', ${ashaId}, '', false, 9000, now())
   `);
   // The other party's bill, which must never show on Asha's portal.
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, 3, '2026-08-03', 'Sales', 'INV-BEHAR', 'Behar Supply Co', ${beharId}, '', false, 77000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, 3, '2026-08-03', 'Sales', 'Sales', 'INV-BEHAR', 'Behar Supply Co', ${beharId}, '', false, 77000, now())
   `);
 });
 

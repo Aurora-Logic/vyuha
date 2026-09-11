@@ -419,7 +419,7 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
                   AND EXISTS (SELECT 1 FROM sales_document_lines l WHERE l.document_id = d.id AND l.deleted_at IS NULL AND l.packed_qty > l.invoiced_qty)
              ), '[]'::json) AS candidates
         FROM vouchers v
-       WHERE v.org_id = ${principal.orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
+       WHERE v.org_id = ${principal.orgId} AND v.voucher_kind = 'Sales' AND NOT v.is_cancelled
          AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.voucher_id = v.id)
          AND NOT EXISTS (
            SELECT 1 FROM external_refs xv JOIN external_refs xi ON xi.external_guid = xv.external_guid AND xi.internal_type = 'SALES_INVOICE' AND xi.deleted_at IS NULL
@@ -491,7 +491,7 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
           ON d.org_id = v.org_id AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED' AND d.deleted_at IS NULL
          AND d.party_id = v.party_id
          AND v.narration ~ ('\\m' || d.number || '\\M')
-       WHERE v.org_id = ${orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
+       WHERE v.org_id = ${orgId} AND v.voucher_kind = 'Sales' AND NOT v.is_cancelled
          AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.voucher_id = v.id)
        LIMIT 200
     `);
@@ -508,7 +508,7 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
         INSERT INTO sales_order_invoices (org_id, document_id, voucher_id, method, linked_by)
         SELECT ${orgId}, ${documentId}, v.id, ${method}, ${actorUserId}
           FROM vouchers v
-         WHERE v.id = ${voucherId} AND v.org_id = ${orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
+         WHERE v.id = ${voucherId} AND v.org_id = ${orgId} AND v.voucher_kind = 'Sales' AND NOT v.is_cancelled
         ON CONFLICT (voucher_id) DO NOTHING
         RETURNING id
       `);

@@ -45,6 +45,7 @@ type VoucherRow = {
   party_id: string;
   voucher_date: string;
   voucher_type: string;
+  voucher_kind: string | null;
   voucher_number: string;
   amount: string;
 };
@@ -205,13 +206,13 @@ export class ReceivableSnapshotService {
     `);
 
     const vouchers = await this.db.execute<VoucherRow>(sql`
-      SELECT v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_number,
+      SELECT v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_kind, v.voucher_number,
              v.amount::text AS amount
         FROM vouchers v
         JOIN parties p ON p.id = v.party_id
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled
          AND lower(p.parent_group) LIKE 'sundry debtors%'
-         AND v.voucher_type IN ('Sales', 'Receipt', 'Credit Note')
+         AND v.voucher_kind IN ('Sales', 'Receipt', 'Credit Note')
          AND v.voucher_date <= ${snapshotDate}::date
        ORDER BY v.voucher_date, v.created_at
     `);
@@ -233,7 +234,7 @@ export class ReceivableSnapshotService {
       for (const voucher of byParty.get(partyId) ?? []) {
         const amount = Math.abs(Number(voucher.amount));
         if (amount === 0) continue;
-        if (voucher.voucher_type === 'Sales') {
+        if (voucher.voucher_kind === 'Sales') {
           bills.push({ date: voucher.voucher_date, amount, key: voucher.voucher_number });
         } else {
           settlements.push({ date: voucher.voucher_date, amount });

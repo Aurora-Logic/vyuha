@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 
+import { categoryOf } from '@vyuha/shared';
 import { InjectDatabase, type Database } from '../../platform/db/db.provider.js';
 import {
   buildPartyDailySeries,
@@ -43,18 +44,31 @@ type PartyRow = {
   opening_balance: string | null;
   credit_days_override: number | null;
 };
-type VoucherRow = { id: string; party_id: string; voucher_date: string; voucher_type: string; amount: string };
+type VoucherRow = {
+  id: string;
+  party_id: string;
+  voucher_date: string;
+  voucher_type: string;
+  voucher_kind: string | null;
+  amount: string;
+};
 type AllocationRow = { voucher_id: string; bill_name: string; ref_type: string; amount: string };
 type LineRow = {
   stock_item_id: string;
+  item_name: string;
+  parent_group: string;
   voucher_date: string;
   voucher_type: string;
+  voucher_kind: string | null;
   party_id: string | null;
+  buyer_order_date: string | null;
+  reference_date: string | null;
   qty: string;
   rate: string | null;
   amount: string;
   gst_rate: string | null;
 };
+
 
 export interface BuildScope {
   readonly from?: string;
@@ -142,10 +156,10 @@ export class InterestBuildService {
 
     const voucherFilter: SQL = partyId === undefined ? sql`` : sql`AND v.party_id = ${partyId}`;
     const vouchers = await this.db.execute<VoucherRow>(sql`
-      SELECT v.id, v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.amount::text AS amount
+      SELECT v.id, v.party_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.voucher_kind, v.amount::text AS amount
         FROM vouchers v
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled AND v.party_id IS NOT NULL
-         AND v.voucher_type IN ('Sales', 'Receipt', 'Credit Note', 'Purchase', 'Payment', 'Debit Note')
+         AND v.voucher_kind IN ('Sales', 'Receipt', 'Credit Note', 'Purchase', 'Payment', 'Debit Note')
          ${voucherFilter}
        ORDER BY v.voucher_date, v.created_at
     `);
@@ -189,10 +203,10 @@ export class InterestBuildService {
         const amount = Math.abs(Number(voucher.amount));
         if (amount === 0) continue;
         const marks = allocationsByVoucher.get(voucher.id) ?? [];
-        if (billTypes.has(voucher.voucher_type)) {
+        if (billTypes.has(voucher.voucher_kind ?? '')) {
           const raised = marks.find((mark) => mark.ref_type === 'new');
           bills.push({ date: voucher.voucher_date, amount, ...(raised === undefined ? {} : { key: raised.bill_name }) });
-        } else if (settleTypes.has(voucher.voucher_type)) {
+        } else if (settleTypes.has(voucher.voucher_kind ?? '')) {
           const against = marks.filter((mark) => mark.ref_type === 'against');
           if (against.length === 0) {
             settlements.push({ date: voucher.voucher_date, amount });
@@ -262,14 +276,16 @@ export class InterestBuildService {
   ): Promise<number> {
     const itemFilter: SQL = stockItemId === undefined ? sql`` : sql`AND vl.stock_item_id = ${stockItemId}`;
     const lines = await this.db.execute<LineRow>(sql`
-      SELECT vl.stock_item_id, v.voucher_date::text AS voucher_date, v.voucher_type, v.party_id,
+      SELECT vl.stock_item_id, si.name AS item_name, si.parent_group, v.voucher_date::text AS voucher_date,
+             v.voucher_type, v.voucher_kind, v.party_id,
+             v.buyer_order_date::text AS buyer_order_date, v.reference_date::text AS reference_date,
              abs(coalesce(substring(coalesce(vl.billed_qty, vl.actual_qty) FROM '^\\s*-?[0-9]+\\.?[0-9]*')::numeric, 0))::text AS qty,
              vl.rate::text AS rate, vl.amount::text AS amount, si.gst_rate::text AS gst_rate
         FROM voucher_lines vl
         JOIN vouchers v ON v.id = vl.voucher_id
         JOIN stock_items si ON si.id = vl.stock_item_id
        WHERE v.org_id = ${orgId} AND NOT v.is_cancelled AND vl.kind = 'inventory' AND vl.stock_item_id IS NOT NULL
-         AND v.voucher_type IN ('Purchase', 'Sales', 'Debit Note')
+         AND v.voucher_kind IN ('Purchase', 'Sales', 'Debit Note')
          ${itemFilter}
        ORDER BY v.voucher_date, v.created_at, vl.line_no
     `);
@@ -288,12 +304,66 @@ export class InterestBuildService {
       creditDaysByParty.set(vendor.id, vendor.credit_days_override ?? vendor.credit_days ?? 0);
     }
 
+    const stockOverrides = await this.db.execute<{
+      target_type: string;
+      target_id: string | null;
+      target_name: string;
+      holding_period_days_override: number | null;
+    }>(sql`
+      SELECT target_type, target_id, target_name, holding_period_days_override
+        FROM interest_stock_settings
+       WHERE org_id = ${orgId} AND deleted_at IS NULL
+    `);
+
+    const holdingByItemId = new Map<string, number>();
+    const holdingByItemName = new Map<string, number>();
+    const holdingByCategory = new Map<string, number>();
+    const holdingByGroup = new Map<string, number>();
+
+    for (const row of stockOverrides.rows) {
+      if (row.holding_period_days_override === null) continue;
+      if (row.target_type === 'item') {
+        if (row.target_id) holdingByItemId.set(row.target_id, row.holding_period_days_override);
+        holdingByItemName.set(row.target_name.toLowerCase(), row.holding_period_days_override);
+      } else if (row.target_type === 'category') {
+        holdingByCategory.set(row.target_name.toLowerCase(), row.holding_period_days_override);
+      } else if (row.target_type === 'group') {
+        holdingByGroup.set(row.target_name.toLowerCase(), row.holding_period_days_override);
+      }
+    }
+
+    const stockItemFilter: SQL = stockItemId === undefined ? sql`` : sql`AND si.id = ${stockItemId}`;
+    const stockItems = await this.db.execute<{
+      id: string;
+      name: string;
+      unit: string | null;
+      parent_group: string | null;
+      gst_rate: string | null;
+      closing_qty: string | null;
+      cost_price: string | null;
+      sale_price: string | null;
+      created_at: string;
+      min_voucher_date: string | null;
+    }>(sql`
+      SELECT si.id, si.name, si.unit, si.parent_group, si.gst_rate::text AS gst_rate,
+             si.closing_qty::text AS closing_qty,
+             si.cost_price::text AS cost_price,
+             si.sale_price::text AS sale_price,
+             si.created_at::date::text AS created_at,
+             min(v.voucher_date)::date::text AS min_voucher_date
+        FROM stock_items si
+        LEFT JOIN voucher_lines vl ON vl.stock_item_id = si.id
+        LEFT JOIN vouchers v ON v.id = vl.voucher_id AND NOT v.is_cancelled
+       WHERE si.org_id = ${orgId} ${stockItemFilter}
+       GROUP BY si.id, si.name, si.unit, si.parent_group, si.gst_rate, si.closing_qty, si.cost_price, si.sale_price, si.created_at
+    `);
+
     const byItem = new Map<string, StockEvent[]>();
     for (const line of lines.rows) {
       const quantity = Number(line.qty);
       if (quantity === 0) continue;
       const events = byItem.get(line.stock_item_id) ?? [];
-      if (line.voucher_type === 'Purchase') {
+      if (line.voucher_kind === 'Purchase') {
         const baseRate = line.rate !== null ? Math.abs(Number(line.rate)) : Math.abs(Number(line.amount)) / quantity;
         const gstFactor =
           policy.includeGstInStock && line.gst_rate !== null ? 1 + Number(line.gst_rate) / 100 : 1;
@@ -301,13 +371,73 @@ export class InterestBuildService {
           policy.stockClockStart === 'INWARD'
             ? 0
             : (line.party_id === null ? 0 : (creditDaysByParty.get(line.party_id) ?? 0));
-        events.push({ date: line.voucher_date, kind: 'inward', quantity, rate: baseRate * gstFactor, creditDays });
+        
+        const cat = categoryOf(line.item_name).toLowerCase();
+        const holdingDays =
+          holdingByItemId.get(line.stock_item_id) ??
+          holdingByItemName.get(line.item_name.toLowerCase()) ??
+          holdingByCategory.get(cat) ??
+          holdingByGroup.get(line.parent_group.toLowerCase()) ??
+          policy.stockHoldingPeriodDays ??
+          90;
+
+        const advanceDate =
+          line.buyer_order_date ??
+          (line.reference_date && line.reference_date < line.voucher_date ? line.reference_date : undefined);
+        const advanceAmount = baseRate * gstFactor * quantity;
+
+        events.push({
+          date: line.voucher_date,
+          kind: 'inward',
+          quantity,
+          rate: baseRate * gstFactor,
+          creditDays,
+          holdingPeriodDays: holdingDays,
+          advanceAmount,
+          advanceDate,
+        });
       } else {
         // Sales dispatch and Debit Note alike: the goods leave, and a return
         // to the vendor reduces the series from the return's own date.
         events.push({ date: line.voucher_date, kind: 'outward', quantity });
       }
       byItem.set(line.stock_item_id, events);
+    }
+
+    // Attach baseline inward stock for items with closing stock not covered by purchase vouchers
+    for (const item of stockItems.rows) {
+      const closingQty = Number(item.closing_qty ?? 0);
+      const costPrice =
+        Number(item.cost_price ?? 0) > 0
+          ? Number(item.cost_price)
+          : Number(item.sale_price ?? 0) > 0
+            ? Number(item.sale_price) * 0.7
+            : 0;
+
+      const events = byItem.get(item.id) ?? [];
+      const hasPurchases = events.some((e) => e.kind === 'inward');
+      if (!hasPurchases && closingQty > 0 && costPrice > 0) {
+        const cat = categoryOf(item.name).toLowerCase();
+        const holdingDays =
+          holdingByItemId.get(item.id) ??
+          holdingByItemName.get(item.name.toLowerCase()) ??
+          holdingByCategory.get(cat) ??
+          holdingByGroup.get((item.parent_group ?? '').toLowerCase()) ??
+          policy.stockHoldingPeriodDays ??
+          90;
+
+        const baselineDate = item.min_voucher_date ?? item.created_at;
+        events.unshift({
+          date: baselineDate,
+          kind: 'inward',
+          quantity: closingQty,
+          rate: costPrice,
+          creditDays: 0,
+          holdingPeriodDays: holdingDays,
+          advanceAmount: 0,
+        });
+        byItem.set(item.id, events);
+      }
     }
 
     await this.db.execute(sql`

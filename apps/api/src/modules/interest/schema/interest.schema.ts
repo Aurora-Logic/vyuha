@@ -1,4 +1,4 @@
-import { date, index, integer, numeric, pgTable, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { organizations, parties, stockItems } from '../../../platform/db/schema/index.js';
@@ -103,3 +103,26 @@ export const interestPartySettings = pgTable(
   },
   (t) => [uniqueIndex('interest_party_settings_uq').on(t.orgId, t.partyId).where(ALIVE)],
 );
+
+/**
+ * Stock interest settings and overrides per product group, category, or item.
+ */
+export const interestStockSettings = pgTable(
+  'interest_stock_settings',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    targetType: text('target_type').notNull(), // 'group' | 'category' | 'item'
+    targetId: uuid('target_id'),
+    targetName: text('target_name').notNull(),
+    /** Percent per annum; null means the org stock rate. */
+    interestRateOverride: numeric('interest_rate_override', { precision: 6, scale: 2 }),
+    /** Free inventory holding period in days; null means the org default (e.g. 90). */
+    holdingPeriodDaysOverride: integer('holding_period_days_override'),
+    ...standardColumns(),
+  },
+  (t) => [uniqueIndex('interest_stock_settings_uq').on(t.orgId, t.targetType, t.targetName).where(ALIVE)],
+);
+

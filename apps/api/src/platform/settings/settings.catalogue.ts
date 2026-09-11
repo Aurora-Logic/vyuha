@@ -342,6 +342,8 @@ export const INTEREST_STOCK_CLOCK_STARTS = ['AFTER_CREDIT_DAYS', 'INWARD'] as co
 
 export const INTEREST_SETTINGS = {
   annualRatePct: { key: 'interest.annual_rate', help: 'Percent per annum applied to blocked working capital. D-22 seeds 12.00.', enforcedBy: 'Interest reports' },
+  stockAnnualRatePct: { key: 'interest.stock_annual_rate', help: 'Percent per annum applied specifically to stock holding and transit. Defaults to 12.00.', enforcedBy: 'Stock interest reports' },
+  stockHoldingPeriodDays: { key: 'interest.stock_holding_period_days', help: 'Interest-free holding days before unsold stock starts accruing interest. Defaults to 90.', enforcedBy: 'Stock interest reports' },
   dayBasis: { key: 'interest.day_basis', help: 'Days in the interest year: 365, or 360 for bank convention.', enforcedBy: 'Interest reports' },
   rateSource: { key: 'interest.rate_source', help: 'Where the annual rate comes from. FIXED is the only source today.', enforcedBy: null },
   receivableBase: { key: 'interest.receivable_base', help: 'VOUCHER treats each Sales voucher as a bill (D-22 v1); BILL is reserved for when Tally bill marks gain a writer.', enforcedBy: 'Interest snapshots' },
@@ -353,6 +355,8 @@ export const INTEREST_SETTINGS = {
 
 export const interestPolicySchema = z.object({
   annualRatePct: z.number().min(0).max(100),
+  stockAnnualRatePct: z.number().min(0).max(100).default(12),
+  stockHoldingPeriodDays: z.number().int().min(0).max(365).default(90),
   dayBasis: z.union([z.literal(365), z.literal(360)]),
   rateSource: z.enum(INTEREST_RATE_SOURCES),
   receivableBase: z.enum(INTEREST_RECEIVABLE_BASES),
@@ -366,6 +370,8 @@ export type InterestPolicy = z.infer<typeof interestPolicySchema>;
 export const DEFAULT_INTEREST_POLICY: InterestPolicy = {
   // D-22: 12.00 percent on a 365-day year.
   annualRatePct: 12,
+  stockAnnualRatePct: 12,
+  stockHoldingPeriodDays: 90,
   dayBasis: 365,
   rateSource: 'FIXED',
   // D-22: voucher-grain until Tally bill marks arrive.

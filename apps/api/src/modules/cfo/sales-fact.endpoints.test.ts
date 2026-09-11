@@ -89,8 +89,8 @@ beforeAll(async () => {
   await owners.assign(ORG_ID, null, bharatId, [{ ownerRef: rsRef, share: 60 }, { ownerRef: mpRef, share: 40 }], '2026-08-01');
 
   const ashaVoucher = await harness.db.execute<{ id: string }>(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Sales', 'CF-1', 'Asha Traders', ${ashaId}, '', false, 11800.00, now()) RETURNING id
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Sales', 'Sales', 'CF-1', 'Asha Traders', ${ashaId}, '', false, 11800.00, now()) RETURNING id
   `);
   const ashaVoucherId = ashaVoucher.rows[0]?.id ?? '';
   await harness.db.execute(sql`
@@ -101,10 +101,10 @@ beforeAll(async () => {
   `);
 
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
-      (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Sales', 'CF-2', 'Bharat Cables', ${bharatId}, '', false, 4130.50, now()),
-      (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Credit Note', 'CN-1', 'Bharat Cables', ${bharatId}, '', false, 130.50, now()),
-      (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Sales', 'CF-X', 'Cancelled Co', NULL, '', true, 99999.00, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at) VALUES
+      (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Sales', 'Sales', 'CF-2', 'Bharat Cables', ${bharatId}, '', false, 4130.50, now()),
+      (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Credit Note', 'Credit Note', 'CN-1', 'Bharat Cables', ${bharatId}, '', false, 130.50, now()),
+      (${ORG_ID}, ${connectionId}, 1, ${DAY}, 'Sales', 'Sales', 'CF-X', 'Cancelled Co', NULL, '', true, 99999.00, now())
   `);
 });
 

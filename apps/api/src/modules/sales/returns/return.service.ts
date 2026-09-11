@@ -302,7 +302,7 @@ export class ReturnService {
                 WHERE r.org_id = v.org_id AND r.state = 'awaiting_credit_note' AND r.deleted_at IS NULL AND r.party_id = v.party_id
              ), '[]'::json) AS candidates
         FROM vouchers v
-       WHERE v.org_id = ${principal.orgId} AND v.voucher_type = 'Credit Note' AND NOT v.is_cancelled
+       WHERE v.org_id = ${principal.orgId} AND v.voucher_kind = 'Credit Note' AND NOT v.is_cancelled
          AND NOT EXISTS (SELECT 1 FROM sales_return_credit_notes cn WHERE cn.voucher_id = v.id)
          AND EXISTS (SELECT 1 FROM sales_returns r WHERE r.org_id = v.org_id AND r.deleted_at IS NULL)
        ORDER BY v.voucher_date DESC, v.voucher_number DESC
@@ -537,7 +537,7 @@ export class ReturnService {
           ON r.org_id = v.org_id AND r.state = 'awaiting_credit_note' AND r.deleted_at IS NULL
          AND r.party_id = v.party_id
          AND v.narration ~ ('\\m' || r.number || '\\M')
-       WHERE v.org_id = ${orgId} AND v.voucher_type = 'Credit Note' AND NOT v.is_cancelled
+       WHERE v.org_id = ${orgId} AND v.voucher_kind = 'Credit Note' AND NOT v.is_cancelled
          AND NOT EXISTS (SELECT 1 FROM sales_return_credit_notes cn WHERE cn.voucher_id = v.id)
        LIMIT 200
     `);
@@ -554,7 +554,7 @@ export class ReturnService {
         INSERT INTO sales_return_credit_notes (org_id, return_id, voucher_id, method, linked_by)
         SELECT ${orgId}, ${returnId}, v.id, ${method}, ${actorUserId}
           FROM vouchers v
-         WHERE v.id = ${voucherId} AND v.org_id = ${orgId} AND v.voucher_type = 'Credit Note' AND NOT v.is_cancelled
+         WHERE v.id = ${voucherId} AND v.org_id = ${orgId} AND v.voucher_kind = 'Credit Note' AND NOT v.is_cancelled
            AND EXISTS (SELECT 1 FROM sales_returns r WHERE r.id = ${returnId} AND r.org_id = ${orgId} AND r.state = 'awaiting_credit_note' AND r.deleted_at IS NULL)
         ON CONFLICT DO NOTHING
         RETURNING id

@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { PRINTED_DOCUMENT_TITLES, type DocumentSettings, type PrintedDocumentType } from '@vyuha/shared';
+import { PRINTED_DOCUMENT_TITLES, type DocumentSettings, type PrintedDocumentType, type PartyStatementView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import type { Database } from '../db/db.provider.js';
@@ -50,3 +50,23 @@ export async function sendDocumentXlsx(
 }
 
 export { type DocumentSettings };
+
+/** Report 48: the party's statement as a workbook, named for the party and the period. */
+export async function sendStatementXlsx(
+  res: Response,
+  deps: { db: Database; settings: DocumentSettingsService; xlsx: DocumentXlsxService },
+  orgId: string,
+  statement: PartyStatementView,
+): Promise<void> {
+  const [settings, org] = await Promise.all([
+    deps.settings.read(orgId),
+    deps.db.execute<{ name: string }>(sql`SELECT name FROM organizations WHERE id = ${orgId}`),
+  ]);
+  const buffer = await deps.xlsx.buildStatement(settings.profile, org.rows[0]?.name ?? '', statement);
+  const party = statement.party.name.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-|-$/gu, '') || 'party';
+  const filename = `Statement-${party}-${statement.from}-to-${statement.to}.xlsx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.end(buffer);
+}

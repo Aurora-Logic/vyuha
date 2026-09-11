@@ -223,6 +223,7 @@ function voucherToRow(voucher: OpsTallyVoucher): VoucherPullRow {
     alterId: voucher.alterId,
     date: tallyDateToIso(voucher.date),
     voucherType: voucher.voucherType === '' ? 'Unknown' : voucher.voucherType,
+    ...maybe('voucherKind', optionalText(voucher.voucherRootType)),
     voucherNumber: voucher.voucherNumber,
     partyName: voucher.party,
     narration: voucher.narration,

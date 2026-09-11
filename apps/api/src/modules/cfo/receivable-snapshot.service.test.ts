@@ -56,8 +56,8 @@ async function voucher(opts: {
   cancelled?: boolean;
 }): Promise<string> {
   const rows = await harness.db.execute<{ id: string }>(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, ${opts.on}::date, ${opts.type}, ${opts.number}, '', ${opts.partyId}, '', ${opts.cancelled ?? false}, ${opts.amount}, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, ${opts.on}::date, ${opts.type}, ${opts.type}, ${opts.number}, '', ${opts.partyId}, '', ${opts.cancelled ?? false}, ${opts.amount}, now())
     RETURNING id
   `);
   return rows.rows[0]?.id ?? '';

@@ -196,6 +196,14 @@ export const vouchers = pgTable(
     voucherDate: date('voucher_date').notNull(),
     /** Configurable per company in Tally — free text, verbatim. */
     voucherType: text('voucher_type').notNull(),
+    /**
+     * The voucher's primary type resolved against Tally's own PARENT
+     * hierarchy (e.g. "GST SALES" -> "Sales") — portable across companies,
+     * unlike `voucher_type`'s free-text name. Null on a voucher synced before
+     * this column existed, or from a source that could not resolve it; a
+     * report filtering by kind should not treat null as "Other".
+     */
+    voucherKind: text('voucher_kind'),
     voucherNumber: text('voucher_number').notNull().default(''),
     partyName: text('party_name').notNull().default(''),
     partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
@@ -240,6 +248,8 @@ export const vouchers = pgTable(
     // the reconciliation groups by type and month over the same index.
     index('vouchers_org_date_idx').on(t.orgId, t.voucherDate),
     index('vouchers_org_type_date_idx').on(t.orgId, t.voucherType, t.voucherDate),
+    // Every receivables/CFO query filters by resolved kind (Sales, Receipt, ...), not the free-text type.
+    index('vouchers_org_kind_date_idx').on(t.orgId, t.voucherKind, t.voucherDate),
     index('vouchers_party_idx').on(t.partyId, t.voucherDate),
     // Go To by voucher number (09 §6: "typing a voucher number opens that voucher").
     index('vouchers_org_number_idx').on(t.orgId, t.voucherNumber),

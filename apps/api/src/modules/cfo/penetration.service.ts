@@ -47,7 +47,7 @@ export class PenetrationService {
              count(DISTINCT coalesce(l.stock_item_id::text, l.stock_item_name))::int AS count,
              sum(abs(l.amount))::numeric(16,2)::text AS amount
       FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
-      WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type = 'Sales'
+      WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_kind = 'Sales'
         AND v.party_id IS NOT NULL AND l.kind = 'inventory' AND v.voucher_date BETWEEN ${start} AND ${end}
       GROUP BY 1, 3
     `);

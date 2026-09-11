@@ -75,7 +75,12 @@ function OverviewMetricCard({ metric, index }: { metric: Metric; index: number }
     <Card className="min-w-0" data-metric={metric.key}>
       <CardHeader>
         <CardTitle className="truncate text-sm font-medium">{metric.label}</CardTitle>
-        <CardAction>
+        <CardAction className="flex items-center gap-2">
+          {metric.key === 'stock-exposure' ? (
+            <Button variant="ghost" size="xs" nativeButton={false} render={<Link to="/reports/stock-interest" />}>
+              Details
+            </Button>
+          ) : null}
           <span className="text-sm font-semibold tabular-nums">{formatHeadline(metric.unit, metric.headline)}</span>
         </CardAction>
       </CardHeader>
@@ -93,13 +98,24 @@ function OverviewMetricCard({ metric, index }: { metric: Metric; index: number }
   );
 }
 
-function AreaSection({ area, data, pending }: { area: InsightArea; data: AreaInsightsData | undefined; pending: boolean }) {
+function AreaSection({
+  area,
+  data,
+  pending,
+  searchParams,
+}: {
+  area: InsightArea;
+  data: AreaInsightsData | undefined;
+  pending: boolean;
+  searchParams: URLSearchParams;
+}) {
   const metrics = data?.metrics ?? [];
+  const qs = searchParams.toString();
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <SectionHeading title={AREA_LABELS[area]} />
-        <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}`} />}>
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={`/reports/${area}${qs ? `?${qs}` : ''}`} />}>
           Open
           <ArrowRightIcon data-icon="inline-end" />
         </Button>
@@ -203,7 +219,13 @@ export function InsightsOverviewPage() {
         </div>
         {tiles.length > 0 ? <KpiGrid tiles={tiles} columns={6} /> : null}
         {areas.map((entry) => (
-          <AreaSection key={entry.area} area={entry.area} data={entry.data} pending={entry.pending} />
+          <AreaSection
+            key={entry.area}
+            area={entry.area}
+            data={entry.data}
+            pending={entry.pending}
+            searchParams={searchParams}
+          />
         ))}
       </div>
     </>

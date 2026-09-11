@@ -78,12 +78,12 @@ async function seedParty(name: string, orderRate: string): Promise<{ partyId: st
 
   // An invoice and a receipt in the projection, and a promise against them.
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, '2026-08-01', 'Sales', ${`INV-${name.slice(0, 4)}`}, ${name}, ${partyId}, ${`for ${name}`}, false, 20000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, '2026-08-01', 'Sales', 'Sales', ${`INV-${name.slice(0, 4)}`}, ${name}, ${partyId}, ${`for ${name}`}, false, 20000, now())
   `);
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, '2026-08-10', 'Receipt', ${`RCT-${name.slice(0, 4)}`}, ${name}, ${partyId}, '', false, 5000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, ${Math.floor(Math.random() * 1e9)}, '2026-08-10', 'Receipt', 'Receipt', ${`RCT-${name.slice(0, 4)}`}, ${name}, ${partyId}, '', false, 5000, now())
   `);
   await harness.db.execute(sql`
     INSERT INTO promises_to_pay (org_id, party_id, amount, promised_date, state, received_amount, taken_on, bills)

@@ -161,6 +161,14 @@ export const opsTallyVoucherSchema = z.object({
   date: z.string().regex(/^\d{8}$/u),
   /** Configurable per company — free text. */
   voucherType: z.string().max(120),
+  /**
+   * This voucher type's primary type, resolved by OpsTally against Tally's
+   * own PARENT hierarchy (e.g. "GST SALES" -> "Sales") — the classification
+   * signal that is portable across companies, unlike `voucherType` itself.
+   * Absent on an Agent that predates this field, or when its voucher-type
+   * cache had no entry for the type at fetch time.
+   */
+  voucherRootType: z.string().max(120).nullable().optional(),
   voucherNumber: z.string().max(120).default(''),
   party: z.string().max(200).default(''),
   narration: z.string().max(4000).default(''),

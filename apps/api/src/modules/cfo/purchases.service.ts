@@ -75,14 +75,14 @@ export class PurchasesService {
     const today = istDateOf(new Date().toISOString());
     const window = await this.db.execute<{ net: string | null; lastYear: string | null; vouchers: number; vendors: number }>(sql`
       SELECT
-        sum(CASE WHEN voucher_type = 'Purchase' THEN amount ELSE -amount END)
+        sum(CASE WHEN voucher_kind = 'Purchase' THEN amount ELSE -amount END)
           FILTER (WHERE voucher_date BETWEEN ${from} AND ${to})::text AS net,
-        sum(CASE WHEN voucher_type = 'Purchase' THEN amount ELSE -amount END)
+        sum(CASE WHEN voucher_kind = 'Purchase' THEN amount ELSE -amount END)
           FILTER (WHERE voucher_date BETWEEN (${from}::date - 365) AND (${to}::date - 365))::text AS "lastYear",
-        count(*) FILTER (WHERE voucher_type = 'Purchase' AND voucher_date BETWEEN ${from} AND ${to})::int AS vouchers,
-        count(DISTINCT party_id) FILTER (WHERE voucher_type = 'Purchase' AND voucher_date BETWEEN ${from} AND ${to})::int AS vendors
+        count(*) FILTER (WHERE voucher_kind = 'Purchase' AND voucher_date BETWEEN ${from} AND ${to})::int AS vouchers,
+        count(DISTINCT party_id) FILTER (WHERE voucher_kind = 'Purchase' AND voucher_date BETWEEN ${from} AND ${to})::int AS vendors
       FROM vouchers
-      WHERE org_id = ${principal.orgId} AND is_cancelled = false AND voucher_type IN ('Purchase', 'Debit Note')
+      WHERE org_id = ${principal.orgId} AND is_cancelled = false AND voucher_kind IN ('Purchase', 'Debit Note')
     `);
     const w = window.rows[0];
     const net = Number(w?.net ?? 0);
@@ -90,25 +90,25 @@ export class PurchasesService {
 
     const byVendor = await this.db.execute<{ partyId: string; vendor: string; net: string; lastYear: string }>(sql`
       SELECT v.party_id AS "partyId", coalesce(p.name, nullif(v.party_name, ''), 'Unnamed vendor') AS vendor,
-        coalesce(sum(CASE WHEN v.voucher_type = 'Purchase' THEN v.amount ELSE -v.amount END)
+        coalesce(sum(CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount ELSE -v.amount END)
           FILTER (WHERE v.voucher_date BETWEEN ${from} AND ${to}), 0)::text AS net,
-        coalesce(sum(CASE WHEN v.voucher_type = 'Purchase' THEN v.amount ELSE -v.amount END)
+        coalesce(sum(CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount ELSE -v.amount END)
           FILTER (WHERE v.voucher_date BETWEEN (${from}::date - 365) AND (${to}::date - 365)), 0)::text AS "lastYear"
       FROM vouchers v LEFT JOIN parties p ON p.id = v.party_id
-      WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_type IN ('Purchase', 'Debit Note')
+      WHERE v.org_id = ${principal.orgId} AND v.is_cancelled = false AND v.voucher_kind IN ('Purchase', 'Debit Note')
         AND v.party_id IS NOT NULL
       GROUP BY 1, 2
       HAVING sum(v.amount) FILTER (WHERE v.voucher_date BETWEEN ${from} AND ${to}) IS NOT NULL
-      ORDER BY coalesce(sum(CASE WHEN v.voucher_type = 'Purchase' THEN v.amount ELSE -v.amount END)
+      ORDER BY coalesce(sum(CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount ELSE -v.amount END)
           FILTER (WHERE v.voucher_date BETWEEN ${from} AND ${to}), 0) DESC
       LIMIT 15
     `);
 
     const trend = await this.db.execute<{ month: string; net: string }>(sql`
       SELECT to_char(date_trunc('month', voucher_date), 'YYYY-MM') AS month,
-             sum(CASE WHEN voucher_type = 'Purchase' THEN amount ELSE -amount END)::text AS net
+             sum(CASE WHEN voucher_kind = 'Purchase' THEN amount ELSE -amount END)::text AS net
       FROM vouchers
-      WHERE org_id = ${principal.orgId} AND is_cancelled = false AND voucher_type IN ('Purchase', 'Debit Note')
+      WHERE org_id = ${principal.orgId} AND is_cancelled = false AND voucher_kind IN ('Purchase', 'Debit Note')
         AND voucher_date > (${to}::date - 365)
       GROUP BY 1 ORDER BY 1
     `);
@@ -118,21 +118,21 @@ export class PurchasesService {
     const payables = await this.db.execute<{ partyId: string; vendor: string; payable: string }>(sql`
       SELECT p.id AS "partyId", p.name AS vendor,
         (coalesce(p.opening_balance, 0) + coalesce(sum(
-          CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
-               WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
+          CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount
+               WHEN v.voucher_kind IN ('Payment', 'Debit Note') THEN -v.amount
                ELSE 0 END), 0))::numeric(16,2)::text AS payable
       FROM parties p
       LEFT JOIN vouchers v ON v.party_id = p.id AND v.is_cancelled = false
-        AND v.voucher_type IN ('Purchase', 'Payment', 'Debit Note')
+        AND v.voucher_kind IN ('Purchase', 'Payment', 'Debit Note')
       WHERE p.org_id = ${principal.orgId} AND lower(p.parent_group) LIKE 'sundry creditors%'
       GROUP BY 1, 2
       HAVING (coalesce(p.opening_balance, 0) + coalesce(sum(
-        CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
-             WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
+        CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount
+             WHEN v.voucher_kind IN ('Payment', 'Debit Note') THEN -v.amount
              ELSE 0 END), 0)) <> 0
       ORDER BY (coalesce(p.opening_balance, 0) + coalesce(sum(
-        CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
-             WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
+        CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount
+             WHEN v.voucher_kind IN ('Payment', 'Debit Note') THEN -v.amount
              ELSE 0 END), 0)) DESC
       LIMIT 25
     `);
@@ -145,12 +145,12 @@ export class PurchasesService {
     const book = await this.db.execute<{ total: string | null }>(sql`
       SELECT sum(payable)::numeric(16,2)::text AS total FROM (
         SELECT coalesce(p.opening_balance, 0) + coalesce(sum(
-          CASE WHEN v.voucher_type = 'Purchase' THEN v.amount
-               WHEN v.voucher_type IN ('Payment', 'Debit Note') THEN -v.amount
+          CASE WHEN v.voucher_kind = 'Purchase' THEN v.amount
+               WHEN v.voucher_kind IN ('Payment', 'Debit Note') THEN -v.amount
                ELSE 0 END), 0) AS payable
         FROM parties p
         LEFT JOIN vouchers v ON v.party_id = p.id AND v.is_cancelled = false
-          AND v.voucher_type IN ('Purchase', 'Payment', 'Debit Note')
+          AND v.voucher_kind IN ('Purchase', 'Payment', 'Debit Note')
         WHERE p.org_id = ${principal.orgId} AND lower(p.parent_group) LIKE 'sundry creditors%'
         GROUP BY p.id
       ) creditors
@@ -159,9 +159,9 @@ export class PurchasesService {
 
     // DPO: today's payable book over a year of purchases per day.
     const year = await this.db.execute<{ net: string | null }>(sql`
-      SELECT sum(CASE WHEN voucher_type = 'Purchase' THEN amount ELSE -amount END)::text AS net
+      SELECT sum(CASE WHEN voucher_kind = 'Purchase' THEN amount ELSE -amount END)::text AS net
       FROM vouchers
-      WHERE org_id = ${principal.orgId} AND is_cancelled = false AND voucher_type IN ('Purchase', 'Debit Note')
+      WHERE org_id = ${principal.orgId} AND is_cancelled = false AND voucher_kind IN ('Purchase', 'Debit Note')
         AND voucher_date > (${today}::date - 365)
     `);
     const purchasesYear = Number(year.rows[0]?.net ?? 0);

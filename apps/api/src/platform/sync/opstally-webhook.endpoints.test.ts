@@ -521,6 +521,44 @@ describe('projection through the writer (REQ-R-01, R-02, T-03)', () => {
     expect(row?.consignee_gstin).toBe('24AKRPD7559E1ZY');
   });
 
+  it("a voucher's resolved root type lands as its kind, and survives an update that omits it", async () => {
+    const created = await deliver(
+      envelope('evt_vch_kind_created', 'voucher.created', {
+        guid: 'vch-guid-kind', masterId: '5150', alterId: 960, date: '20260818',
+        voucherType: 'GST SALES', voucherRootType: 'Sales', voucherNumber: 'INV-0150', party: 'Asha Traders',
+        narration: '', isCancelled: false, amount: 4200,
+        ledgerEntries: [{ ledgerName: 'Asha Traders', amount: 4200, isDeemedPositive: true }],
+        inventoryEntries: [],
+      }),
+    );
+    expect(created.status).toBe(200);
+
+    const afterCreate = await harness.db.execute<{ voucher_type: string; voucher_kind: string | null }>(sql`
+      SELECT voucher_type, voucher_kind FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0150'
+    `);
+    // The free-text type is kept verbatim; the resolved kind is what a report filters on.
+    expect(afterCreate.rows[0]?.voucher_type).toBe('GST SALES');
+    expect(afterCreate.rows[0]?.voucher_kind).toBe('Sales');
+
+    // An Agent that cannot resolve the kind (older build, or an unresolved
+    // type) omits it — that must not blank a kind a newer Agent already set.
+    const updated = await deliver(
+      envelope('evt_vch_kind_updated', 'voucher.updated', {
+        guid: 'vch-guid-kind', masterId: '5150', alterId: 961, date: '20260818',
+        voucherType: 'GST SALES', voucherNumber: 'INV-0150', party: 'Asha Traders',
+        narration: 'edited', isCancelled: false, amount: 4200,
+        ledgerEntries: [], inventoryEntries: [],
+      }),
+    );
+    expect(updated.status).toBe(200);
+
+    const afterUpdate = await harness.db.execute<{ narration: string; voucher_kind: string | null }>(sql`
+      SELECT narration, voucher_kind FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0150'
+    `);
+    expect(afterUpdate.rows[0]?.narration).toBe('edited');
+    expect(afterUpdate.rows[0]?.voucher_kind).toBe('Sales');
+  });
+
   it('a receipt carries settlement on the bank line, not on the voucher', async () => {
     const response = await deliver(
       envelope('evt_vch_receipt', 'voucher.created', {

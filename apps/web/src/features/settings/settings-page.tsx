@@ -737,9 +737,9 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
             <SettingsPanel {...panelProps(['interest'])}>
               <PolicyNumberField
                 id="interest-annual-rate"
-                label="Annual rate"
+                label="Receivables annual rate"
                 unit="% per annum"
-                help="Applied to every rupee-day of blocked working capital. Seeded at 12.00; a party override beats it."
+                help="Applied to every rupee-day of blocked working capital on receivables. Seeded at 12.00; a party override beats it."
                 min={0}
                 max={100}
                 value={draft.interest.annualRatePct}
@@ -748,6 +748,35 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                   patchInterest({ annualRatePct: next });
                 }}
               />
+
+              <PolicyNumberField
+                id="interest-stock-annual-rate"
+                label="Stock annual rate"
+                unit="% per annum"
+                help="Applied to stock holding beyond the grace period and transit advance payments. Seeded at 12.00; item/category/group overrides beat it."
+                min={0}
+                max={100}
+                value={draft.interest.stockAnnualRatePct ?? 12}
+                enforcedBy={saved.enforcement.interest.stockAnnualRatePct}
+                onValueChange={(next) => {
+                  patchInterest({ stockAnnualRatePct: next });
+                }}
+              />
+
+              <PolicyNumberField
+                id="interest-stock-holding-period"
+                label="Free inventory holding period"
+                unit="days"
+                help="Free holding period from inward date during which 0% interest is charged. Day 91+ begins accruing interest. Defaults to 90 days."
+                min={0}
+                max={365}
+                value={draft.interest.stockHoldingPeriodDays ?? 90}
+                enforcedBy={saved.enforcement.interest.stockHoldingPeriodDays}
+                onValueChange={(next) => {
+                  patchInterest({ stockHoldingPeriodDays: next });
+                }}
+              />
+
 
               <PolicyChoiceField
                 id="interest-day-basis"

@@ -87,15 +87,15 @@ export class SalesFactService {
   async buildOrgDay(orgId: string, day: string): Promise<number> {
     const vouchers = await this.db.execute<{
       id: string;
-      voucherType: string;
+      voucherKind: string | null;
       partyId: string | null;
       partyName: string;
       amount: string;
     }>(sql`
-      SELECT id, voucher_type AS "voucherType", party_id AS "partyId", party_name AS "partyName", amount
+      SELECT id, voucher_kind AS "voucherKind", party_id AS "partyId", party_name AS "partyName", amount
       FROM vouchers
       WHERE org_id = ${orgId} AND voucher_date = ${day} AND is_cancelled = false
-        AND voucher_type IN ('Sales', 'Credit Note')
+        AND voucher_kind IN ('Sales', 'Credit Note')
     `);
 
     const lines = await this.db.execute<{
@@ -118,7 +118,7 @@ export class SalesFactService {
       JOIN vouchers v ON v.id = l.voucher_id
       LEFT JOIN stock_items s ON s.id = l.stock_item_id
       WHERE v.org_id = ${orgId} AND v.voucher_date = ${day} AND v.is_cancelled = false
-        AND v.voucher_type IN ('Sales', 'Credit Note')
+        AND v.voucher_kind IN ('Sales', 'Credit Note')
     `);
     const linesByVoucher = new Map<string, typeof lines.rows>();
     for (const line of lines.rows) {
@@ -154,7 +154,7 @@ export class SalesFactService {
     for (const voucher of vouchers.rows) {
       const voucherLines = linesByVoucher.get(voucher.id) ?? [];
 
-      if (voucher.voucherType === 'Credit Note') {
+      if (voucher.voucherKind === 'Credit Note') {
         // R03 whole, at party grain, until natures classify R04 out of it.
         const g = group('Credit Note', voucher.partyId, voucher.partyName, null, '', 'Unbranded');
         g.landed = null;

@@ -65,7 +65,7 @@ export class CfoNightlyService {
     let factRows = 0;
     const days = await this.db.execute<{ d: string }>(sql`
       SELECT DISTINCT voucher_date::text AS d FROM vouchers
-      WHERE org_id = ${orgId} AND voucher_type IN ('Sales', 'Credit Note') AND voucher_date BETWEEN ${since} AND ${day}
+      WHERE org_id = ${orgId} AND voucher_kind IN ('Sales', 'Credit Note') AND voucher_date BETWEEN ${since} AND ${day}
       ORDER BY 1
     `);
     for (const { d } of days.rows) factRows += await this.facts.buildOrgDay(orgId, d);

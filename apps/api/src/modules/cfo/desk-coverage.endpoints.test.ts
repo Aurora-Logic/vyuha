@@ -46,8 +46,8 @@ beforeAll(async () => {
     VALUES (${ORG_ID}, ${partyId}, 'A+', '2026-01-01', (SELECT id FROM users WHERE org_id = ${ORG_ID} LIMIT 1), 'fixture')
   `);
   await harness.db.execute(sql`
-    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
-    VALUES (${ORG_ID}, ${connectionId}, 1, '2026-01-05', 'Sales', 'CV-1', 'Quiet Key Account', ${partyId}, '', false, 5000, now())
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_kind, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, 1, '2026-01-05', 'Sales', 'Sales', 'CV-1', 'Quiet Key Account', ${partyId}, '', false, 5000, now())
   `);
 });
 

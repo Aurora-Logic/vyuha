@@ -53,3 +53,74 @@ export type RecomputeInterestInput = z.infer<typeof recomputeInterestSchema>;
 export interface RecomputeInterestReceipt {
   readonly jobId: string;
 }
+
+export interface StockInterestSettingView {
+  readonly id: string;
+  readonly targetType: 'item' | 'category' | 'group';
+  readonly targetId: string | null;
+  readonly targetName: string;
+  /** Percent per annum, or null for org rate. */
+  readonly interestRateOverride: string | null;
+  /** Holding days before interest starts, or null for org default. */
+  readonly holdingPeriodDaysOverride: number | null;
+}
+
+export const upsertStockInterestSettingSchema = z.object({
+  targetType: z.enum(['item', 'category', 'group']),
+  targetId: z.string().nullable().optional(),
+  targetName: z.string().min(1),
+  interestRateOverride: z.number().min(0).max(100).nullable().optional(),
+  holdingPeriodDaysOverride: z.number().int().min(0).max(365).nullable().optional(),
+});
+
+export type UpsertStockInterestSettingInput = z.infer<typeof upsertStockInterestSettingSchema>;
+
+export interface StockInterestReportItem {
+  readonly stockItemId: string;
+  readonly stockItemName: string;
+  readonly category: string | null;
+  readonly parentGroup: string | null;
+  readonly inwardDate: string;
+  readonly quantity: number;
+  readonly unit: string;
+  readonly purchaseRate: string;
+  readonly closingValue: string;
+  readonly advanceAmount: string;
+  readonly advanceTransitDays: number;
+  readonly transitInterestAmount: string;
+  readonly shelfDays: number;
+  readonly holdingPeriodDays: number;
+  readonly holdingInterestAmount: string;
+  readonly totalInterestAmount: string;
+  readonly isNonMoving: boolean;
+}
+
+export interface StockInterestReportSummary {
+  readonly totalStockValue: string;
+  readonly fundedStockValue: string;
+  readonly totalTransitInterest: string;
+  readonly totalHoldingInterest: string;
+  readonly totalAccumulatedInterest: string;
+  readonly nonMovingItemsCount: number;
+  readonly items: readonly StockInterestReportItem[];
+}
+
+export const CATEGORIES = ['MCB', 'MCCB', 'ACB', 'RCCB', 'PQ', 'Other'] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+const CATEGORY_RULES: readonly { category: Exclude<Category, 'Other'>; pattern: RegExp }[] = [
+  { category: 'MCCB', pattern: /\bMCCB\b|moulded case/iu },
+  { category: 'RCCB', pattern: /\bRCCB\b|\bRCBO\b|\bELCB\b|residual current/iu },
+  { category: 'ACB', pattern: /\bACB\b|air circuit/iu },
+  { category: 'MCB', pattern: /\bMCB\b|miniature circuit|\bDP\b.*\bA\b|\bSP\b.*\bA\b/iu },
+  { category: 'PQ', pattern: /\bPQ\b|\bAPFC\b|capacitor|power quality|harmonic|\bkVAr\b/iu },
+];
+
+export function categoryOf(itemName: string | null | undefined): Category {
+  const name = (itemName ?? '').trim();
+  if (name === '') return 'Other';
+  for (const rule of CATEGORY_RULES) if (rule.pattern.test(name)) return rule.category;
+  return 'Other';
+}
+
+
