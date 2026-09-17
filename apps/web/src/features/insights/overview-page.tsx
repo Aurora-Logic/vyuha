@@ -76,7 +76,7 @@ function OverviewMetricCard({ metric, index }: { metric: Metric; index: number }
       <CardHeader>
         <CardTitle className="truncate text-sm font-medium">{metric.label}</CardTitle>
         <CardAction className="flex items-center gap-2">
-          {metric.key === 'stock-exposure' ? (
+          {import.meta.env.DEV && metric.key === 'stock-exposure' ? (
             <Button variant="ghost" size="xs" nativeButton={false} render={<Link to="/reports/stock-interest" />}>
               Details
             </Button>
@@ -152,23 +152,25 @@ export function InsightsOverviewPage() {
   const canExceptions = usePermission(PERMISSIONS.CFO_EXCEPTIONS_VIEW);
   const navigate = useNavigate();
   // Q3: the data-health headline sits on the dashboard, for those who may act on it.
-  const quality = useDataQuality({ enabled: canExceptions });
+  const quality = useDataQuality({ enabled: import.meta.env.DEV && canExceptions });
 
-  const attendance = useAreaInsights('attendance', range, { enabled: canAttendance });
+  const attendance = useAreaInsights('attendance', range, { enabled: import.meta.env.DEV && canAttendance });
   const receivables = useAreaInsights('receivables', range, { enabled: canReceivables });
-  const sales = useAreaInsights('sales', range, { enabled: canSales });
-  const sync = useAreaInsights('sync', range, { enabled: canSync });
+  const sales = useAreaInsights('sales', range, { enabled: import.meta.env.DEV && canSales });
+  const sync = useAreaInsights('sync', range, { enabled: import.meta.env.DEV && canSync });
 
   const all: { area: InsightArea; allowed: boolean; data: AreaInsightsData | undefined; pending: boolean }[] = [
-    { area: 'attendance', allowed: canAttendance, data: attendance.data, pending: attendance.isPending && canAttendance },
-    { area: 'receivables', allowed: canReceivables, data: receivables.data, pending: receivables.isPending && canReceivables },
-    { area: 'sales', allowed: canSales, data: sales.data, pending: sales.isPending && canSales },
-    { area: 'sync', allowed: canSync, data: sync.data, pending: sync.isPending && canSync },
+    ...(import.meta.env.DEV ? [{ area: 'attendance' as const, allowed: canAttendance, data: attendance.data, pending: attendance.isPending && canAttendance }] : []),
+    { area: 'receivables' as const, allowed: canReceivables, data: receivables.data, pending: receivables.isPending && canReceivables },
+    ...(import.meta.env.DEV ? [
+      { area: 'sales' as const, allowed: canSales, data: sales.data, pending: sales.isPending && canSales },
+      { area: 'sync' as const, allowed: canSync, data: sync.data, pending: sync.isPending && canSync },
+    ] : []),
   ];
   const areas = all.filter((entry) => entry.allowed);
 
   const tiles = [
-    ...(quality.data?.headline !== null && quality.data?.headline !== undefined
+    ...(import.meta.env.DEV && quality.data?.headline !== null && quality.data?.headline !== undefined
       ? [{ label: 'Data health', value: `${String(quality.data.headline)}%`, note: 'open the checks', onOpen: () => void navigate('/reports/data-quality') }]
       : []),
     ...areas.flatMap((entry) => tilesOf(entry.area, entry.data)),
@@ -185,8 +187,9 @@ export function InsightsOverviewPage() {
             </EmptyMedia>
             <EmptyTitle>No report areas for this account</EmptyTitle>
             <EmptyDescription>
-              Reports show what your other permissions already let you see. None of the four areas —
-              attendance, receivables, sales, sync — is open to this account.
+              {import.meta.env.DEV
+                ? 'Reports show what your other permissions already let you see. None of the four areas — attendance, receivables, sales, sync — is open to this account.'
+                : 'Reports show what your other permissions already let you see. Receivables is not open to this account.'}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -204,10 +207,12 @@ export function InsightsOverviewPage() {
             size="icon-sm"
             aria-label="Refresh"
             onClick={() => {
-              void attendance.refetch();
+              if (import.meta.env.DEV) void attendance.refetch();
               void receivables.refetch();
-              void sales.refetch();
-              void sync.refetch();
+              if (import.meta.env.DEV) {
+                void sales.refetch();
+                void sync.refetch();
+              }
             }}
           >
             <ArrowsClockwiseIcon />
