@@ -51,32 +51,35 @@ const BUILT_ROUTES = new Set([
   '/period-lock',
   '/downloads',
   '/reports',
-  '/reports/attendance',
   '/reports/receivables',
-  '/reports/sales',
-  '/reports/sync',
-  '/reports/growth',
-  '/reports/team',
   '/reports/sales-analysis',
-  '/reports/margin',
-  '/reports/brands',
-  '/reports/analytics',
-  '/reports/export-centre',
-  '/reports/close-pack',
-  '/reports/purchases',
-  '/reports/stock-interest',
-  '/reports/desk',
-
-  '/reports/data-quality',
-  '/reports/penetration',
-  '/reports/class-grade',
-  '/reports/definitions',
-  '/reports/exceptions',
-  '/reports/alerts',
-  '/reports/me',
-  '/reports/credit',
-  '/reports/work-lists',
-  '/reports/custom',
+  ...(import.meta.env.DEV
+    ? [
+        '/reports/attendance',
+        '/reports/sales',
+        '/reports/sync',
+        '/reports/growth',
+        '/reports/team',
+        '/reports/margin',
+        '/reports/brands',
+        '/reports/analytics',
+        '/reports/export-centre',
+        '/reports/close-pack',
+        '/reports/purchases',
+        '/reports/stock-interest',
+        '/reports/desk',
+        '/reports/data-quality',
+        '/reports/penetration',
+        '/reports/class-grade',
+        '/reports/definitions',
+        '/reports/exceptions',
+        '/reports/alerts',
+        '/reports/me',
+        '/reports/credit',
+        '/reports/work-lists',
+        '/reports/custom',
+      ]
+    : []),
   '/recycle-bin',
   '/organisation',
   '/analytics',
@@ -305,34 +308,39 @@ export default function App() {
               <Route path="purchase/grns" element={<GrnsPage />} />
               <Route path="purchase/grns/:id" element={<GrnPaperPage />} />
               <Route path="reports" element={<InsightsOverviewPage />} />
-              <Route path="reports/custom" element={<CustomReportsPage />} />
-              <Route path="reports/custom/:id" element={<CustomReportPage />} />
-              <Route path="reports/growth" element={<GrowthPage />} />
-              <Route path="reports/team" element={<TeamPage />} />
-              <Route path="reports/team/:ownerRef" element={<ScorecardPage />} />
               <Route path="reports/sales-analysis" element={<SalesAnalysisPage />} />
-              <Route path="reports/margin" element={<MarginPage />} />
-              <Route path="reports/brands" element={<BrandsPage />} />
-              <Route path="reports/analytics" element={<CfoAnalyticsPage />} />
-              <Route path="reports/export-centre" element={<ExportCentrePage />} />
-              <Route path="reports/close-pack" element={<ClosePackPage />} />
-              <Route path="reports/purchases" element={<PurchasesPage />} />
-              <Route path="reports/stock-interest" element={<StockInterestPage />} />
-              <Route path="reports/desk" element={<DeskPage />} />
-
-              <Route path="reports/data-quality" element={<DataQualityPage />} />
-              <Route path="reports/penetration" element={<PenetrationPage />} />
-              <Route path="reports/class-grade" element={<ClassGradePage />} />
-              <Route path="reports/definitions" element={<DefinitionsPage />} />
-              <Route path="reports/exceptions" element={<ExceptionsPage />} />
-              <Route path="reports/alerts" element={<AlertsPage />} />
-              <Route path="reports/me" element={<MyCfoPage />} />
-              <Route path="reports/credit" element={<CreditControlPage />} />
-              <Route path="reports/work-lists" element={<WorkListsPage />} />
-              <Route path="reports/attendance" element={<InsightsAreaPage area="attendance" />} />
               <Route path="reports/receivables" element={<InsightsAreaPage area="receivables" />} />
-              <Route path="reports/sales" element={<InsightsAreaPage area="sales" />} />
-              <Route path="reports/sync" element={<InsightsAreaPage area="sync" />} />
+
+              {import.meta.env.DEV ? (
+                <>
+                  <Route path="reports/custom" element={<CustomReportsPage />} />
+                  <Route path="reports/custom/:id" element={<CustomReportPage />} />
+                  <Route path="reports/growth" element={<GrowthPage />} />
+                  <Route path="reports/team" element={<TeamPage />} />
+                  <Route path="reports/team/:ownerRef" element={<ScorecardPage />} />
+                  <Route path="reports/margin" element={<MarginPage />} />
+                  <Route path="reports/brands" element={<BrandsPage />} />
+                  <Route path="reports/analytics" element={<CfoAnalyticsPage />} />
+                  <Route path="reports/export-centre" element={<ExportCentrePage />} />
+                  <Route path="reports/close-pack" element={<ClosePackPage />} />
+                  <Route path="reports/purchases" element={<PurchasesPage />} />
+                  <Route path="reports/stock-interest" element={<StockInterestPage />} />
+                  <Route path="reports/desk" element={<DeskPage />} />
+
+                  <Route path="reports/data-quality" element={<DataQualityPage />} />
+                  <Route path="reports/penetration" element={<PenetrationPage />} />
+                  <Route path="reports/class-grade" element={<ClassGradePage />} />
+                  <Route path="reports/definitions" element={<DefinitionsPage />} />
+                  <Route path="reports/exceptions" element={<ExceptionsPage />} />
+                  <Route path="reports/alerts" element={<AlertsPage />} />
+                  <Route path="reports/me" element={<MyCfoPage />} />
+                  <Route path="reports/credit" element={<CreditControlPage />} />
+                  <Route path="reports/work-lists" element={<WorkListsPage />} />
+                  <Route path="reports/attendance" element={<InsightsAreaPage area="attendance" />} />
+                  <Route path="reports/sales" element={<InsightsAreaPage area="sales" />} />
+                  <Route path="reports/sync" element={<InsightsAreaPage area="sync" />} />
+                </>
+              ) : null}
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="regularizations" element={<RegularizationsPage />} />
               <Route path="team-leave" element={<TeamLeavePage />} />

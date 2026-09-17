@@ -89,7 +89,7 @@ export function AreaPage({ area }: { area: InsightArea }) {
                   kind={kindFor(config, metric.key)}
                   colourIndex={index}
                   action={
-                    metric.key === 'stock-exposure' ? (
+                    import.meta.env.DEV && metric.key === 'stock-exposure' ? (
                       <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/reports/stock-interest" />}>
                         Detailed Report
                         <ArrowRightIcon data-icon="inline-end" />
