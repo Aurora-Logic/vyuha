@@ -20,7 +20,8 @@
     "infra:down": "docker compose -f docker/docker-compose.yml down",
     "infra:reset": "docker compose -f docker/docker-compose.yml down -v",
     "infra:logs": "docker compose -f docker/docker-compose.yml logs -f",
-    "tally:clear": "pnpm --filter @vyuha/api tally:clear"
+    "tally:clear": "pnpm --filter @vyuha/api tally:clear",
+    "reports:materialize": "pnpm --filter @vyuha/api reports:materialize"
   },
 
   "devDependencies": {
